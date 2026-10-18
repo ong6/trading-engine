@@ -35,9 +35,14 @@ DEFAULT_DB = settings.DEFAULT_DB
 # the league's stale-mark detector) keys on this predicate, not on MAX(date).
 # `volume = 0` alone is not proof of a phantom (thin names have legitimate
 # zero-volume days), so a zero-volume bar is excluded as an AS-OF bar but never
-# deleted from the series. Column names are bare so it composes into any query
-# whose FROM has `prices` in scope.
-REAL_BAR_SQL = "volume > 0 AND NOT (open = high AND high = low AND low = close)"
+# deleted from the series. A bar with a non-positive open, high or low is a
+# phantom too, whatever its volume (rev-14: WBD 2026-10-05 open 0, volume 40).
+# Column names are bare so it composes into any query whose FROM has `prices`
+# in scope.
+REAL_BAR_SQL = (
+    "volume > 0 AND open > 0 AND high > 0 AND low > 0 "
+    "AND NOT (open = high AND high = low AND low = close)"
+)
 MARKET_DATE_MIN_NAMES = 1_000
 MARKET_DATE_MIN_COVERAGE = 0.90
 
@@ -207,9 +212,13 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
             volume     BIGINT,
             source     VARCHAR DEFAULT 'yfinance',
             fetched_at TIMESTAMP,
+            first_fetched_at TIMESTAMP,
             PRIMARY KEY (ticker, date)
         )
         """
+    )
+    con.execute(
+        "ALTER TABLE prices ADD COLUMN IF NOT EXISTS first_fetched_at TIMESTAMP"
     )
     con.execute(
         """
@@ -957,7 +966,7 @@ def insert_intraday(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
 
 
 def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
-    """INSERT OR REPLACE price bars.
+    """Upsert price bars while preserving their first availability timestamp.
 
     df must have columns: ticker, date, open, high, low, close, volume.
     Rows with a NaN close are dropped — we never store an empty/fabricated bar.
@@ -974,14 +983,55 @@ def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
 
     df["source"] = "yfinance"
     df["fetched_at"] = datetime.now(timezone.utc)
+    df["first_fetched_at"] = df["fetched_at"]
 
     with registered_frame(con, "_incoming_prices", df):
-        con.execute(
-            """
-            INSERT OR REPLACE INTO prices
-                (ticker, date, open, high, low, close, volume, source, fetched_at)
-            SELECT ticker, date, open, high, low, close, volume, source, fetched_at
+        try:
+            con.execute(
+                """
+            INSERT INTO prices
+                (ticker, date, open, high, low, close, volume, source,
+                 fetched_at, first_fetched_at)
+            SELECT ticker, date, open, high, low, close, volume, source,
+                   fetched_at, first_fetched_at
             FROM _incoming_prices
-            """
-        )
+            ON CONFLICT (ticker, date) DO UPDATE SET
+                open = excluded.open,
+                high = excluded.high,
+                low = excluded.low,
+                close = excluded.close,
+                volume = excluded.volume,
+                source = excluded.source,
+                fetched_at = excluded.fetched_at,
+                first_fetched_at = COALESCE(
+                    prices.first_fetched_at, prices.fetched_at, excluded.first_fetched_at
+                )
+                """
+            )
+        except duckdb.BinderException:
+            has_first_fetch = con.execute(
+                """SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name='prices' AND column_name='first_fetched_at'"""
+            ).fetchone()[0]
+            if has_first_fetch:
+                raise
+            con.execute(
+                """INSERT OR REPLACE INTO prices
+                (ticker, date, open, high, low, close, volume, source, fetched_at)
+                SELECT ticker, date, open, high, low, close, volume, source, fetched_at
+                FROM _incoming_prices"""
+            )
     return len(df)
+
+
+def backfill_first_fetched_at(con: duckdb.DuckDBPyConnection) -> int:
+    """Backfill pre-migration price rows from their last known fetch timestamp."""
+    pending = con.execute(
+        """SELECT COUNT(*) FROM prices
+        WHERE first_fetched_at IS NULL AND fetched_at IS NOT NULL"""
+    ).fetchone()[0]
+    con.execute(
+        """UPDATE prices SET first_fetched_at=fetched_at
+        WHERE first_fetched_at IS NULL AND fetched_at IS NOT NULL"""
+    )
+    return int(pending)

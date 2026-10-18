@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import math
+from datetime import date
+
+from sim import book_breaks
+
+from .status_validation import iso_date
 
 
 def invalid_status() -> dict:
@@ -41,6 +46,24 @@ def validate_pair_registration(
 
 def valid_nonnegative_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def evaluation_clock(observation: dict, con, portfolio_ids: tuple[str, str], inception: date) -> date:
+    """Validate reported break metadata against the store's comparison clock."""
+    fields = ("evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions")
+    if not any(field in observation for field in fields):
+        return inception
+    clock = iso_date(observation["evaluation_clock_start"], "invalid evaluation clock")
+    if not valid_nonnegative_int(observation["pre_break_shared_sessions"]):
+        raise ValueError("invalid retained session count")
+    authoritative = (
+        inception if con is None else book_breaks.evaluation_start(con, portfolio_ids, inception)
+    )
+    if clock != authoritative or observation["cost_break_session"] != (
+        clock.isoformat() if clock > inception else None
+    ):
+        raise ValueError("forward evaluation clock does not match recorded cost break")
+    return clock
 
 
 def finite_metric(metrics: dict, key: str, message: str) -> int | float:

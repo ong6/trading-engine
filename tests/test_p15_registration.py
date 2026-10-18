@@ -18,20 +18,30 @@ from server import (
     p15_preopen,
     p15_scoring_runner,
 )
-from sim import p15_books
+from sim import book_breaks, p15_books
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRATION_PATH = ROOT / "server" / "p15-registration.json"
 REGISTERED_PATHS = {
     "engine/__init__.py",
     "engine/actions.py",
+    "engine/account_watch.py",
+    "engine/accounts/__init__.py",
+    "engine/accounts/actions.py",
+    "engine/accounts/late.py",
+    "engine/accounts/service.py",
+    "engine/accounts/settle.py",
+    "engine/accounts/sources.py",
     "engine/bitemporal_facts.py",
     "engine/collect.py",
     "engine/daily_opportunities.py",
     "engine/earnings.py",
     "engine/forward_review.py",
+    "engine/free_massive_minute.py",
+    "engine/free_sources.py",
     "engine/fundamentals.py",
     "engine/intraday.py",
+    "engine/instruments.py",
     "engine/lib/__init__.py",
     "engine/lib/data_quality.py",
     "engine/lib/db.py",
@@ -44,8 +54,13 @@ REGISTERED_PATHS = {
     "engine/lib/snapshots.py",
     "engine/lib/util.py",
     "engine/market_date.py",
+    "engine/money/alerts.py",
+    "engine/money/__init__.py",
+    "engine/money/halts.py",
+    "engine/money/limits.py",
     "engine/p15_evaluation.py",
     "engine/p15_event_sources.py",
+    "engine/paper_accounts.py",
     "engine/queue_runner.py",
     "engine/run_daily.sh",
     "engine/screen.py",
@@ -77,6 +92,7 @@ REGISTERED_PATHS = {
     "farm/walkforward/protocol.py",
     "farm/walkforward/report.py",
     "farm/walkforward/runner.py",
+    "farm/walkforward/runtime_contract.py",
     "server/__init__.py",
     "server/agent-cadence-registration.json",
     "server/agent_evaluation.py",
@@ -112,16 +128,26 @@ REGISTERED_PATHS = {
     "server/trading-engine-p15-scoring.timer",
     "server/tradingview_source.py",
     "sim/__init__.py",
+    "sim/bar_sources.py",
+    "sim/book_breaks.py",
     "sim/calendar.py",
     "sim/execution.py",
     "sim/fills.py",
+    "sim/costs/__init__.py",
+    "sim/costs/baseline_v1.py",
+    "sim/costs/ibkr_pro_tiered_v1.py",
+    "sim/costs/profiles.py",
+    "sim/ledger.py",
     "sim/league.py",
     "sim/nyse.py",
+    "sim/margin.py",
+    "sim/order_types.py",
     "sim/p15_books.py",
     "sim/p15_fills.py",
     "sim/portfolio.py",
     "sim/schema.py",
     "sim/settle.py",
+    "sim/shorts.py",
     "sim/strategies/__init__.py",
     "sim/strategies/agent_only_policy.py",
     "sim/strategies/base.py",
@@ -151,6 +177,7 @@ REGISTERED_PATHS = {
     "sim/strategies/xs_common.py",
     "sim/strategies/xs_momentum_12_1.py",
     "sim/strategies/xs_reversal_1m.py",
+    "sim/valuation.py",
     "tools/__init__.py",
     "tools/agent_trial_register.py",
     "tools/backup_database.py",
@@ -246,11 +273,33 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 13
+    assert registration["registration_revision"] == 14
     assert registration["revision_reason"] == (
-        "cash-rule SPY reinvestment resize validation against both fill ledgers and nightly maturation "
-        "of existing event-shadow labels before evidence reporting; scoring, book mechanics, gates, "
-        "label values, schedules, registered values and written evidence unchanged"
+        "P22 on top of revision 13's validator and label-timing corrections; owner decision "
+        "2026-10-06: ibkr_pro_tiered_v1 commissions from the migration --d0; book evaluation "
+        "clocks restart at D0; account engine; scoring, labels, gates and schedules unchanged"
+        "; round-3 chronological accounting, observable opening financing, debit checkpoints, "
+        "corporate-action lot results and route-preserving migration (revision 14 undeployed)"
+        "; round-4 shared fee-aware sizing, historical dividends, FIFO preview, risk-event replay "
+        "and lot/equity verification (revision 14 remains undeployed)"
+        "; round-6 complete inception folds, immutable receipt units and as-known risk replace checkpoint restoration and historical-risk replay (revision 14 remains undeployed)"
+        "; revision-14 defect fixes before deployment, each reproduced first in BUILDLOG: (a)"
+        " registered store writers wait out a reader; (b) walk-forward drops a fold with "
+        "fewer than two training sessions; (c) TradingView windows retry after a cool-down "
+        "and record lasting refusals; (d) the nightly league leaves P15 marks to their "
+        "window; (e) the price-fetch record covers active liquid names and records the "
+        "source's no-data answer as missing, revising delivery.price_fetch_attempts and "
+        "labels.fetch_attempt_evidence (on the 2026-10-15 copy it releases two horizon-1 "
+        "labels, WBD and BLFS, each equal to its ungated outcome, and changes no stored label"
+        " or score); (f) a split-like re-fetch triggers the actions fetch and "
+        "back-adjustment; (g) a real bar needs a positive open, high and low (8 of 21.1M "
+        "rows; no stored label, screen or P15 universe changes); (h) the weekly full price "
+        "verify keeps its own key; (i) driver data commits are titled by their driver; (j) "
+        "the ops digest trusts systemd's result; (k) a delisted holding closes at its last "
+        "real traded close (WBD in high_52wk at 30.94); and the E1, sector and XS runtime "
+        "migrations accept the deployed records (revision 14 remains undeployed)"
+        "; pre-deploy amendment 2026-10-17 under orchestrator D1: XS complete retained-prefix continuity is separate from restarted evaluation counts, with the count partition, equity hash, signal boundary, baseline and ledger gates preserved; undeployed XS v22 source re-pinned once, with E1 v7 and sector v11 unchanged and no frozen outcome or verdict-rule change"
+        "; second pre-deploy amendment 2026-10-17 authorized under D1 for the same retained-prefix continuity defect class found by the fresh rehearsal: sector complete-prefix counts are partitioned at the prior clock with schema-v1 behavior exact and all equity hash, baseline and ledger checks preserved; undeployed sector v11 source bound in one follow-up revision-14 registration, with E1 v7 and XS v22 unchanged; shared sector/XS repeated-review regression and E1 checkpoint audit pass without frozen outcome or verdict-rule changes"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
@@ -316,7 +365,7 @@ def test_p15_registered_constants_match_runtime():
         "missing_bar_grace_sessions": agent_evaluation.MISSING_BAR_GRACE_SESSIONS,
         "missing_bar_confirmation": "later_ticker_bar_or_completed_exact_date_fetch",
         "fetch_attempt_evidence": (
-            "batch_bound_liquid_and_exact_open_label_missing_receipts"
+            "batch_bound_active_liquid_and_exact_open_label_missing_or_no_price_data_receipts"
         ),
         "spy_net_return_stored": True,
     }
@@ -332,6 +381,8 @@ def test_p15_registered_constants_match_runtime():
     assert books["maximum_positions"] == p15_books.COMMON_CONFIG["max_positions"]
     assert books["drawdown_halt"] == p15_books.COMMON_CONFIG["drawdown_halt"]
     assert books["time_exit_sessions"] == p15_books.COMMON_CONFIG["time_exit_sessions"]
+    assert books["cost_profile"] == book_breaks.COMMISSION_COST_PROFILE
+    assert books["cost_break_session"] == book_breaks.COST_BREAK_SESSION_PARAMETER
     assert books["stale_entry_sessions"] == 1
     assert set(books) == {
         "mechanics_version", "portfolio_ids", "initial_cash_usd_each",
@@ -339,7 +390,7 @@ def test_p15_registered_constants_match_runtime():
         "maximum_name_fraction", "maximum_new_entries_per_session", "maximum_positions",
         "maximum_gross_exposure", "drawdown_halt", "time_exit_sessions", "spy_sleeve",
         "entry_order", "entry_limit", "hybrid_vetoed_slot_replacement",
-        "stale_entry_sessions", "config_sha256",
+        "stale_entry_sessions", "cost_profile", "cost_break_session", "config_sha256",
     }
     preopen_identity = agent_model_client.identity(role="p15_preopen")
     assert registration["preopen"] == {
@@ -455,6 +506,7 @@ def test_p15_registered_constants_match_runtime():
         "missing_label_grace_sessions": p15_evaluation.MISSING_LABEL_GRACE_SESSIONS,
         "book_newey_west_lag": p15_evaluation.NW_LAG,
         "book_minimum_calendar_days": 90, "book_minimum_closed_trades_each": 30,
+        "book_clock_restart_session": book_breaks.COST_BREAK_SESSION_PARAMETER,
         "book_promotion": (
             "primary_pass_and_challenger_lower_bound_gt_0_and_all_drawdowns_gte_minus_0.20"
         ),
@@ -472,7 +524,7 @@ def test_p15_registered_constants_match_runtime():
         "model_call_count": "attempted_calls_including_connector_failures",
         "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
         "price_fetch_attempts": (
-            "zero_failed_liquid_batch_plus_exact_open_label_receipts"
+            "zero_failed_active_liquid_batch_no_data_as_missing_plus_exact_open_label_receipts"
         ),
         "maximum_open_label_fetches_per_run": (
             p15_incremental_collect.MAX_OPEN_LABEL_FETCHES

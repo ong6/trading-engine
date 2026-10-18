@@ -517,57 +517,19 @@ def _reconstructed_state(
             raise PaperAttributionError(
                 "paper attribution settlement ownership is unsupported"
             )
-    splits: dict[str, list[tuple[date, float]]] = {}
-    if table_exists(con, "split_adjustments"):
-        for ticker, ex_date, ratio in con.execute(
-            "SELECT ticker, ex_date, ratio FROM split_adjustments "
-            "WHERE outcome = 'applied' AND ratio IS NOT NULL AND ratio > 0"
-        ).fetchall():
-            splits.setdefault(ticker, []).append((ex_date, float(ratio)))
-    cash = initial_cash + sum(float(row[4]) for row in dividends)
-    positions: dict[str, tuple[float, float]] = {}
-    for (
-        _order_id,
-        ticker,
-        side,
-        fill_date,
-        quantity,
-        fill_price,
-        _order_ticker,
-        _order_side,
-        _order_quantity,
-        _order_status,
-        _portfolio_id,
-    ) in sorted(
-        fills,
-        key=lambda row: (row[3], 0 if row[2] == "sell" else 1, row[0]),
-    ):
-        factor = math.prod(
-            ratio for ex_date, ratio in splits.get(ticker, ()) if fill_date < ex_date
-        )
-        adjusted_quantity = float(quantity) * factor
-        adjusted_price = float(fill_price) / factor
-        current_quantity, current_cost = positions.get(ticker, (0.0, 0.0))
-        if side == "buy":
-            next_quantity = current_quantity + adjusted_quantity
-            next_cost = (
-                (current_quantity * current_cost)
-                + (adjusted_quantity * adjusted_price)
-            ) / next_quantity
-            cash -= float(quantity) * float(fill_price)
-        else:
-            if adjusted_quantity > current_quantity + 1e-9:
-                raise PaperAttributionError(
-                    "paper attribution fills imply a short position"
-                )
-            next_quantity = max(0.0, current_quantity - adjusted_quantity)
-            next_cost = current_cost
-            cash += float(quantity) * float(fill_price)
-        positions[ticker] = (next_quantity, next_cost)
+    from sim import ledger
+
+    with ledger.replay_connection(con, portfolio_id) as target:
+        ledger.rebuild_state(target, [portfolio_id])
+        cash = float(target.execute('SELECT cash FROM portfolios WHERE id=?',
+                                    [portfolio_id]).fetchone()[0])
+        positions = {ticker: (float(qty), float(basis)) for ticker, qty, basis in target.execute(
+            'SELECT ticker,qty,avg_cost FROM sim_positions WHERE portfolio_id=?',
+            [portfolio_id]).fetchall()}
     if not math.isfinite(cash) or cash < -1e-6:
-        raise PaperAttributionError(
-            "paper attribution fills imply invalid portfolio cash"
-        )
+        raise PaperAttributionError('paper attribution fills imply invalid portfolio cash')
+    if any(qty < -1e-9 for qty, _basis in positions.values()):
+        raise PaperAttributionError('paper attribution fills imply a short position')
     return cash, positions
 
 

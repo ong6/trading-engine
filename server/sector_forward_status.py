@@ -12,6 +12,7 @@ from engine import forward_review as forward_monitor
 from engine.lib.provenance import canonical_sha256
 
 from .forward_contracts import (
+    evaluation_clock,
     finite_metric,
     invalid_status,
     require_expected_fields,
@@ -75,6 +76,7 @@ def _validate_runtime(payload: dict) -> dict:
 def _validate_observation(
     payload: dict,
     latest_date: date | None,
+    con=None,
 ) -> tuple[date, date, int, bool]:
     result_status = payload["status"]
     observation = payload["observation"]
@@ -89,13 +91,15 @@ def _validate_observation(
     mature = observation["mature"]
     if not (
         valid_nonnegative_int(shared_sessions)
-        and shared_sessions >= 1
         and isinstance(mature, bool)
     ):
         raise ValueError("invalid forward observation counts")
-    expected_eligible_after = forward_monitor._plus_months(
-        forward_monitor.OBSERVATION_START, forward_monitor.WINDOW_MONTHS
-    )
+    clock = evaluation_clock(observation, con,
+                             (forward_monitor.CANDIDATE_ID, forward_monitor.CONTROL_ID),
+                             forward_monitor.OBSERVATION_START)
+    if shared_sessions == 0 and as_of >= clock:
+        raise ValueError("forward accrued clock has no shared sessions")
+    expected_eligible_after = forward_monitor._plus_months(clock, forward_monitor.WINDOW_MONTHS)
     if eligible_after != expected_eligible_after:
         raise ValueError("forward eligibility date does not match frozen experiment")
     derived_mature = (
@@ -139,8 +143,8 @@ def _reconcile_payload(
     return live_contract
 
 
-def _project(payload: dict, frozen: dict, latest_date: date | None) -> dict:
-    as_of, eligible_after, shared_sessions, mature = _validate_observation(payload, latest_date)
+def _project(payload: dict, frozen: dict, latest_date: date | None, con=None) -> dict:
+    as_of, eligible_after, shared_sessions, mature = _validate_observation(payload, latest_date, con)
     metrics = payload["metrics"]
     excess_return = finite_metric(metrics, "excess_return", "forward metrics must be finite")
     drawdown_improvement = finite_metric(
@@ -182,9 +186,9 @@ def status(
         )
         _validate_registration(payload)
         frozen = _validate_runtime(payload)
-        _validate_observation(payload, latest_date)
+        _validate_observation(payload, latest_date, con)
         payload = _reconcile_payload(payload, latest_date, con)
-        return _project(payload, frozen, latest_date)
+        return _project(payload, frozen, latest_date, con)
     except (
         OSError,
         KeyError,

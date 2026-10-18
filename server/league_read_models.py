@@ -9,7 +9,8 @@ import duckdb
 
 from engine.lib.util import table_exists
 from sim.league import _spy_return, regime_label
-from sim.schema import INITIAL_CASH
+from sim.p15_books import BOOK_IDS as P15_BOOK_IDS
+from sim.schema import INITIAL_CASH, portfolio_account
 
 from . import league_equity_read_models
 from .market_read_models import latest_prices_date
@@ -64,12 +65,33 @@ LEAGUE_ROW_FIELDS = frozenset(
         "n_open",
         "n_fills",
         "last5",
+        "mark_note",
         "rank",
     }
 )
 
 
-def _active_portfolios(con: duckdb.DuckDBPyConnection) -> list[tuple]:
+def _mark_note(portfolio_id: str, equity_as_of: date, *, current: bool) -> str | None:
+    """league.md's ‡ note: a P15 book's mark is written only by its own window."""
+    if current or portfolio_id not in P15_BOOK_IDS:
+        return None
+    return (
+        f"‡ marked through {equity_as_of.isoformat()}: a P15 book is marked by its own "
+        "window after that session's P15 fills, never provisionally by the league."
+    )
+
+
+def _public_portfolio_ids(con: duckdb.DuckDBPyConnection) -> frozenset[str]:
+    return frozenset(row[0] for row in con.execute(
+        "SELECT portfolio_id FROM portfolio_accounts_v "
+        "WHERE pa_visibility='public'"
+    ).fetchall())
+
+
+def _active_portfolios(
+    con: duckdb.DuckDBPyConnection,
+    public_ids: frozenset[str],
+) -> list[tuple]:
     portfolio_columns = {
         row[1] for row in con.execute("PRAGMA table_info('portfolios')").fetchall()
     }
@@ -79,6 +101,7 @@ def _active_portfolios(con: duckdb.DuckDBPyConnection) -> list[tuple]:
         f"SELECT id, name, created, {initial_expr}, {profile_expr} "
         "FROM portfolios WHERE active ORDER BY id"
     ).fetchall()
+    portfolios = [row for row in portfolios if row[0] in public_ids]
     for portfolio in portfolios:
         require_public_portfolio_id(portfolio[0])
     return portfolios
@@ -87,6 +110,7 @@ def _active_portfolios(con: duckdb.DuckDBPyConnection) -> list[tuple]:
 def _equity_summaries_by_portfolio(
     con: duckdb.DuckDBPyConnection,
     as_of: date | None,
+    public_ids: frozenset[str],
 ) -> dict[str, dict]:
     """Stream complete active-book equity into constant-size ranking summaries."""
     result: dict[str, dict] = {}
@@ -101,6 +125,8 @@ def _equity_summaries_by_portfolio(
     previous_dates: dict[str, date] = {}
     while batch := cursor.fetchmany(EQUITY_SCAN_BATCH_SIZE):
         for raw_portfolio_id, raw_equity_date, raw_equity in batch:
+            if raw_portfolio_id not in public_ids:
+                continue
             portfolio_id = require_public_portfolio_id(raw_portfolio_id)
             equity_date = require_public_date(raw_equity_date, "league equity date")
             if equity_date > as_of:
@@ -211,6 +237,7 @@ def _league_row(
         "n_open": require_public_nonnegative_integer(open_positions.get(portfolio_id, 0)),
         "n_fills": require_public_nonnegative_integer(fills.get(portfolio_id, 0)),
         "last5": last_five,
+        "mark_note": _mark_note(portfolio_id, equity_as_of, current=current),
     }
 
 
@@ -221,11 +248,12 @@ def _league_rows(
     result_rows = []
     if not table_exists(con, "portfolios"):
         return result_rows
-    equity_by_portfolio = _equity_summaries_by_portfolio(con, as_of)
+    public_ids = _public_portfolio_ids(con)
+    equity_by_portfolio = _equity_summaries_by_portfolio(con, as_of, public_ids)
     open_positions = _counts_by_portfolio(con, "sim_positions", "qty > 0")
     fills = _counts_by_portfolio(con, "sim_fills")
     spy_returns: dict[tuple[date, date], float | None] = {}
-    for portfolio in _active_portfolios(con):
+    for portfolio in _active_portfolios(con, public_ids):
         equity_summary = equity_by_portfolio.get(portfolio[0])
         if equity_summary:
             result_rows.append(
@@ -322,6 +350,8 @@ def _validate_league_row_state(
         raise ValueError("public league equity state is invalid")
     if row["current"] != (equity_as_of == as_of):
         raise ValueError("public league current state is inconsistent")
+    if row["mark_note"] != _mark_note(row["id"], equity_as_of, current=row["current"]):
+        raise ValueError("public league mark note is invalid")
     require_public_finite_number(row["equity"], "league equity")
     for field in ("total_ret", "vs_spy", "mdd", "last5"):
         if row[field] is not None:
@@ -392,6 +422,18 @@ def league(con: duckdb.DuckDBPyConnection) -> dict:
 
 def equity(con: duckdb.DuckDBPyConnection, portfolio_id: str) -> dict | None:
     """Return one active portfolio's bounded equity series, or ``None`` if inactive."""
+    require_public_portfolio_id(portfolio_id)
+    row = (
+        con.execute(
+            "SELECT 1 FROM portfolios WHERE id=? AND active", [portfolio_id]
+        ).fetchone()
+        if table_exists(con, "portfolios")
+        else None
+    )
+    if row is None or portfolio_account(
+        con, portfolio_id
+    )["visibility"] != "public":
+        return None
     return league_equity_read_models.project_equity(con, portfolio_id, latest_prices_date)
 
 

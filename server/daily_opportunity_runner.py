@@ -42,7 +42,8 @@ class DailyOpportunityError(RuntimeError):
 
 @contextmanager
 def _connection(path: Path, *, read_only: bool = False) -> Iterator[duckdb.DuckDBPyConnection]:
-    con = engine_db.connect(path, read_only=read_only, wait_s=0)
+    # The default lock-retry window: a reader elsewhere refuses writers until it closes.
+    con = engine_db.connect(path, read_only=read_only)
     try:
         yield con
     finally:

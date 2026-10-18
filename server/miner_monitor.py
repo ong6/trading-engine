@@ -81,17 +81,30 @@ def _signals_has_issues(raw: dict) -> bool:
     return has_issue
 
 
+def _tradingview_refusal_count(raw: dict, field: str) -> int:
+    # Evidence published before terminal refusals existed has no refusal fields.
+    if field not in raw:
+        return 0
+    return require_public_nonnegative_integer(nonnegative_int(raw, field))
+
+
 def _tradingview_history_has_issues(raw: dict) -> bool:
     attempted = require_public_nonnegative_integer(nonnegative_int(raw, "attempted_this_run"))
     complete = require_public_nonnegative_integer(nonnegative_int(raw, "completed_this_run"))
     empty = require_public_nonnegative_integer(nonnegative_int(raw, "empty_this_run"))
     failed = require_public_nonnegative_integer(nonnegative_int(raw, "failed_this_run"))
+    refused = _tradingview_refusal_count(raw, "refused_this_run")
     unresolved = require_public_nonnegative_integer(
         nonnegative_int(raw, "unresolved_failed_windows")
     )
-    if complete + empty + failed != attempted:
+    if complete + empty + failed + refused != attempted:
         raise ValueError("TradingView archive attempt accounting is inconsistent")
+    # Terminal provider refusals are resolved windows, reported apart from failures.
     return bool(failed or unresolved)
+
+
+def _tradingview_history_details(raw: dict) -> dict:
+    return {"refused_windows": _tradingview_refusal_count(raw, "refused_windows")}
 
 
 _ISSUE_CHECKS = {
@@ -101,6 +114,7 @@ _ISSUE_CHECKS = {
     "fundamentals": _fundamentals_has_issues,
     "tradingview_history": _tradingview_history_has_issues,
 }
+_EVIDENCE_DETAILS = {"tradingview_history": _tradingview_history_details}
 
 
 def _latest_scheduled_jobs(con: duckdb.DuckDBPyConnection) -> dict[str, tuple]:
@@ -148,6 +162,8 @@ def _reconcile_evidence(kind: str, raw: dict, created_at: object, result: dict) 
         result.update(status="issues", reason="miner-reported-failures")
     else:
         result["status"] = "current"
+    if kind in _EVIDENCE_DETAILS:
+        result.update(_EVIDENCE_DETAILS[kind](raw))
     result["evidence_at"] = evidence_at.isoformat()
 
 

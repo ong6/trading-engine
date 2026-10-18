@@ -3,10 +3,11 @@ from datetime import date, datetime
 
 import pytest
 
+from engine.lib import db
 from engine.lib.util import table_exists
-from sim import league, portfolio, settle
-from sim.schema import INITIAL_CASH
-from tests.conftest import insert_bars
+from sim import league, ledger, portfolio, settle
+from sim.schema import INITIAL_CASH, set_portfolio_account
+from tests.conftest import SESSIONS, insert_bars
 
 D1, D2, D3, D4, D5 = (date(2024, 6, 3), date(2024, 6, 4), date(2024, 6, 5),
                       date(2024, 6, 6), date(2024, 6, 7))
@@ -360,6 +361,71 @@ def test_stock_conversion_merges_into_existing_acquirer_lot(con):
     assert portfolio.get_cash(con, pf) == pytest.approx(INITIAL_CASH - 2000 - 2400 + 10)
 
 
+@pytest.mark.parametrize(("kind", "price", "expected_cash"), [
+    ("cash", 209.70, INITIAL_CASH + 2_000 - 2_097),
+    ("worthless", 0.0, INITIAL_CASH + 2_000),
+])
+def test_short_cash_and_worthless_settlements_are_signed_and_replay(
+    con, kind, price, expected_cash,
+):
+    pf = _book(con)
+    set_portfolio_account(con, pf, engine="account", account_type="margin", status="active")
+    _dead_name(con)
+    ledger.apply_fill(con, {
+        "order_id": 1, "portfolio_id": pf, "ticker": "EA", "side": "short",
+        "qty": 10, "fill_px": 200, "fill_date": D1,
+    })
+    con.execute(
+        "INSERT INTO sim_fills VALUES (1,?,'EA','short',10,?,200,200,0,0)", [pf, D1]
+    )
+    con.execute(
+        "INSERT INTO sim_fill_details (order_id,fill_ts,fill_kind,price_source,multiplier) "
+        "VALUES (1,'2024-06-03 13:30:00','open_auction','prices',1)"
+    )
+
+    settle.settle(con, _terms(kind=kind, price=price), apply=True)
+
+    assert portfolio.get_cash(con, pf) == pytest.approx(expected_cash)
+    assert "EA" not in portfolio.get_positions(con, pf)
+    live = _state(con, pf)
+    portfolio.rebuild_state(con)
+    assert _state(con, pf) == live
+
+
+def test_short_stock_conversion_creates_short_acquirer_lots_and_replays(con):
+    pf = _book(con)
+    set_portfolio_account(con, pf, engine="account", account_type="margin", status="active")
+    _dead_name(con, "TALK")
+    insert_bars(con, "ACQ", [D1, D2, D3, D4, D5], close=50)
+    con.execute('UPDATE prices SET fetched_at=CAST(date AS TIMESTAMP)')
+    ledger.apply_fill(con, {
+        "order_id": 1, "portfolio_id": pf, "ticker": "TALK", "side": "short",
+        "qty": 10, "fill_px": 200, "fill_date": D1,
+    })
+    con.execute(
+        "INSERT INTO sim_fills VALUES (1,?,'TALK','short',10,?,200,200,0,0)", [pf, D1]
+    )
+    con.execute(
+        "INSERT INTO sim_fill_details (order_id,fill_ts,fill_kind,price_source,multiplier) "
+        "VALUES (1,'2024-06-03 13:30:00','open_auction','prices',1)"
+    )
+
+    settle.settle(
+        con,
+        _terms(ticker="TALK", kind="stock", price=0, into_ticker="ACQ", ratio=4),
+        apply=True,
+    )
+
+    assert portfolio.get_positions(con, pf)["ACQ"]["qty"] == pytest.approx(-40)
+    assert con.execute(
+        "SELECT SUM(qty) FROM sim_position_lots WHERE portfolio_id=? AND instrument_id='ACQ'",
+        [pf],
+    ).fetchone() == (pytest.approx(-40),)
+    live = _state(con, pf)
+    portfolio.rebuild_state(con)
+    assert _state(con, pf) == live
+
+
 # CLI ---------------------------------------------------------------------------
 def test_cli_dry_run_is_read_only_and_apply_writes(tmp_path, capsys):
     import duckdb
@@ -390,3 +456,130 @@ def test_cli_dry_run_is_read_only_and_apply_writes(tmp_path, capsys):
     c.close()
     assert settle.main(argv + ["--apply"]) == 2           # nothing left to settle
     assert "REFUSED" in capsys.readouterr().out
+
+
+# delisting close-out (owner decision 2026-10-15) --------------------------------
+WBD_QTY = 42.92221828802175
+
+
+def delisted_name(con, tk="WBD", *, last=9, dropped=12, through=20):
+    """WBD 2026-10 on SESSIONS: traded through SESSIONS[last] (close 30.94), a
+    zero-open 40-share quote the next session, then nothing; the exchange
+    directory lists it before SESSIONS[dropped] and not from then on."""
+    insert_bars(con, tk, SESSIONS[:last + 1], open_=30.9, close=30.94, high=31.0,
+                low=30.8, volume=50_000_000)
+    con.execute("INSERT INTO prices (ticker, date, open, high, low, close, volume) "
+                "VALUES (?, ?, 0, 30.99, 30.94, 30.95, 40)", [tk, SESSIONS[last + 1]])
+    if not con.execute("SELECT COUNT(*) FROM prices WHERE ticker = 'SPY'").fetchone()[0]:
+        insert_bars(con, "SPY", SESSIONS[:through + 1], open_=100, close=100,
+                    high=101, low=99)
+    con.execute("CREATE TABLE IF NOT EXISTS universe_snapshot "
+                "(snapshot_date DATE, ticker VARCHAR, active BOOLEAN)")
+    con.executemany("INSERT INTO universe_snapshot VALUES (?, ?, ?)",
+                    [(day, tk, i < dropped) for i, day in enumerate(SESSIONS[:through + 1])])
+
+
+def _league_book(con, pf_id="high_52wk", qty=WBD_QTY, *, oid=1, active=True):
+    con.execute("INSERT INTO portfolios (id, name, strategy, config, created, active, "
+                "cash, initial_cash, execution_profile) VALUES "
+                "(?, ?, 'agent_only_policy', '{}', ?, ?, ?, ?, 'baseline_v1')",
+                [pf_id, pf_id, SESSIONS[0], active, INITIAL_CASH, INITIAL_CASH])
+    _fill(con, pf_id, "WBD", "buy", qty, 30.0, SESSIONS[0], oid)
+    return pf_id
+
+
+def test_league_closes_out_a_dropped_name_at_its_last_traded_close(con, tmp_path):
+    pf = _league_book(con)
+    delisted_name(con)
+    cash0 = portfolio.get_cash(con, pf)
+    day = SESSIONS[14]                                  # five sessions without a trade
+
+    assert league.step(con, day, tmp_path, rerun=False, verbose=False,
+                       no_accounts=True) == 0
+
+    assert "WBD" not in portfolio.get_positions(con, pf)
+    assert portfolio.get_cash(con, pf) == pytest.approx(cash0 + WBD_QTY * 30.94)
+    kind, qty, price, effective, source = con.execute(
+        "SELECT kind, qty, price, effective, source FROM sim_settlements").fetchone()
+    assert (kind, effective) == ("cash", SESSIONS[10])
+    assert (qty, price) == (pytest.approx(WBD_QTY), pytest.approx(30.94))
+    assert source.startswith("delisting close-out:")
+    assert con.execute("SELECT equity FROM sim_equity WHERE portfolio_id = ? AND date = ?",
+                       [pf, day]).fetchone() == (pytest.approx(cash0 + WBD_QTY * 30.94),)
+    assert "Stale marks" not in (tmp_path / "reports" / "league.md").read_text()
+    live = _state(con, pf)
+    portfolio.rebuild_state(con)
+    assert _state(con, pf) == live
+
+
+def test_close_out_waits_for_five_silent_sessions(con, tmp_path):
+    pf = _league_book(con)
+    delisted_name(con)
+
+    assert league.step(con, SESSIONS[13], tmp_path, rerun=False, verbose=False,
+                       no_accounts=True) == 0
+
+    assert portfolio.get_positions(con, pf)["WBD"]["qty"] == pytest.approx(WBD_QTY)
+    assert "Stale marks" in (tmp_path / "reports" / "league.md").read_text()
+
+
+def test_name_dropped_while_still_trading_is_never_closed_out(con):
+    pf = _league_book(con)
+    delisted_name(con, dropped=8)                       # BURU/ISSC pattern
+
+    assert settle.close_out_delisted(con, SESSIONS[20], [pf]) == []
+    assert portfolio.get_positions(con, pf)["WBD"]["qty"] == pytest.approx(WBD_QTY)
+
+
+def test_sourced_settlement_terms_are_reused_and_retired_books_frozen(con):
+    holder = _league_book(con)
+    retired = _league_book(con, "news_gated_momo", 7.0, oid=2, active=False)
+    _pending(con, holder, "WBD", "sell", WBD_QTY, SESSIONS[9], 3)
+    delisted_name(con)
+    settle.ensure_table(con)
+    con.execute("INSERT INTO sim_settlements VALUES ('low_vol', 'WBD', 'cash', 5, 31.0, "
+                "NULL, NULL, ?, ?, NULL, ?)", [SESSIONS[11], SRC, datetime(2024, 6, 20)])
+    cash0 = portfolio.get_cash(con, holder)
+
+    booked = settle.close_out_delisted(con, SESSIONS[14], [holder, retired])
+
+    assert [(t.ticker, t.price, t.effective, t.source) for t, _ in booked] == [
+        ("WBD", 31.0, SESSIONS[11], SRC)]
+    assert portfolio.get_cash(con, holder) == pytest.approx(cash0 + WBD_QTY * 31.0)
+    assert portfolio.get_positions(con, retired)["WBD"]["qty"] == 7.0
+    assert con.execute("SELECT status FROM sim_orders WHERE id = 3").fetchone() == (
+        "cancelled",)
+    assert settle.close_out_delisted(con, SESSIONS[15], [holder, retired]) == []
+
+
+def test_never_traded_holding_is_left_carried(con):
+    pf = _league_book(con)
+    delisted_name(con)
+    con.execute("DELETE FROM prices WHERE ticker = 'WBD'")
+
+    assert settle.close_out_delisted(con, SESSIONS[20], [pf]) == []
+    assert "WBD" in portfolio.get_positions(con, pf)
+
+
+def test_zero_open_quote_does_not_block_owner_terms(con):
+    pf = _league_book(con)
+    delisted_name(con)
+
+    settle.settle(con, _terms(ticker="WBD", price=31.0, effective=SESSIONS[10]), apply=True)
+
+    assert "WBD" not in portfolio.get_positions(con, pf)
+
+
+def test_delisting_and_owner_terms_key_on_the_one_real_bar_predicate(con, monkeypatch):
+    # The store has one definition of a traded bar (engine.lib.db.REAL_BAR_SQL); a stricter
+    # one must reach the close-out and the owner-terms check, not a private copy.
+    pf = _league_book(con)
+    delisted_name(con)
+    monkeypatch.setattr(db, "REAL_BAR_SQL", f"({db.REAL_BAR_SQL}) AND close > 31")
+
+    assert settle.delistings(con, SESSIONS[20], ["WBD"]) == []      # it never traded
+    assert settle.close_out_delisted(con, SESSIONS[20], [pf]) == []
+    insert_bars(con, "ACQ", SESSIONS[10:12], open_=20, close=20, high=21, low=19)
+    with pytest.raises(settle.SettlementRefused, match="no real bar"):
+        settle.settle(con, _terms(ticker="WBD", kind="stock", price=0, into_ticker="ACQ",
+                                  ratio=1.0, effective=SESSIONS[10]), apply=False)

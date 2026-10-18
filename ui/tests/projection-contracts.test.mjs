@@ -345,6 +345,7 @@ test("league projection distinguishes ranked current rows from stale rows", () =
         vs_spy: -0.01,
         mdd: -0.03,
         last5: 0.01,
+        mark_note: null,
         n_open: 2,
         n_fills: 10,
       },
@@ -362,12 +363,24 @@ test("league projection distinguishes ranked current rows from stale rows", () =
         vs_spy: null,
         mdd: null,
         last5: null,
+        mark_note: null,
         n_open: 0,
         n_fills: 0,
       },
     ],
   };
   assert.equal(isLeagueProjection(valid), true);
+  const p15Behind = clone(valid);
+  p15Behind.rows[1].mark_note =
+    "‡ marked through 2026-09-03: a P15 book is marked by its own window after that " +
+    "session's P15 fills, never provisionally by the league.";
+  assert.equal(isLeagueProjection(p15Behind), true);
+  const notedCurrent = clone(p15Behind);
+  notedCurrent.rows[0].mark_note = notedCurrent.rows[1].mark_note;
+  assert.equal(isLeagueProjection(notedCurrent), false);
+  const missingNote = clone(valid);
+  delete missingNote.rows[1].mark_note;
+  assert.equal(isLeagueProjection(missingNote), false);
 
   const extraEnvelope = clone(valid);
   extraEnvelope.internal = "not public";

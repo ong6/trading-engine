@@ -230,3 +230,38 @@ def test_real_early_kill_remains_visible_before_statistical_maturity(con, tmp_pa
     assert result["signal_boundary_frozen"] is True
     assert result["mature"] is False
     assert result["automatic_action"] == "none"
+
+
+def test_migrated_xs_cost_clock_projects_before_and_after_d0(con, tmp_path):
+    from tests.test_xs_forward_review import _deployed_v21_result, _freeze, _setup, _transition
+    from tools.migrate_cost_profiles import migrate
+
+    monitor = xs_forward_status.xs_forward_monitor
+    _setup(con)
+    waiting = _freeze(con)
+    _transition(con)
+    prior = monitor.migrate_runtime_contract(
+        con, _deployed_v21_result(monitor.evaluate(con, prior_result=waiting)))
+    d0 = date(2026, 10, 19)
+    assert migrate(con, d0)["routing_changes"] == []
+    path = tmp_path / "xs.json"
+    for day, expected_count in ((monitor.OBSERVATION_START, 0), (d0, 1)):
+        if day == d0:
+            for book, equity in ((monitor.CANDIDATE_ID, 39010.0), (monitor.CONTROL_ID, 41010.0)):
+                con.execute("INSERT INTO sim_equity VALUES (?, ?, ?, 0, 1)", [book, day, equity])
+        payload = monitor.evaluate(con, prior_result=prior)
+        prior = payload
+        original = json.dumps(payload, default=str)
+        path.write_text(original)
+        projected = xs_forward_status.status(path, day, con)
+        assert projected["status"] == "ACCUMULATING"
+        assert projected["shared_sessions"] == expected_count
+        assert projected["eligible_after"] == "2031-10-19"
+        assert projected["mature"] is False
+        assert path.read_text() == original
+        for clock in ("2026-10-20", "2026-10-01"):
+            changed = json.loads(original)
+            changed["observation"].update(evaluation_clock_start=clock, cost_break_session=clock,
+                                        eligible_after=monitor._plus_months(date.fromisoformat(clock), 60).isoformat())
+            path.write_text(json.dumps(changed))
+            assert xs_forward_status.status(path, day, con)["status"] == "INVALID"

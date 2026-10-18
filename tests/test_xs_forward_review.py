@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import calendar
+import copy
 import json
 import shutil
 from datetime import date
@@ -499,9 +500,10 @@ def test_runtime_contract_migration_is_explicit(con):
     frozen = result["frozen_runtime"]
     assert frozen["runtime_contract_version"] == review.RUNTIME_CONTRACT_VERSION
     assert frozen["superseded_runtime_contract_sha256"] == review.SUPERSEDED_RUNTIME_CONTRACT_SHA256
-    assert "interruption-safe transaction cleanup" in (
+    assert "Owner decision 2026-10-06" in (
         frozen["runtime_contract_migration"]
     )
+    assert "pre-D0" in frozen["runtime_contract_migration"]
     assert "engine/lib/resources.py" in frozen["runtime_contract_files"]
 
 
@@ -552,15 +554,59 @@ def test_explicit_runtime_contract_migration_preserves_pre_signal_protocol(con):
     )
 
 
-def test_runtime_contract_migration_refuses_existing_signal_boundary(con):
+def test_runtime_contract_migration_rejects_unpublished_signal_boundary(con):
     prior = _pre_signal_v17_checkpoint(con)
     con.execute(
         "INSERT INTO sim_orders VALUES (99, ?, 'AAA', 'buy', 1, ?, 'pending', NULL)",
         [review.CANDIDATE_ID, review.SIGNAL_DATE],
     )
 
-    with pytest.raises(ValueError, match="only before its first signal"):
+    with pytest.raises(ValueError, match="not the exact migration checkpoint"):
         review.migrate_runtime_contract(con, prior)
+
+
+def _deployed_v21_result(current: dict) -> dict:
+    # The deployed report's shape (2026-10-15 snapshot, contract v21): its signal boundary
+    # pins fill model v4 and the predecessor runtime, and it has no cost-break fields.
+    prior = copy.deepcopy(current)
+    prior["frozen_runtime"].update(
+        {
+            "runtime_contract_version": review.PRIOR_RUNTIME_CONTRACT_VERSION,
+            "runtime_contract_sha256": review.PRIOR_RUNTIME_CONTRACT_SHA256,
+            "superseded_runtime_contract_sha256": (
+                review.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
+            ),
+            "runtime_contract_migration": review.PRIOR_RUNTIME_CONTRACT_MIGRATION,
+            "runtime_contract_files": list(review.PRIOR_RUNTIME_CONTRACT_FILES),
+            "fill_model": "v4",
+        }
+    )
+    prior["frozen_runtime"]["signal_boundary"]["protocol_contract"].update(
+        fill_model="v4", runtime_contract_sha256=review.PRIOR_RUNTIME_CONTRACT_SHA256)
+    for field in ("evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions"):
+        del prior["observation"][field]
+
+    return prior
+
+
+def test_runtime_contract_migration_preserves_accumulated_prefix(con):
+    _setup(con)
+    waiting = _freeze(con)
+    _transition(con)
+    current = review.evaluate(con, prior_result=waiting)
+    prior = _deployed_v21_result(current)
+
+    migrated = review.migrate_runtime_contract(con, prior)
+
+    assert migrated == current
+    for section in ("status", "candidate", "control", "criterion", "metrics"):
+        assert migrated[section] == prior[section]
+    boundary = migrated["frozen_runtime"]["signal_boundary"]
+    assert boundary["protocol_contract"]["runtime_contract_sha256"] == (
+        review.EXPECTED_RUNTIME_CONTRACT_SHA256)
+    assert {key: value for key, value in boundary.items() if key != "protocol_contract"} == {
+        key: value for key, value in prior["frozen_runtime"]["signal_boundary"].items()
+        if key != "protocol_contract"}
 
 
 def test_invalid_result_is_safe():
@@ -592,3 +638,39 @@ def test_invalid_artifact_preserves_equity_continuity(con):
     )
     with pytest.raises(ValueError, match="previously published"):
         review.evaluate(con, prior_result=invalid)
+
+
+def test_cost_break_retains_complete_migrated_prefix_across_repeated_reviews(con):
+    _setup(con)
+    waiting = _freeze(con)
+    _transition(con)
+    for day in (date(2026, 10, 2), date(2026, 10, 5)):
+        for book, equity in ((review.CANDIDATE_ID, 39_010.0), (review.CONTROL_ID, 41_010.0)):
+            con.execute("INSERT INTO sim_equity VALUES (?, ?, ?, 0, 1)", [book, day, equity])
+    current = review.evaluate(con, prior_result=waiting)
+    prior = review.migrate_runtime_contract(con, _deployed_v21_result(current))
+    assert prior == current
+    d0 = date(2026, 10, 6)
+    for book in (review.CANDIDATE_ID, review.CONTROL_ID):
+        con.execute(
+            "INSERT INTO sim_book_breaks VALUES (?, ?, 'cost_profile', 'baseline_v1', "
+            "'ibkr_pro_tiered_v1', 14, 'D0', TIMESTAMP '2026-10-05 20:00')", [book, d0])
+    first = review.evaluate(con, prior_result=prior)
+    assert first["observation"]["shared_sessions"] == 0
+    assert first["observation"]["pre_break_shared_sessions"] == 3
+    assert first["observation"]["equity_sha256"] == prior["observation"]["equity_sha256"]
+    assert first["frozen_runtime"] == prior["frozen_runtime"]
+    assert review.evaluate(con, prior_result=first) == first
+    for day in (d0, date(2026, 10, 7)):
+        for book, equity in ((review.CANDIDATE_ID, 39_020.0), (review.CONTROL_ID, 41_020.0)):
+            con.execute("INSERT INTO sim_equity VALUES (?, ?, ?, 0, 1)", [book, day, equity])
+        latest = review.evaluate(con, prior_result=first)
+        assert latest["observation"]["pre_break_shared_sessions"] == 3
+        assert latest["observation"]["shared_sessions"] == (day - d0).days + 1
+        assert review.evaluate(con, prior_result=latest) == latest
+        first = latest
+    con.execute(
+        "UPDATE sim_equity SET equity=equity+1 WHERE portfolio_id=? AND date=DATE '2026-10-02'",
+        [review.CANDIDATE_ID])
+    with pytest.raises(ValueError, match="previously published XS forward equity window changed"):
+        review.evaluate(con, prior_result=first)

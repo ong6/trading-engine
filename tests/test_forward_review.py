@@ -1,6 +1,5 @@
 """Maturity and frozen-criterion tests for the live forward-paper monitor."""
 
-import copy
 import json
 import shutil
 import sys
@@ -348,14 +347,17 @@ def test_forward_fill_ledger_is_validated_and_hashed(con):
         result["frozen_runtime"]["superseded_runtime_contract_sha256"]
         == forward_review.SUPERSEDED_RUNTIME_CONTRACT_SHA256
     )
-    assert "interruption-safe transaction cleanup" in (
+    assert "Owner decision 2026-10-06" in (
         result["frozen_runtime"]["runtime_contract_migration"]
     )
+    assert "pre-D0" in result["frozen_runtime"]["runtime_contract_migration"]
     assert result["execution"][forward_review.CANDIDATE_ID]["filled"] == 1
     assert len(result["observation"]["forward_ledger_sha256"]) == 64
 
 
 def _prior_v6_result(con) -> dict:
+    """The deployed report's shape: the predecessor runtime publishes fill model v4 and
+    none of P22's cost-break observation fields (2026-10-15 snapshot, contract v10)."""
     _setup(con)
     _equity(con, forward_review.OBSERVATION_START, 2, 101, 100)
     prior = forward_review.evaluate(con)
@@ -367,7 +369,10 @@ def _prior_v6_result(con) -> dict:
         ),
         runtime_contract_migration=forward_review.PRIOR_RUNTIME_CONTRACT_MIGRATION,
         runtime_contract_files=list(forward_review.PRIOR_RUNTIME_CONTRACT_FILES),
+        fill_model="v4",
     )
+    for field in ("evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions"):
+        del prior["observation"][field]
     return prior
 
 
@@ -383,13 +388,29 @@ def test_runtime_contract_migration_preserves_complete_prior_result(con):
 
     migrated = forward_review.migrate_runtime_contract(con, prior)
 
-    expected = copy.deepcopy(prior)
-    expected["frozen_runtime"].update(forward_review._runtime_metadata())
-    assert migrated == expected
+    assert migrated == forward_review.evaluate(con)
+    for section in ("status", "candidate", "control", "criterion", "execution", "metrics"):
+        assert migrated[section] == prior[section]
+    assert migrated["observation"] == {
+        **prior["observation"], "evaluation_clock_start": "2026-09-04",
+        "cost_break_session": None, "pre_break_shared_sessions": 0,
+    }
+    assert migrated["frozen_runtime"]["fill_model"] == "v5"
     assert (
         migrated["frozen_runtime"]["runtime_contract_version"]
         == forward_review.RUNTIME_CONTRACT_VERSION
     )
+
+
+def test_runtime_contract_migration_runs_before_the_cost_break(con):
+    prior = _prior_v6_result(con)
+    for portfolio_id in (forward_review.CANDIDATE_ID, forward_review.CONTROL_ID):
+        con.execute(
+            "INSERT INTO sim_book_breaks VALUES (?, DATE '2026-10-19', 'cost_profile', "
+            "'baseline_v1', 'ibkr_pro_tiered_v1', 14, 'D0', TIMESTAMP '2026-10-18 20:00')",
+            [portfolio_id])
+    with pytest.raises(ValueError, match="before the cost-profile break"):
+        forward_review.migrate_runtime_contract(con, prior)
 
 
 def test_runtime_contract_migration_rejects_changed_prior_evidence(con):
@@ -583,3 +604,29 @@ def test_main_preserves_last_valid_checkpoint_through_invalid_report(
     restored = json.loads(report_path.read_text())
     assert restored["status"] == "ACCUMULATING"
     assert restored["observation"] == valid["observation"]
+
+
+def test_cost_break_retains_complete_prefix_across_repeated_reviews(con):
+    prior = _prior_v6_result(con)
+    migrated = forward_review.migrate_runtime_contract(con, prior)
+    for book in (forward_review.CANDIDATE_ID, forward_review.CONTROL_ID):
+        con.execute(
+            "INSERT INTO sim_book_breaks VALUES (?, DATE '2026-10-19', 'cost_profile', "
+            "'baseline_v1', 'ibkr_pro_tiered_v1', 14, 'D0', TIMESTAMP '2026-10-18 20:00')",
+            [book])
+    result = forward_review.evaluate(con, prior_result=migrated)
+    assert result["observation"]["shared_sessions_available"] == 0
+    assert result["observation"]["pre_break_shared_sessions"] == 2
+    assert result["observation"]["equity_sha256"] == migrated["observation"]["equity_sha256"]
+    assert forward_review.evaluate(con, prior_result=result) == result
+    for day in (date(2026, 10, 19), date(2026, 10, 20)):
+        for book in (forward_review.CANDIDATE_ID, forward_review.CONTROL_ID):
+            con.execute("INSERT INTO sim_equity VALUES (?, ?, 101, 0, 1)", [book, day])
+        result = forward_review.evaluate(con, prior_result=result)
+        assert result["observation"]["pre_break_shared_sessions"] == 2
+        assert result["observation"]["shared_sessions_available"] == day.day - 18
+        assert forward_review.evaluate(con, prior_result=result) == result
+    con.execute("UPDATE sim_equity SET equity=equity+1 WHERE portfolio_id=? AND date=?",
+                [forward_review.CANDIDATE_ID, forward_review.OBSERVATION_START])
+    with pytest.raises(ValueError, match="baseline equity changed|previously published forward equity window changed"):
+        forward_review.evaluate(con, prior_result=result)

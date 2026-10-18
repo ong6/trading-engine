@@ -14,6 +14,10 @@ from sim import nyse
 SOURCE = "yfinance"
 OPEN_LABEL_SOURCE = "yfinance_ticker_history_v1"
 OPEN_LABEL_MISSING_REASON = "not_found_no_data_symbol_may_be_delisted"
+# The same completed absence when yfinance reports no Yahoo reason
+# ("possibly delisted; no price data found").
+OPEN_LABEL_NO_PRICE_DATA_REASON = "no_price_data_found_possibly_delisted"
+OPEN_LABEL_MISSING_REASONS = (OPEN_LABEL_MISSING_REASON, OPEN_LABEL_NO_PRICE_DATA_REASON)
 HORIZONS = (1, 5, 10, 20)
 
 
@@ -27,9 +31,9 @@ def open_label_request_sha256(
     })
 
 
-def open_label_missing_response_sha256() -> str:
+def open_label_missing_response_sha256(outcome_reason: str = OPEN_LABEL_MISSING_REASON) -> str:
     return canonical_sha256({
-        "result": "completed_missing", "outcome_reason": OPEN_LABEL_MISSING_REASON,
+        "result": "completed_missing", "outcome_reason": outcome_reason,
     })
 
 
@@ -183,11 +187,11 @@ def record_open_label_receipt(
     if (
         requested_at.utcoffset() is None or completed_at.utcoffset() is None
         or completed_at < requested_at or not nyse.is_session(market_date)
-        or status != "missing" or outcome_reason != OPEN_LABEL_MISSING_REASON
+        or status != "missing" or outcome_reason not in OPEN_LABEL_MISSING_REASONS
         or request_sha256 != open_label_request_sha256(
             ticker, provider_ticker, market_date,
         )
-        or response_sha256 != open_label_missing_response_sha256()
+        or response_sha256 != open_label_missing_response_sha256(outcome_reason)
     ):
         raise ValueError("open-label fetch receipt is invalid")
     init_schema(con)
@@ -229,12 +233,15 @@ def record(
     con: duckdb.DuckDBPyConnection, *, market_date: date, attempted_at: datetime,
     requested_count: int, failed_count: int,
 ) -> dict:
-    """Record outcomes only after a complete all-liquid incremental collection."""
+    """Record outcomes only after a complete incremental collection of every
+    active liquid name (the set `collect.mode_incremental` requests). A name the
+    source had no bars for completed with a missing outcome; any failed request
+    withholds the whole batch."""
     if attempted_at.utcoffset() is None or not nyse.is_session(market_date):
         raise ValueError("price fetch attempt timestamp or market date is invalid")
     init_schema(con)
     tickers = [row[0] for row in con.execute(
-        "SELECT ticker FROM universe WHERE liquid=TRUE ORDER BY ticker"
+        "SELECT ticker FROM universe WHERE active=TRUE AND liquid=TRUE ORDER BY ticker"
     ).fetchall()]
     if failed_count or requested_count != len(tickers):
         return {
@@ -244,7 +251,7 @@ def record(
         }
     present = {row[0] for row in con.execute(
         f"SELECT ticker FROM prices WHERE date=? AND ticker IN "
-        "(SELECT ticker FROM universe WHERE liquid=TRUE) "
+        "(SELECT ticker FROM universe WHERE active=TRUE AND liquid=TRUE) "
         f"AND {REAL_BAR_SQL} ORDER BY ticker",
         [market_date],
     ).fetchall()}
@@ -365,11 +372,11 @@ def _validate_open_label_receipts(con, error_type):
         }
         if (
             source != OPEN_LABEL_SOURCE or status != "missing"
-            or outcome_reason != OPEN_LABEL_MISSING_REASON
+            or outcome_reason not in OPEN_LABEL_MISSING_REASONS
             or request_sha != open_label_request_sha256(
                 ticker, provider_ticker, market_date,
             )
-            or response_sha != open_label_missing_response_sha256()
+            or response_sha != open_label_missing_response_sha256(outcome_reason)
             or requested_at > completed_at
             or canonical_sha256(body) != receipt_sha
         ):

@@ -5,11 +5,14 @@ import pytest
 
 from engine import paper_accounts as accounts
 from sim import league, portfolio
+from sim import ledger as account_ledger
+from sim import schema as sim_schema
 from tests.conftest import insert_bars
 
 NOW = datetime(2026, 10, 2, 21, tzinfo=timezone.utc)
 SIGNAL = date(2026, 10, 2)
 FILL = date(2026, 10, 5)
+MOO_RECEIVED = datetime(2026, 10, 5, 13, 27, tzinfo=timezone.utc)
 
 
 def _spec(name="a", capital=10000, **changes):
@@ -25,6 +28,55 @@ def _intent(account="a", *, quantity=5, side="buy", **changes):
             "instrument_kind": "stock", "ticker": "SAME", "side": side, "quantity": quantity,
             "signal_date": SIGNAL.isoformat(), "created_at": NOW.isoformat(),
             "source_sha256": "c" * 64, **changes}
+
+
+def _spec_v2(name="acct-a", capital=10000, **changes):
+    payload = {
+        "schema_version": 2,
+        "strategy_ref": f"strategy-{name}",
+        "strategy_version": "v1",
+        "spec_sha256": "a" * 64,
+        "artifact_sha256": "d" * 64,
+        "registration_sha256": "b" * 64,
+        "instrument_kinds": ["stock"],
+        "capital_usd": capital,
+        "account_id": name,
+        "account_type": "margin",
+        "max_position_fraction": 0.5,
+        "max_gross_fraction": 1.0,
+        "min_trade_usd": 1.0,
+        "allow_short": False,
+        "price_source": "prices",
+        "benchmark": "SPY",
+        "day_trades_per_week_expected": 3,
+        "day_trade_rule": "pdt_25k_legacy",
+    }
+    payload.update(changes)
+    return payload
+
+
+def _intent_v2(account="acct-a", **changes):
+    payload = {
+        "schema_version": 2,
+        "intent_id": f"intent-{account}",
+        "account_id": account,
+        "spec_sha256": "a" * 64,
+        "registration_sha256": "b" * 64,
+        "instrument_id": "SAME",
+        "instrument_kind": "stock",
+        "side": "buy",
+        "quantity": 5.0,
+        "order_type": "moo",
+        "limit_price": None,
+        "time_in_force": "day",
+        "session_date": FILL.isoformat(),
+        "contingent_on": None,
+        "legs": [],
+        "created_at": MOO_RECEIVED.isoformat(),
+        "source_sha256": "c" * 64,
+    }
+    payload.update(changes)
+    return payload
 
 
 def test_three_tiers_hold_same_stock_with_independent_cash_fills_and_equity(con):
@@ -165,3 +217,201 @@ def test_initialized_intake_waits_for_all_books_then_preserves_completed_checkpo
     accounts.submit_intent(con, _intent("new"), now=NOW)
     assert con.execute("SELECT portfolio_id FROM sim_equity WHERE date=? ORDER BY 1",
                        [SIGNAL]).fetchall() == [("existing",), ("new",)]
+
+
+def test_v2_account_uses_side_table_and_replays_original_receipt(con):
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    created = accounts.create_account(con, _spec_v2(), now=MOO_RECEIVED)
+    settings = sim_schema.portfolio_account(con, "acct-a")
+    assert created["replayed"] is False
+    assert settings == {
+        "engine": "account",
+        "cost_profile": "ibkr_pro_tiered_v1", "account_type": "margin",
+        "visibility": "private", "status": "inactive", "price_source": "prices",
+        "day_trade_rule": "pdt_25k_legacy", "allow_short": False,
+        "updated_at": MOO_RECEIVED.replace(tzinfo=None),
+    }
+    receipt = accounts.submit_intent(con, _intent_v2(), now=MOO_RECEIVED)
+    assert receipt["state"] == "queued"
+    assert receipt["received_at"] == MOO_RECEIVED.isoformat()
+    assert receipt["cutoff"] == "2026-10-05T13:28:00+00:00"
+    assert accounts.submit_intent(
+        con, _intent_v2(), now=datetime(2026, 10, 5, 14, tzinfo=timezone.utc)
+    ) == receipt
+    assert sim_schema.portfolio_account(con, "acct-a")["status"] == "active"
+    assert con.execute("SELECT order_type,state FROM sim_order_details").fetchone() == (
+        "moo", "queued",
+    )
+
+
+def test_v2_replanned_artifact_with_same_identity_reuses_account(con):
+    original = accounts.create_account(con, _spec_v2(), now=MOO_RECEIVED)
+    replay = accounts.create_account(
+        con, _spec_v2(artifact_sha256="e" * 64), now=MOO_RECEIVED,
+    )
+    assert replay == {**original, "replayed": True}
+    assert con.execute("SELECT COUNT(*) FROM portfolios").fetchone()[0] == 1
+
+
+def test_v2_day_trade_rule_defaults_and_short_permission_is_bound(con):
+    spec = _spec_v2()
+    del spec["day_trade_rule"]
+    assert accounts.validate_spec(spec)["day_trade_rule"] == "pdt_25k_legacy"
+    with pytest.raises(accounts.AccountRefused, match="allow short"):
+        accounts.validate_intent(
+            _intent_v2(side="short"), accounts.validate_spec(spec), MOO_RECEIVED,
+        )
+    alternate = _spec_v2(day_trade_rule="intraday_margin_2026", allow_short=True)
+    assert accounts.validate_spec(alternate)["day_trade_rule"] == "intraday_margin_2026"
+
+
+def test_v2_non_stock_intent_validates_then_admission_refuses_execution(con):
+    spec = _spec_v2(instrument_kinds=["option"])
+    intent = _intent_v2(
+        instrument_id="SPY261218C00500000", instrument_kind="option",
+        legs=[{"instrument_id": "SPY261218C00500000", "side": "buy", "ratio": 1}],
+    )
+    accounts.validate_intent(intent, spec, MOO_RECEIVED)
+    accounts.create_account(con, spec, now=MOO_RECEIVED)
+    with pytest.raises(accounts.AccountRefused, match="instrument_not_executable"):
+        accounts.submit_intent(con, intent, now=MOO_RECEIVED)
+    assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone()[0] == 0
+
+
+def test_carried_mark_remains_accepted_beyond_three_sessions(con):
+    sessions = [date(2026, 9, 28), date(2026, 9, 29), date(2026, 9, 30),
+                date(2026, 10, 1), SIGNAL]
+    insert_bars(con, "CAL", sessions, open_=1, close=1)
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    insert_bars(con, "FRESH", [date(2026, 9, 29)], open_=10, close=10)
+    accounts.create_account(con, _spec_v2(), now=MOO_RECEIVED)
+    con.execute("INSERT INTO sim_positions VALUES ('acct-a','FRESH',1,10)")
+    accounts.submit_intent(con, _intent_v2(), now=MOO_RECEIVED)
+
+    accounts.create_account(con, _spec_v2("acct-b"), now=MOO_RECEIVED)
+    con.execute("INSERT INTO sim_positions VALUES ('acct-b','STALE',1,10)")
+    insert_bars(con, "STALE", [date(2026, 9, 28)], open_=10, close=10)
+    assert accounts.submit_intent(con, _intent_v2("acct-b"), now=MOO_RECEIVED)["state"] == "queued"
+
+
+def test_account_created_date_is_latest_new_york_session(con):
+    saturday_utc = datetime(2026, 10, 4, 2, tzinfo=timezone.utc)
+    accounts.create_account(con, _spec_v2(), now=saturday_utc)
+    assert con.execute("SELECT created FROM portfolios").fetchone()[0] == SIGNAL
+
+
+def test_three_v2_tiers_submit_same_moo_with_independent_accounting(con):
+    insert_bars(con, "SAME", [SIGNAL, FILL], open_=[100, 100], close=[100, 102])
+    tiers = {"acct-small": (10_000, 10), "acct-medium": (50_000, 20),
+             "acct-large": (100_000, 30)}
+    receipts = {}
+    for account_id, (capital, quantity) in tiers.items():
+        accounts.create_account(con, _spec_v2(account_id, capital), now=MOO_RECEIVED)
+        receipts[account_id] = accounts.submit_intent(
+            con, _intent_v2(account_id, quantity=quantity), now=MOO_RECEIVED,
+        )
+    for account_id, (_capital, quantity) in tiers.items():
+        order_id = receipts[account_id]["order_id"]
+        con.execute("UPDATE sim_orders SET status='filled' WHERE id=?", [order_id])
+        con.execute(
+            "INSERT INTO sim_fills VALUES (?,?,'SAME','buy',?,?,100,100,0,0)",
+            [order_id, account_id, quantity, FILL],
+        )
+        account_ledger.apply_fill(
+            con,
+            {"order_id": order_id, "portfolio_id": account_id, "instrument_id": "SAME",
+             "side": "buy", "quantity": quantity, "fill_px": 100, "session_date": FILL},
+            persist_fees=False,
+        )
+        portfolio.mark_to_market(con, account_id, FILL)
+    for account_id, (capital, quantity) in tiers.items():
+        assert portfolio.get_cash(con, account_id) == capital - quantity * 100
+        assert portfolio.get_positions(con, account_id)["SAME"]["qty"] == quantity
+        assert con.execute(
+            "SELECT equity FROM sim_equity WHERE portfolio_id=? AND date=?",
+            [account_id, FILL],
+        ).fetchone()[0] == capital + quantity * 2
+
+
+def test_moc_receipt_uses_early_close_cutoff(con):
+    early_close = date(2026, 11, 27)
+    received = datetime(2026, 11, 27, 17, 49, tzinfo=timezone.utc)
+    prior = date(2026, 11, 25)
+    insert_bars(con, "SAME", [prior], open_=100, close=100)
+    accounts.create_account(con, _spec_v2(), now=received)
+    receipt = accounts.submit_intent(
+        con,
+        _intent_v2(order_type="moc", session_date=early_close.isoformat(),
+                   created_at=received.isoformat()),
+        now=received,
+    )
+    assert receipt["cutoff"] == "2026-11-27T17:50:00+00:00"
+
+
+def test_contingent_moc_is_admitted_before_parent_moo_fills(con):
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    accounts.create_account(con, _spec_v2(), now=MOO_RECEIVED)
+    parent = _intent_v2(intent_id="moo-parent", quantity=5.0)
+    parent_receipt = accounts.submit_intent(con, parent, now=MOO_RECEIVED)
+    child = _intent_v2(
+        intent_id="moc-child",
+        side="sell",
+        quantity=5.0,
+        order_type="moc",
+        contingent_on="moo-parent",
+    )
+
+    child_receipt = accounts.submit_intent(con, child, now=MOO_RECEIVED)
+
+    assert parent_receipt["state"] == child_receipt["state"] == "queued"
+    assert con.execute(
+        "SELECT contingent_on FROM sim_order_details WHERE order_id=?",
+        [child_receipt["order_id"]],
+    ).fetchone() == (parent_receipt["order_id"],)
+
+
+def test_contingent_cover_uses_queued_short_quantity_not_current_holdings(con):
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    accounts.create_account(con, _spec_v2(allow_short=True), now=MOO_RECEIVED)
+    parent = _intent_v2(intent_id="short-parent", side="short", quantity=4)
+    child = _intent_v2(
+        intent_id="cover-child", side="cover", quantity=4, order_type="moc",
+        contingent_on="short-parent",
+    )
+    assert accounts.submit_intent(con, parent, now=MOO_RECEIVED)["state"] == "queued"
+    with pytest.raises(accounts.AccountRefused, match="short position"):
+        accounts.submit_intent(
+            con, _intent_v2(intent_id="bare-cover", side="cover", quantity=1,
+                            order_type="moc"), now=MOO_RECEIVED,
+        )
+    assert accounts.submit_intent(con, child, now=MOO_RECEIVED)["state"] == "queued"
+
+
+def test_contingent_child_is_refused_when_parent_executes_later(con):
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    accounts.create_account(con, _spec_v2(), now=MOO_RECEIVED)
+    parent = _intent_v2(intent_id="moc-parent", order_type="moc")
+    accounts.submit_intent(con, parent, now=MOO_RECEIVED)
+    child = _intent_v2(
+        intent_id="moo-child", side="sell", order_type="moo",
+        contingent_on="moc-parent",
+    )
+    with pytest.raises(accounts.AccountRefused, match="executes later"):
+        accounts.submit_intent(con, child, now=MOO_RECEIVED)
+
+
+def test_contingent_market_is_refused_when_limit_parent_may_execute_later(con):
+    received = datetime(2026, 10, 5, 14, 0, tzinfo=timezone.utc)
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    accounts.create_account(con, _spec_v2(), now=received)
+    parent = _intent_v2(
+        intent_id="limit-parent", order_type="limit", limit_price=99,
+        created_at=received.isoformat(),
+    )
+    accounts.submit_intent(con, parent, now=received)
+    child = _intent_v2(
+        intent_id="market-child", side="sell", order_type="market",
+        contingent_on="limit-parent", created_at=received.isoformat(),
+    )
+    with pytest.raises(accounts.AccountRefused, match="executes later"):
+        accounts.submit_intent(con, child, now=received)
