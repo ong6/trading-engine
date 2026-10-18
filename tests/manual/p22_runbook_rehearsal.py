@@ -182,6 +182,9 @@ def main() -> int:
         "RELEASE_HARNESS_HOST": str(output / "host-state.json"),
         "RELEASE_HARNESS_CRON": str(cron),
     }
+    release_tools = {name: shutil.which(name) for name in ("git", "uv", "node", "npm")}
+    if any(path is None for path in release_tools.values()):
+        raise RuntimeError("manual harness requires explicit git, uv, node and npm executables")
     base = [
         str(repo / ".venv/bin/python"),
         "-m",
@@ -194,6 +197,14 @@ def main() -> int:
         str(home),
         "--host-command-dir",
         str(fake_host),
+        "--git-path",
+        release_tools["git"],
+        "--uv-path",
+        release_tools["uv"],
+        "--node-path",
+        release_tools["node"],
+        "--npm-path",
+        release_tools["npm"],
         "--api-url",
         f"http://127.0.0.1:{args.port}",
         "--ui-url",
@@ -229,6 +240,17 @@ def main() -> int:
             applied = run(
                 "apply-approved",
                 ["apply", str(state), "--approve-plan", applied["plan_sha256"], "--execute"],
+            )
+        if applied["status"] == "awaiting-optional-units":
+            applied = run(
+                "apply-optional-accepted",
+                [
+                    "apply",
+                    str(state),
+                    "--approve-optional",
+                    applied["plan_sha256"],
+                    "--execute",
+                ],
             )
         assert applied["status"] == "applied"
         assert run("verify", ["verify", str(state), "--execute"])["status"] == "verified"

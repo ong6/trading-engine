@@ -51,6 +51,7 @@ VALID_PHASES = frozenset(
         "prepared",
         "applying",
         "awaiting-migration-approval",
+        "awaiting-optional-units",
         "applied",
         "verifying",
         "verified",
@@ -70,6 +71,7 @@ SPECIAL_UNITS = frozenset(
         "trading-data-backup.timer",
     }
 )
+OPTIONAL_UNITS = frozenset({"massive-options-daily.service", "massive-options-daily.timer"})
 RUNTIME_LINKS = {
     ".venv": "python_environment",
     "ui/node_modules": "node_modules",
@@ -95,6 +97,15 @@ class ApprovalRequired(DeployError):
         self.digest = digest
         self.migration = migration
         self.plan = plan
+
+
+class OptionalUnitsPaused(DeployError):
+    """Only declared optional units failed activation and need operator acceptance."""
+
+    def __init__(self, digest: str, units: list[str]):
+        super().__init__(f"optional unit activation requires --approve-optional {digest}")
+        self.digest = digest
+        self.units = units
 
 
 def _utc_now() -> str:
@@ -179,7 +190,9 @@ class ReleaseState:
     inventory: dict[str, Any] = field(default_factory=dict)
     backup: dict[str, Any] = field(default_factory=dict)
     prior_runtimes: dict[str, Any] = field(default_factory=dict)
+    automation: dict[str, Any] = field(default_factory=dict)
     migration_approval: dict[str, Any] | None = None
+    optional_unit_pause: dict[str, Any] | None = None
     last_failure: dict[str, Any] | None = None
 
     @classmethod
@@ -213,11 +226,21 @@ class ReleaseState:
             raise DeployError("release state d0 has the wrong type")
         if state.adapter_set not in ADAPTERS:
             raise DeployError("release state names an unknown adapter set")
-        for value in (state.prepared, state.inventory, state.backup, state.prior_runtimes):
+        for value in (
+            state.prepared,
+            state.inventory,
+            state.backup,
+            state.prior_runtimes,
+            state.automation,
+        ):
             if not isinstance(value, dict):
                 raise DeployError("release state object has the wrong type")
         if state.migration_approval is not None and not isinstance(state.migration_approval, dict):
             raise DeployError("migration approval has the wrong type")
+        if state.optional_unit_pause is not None and not isinstance(
+            state.optional_unit_pause, dict
+        ):
+            raise DeployError("optional unit pause has the wrong type")
         return state
 
 
@@ -423,6 +446,7 @@ class ReleaseOperations:
         api_url: str,
         ui_url: str,
         minimum_free_bytes: int,
+        tool_paths: dict[str, Path | None] | None = None,
     ):
         self.store = store
         self.home = home.resolve()
@@ -430,9 +454,55 @@ class ReleaseOperations:
         self.api_url = api_url.rstrip("/")
         self.ui_url = ui_url.rstrip("/")
         self.minimum_free_bytes = minimum_free_bytes
+        self.tool_paths = tool_paths or {}
+        self.selected_tools: dict[str, dict[str, Any]] = {}
+
+    def _executable_identity(self, path: Path) -> dict[str, Any]:
+        requested = path.absolute()
+        try:
+            resolved = requested.resolve(strict=True)
+        except OSError as exc:
+            raise DeployError(f"release executable is unavailable: {requested}") from exc
+        if not resolved.is_file() or not os.access(resolved, os.X_OK):
+            raise DeployError(f"release executable is not executable: {requested}")
+        return {
+            "path": str(requested),
+            "resolved_path": str(resolved),
+            "sha256": _sha256(resolved),
+        }
+
+    def _resolve_tool(self, name: str) -> dict[str, Any]:
+        requested = self.tool_paths.get(name)
+        candidates: list[Path] = []
+        if requested is not None:
+            candidates.append(requested)
+        else:
+            if name in {"node", "npm"}:
+                candidates.append(self.home / "tools/node/bin" / name)
+            elif name == "uv":
+                candidates.append(self.home / ".local/bin/uv")
+            discovered = shutil.which(name)
+            if discovered:
+                candidates.append(Path(discovered))
+        for candidate in candidates:
+            try:
+                return self._executable_identity(candidate)
+            except DeployError:
+                continue
+        raise DeployError(f"required release executable is unavailable: {name}")
+
+    def _resolve_release_tools(self) -> dict[str, dict[str, Any]]:
+        result = {name: self._resolve_tool(name) for name in ("git", "uv", "node", "npm")}
+        self.selected_tools = result
+        return result
+
+    def _tool(self, name: str) -> str:
+        if name not in self.selected_tools:
+            self.selected_tools[name] = self._resolve_tool(name)
+        return self.selected_tools[name]["path"]
 
     def _git(self, root: Path, *args: str, check: bool = True) -> str:
-        result = self.runner.run(["git", *args], cwd=root, check=check, timeout=60)
+        result = self.runner.run([self._tool("git"), *args], cwd=root, check=check, timeout=60)
         return result.stdout.strip()
 
     def _head(self, root: Path) -> str:
@@ -459,7 +529,8 @@ class ReleaseOperations:
 
     def _source_status(self, root: Path) -> list[str]:
         raw = self.runner.run(
-            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], cwd=root
+            [self._tool("git"), "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            cwd=root,
         ).stdout
         fields = raw.split("\0")
         changed: list[str] = []
@@ -482,6 +553,30 @@ class ReleaseOperations:
             raise DeployError(f"source changed outside generated paths: {', '.join(changed)}")
         return changed
 
+    def _registration_source_commit(self, root: Path, approved_sha: str) -> str:
+        raw = self.runner.run(
+            [
+                self._tool("git"),
+                "show",
+                f"{approved_sha}:server/p15-registration.json",
+            ],
+            cwd=root,
+        ).stdout
+        try:
+            source_commit = json.loads(raw)["code_identity"]["source_commit"]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DeployError("approved registration has no valid source_commit") from exc
+        if not isinstance(source_commit, str) or FULL_SHA.fullmatch(source_commit) is None:
+            raise DeployError("approved registration has no valid source_commit")
+        ancestor = self.runner.run(
+            [self._tool("git"), "merge-base", "--is-ancestor", source_commit, approved_sha],
+            cwd=root,
+            check=False,
+        )
+        if ancestor.returncode != 0:
+            raise DeployError("registered source_commit is not an ancestor of the approved SHA")
+        return source_commit
+
     def preflight_prepare(
         self,
         *,
@@ -497,6 +592,7 @@ class ReleaseOperations:
             raise DeployError(f"unknown adapter set: {adapter_set}")
         if adapter_set == "revision-15" and d0 is None:
             raise DeployError("revision-15 requires --d0")
+        tools = self._resolve_release_tools()
         repo_root = repo_root.resolve(strict=True)
         database = database.resolve(strict=True)
         if self.store.directory == repo_root or repo_root in self.store.directory.parents:
@@ -516,16 +612,21 @@ class ReleaseOperations:
         original_sha = self._head(repo_root)
         self._git(repo_root, "cat-file", "-e", f"{approved_sha}^{{commit}}")
         ancestor = self.runner.run(
-            ["git", "merge-base", "--is-ancestor", original_sha, approved_sha],
+            [self._tool("git"), "merge-base", "--is-ancestor", original_sha, approved_sha],
             cwd=repo_root,
             check=False,
         )
         if ancestor.returncode != 0:
             raise DeployError("approved source is not a fast-forward of the current source")
+        registration_source_commit = (
+            self._registration_source_commit(repo_root, approved_sha)
+            if adapter_set == "revision-15"
+            else None
+        )
         lock_hashes = {}
         for relative in ("uv.lock", "ui/package-lock.json"):
             content = self.runner.run(
-                ["git", "show", f"{approved_sha}:{relative}"], cwd=repo_root
+                [self._tool("git"), "show", f"{approved_sha}:{relative}"], cwd=repo_root
             ).stdout.encode()
             lock_hashes[relative] = hashlib.sha256(content).hexdigest()
         probe = ReleaseState(
@@ -546,7 +647,9 @@ class ReleaseOperations:
             "original_sha": original_sha,
             "approved_sha": approved_sha,
             "lock_sha256": lock_hashes,
+            "tools": tools,
             "adapter_set": adapter_set,
+            "registration_source_commit": registration_source_commit,
             "migrations": [asdict(item) for item in ADAPTERS[adapter_set]],
             "workspace": workspace,
             "audit_sha256": _digest(audit),
@@ -558,7 +661,14 @@ class ReleaseOperations:
         source = prepared / "source"
         prepared.mkdir(mode=0o700)
         self.runner.run(
-            ["git", "worktree", "add", "--detach", str(source), state.approved_sha],
+            [
+                preflight["tools"]["git"]["path"],
+                "worktree",
+                "add",
+                "--detach",
+                str(source),
+                state.approved_sha,
+            ],
             cwd=root,
             timeout=120,
         )
@@ -571,9 +681,7 @@ class ReleaseOperations:
             raise DeployError("dependency locks changed after preflight")
 
         python_env = prepared / f"python-{locks['uv.lock']}"
-        uv = shutil.which("uv")
-        if uv is None:
-            raise DeployError("uv is required to build the prepared Python environment")
+        uv = preflight["tools"]["uv"]["path"]
         self.runner.run(
             [uv, "sync", "--project", str(source), "--frozen", "--no-dev", "--no-install-project"],
             cwd=source,
@@ -588,11 +696,11 @@ class ReleaseOperations:
         shutil.copytree(
             source / "ui", ui_runtime, ignore=shutil.ignore_patterns("node_modules", ".next")
         )
-        npm = shutil.which("npm")
-        if npm is None:
-            raise DeployError("npm is required to build the prepared UI environment")
-        self.runner.run([npm, "ci"], cwd=ui_runtime, timeout=1800)
-        self.runner.run([npm, "run", "build"], cwd=ui_runtime, timeout=1800)
+        npm = preflight["tools"]["npm"]["path"]
+        node_path = str(Path(preflight["tools"]["node"]["path"]).parent)
+        tool_env = {"PATH": f"{node_path}{os.pathsep}{os.environ.get('PATH', '')}"}
+        self.runner.run([npm, "ci"], cwd=ui_runtime, env=tool_env, timeout=1800)
+        self.runner.run([npm, "run", "build"], cwd=ui_runtime, env=tool_env, timeout=1800)
         if not (ui_runtime / "node_modules").is_dir() or not (ui_runtime / ".next").is_dir():
             raise DeployError("prepared UI environment is incomplete")
 
@@ -615,7 +723,9 @@ class ReleaseOperations:
             )
         versions = {
             "python": self.runner.run([str(python), "--version"]).stdout.strip(),
-            "node": self.runner.run(["node", "--version"]).stdout.strip(),
+            "node": self.runner.run(
+                [preflight["tools"]["node"]["path"], "--version"]
+            ).stdout.strip(),
         }
         return {
             "source": str(source),
@@ -624,6 +734,11 @@ class ReleaseOperations:
             "node_modules": str(ui_runtime / "node_modules"),
             "ui_build": str(ui_runtime / ".next"),
             "lock_sha256": locks,
+            "tools": preflight["tools"],
+            "unit_policy": {
+                name: "optional" if name in OPTIONAL_UNITS else "required"
+                for name in sorted(install_automation.UNIT_SOURCES)
+            },
             "release_manifest_sha256": manifest["manifest_sha256"],
             "release_tool_sha256": _sha256(source / "tools/release_deploy.py"),
             "versions": versions,
@@ -642,10 +757,20 @@ class ReleaseOperations:
     def validate_prepared(self, state: ReleaseState) -> None:
         source = Path(state.prepared["source"])
         locks = state.prepared["lock_sha256"]
+        tools = state.prepared["tools"]
+        if not isinstance(tools, dict) or set(tools) != {"git", "uv", "node", "npm"}:
+            raise DeployError("prepared release tool paths are incomplete")
+        for name, identity in tools.items():
+            if (
+                not isinstance(identity, dict)
+                or self._executable_identity(Path(identity.get("path", ""))) != identity
+            ):
+                raise DeployError(f"prepared release executable changed: {name}")
+        self.selected_tools = tools
         if self._head(source) != state.approved_sha:
             raise DeployError("prepared source identity changed")
         if self.runner.run(
-            ["git", "status", "--porcelain=v1", "--untracked-files=all"], cwd=source
+            [self._tool("git"), "status", "--porcelain=v1", "--untracked-files=all"], cwd=source
         ).stdout:
             raise DeployError("prepared source worktree changed")
         if (
@@ -685,11 +810,7 @@ class ReleaseOperations:
             name
             for name, values in properties.items()
             if values.get("LoadState") != "not-found"
-            and (
-                name.startswith(("trading-engine-", "massive-"))
-                or name in SPECIAL_UNITS
-                or "/trading-alpha/" in values.get("ExecStart", "")
-            )
+            and (name.startswith(("trading-engine-", "massive-")) or name in SPECIAL_UNITS)
         }
         managed |= {
             name
@@ -784,16 +905,26 @@ class ReleaseOperations:
         return found
 
     def quiesce(self, state: ReleaseState) -> dict[str, Any]:
+        names = set(state.inventory["units"])
+        discovered = self._unit_names()
+        unexpected = {
+            name
+            for name in discovered - names
+            if self._unit_properties(name).get("LoadState") != "not-found"
+        }
+        if unexpected:
+            raise DeployError(
+                f"refusing unit outside saved inventory: {', '.join(sorted(unexpected))}"
+            )
+        properties = {name: self._unit_properties(name) for name in sorted(names)}
+        loaded = {
+            name for name, values in properties.items() if values.get("LoadState") != "not-found"
+        }
         cron = self._read_crontab()
         if cron["present"]:
             result = self.runner.run([self.runner.host("crontab"), "-r"], check=False, timeout=30)
             if result.returncode not in {0, 1}:
                 raise DeployError("failed to remove the installed crontab")
-        names = set(state.inventory["units"]) | self._unit_names()
-        properties = {name: self._unit_properties(name) for name in sorted(names)}
-        loaded = {
-            name for name, values in properties.items() if values.get("LoadState") != "not-found"
-        }
         self._stop_units(loaded)
         for name in sorted(loaded):
             values = self._unit_properties(name)
@@ -874,8 +1005,12 @@ print(json.dumps({'registration_revision': registration, 'cost_breaks': [[str(a)
             return {"git_sha": state.approved_sha, "idempotent": True}
         self.validate_state_source(state, state.original_sha)
         if (root / "data").exists():
-            self.runner.run(["git", "checkout", "HEAD", "--", "data"], cwd=root)
-        self.runner.run(["git", "merge", "--ff-only", state.approved_sha], cwd=root, timeout=120)
+            self.runner.run([self._tool("git"), "checkout", "HEAD", "--", "data"], cwd=root)
+        self.runner.run(
+            [self._tool("git"), "merge", "--ff-only", state.approved_sha],
+            cwd=root,
+            timeout=120,
+        )
         if self._head(root) != state.approved_sha:
             raise DeployError("source switch did not select the approved SHA")
         artifacts = Path(state.inventory["artifacts"])
@@ -1040,38 +1175,94 @@ print(json.dumps(applied, sort_keys=True))
 
     def install_automation(self, state: ReleaseState) -> dict[str, Any]:
         root = Path(state.repo_root)
-        result = self.runner.run(
-            [
-                state.prepared["python_environment"] + "/bin/python",
-                "-m",
-                "tools.install_automation",
-                "--repo-root",
-                str(root),
-                "--home",
-                str(self.home),
-                "--apply",
-            ],
-            cwd=root,
-            env={"PYTHONPATH": str(root)},
-            timeout=900,
-        )
-        try:
-            summary = json.loads(result.stdout)
-        except ValueError as exc:
-            raise DeployError("automation installer returned invalid JSON") from exc
-        if summary.get("status") != "ok" or not summary.get("applied"):
-            raise DeployError("automation installer did not converge")
-        mismatched = [
-            name
-            for name, values in summary.get("service_units", {}).items()
-            if not values.get("matches")
+        command = [
+            state.prepared["python_environment"] + "/bin/python",
+            "-m",
+            "tools.install_automation",
+            "--repo-root",
+            str(root),
+            "--home",
+            str(self.home),
         ]
-        if mismatched:
-            raise DeployError(f"installed unit mismatch: {', '.join(sorted(mismatched))}")
+
+        def invoke(mode: str) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
+            result = self.runner.run(
+                [*command, mode],
+                cwd=root,
+                env={"PYTHONPATH": str(root)},
+                timeout=900,
+                check=False,
+            )
+            try:
+                summary = json.loads(result.stdout)
+            except ValueError as exc:
+                raise DeployError("automation installer returned invalid JSON") from exc
+            if not isinstance(summary, dict):
+                raise DeployError("automation installer returned a non-object")
+            return result, summary
+
+        _audit_result, before = invoke("--audit")
+        if before.get("status") not in {"ok", "changes-required"} or before.get("errors"):
+            raise DeployError("automation installer preflight is invalid")
+        changes = before.get("changes", {})
+        candidates = set(changes.get("service_units", []))
+        state.automation = {
+            "planned_unit_files": sorted(candidates),
+            "installed_unit_files": [],
+            "enablement_units": sorted(changes.get("enable_units", [])),
+            "optional_failures": [],
+        }
+        self.store.save(state)
+        try:
+            applied, first = invoke("--apply")
+        finally:
+            installed = []
+            for name in sorted(candidates):
+                relative = install_automation.UNIT_SOURCES.get(name)
+                target = self.home / ".config/systemd/user" / name
+                if relative is None or target.is_symlink() or not target.is_file():
+                    continue
+                try:
+                    if target.read_bytes() == (root / relative).read_bytes():
+                        installed.append(name)
+                except OSError:
+                    continue
+            state.automation["installed_unit_files"] = installed
+            self.store.save(state)
+        _post_result, after = invoke("--audit")
+        residual = after.get("changes", {})
+        unit_failures = sorted(
+            set(residual.get("service_units", []))
+            | set(residual.get("enable_units", []))
+            | set(residual.get("start_units", []))
+        )
+        non_unit_drift = any(
+            (
+                residual.get("crontab"),
+                residual.get("enable_linger"),
+            )
+        )
+        policy = state.prepared["unit_policy"]
+        required_failures = [name for name in unit_failures if policy.get(name) != "optional"]
+        if after.get("errors") or non_unit_drift or required_failures:
+            raise DeployError("automation installer did not converge required automation")
+        optional_failures = [name for name in unit_failures if policy.get(name) == "optional"]
+        state.automation.update(
+            {
+                "optional_failures": optional_failures,
+                "apply_exit": applied.returncode,
+                "result_sha256": _digest(first),
+                "post_audit_sha256": _digest(after),
+            }
+        )
+        self.store.save(state)
+        if optional_failures:
+            return {"status": "optional-failures", **state.automation}
+        if applied.returncode != 0 or after.get("status") != "ok":
+            raise DeployError("automation installer did not converge")
         return {
             "status": "ok",
-            "summary_sha256": _digest(summary),
-            "service_units": sorted(summary.get("service_units", {})),
+            **state.automation,
         }
 
     def publish_snapshot(self, state: ReleaseState, held_locks: frozenset[str]) -> dict[str, Any]:
@@ -1284,10 +1475,18 @@ print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
             if values.get("ActiveState") in ACTIVE_STATES
             and (include_autopush or name not in AUTOPUSH_UNITS)
         }
-        loaded = {
+        discovered = self._unit_names()
+        unexpected = {
             name
-            for name in self._unit_names()
+            for name in discovered - set(units)
             if self._unit_properties(name).get("LoadState") != "not-found"
+        }
+        if unexpected:
+            raise DeployError(
+                f"refusing unit outside saved inventory: {', '.join(sorted(unexpected))}"
+            )
+        loaded = {
+            name for name in units if self._unit_properties(name).get("LoadState") != "not-found"
         }
         unexpected_active = {
             name
@@ -1369,8 +1568,10 @@ print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
             raise DeployError("cannot roll back an unrecognized source SHA")
         if current != state.original_sha:
             if (root / "data").exists():
-                self.runner.run(["git", "checkout", "HEAD", "--", "data"], cwd=root)
-            self.runner.run(["git", "checkout", "--detach", state.original_sha], cwd=root)
+                self.runner.run([self._tool("git"), "checkout", "HEAD", "--", "data"], cwd=root)
+            self.runner.run(
+                [self._tool("git"), "checkout", "--detach", state.original_sha], cwd=root
+            )
         artifacts = Path(state.inventory["artifacts"])
         for name in ("data", "logs"):
             saved = artifacts / name
@@ -1454,7 +1655,11 @@ print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
     def restore_units(self, state: ReleaseState) -> dict[str, Any]:
         unit_root = self.home / ".config/systemd/user"
         unit_root.mkdir(parents=True, exist_ok=True)
-        for name, saved in state.inventory["unit_files"].items():
+        installed = set(state.automation.get("installed_unit_files", []))
+        if not installed <= set(state.inventory["unit_files"]):
+            raise DeployError("automation recorded a unit outside saved inventory")
+        for name in sorted(installed):
+            saved = state.inventory["unit_files"][name]
             if UNIT_NAME.fullmatch(name) is None:
                 raise DeployError("saved unit inventory is invalid")
             target = unit_root / name
@@ -1470,7 +1675,11 @@ print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
             elif saved["kind"] == "symlink":
                 os.symlink(saved["target"], target)
         self._systemctl("daemon-reload")
-        for name, values in state.inventory["units"].items():
+        enablement = installed | set(state.automation.get("enablement_units", []))
+        if not enablement <= set(state.inventory["units"]):
+            raise DeployError("automation recorded enablement outside saved inventory")
+        for name in sorted(enablement):
+            values = state.inventory["units"][name]
             prior = values.get("UnitFileState")
             if values.get("LoadState") == "not-found":
                 continue
@@ -1478,7 +1687,7 @@ print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
                 self._systemctl("enable", name)
             elif prior == "disabled":
                 self._systemctl("disable", name)
-        return {"restored": sorted(state.inventory["unit_files"])}
+        return {"restored": sorted(installed), "enablement_restored": sorted(enablement)}
 
 
 class ReleaseDeployment:
@@ -1511,6 +1720,8 @@ class ReleaseDeployment:
             "node_modules",
             "ui_build",
             "lock_sha256",
+            "tools",
+            "unit_policy",
             "release_manifest_sha256",
             "release_tool_sha256",
             "versions",
@@ -1518,6 +1729,13 @@ class ReleaseDeployment:
         }
         if set(state.prepared) != expected_keys:
             raise DeployError("prepared release has unknown or missing fields")
+        policy = state.prepared["unit_policy"]
+        if (
+            not isinstance(policy, dict)
+            or set(policy) != set(install_automation.UNIT_SOURCES)
+            or any(value not in {"required", "optional"} for value in policy.values())
+        ):
+            raise DeployError("prepared unit policy is invalid")
         locks = state.prepared["lock_sha256"]
         if not isinstance(locks, dict) or set(locks) != {"uv.lock", "ui/package-lock.json"}:
             raise DeployError("prepared dependency identity is incomplete")
@@ -1611,7 +1829,13 @@ class ReleaseDeployment:
             "migration_approval": state.migration_approval,
         }
 
-    def apply(self, *, execute: bool, approve_plan: str | None) -> dict[str, Any]:
+    def apply(
+        self,
+        *,
+        execute: bool,
+        approve_plan: str | None,
+        approve_optional: str | None = None,
+    ) -> dict[str, Any]:
         state = self._load_prepared()
         actions = [
             "capture-inventory",
@@ -1627,7 +1851,12 @@ class ReleaseDeployment:
         ]
         if not execute:
             return self._plan_existing(state, "apply", actions)
-        if state.phase not in {"prepared", "applying", "awaiting-migration-approval"}:
+        if state.phase not in {
+            "prepared",
+            "applying",
+            "awaiting-migration-approval",
+            "awaiting-optional-units",
+        }:
             raise DeployError(f"apply is not allowed from phase {state.phase}")
         expected = (
             state.approved_sha if self.journal.completed("source-switch") else state.original_sha
@@ -1673,6 +1902,7 @@ class ReleaseDeployment:
                 self.store.save(state)
                 self._fault("runtime-switch")
                 for migration in ADAPTERS[state.adapter_set]:
+                    step = f"migration-{migration.migration_id}"
                     plan = None
                     if migration.approval_required:
                         plan_step = f"plan-{migration.migration_id}"
@@ -1690,11 +1920,10 @@ class ReleaseDeployment:
                             "plan": plan,
                         }
                         self.store.save(state)
-                        if approve_plan != digest:
+                        if self.journal.completed(step) is None and approve_plan != digest:
                             state.phase = "awaiting-migration-approval"
                             self.store.save(state)
                             raise ApprovalRequired(digest, migration.migration_id, plan)
-                    step = f"migration-{migration.migration_id}"
                     self.journal.run(
                         step,
                         {
@@ -1707,17 +1936,37 @@ class ReleaseDeployment:
                         ),
                     )
                     self._fault(step)
-                self.journal.run(
+                state.automation = self.journal.run(
                     "install-automation",
                     {"approved_sha": state.approved_sha},
                     lambda: self.operations.install_automation(state),
                 )
+                self.store.save(state)
                 self._fault("install-automation")
                 self.journal.run(
                     "requiesce",
                     {"approved_sha": state.approved_sha},
                     lambda: self.operations.quiesce(state),
                 )
+                optional_failures = state.automation.get("optional_failures", [])
+                if optional_failures:
+                    digest = _digest(
+                        {
+                            "approved_sha": state.approved_sha,
+                            "policy": state.prepared["unit_policy"],
+                            "optional_failures": optional_failures,
+                            "automation": state.automation,
+                        }
+                    )
+                    state.optional_unit_pause = {
+                        "plan_sha256": digest,
+                        "units": optional_failures,
+                    }
+                    self.store.save(state)
+                    if approve_optional != digest:
+                        state.phase = "awaiting-optional-units"
+                        self.store.save(state)
+                        raise OptionalUnitsPaused(digest, optional_failures)
                 self.journal.run(
                     "publish-snapshot",
                     {"approved_sha": state.approved_sha, "database": state.database},
@@ -1728,7 +1977,7 @@ class ReleaseDeployment:
             state.last_failure = None
             self.store.save(state)
             return {"status": "applied", "state": asdict(state)}
-        except ApprovalRequired:
+        except (ApprovalRequired, OptionalUnitsPaused):
             raise
         except BaseException as exc:
             self._save_failure(state, exc)
@@ -1817,7 +2066,10 @@ class ReleaseDeployment:
                 )
                 self.journal.run(
                     "restore-units",
-                    {"unit_files": state.inventory["unit_files"]},
+                    {
+                        "unit_files": state.inventory["unit_files"],
+                        "automation": state.automation,
+                    },
                     lambda: self.operations.restore_units(state),
                 )
                 self.journal.run(
@@ -1878,6 +2130,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--database", type=Path, default=Path("store/market.duckdb"))
     parser.add_argument("--home", type=Path, default=Path.home())
     parser.add_argument("--host-command-dir", type=Path)
+    parser.add_argument("--git-path", type=Path)
+    parser.add_argument("--uv-path", type=Path)
+    parser.add_argument("--node-path", type=Path)
+    parser.add_argument("--npm-path", type=Path)
     parser.add_argument("--api-url", default="http://127.0.0.1:8000")
     parser.add_argument("--ui-url", default="http://127.0.0.1:3000")
     parser.add_argument(
@@ -1900,6 +2156,7 @@ def _parser() -> argparse.ArgumentParser:
     apply = subparsers.add_parser("apply")
     apply.add_argument("state_dir", type=Path)
     apply.add_argument("--approve-plan")
+    apply.add_argument("--approve-optional")
     apply.add_argument("--execute", action="store_true")
     for name in ("verify", "rollback"):
         command = subparsers.add_parser(name)
@@ -1929,6 +2186,12 @@ def main(argv: list[str] | None = None) -> int:
         api_url=args.api_url,
         ui_url=args.ui_url,
         minimum_free_bytes=args.minimum_free_bytes,
+        tool_paths={
+            "git": args.git_path,
+            "uv": args.uv_path,
+            "node": args.node_path,
+            "npm": args.npm_path,
+        },
     )
     deployment = ReleaseDeployment(store, operations, fail_after=args.fail_after)
     repo_root = args.repo_root.resolve()
@@ -1944,7 +2207,11 @@ def main(argv: list[str] | None = None) -> int:
                 execute=args.execute,
             )
         elif args.command == "apply":
-            result = deployment.apply(execute=args.execute, approve_plan=args.approve_plan)
+            result = deployment.apply(
+                execute=args.execute,
+                approve_plan=args.approve_plan,
+                approve_optional=args.approve_optional,
+            )
         elif args.command == "verify":
             result = deployment.verify(execute=args.execute)
         elif args.command == "rollback":
@@ -1959,6 +2226,19 @@ def main(argv: list[str] | None = None) -> int:
                     "migration": exc.migration,
                     "plan_sha256": exc.digest,
                     "plan": exc.plan,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    except OptionalUnitsPaused as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "awaiting-optional-units",
+                    "units": exc.units,
+                    "plan_sha256": exc.digest,
                 },
                 indent=2,
                 sort_keys=True,

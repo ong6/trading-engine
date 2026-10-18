@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import stat
 import subprocess
 from contextlib import contextmanager
@@ -26,6 +27,7 @@ class FakeOperations:
         self.releases: list[bool] = []
         self.migrations: list[str] = []
         self.plan = {"invalid_rows": 2, "moved": 0}
+        self.optional_failures: list[str] = []
 
     def preflight_prepare(self, **kwargs):
         self.calls.append("preflight")
@@ -57,6 +59,11 @@ class FakeOperations:
             "node_modules": str(prepared / "node/node_modules"),
             "ui_build": str(prepared / "node/.next"),
             "lock_sha256": preflight["lock_sha256"],
+            "tools": {},
+            "unit_policy": {
+                name: "optional" if name in release_deploy.OPTIONAL_UNITS else "required"
+                for name in release_deploy.install_automation.UNIT_SOURCES
+            },
             "release_manifest_sha256": "d" * 64,
             "release_tool_sha256": "9" * 64,
             "versions": {"python": "Python test", "node": "v-test"},
@@ -139,7 +146,12 @@ class FakeOperations:
 
     def install_automation(self, _state):
         self.calls.append("install-automation")
-        return {"status": "ok"}
+        return {
+            "status": "optional-failures" if self.optional_failures else "ok",
+            "installed_unit_files": [],
+            "enablement_units": [],
+            "optional_failures": self.optional_failures,
+        }
 
     def publish_snapshot(self, _state, _held_locks):
         self.calls.append("publish-snapshot")
@@ -828,6 +840,10 @@ def test_preflight_binds_the_approved_commit_dependency_locks(tmp_path, monkeypa
     old = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], text=True).strip()
     (repo / "uv.lock").write_text("new python lock\n")
     (repo / "ui/package-lock.json").write_text("new node lock\n")
+    (repo / "server").mkdir()
+    (repo / "server/p15-registration.json").write_text(
+        json.dumps({"code_identity": {"source_commit": old}})
+    )
     subprocess.run(["git", "-C", repo, "add", "."], check=True)
     subprocess.run(
         [
@@ -871,29 +887,90 @@ def test_preflight_binds_the_approved_commit_dependency_locks(tmp_path, monkeypa
         repo_root=repo,
         database=repo / "store/market.duckdb",
         approved_sha=approved,
-        adapter_set="none",
-        d0=None,
+        adapter_set="revision-15",
+        d0="2026-10-19",
     )
     assert result["original_sha"] == old
     assert result["lock_sha256"] == {
         "uv.lock": hashlib.sha256(b"new python lock\n").hexdigest(),
         "ui/package-lock.json": hashlib.sha256(b"new node lock\n").hexdigest(),
     }
+    assert result["registration_source_commit"] == old
+
+    subprocess.run(["git", "-C", repo, "checkout", "-q", approved], check=True)
+    (repo / "server/p15-registration.json").write_text(
+        json.dumps({"code_identity": {"source_commit": "3" * 40}})
+    )
+    subprocess.run(["git", "-C", repo, "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            repo,
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "rewritten registration",
+        ],
+        check=True,
+    )
+    rewritten = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], text=True).strip()
+    subprocess.run(["git", "-C", repo, "checkout", "-q", old], check=True)
+    with pytest.raises(release_deploy.DeployError, match="not an ancestor"):
+        operations.preflight_prepare(
+            repo_root=repo,
+            database=repo / "store/market.duckdb",
+            approved_sha=rewritten,
+            adapter_set="revision-15",
+            d0="2026-10-19",
+        )
 
 
-def test_mismatched_installed_unit_is_refused(tmp_path):
+def test_required_unit_that_does_not_converge_is_refused(tmp_path):
     class Runner:
+        def __init__(self):
+            self.index = 0
+
         def run(self, *_args, **_kwargs):
-            payload = {
-                "status": "ok",
-                "applied": True,
-                "service_units": {"fixture.service": {"matches": False}},
+            changes = {
+                "service_units": [],
+                "enable_units": [],
+                "start_units": ["trading-engine-api.service"],
+                "crontab": False,
+                "enable_linger": False,
             }
-            return subprocess.CompletedProcess([], 0, json.dumps(payload), "")
+            payload = {"status": "changes-required", "errors": [], "changes": changes}
+            returncode = 1 if self.index == 1 else 0
+            self.index += 1
+            return subprocess.CompletedProcess([], returncode, json.dumps(payload), "")
 
     root = tmp_path / "repo"
     root.mkdir()
     store = release_deploy.StateStore(tmp_path / "state")
+    state = release_deploy.ReleaseState(
+        schema_version=1,
+        transaction_id="fixture",
+        created_at="now",
+        updated_at="now",
+        phase="applying",
+        repo_root=str(root),
+        database=str(root / "db"),
+        approved_sha=NEW_SHA,
+        original_sha=OLD_SHA,
+        adapter_set="none",
+        d0=None,
+        prepared={
+            "python_environment": str(tmp_path / "python"),
+            "unit_policy": {
+                name: "optional" if name in release_deploy.OPTIONAL_UNITS else "required"
+                for name in release_deploy.install_automation.UNIT_SOURCES
+            },
+        },
+    )
+    store.create(state)
     operations = release_deploy.ReleaseOperations(
         store,
         home=tmp_path,
@@ -902,11 +979,63 @@ def test_mismatched_installed_unit_is_refused(tmp_path):
         ui_url="http://invalid",
         minimum_free_bytes=0,
     )
-    state = SimpleNamespace(
-        repo_root=str(root), prepared={"python_environment": str(tmp_path / "python")}
-    )
-    with pytest.raises(release_deploy.DeployError, match="installed unit mismatch"):
+    with pytest.raises(release_deploy.DeployError, match="required automation"):
         operations.install_automation(state)
+
+
+def test_optional_provider_unit_failure_is_classified_without_release_failure(tmp_path):
+    class Runner:
+        def __init__(self):
+            self.index = 0
+
+        def run(self, *_args, **_kwargs):
+            changes = {
+                "service_units": [],
+                "enable_units": [],
+                "start_units": ["massive-options-daily.service"],
+                "crontab": False,
+                "enable_linger": False,
+            }
+            payload = {"status": "changes-required", "errors": [], "changes": changes}
+            returncode = 1 if self.index == 1 else 0
+            self.index += 1
+            return subprocess.CompletedProcess([], returncode, json.dumps(payload), "")
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    store = release_deploy.StateStore(tmp_path / "state")
+    state = release_deploy.ReleaseState(
+        schema_version=1,
+        transaction_id="fixture",
+        created_at="now",
+        updated_at="now",
+        phase="applying",
+        repo_root=str(root),
+        database=str(root / "db"),
+        approved_sha=NEW_SHA,
+        original_sha=OLD_SHA,
+        adapter_set="none",
+        d0=None,
+        prepared={
+            "python_environment": str(tmp_path / "python"),
+            "unit_policy": {
+                name: "optional" if name in release_deploy.OPTIONAL_UNITS else "required"
+                for name in release_deploy.install_automation.UNIT_SOURCES
+            },
+        },
+    )
+    store.create(state)
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=tmp_path,
+        command_runner=Runner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    result = operations.install_automation(state)
+    assert result["status"] == "optional-failures"
+    assert result["optional_failures"] == ["massive-options-daily.service"]
 
 
 def test_prepared_dependency_without_executable_environment_is_refused(transaction):
@@ -915,6 +1044,204 @@ def test_prepared_dependency_without_executable_environment_is_refused(transacti
     (Path(deployment.store.load().prepared["python_environment"]) / "bin/python").unlink()
     with pytest.raises(release_deploy.DeployError, match="no executable environment"):
         deployment.apply(execute=False, approve_plan=None)
+
+
+def test_prepare_resolves_ui_toolchain_without_a_shell_path(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    node_bin = home / "tools/node/bin"
+    node_bin.mkdir(parents=True)
+    for name in ("node", "npm"):
+        path = node_bin / name
+        path.write_text("#!/bin/sh\nexit 0\n")
+        path.chmod(0o755)
+    git = Path(shutil.which("git"))
+    uv = Path(shutil.which("uv"))
+    monkeypatch.setenv("PATH", "")
+    store = release_deploy.StateStore(tmp_path / "state")
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=home,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+        tool_paths={"git": git, "uv": uv},
+    )
+    tools = operations._resolve_release_tools()
+    assert tools["node"]["path"] == str(node_bin / "node")
+    assert tools["npm"]["path"] == str(node_bin / "npm")
+
+    (node_bin / "node").unlink()
+    with pytest.raises(release_deploy.DeployError, match="required release executable.*node"):
+        operations._resolve_release_tools()
+    deployment = release_deploy.ReleaseDeployment(store, operations)
+    with pytest.raises(release_deploy.DeployError, match="required release executable.*node"):
+        deployment.prepare(
+            repo_root=tmp_path / "not-reached",
+            database=tmp_path / "not-reached.duckdb",
+            approved_sha=NEW_SHA,
+            adapter_set="none",
+            d0=None,
+            execute=True,
+        )
+    assert not store.directory.exists()
+
+
+def test_optional_unit_failure_pauses_after_requiesce_and_can_be_accepted(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    operations.optional_failures = ["massive-options-daily.service"]
+    with pytest.raises(release_deploy.OptionalUnitsPaused) as pause:
+        deployment.apply(execute=True, approve_plan=None)
+    assert deployment.store.load().phase == "awaiting-optional-units"
+    assert operations.calls[-1] == "quiesce"
+    assert "publish-snapshot" not in operations.calls
+
+    result = deployment.apply(
+        execute=True,
+        approve_plan=None,
+        approve_optional=pause.value.digest,
+    )
+    assert result["status"] == "applied"
+    assert operations.calls.count("install-automation") == 1
+    assert operations.calls.count("publish-snapshot") == 1
+
+
+def test_quiesce_refuses_new_unit_without_touching_it(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_host(bin_dir)
+    unexpected = "trading-engine-surprise.timer"
+    host_state = tmp_path / "host.json"
+    host_state.write_text(
+        json.dumps(
+            {
+                "units": {
+                    unexpected: {
+                        "LoadState": "loaded",
+                        "ActiveState": "active",
+                        "UnitFileState": "enabled",
+                        "MainPID": "17",
+                    }
+                }
+            }
+        )
+    )
+    cron = tmp_path / "cron"
+    cron.write_text("must remain\n")
+    monkeypatch.setenv("FAKE_HOST_STATE", str(host_state))
+    monkeypatch.setenv("FAKE_CRONTAB", str(cron))
+    monkeypatch.setenv("FAKE_PS_OUTPUT", "")
+    store = release_deploy.StateStore(tmp_path / "state")
+    os.mkdir(store.directory, 0o700)
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(bin_dir),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    state = release_deploy.ReleaseState(
+        schema_version=1,
+        transaction_id="fixture",
+        created_at="now",
+        updated_at="now",
+        phase="applying",
+        repo_root=str(tmp_path / "repo"),
+        database=str(tmp_path / "db"),
+        approved_sha=NEW_SHA,
+        original_sha=OLD_SHA,
+        adapter_set="none",
+        d0=None,
+        inventory={"units": {}, "crontab": {"present": True, "content": "must remain\n"}},
+    )
+    with pytest.raises(release_deploy.DeployError, match="outside saved inventory"):
+        operations.quiesce(state)
+    assert json.loads(host_state.read_text())["units"][unexpected]["ActiveState"] == "active"
+    assert cron.read_text() == "must remain\n"
+
+
+def test_private_alpha_units_are_never_claimed_by_release_inventory(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_host(bin_dir)
+    host_state = tmp_path / "host.json"
+    host_state.write_text(
+        json.dumps(
+            {
+                "units": {
+                    "live-287.timer": {
+                        "LoadState": "loaded",
+                        "ActiveState": "active",
+                        "UnitFileState": "enabled",
+                        "ExecStart": "/trading-alpha/live-287",
+                    }
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("FAKE_HOST_STATE", str(host_state))
+    monkeypatch.setenv("FAKE_CRONTAB", str(tmp_path / "cron"))
+    store = release_deploy.StateStore(tmp_path / "state")
+    os.mkdir(store.directory, 0o700)
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(bin_dir),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    assert "live-287.timer" not in operations._unit_names()
+
+
+def test_rollback_does_not_disable_unit_never_installed_by_apply(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_host(bin_dir)
+    name = "massive-options-daily.service"
+    host_state = tmp_path / "host.json"
+    host_state.write_text(json.dumps({"units": {}}))
+    monkeypatch.setenv("FAKE_HOST_STATE", str(host_state))
+    monkeypatch.setenv("FAKE_CRONTAB", str(tmp_path / "cron"))
+    home = tmp_path / "home"
+    home.mkdir()
+    store = release_deploy.StateStore(tmp_path / "state")
+    os.mkdir(store.directory, 0o700)
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=home,
+        command_runner=release_deploy.CommandRunner(bin_dir),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    state = release_deploy.ReleaseState(
+        schema_version=1,
+        transaction_id="fixture",
+        created_at="now",
+        updated_at="now",
+        phase="rolling-back",
+        repo_root=str(tmp_path / "repo"),
+        database=str(tmp_path / "db"),
+        approved_sha=NEW_SHA,
+        original_sha=OLD_SHA,
+        adapter_set="none",
+        d0=None,
+        inventory={
+            "unit_files": {name: {"kind": "absent"}},
+            "units": {
+                name: {
+                    "LoadState": "not-found",
+                    "ActiveState": "inactive",
+                    "UnitFileState": "disabled",
+                }
+            },
+        },
+        automation={"installed_unit_files": [], "enablement_units": []},
+    )
+    assert operations.restore_units(state) == {"restored": [], "enablement_restored": []}
 
 
 def test_state_loader_rejects_permissions_and_unknown_fields(tmp_path):
