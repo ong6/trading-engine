@@ -583,6 +583,49 @@ def test_release_refuses_unpushed_work_then_accepts_remote_handoff(tmp_path):
     assert row["released_at"] == "2026-10-18T18:05:00Z"
 
 
+def test_release_rejects_stale_origin_and_unrelated_remote_advertisement(tmp_path):
+    fixture = _fixture(tmp_path)
+    _create(fixture)
+    target = fixture["root"] / "lane-one"
+    head = _commit(target)
+    status = _status(fixture, "lane-one", head)
+    branch_ref = "refs/heads/build/lane-one"
+    _git(target, "push", "-u", "origin", "HEAD")
+    _git(fixture["remote"], "update-ref", "-d", branch_ref)
+
+    stale = lane.audit_lane(
+        lanes_root=fixture["root"],
+        home=fixture["home"],
+        lane="lane-one",
+        status_path=status,
+    )
+
+    assert stale["checks"]["unpushed_free"] is True
+    assert stale["checks"]["handoff_remote_current"] is False
+    assert stale["ok"] is False
+
+    scratch = fixture["root"] / "scratch.git"
+    _git(fixture["root"], "init", "--bare", str(scratch))
+    _git(target, "remote", "add", "scratch", str(scratch))
+    _git(target, "push", "scratch", f"HEAD:{branch_ref}")
+    unrelated = lane.audit_lane(
+        lanes_root=fixture["root"],
+        home=fixture["home"],
+        lane="lane-one",
+        status_path=status,
+    )
+
+    assert unrelated["checks"]["unpushed_free"] is True
+    assert unrelated["checks"]["handoff_remote_current"] is False
+    with pytest.raises(lane.LaneError, match="handoff_remote_current"):
+        lane.release_lane(
+            lanes_root=fixture["root"],
+            home=fixture["home"],
+            lane="lane-one",
+            status_path=status,
+        )
+
+
 def test_release_refuses_dirty_tree_wrong_status_stash_store_and_process(tmp_path):
     fixture = _fixture(tmp_path)
     _create(fixture)

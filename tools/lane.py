@@ -421,6 +421,8 @@ def _parse_claim_document(content: str) -> tuple[list[dict], dict | None]:
             "branch",
             "claim_globs",
             "claimed_at",
+            "handoff_ref",
+            "handoff_remote",
             "lane",
             "owner",
             "session",
@@ -964,6 +966,31 @@ def _public_identity(source: Path, name: str | None, email: str | None) -> tuple
     return selected_name, selected_email
 
 
+def _handoff(source: Path, branch: str, remote: str, ref: str | None) -> tuple[str, str]:
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", remote):
+        raise LaneError("handoff remote name is unsafe")
+    _git(source, "remote", "get-url", remote)
+    selected_ref = ref or f"refs/heads/{branch}"
+    if not selected_ref.startswith("refs/heads/"):
+        raise LaneError("handoff ref must name a branch")
+    _git(source, "check-ref-format", selected_ref)
+    return remote, selected_ref
+
+
+def _advertised_handoff_sha(target: Path, remote: str, ref: str) -> str | None:
+    environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    result = _run(
+        target,
+        ["git", "ls-remote", "--heads", remote, ref],
+        env=environment,
+    )
+    rows = [line.split("\t", 1) for line in result.stdout.splitlines() if line]
+    exact = [sha for sha, advertised_ref in rows if advertised_ref == ref]
+    if len(exact) > 1 or any(not FULL_SHA_RE.fullmatch(sha) for sha in exact):
+        raise LaneError("handoff remote returned ambiguous branch state")
+    return exact[0] if exact else None
+
+
 def _protected_stores(target: Path) -> list[str]:
     store = target / "store"
     if not store.is_dir():
@@ -1099,6 +1126,8 @@ def _reservation_matches(
     claims: tuple[str, ...],
     owner: str,
     session: str,
+    handoff_remote: str,
+    handoff_ref: str,
 ) -> bool:
     return (
         row.get("branch") == branch
@@ -1106,6 +1135,8 @@ def _reservation_matches(
         and row.get("claim_globs") == list(claims)
         and row.get("owner") == owner
         and row.get("session") == session
+        and row.get("handoff_remote") == handoff_remote
+        and row.get("handoff_ref") == handoff_ref
     )
 
 
@@ -1170,6 +1201,8 @@ def create_lane(
     name: str | None = None,
     email: str | None = None,
     uv: str = "uv",
+    handoff_remote: str = "origin",
+    handoff_ref: str | None = None,
     clock: Callable[[], datetime] = _now,
     phase_hook: Callable[[str], None] | None = None,
     timer: Callable[[], float] = time.monotonic,
@@ -1186,6 +1219,9 @@ def create_lane(
     if not owner.strip() or not session.strip():
         raise LaneError("owner and session are required")
     public_name, public_email = _public_identity(source, name, email)
+    handoff_remote, handoff_ref = _handoff(
+        source, branch, handoff_remote, handoff_ref
+    )
     notify = phase_hook or (lambda _phase: None)
 
     with _claims_lock(root):
@@ -1200,6 +1236,8 @@ def create_lane(
                 claims=claims,
                 owner=owner,
                 session=session,
+                handoff_remote=handoff_remote,
+                handoff_ref=handoff_ref,
             ):
                 raise LaneError("existing lane reservation does not match this request")
             if row["state"] == "active":
@@ -1225,6 +1263,8 @@ def create_lane(
                 "branch": branch,
                 "claim_globs": list(claims),
                 "claimed_at": _timestamp(clock),
+                "handoff_ref": handoff_ref,
+                "handoff_remote": handoff_remote,
                 "lane": lane,
                 "owner": owner,
                 "phase": "reserved",
@@ -1418,6 +1458,13 @@ def _audit_unlocked(
             "running_process_free": not _running_pids(target),
         }
     )
+    try:
+        advertised_handoff = _advertised_handoff_sha(
+            target, claim["handoff_remote"], claim["handoff_ref"]
+        )
+    except LaneError:
+        advertised_handoff = None
+    checks["handoff_remote_current"] = advertised_handoff == head
     environment_ok = bool(
         environment
         and environment.get("lock_sha256") == current_lock
@@ -1498,6 +1545,8 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--name")
     create.add_argument("--email")
     create.add_argument("--uv", default="uv")
+    create.add_argument("--handoff-remote", default="origin")
+    create.add_argument("--handoff-ref")
     abort = subparsers.add_parser("abort")
     abort.add_argument("lane")
     abort.add_argument("--reason", required=True)
@@ -1530,6 +1579,8 @@ def main(argv: list[str] | None = None) -> int:
                 name=args.name,
                 email=args.email,
                 uv=args.uv,
+                handoff_remote=args.handoff_remote,
+                handoff_ref=args.handoff_ref,
             )
         elif args.command == "abort":
             result = abort_lane(
