@@ -59,6 +59,7 @@ def test_cache_refuses_corruption_schema_drift_and_identity_staleness(tmp_path):
     market, _ = build_market(ticker_count=32, session_count=40)
     cached = cache.panel(_identity("panel"), lambda: market.primary)
     field = cached.object.data_path / "arrays" / "field-close.npy"
+    field.chmod(0o644)
     with field.open("r+b") as handle:
         handle.seek(-1, 2)
         handle.write(b"x")

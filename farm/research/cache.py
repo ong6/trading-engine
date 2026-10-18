@@ -245,6 +245,10 @@ class ResearchCache:
             }
             (temporary / "manifest.json").write_bytes(canonical_bytes(manifest, newline=True))
             fsync_tree(temporary)
+            for path in temporary.rglob("*"):
+                if path.is_file():
+                    path.chmod(0o444)
+            fsync_tree(temporary)
             target.parent.mkdir(parents=True, exist_ok=True)
             try:
                 os.rename(temporary, target)
