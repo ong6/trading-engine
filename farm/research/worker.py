@@ -31,21 +31,23 @@ def execute(request_path: Path, output_path: Path) -> None:
     required = {"callback", "feature_root", "parameters", "seed", "mode", "memory_mb"}
     if not isinstance(request, dict) or set(request) != required:
         raise ValueError("strategy worker request fields differ")
-    memory_bytes = int(request["memory_mb"]) * 1024 * 1024
-    if memory_bytes > 0:
-        # Scientific runtimes map large shared libraries before the strategy starts. Limit
-        # additional address space from this point instead of setting a nominal ceiling below
-        # the already mapped interpreter, which would make the first small allocation abort.
-        pages = int(Path("/proc/self/statm").read_text().split()[0])
-        memory_bytes += pages * os.sysconf("SC_PAGE_SIZE")
-        _, current_hard = resource.getrlimit(resource.RLIMIT_AS)
-        hard = memory_bytes if current_hard == resource.RLIM_INFINITY else min(current_hard, memory_bytes)
-        resource.setrlimit(resource.RLIMIT_AS, (min(memory_bytes, hard), hard))
     feature_root = Path(request["feature_root"]).resolve()
     cwd = Path.cwd().resolve()
     if not feature_root.is_relative_to(cwd):
         raise ValueError("feature mount must be staged inside the child working directory")
     callback = _callback(request["callback"])
+    memory_bytes = int(request["memory_mb"]) * 1024 * 1024
+    if memory_bytes > 0:
+        # Shared libraries reserve variable virtual address space unrelated to resident memory,
+        # so RLIMIT_AS makes identical scientific workers fail nondeterministically. Bound data /
+        # heap growth above the verified import baseline instead; Linux applies RLIMIT_DATA to
+        # heap and anonymous mappings, the allocations controlled by the study budget.
+        status = Path("/proc/self/status").read_text().splitlines()
+        data_kb = int(next(line.split()[1] for line in status if line.startswith("VmData:")))
+        memory_bytes += data_kb * 1024
+        _, current_hard = resource.getrlimit(resource.RLIMIT_DATA)
+        hard = memory_bytes if current_hard == resource.RLIM_INFINITY else min(current_hard, memory_bytes)
+        resource.setrlimit(resource.RLIMIT_DATA, (min(memory_bytes, hard), hard))
     predictions = callback(
         ReadOnlyMount(feature_root),
         request["parameters"],
