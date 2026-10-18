@@ -750,6 +750,15 @@ class ReleaseOperations:
         if migrations != [asdict(item) for item in ADAPTERS.get(state.adapter_set, ())]:
             raise DeployError("unknown or changed migration registry")
 
+    def validate_recovery_tools(self, state: ReleaseState) -> None:
+        tools = state.prepared["tools"]
+        if not isinstance(tools, dict) or set(tools) != {"git", "uv", "node", "npm"}:
+            raise DeployError("prepared release tool paths are incomplete")
+        git = tools["git"]
+        if not isinstance(git, dict) or self._executable_identity(Path(git.get("path", ""))) != git:
+            raise DeployError("prepared release executable changed: git")
+        self.selected_tools = tools
+
     def validate_prepared(self, state: ReleaseState) -> None:
         source = Path(state.prepared["source"])
         locks = state.prepared["lock_sha256"]
@@ -1711,7 +1720,7 @@ class ReleaseDeployment:
         state.last_failure = {"at": _utc_now(), "phase": state.phase, "reason": str(exc)}
         self.store.save(state)
 
-    def _load_prepared(self) -> ReleaseState:
+    def _load_prepared(self, *, recovery: bool = False) -> ReleaseState:
         state = self.store.load()
         expected_keys = {
             "source",
@@ -1748,6 +1757,13 @@ class ReleaseDeployment:
             not isinstance(value, str) or SHA256.fullmatch(value) is None for value in identities
         ):
             raise DeployError("prepared dependency or source identity is invalid")
+        if state.prepared["migrations"] != [
+            asdict(item) for item in ADAPTERS.get(state.adapter_set, ())
+        ]:
+            raise DeployError("unknown or changed migration registry")
+        if recovery:
+            self.operations.validate_recovery_tools(state)
+            return state
         state_root = self.store.directory.resolve()
         path_keys = ("source", "python_environment", "node_environment", "node_modules", "ui_build")
         if any(not isinstance(state.prepared[key], str) for key in path_keys):
@@ -1764,10 +1780,6 @@ class ReleaseDeployment:
         if not python.is_file() or not os.access(python, os.X_OK):
             raise DeployError("prepared dependency hash has no executable environment")
         self.operations.validate_prepared(state)
-        if state.prepared["migrations"] != [
-            asdict(item) for item in ADAPTERS.get(state.adapter_set, ())
-        ]:
-            raise DeployError("unknown or changed migration registry")
         return state
 
     def prepare(
@@ -2015,7 +2027,7 @@ class ReleaseDeployment:
             raise
 
     def rollback(self, *, execute: bool) -> dict[str, Any]:
-        state = self._load_prepared()
+        state = self._load_prepared(recovery=True)
         actions = [
             "rollback-quiesce",
             "capture-incident",
@@ -2096,7 +2108,7 @@ class ReleaseDeployment:
             raise
 
     def resume(self, *, reconciled_sha: str, execute: bool) -> dict[str, Any]:
-        state = self._load_prepared()
+        state = self._load_prepared(recovery=True)
         if FULL_SHA.fullmatch(reconciled_sha) is None:
             raise DeployError("reconciled SHA must be 40 lowercase hexadecimal characters")
         actions = ["validate-reconciled-source", "resume-autopush"]

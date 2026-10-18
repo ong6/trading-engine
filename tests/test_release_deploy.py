@@ -84,6 +84,9 @@ class FakeOperations:
     def validate_prepared(self, _state):
         self.calls.append("validate-prepared")
 
+    def validate_recovery_tools(self, _state):
+        self.calls.append("validate-recovery-tools")
+
     def capture_inventory(self, _state):
         self.calls.append("capture-inventory")
         return {
