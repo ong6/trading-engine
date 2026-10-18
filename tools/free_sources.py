@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from engine import free_sources
+from engine import free_sources, raw_payload
 from engine.lib import db
 from engine.lib.resources import write_text_atomic
 from sim import nyse
@@ -186,9 +186,7 @@ def _massive_cache(data_dir: Path, session_date: date) -> tuple[bytes, datetime]
     if receipt is None:
         return None
     raw_path, fetched_at, source_sha = receipt
-    body = raw_path.read_bytes()
-    if hashlib.sha256(body).hexdigest() != source_sha:
-        raise free_sources.FreeSourceError("Massive cached response hash is invalid")
+    body = raw_payload.read(raw_path, expected_sha256=source_sha)
     free_sources.parse_massive_grouped_daily(body, session_date)
     return body, fetched_at
 
@@ -205,9 +203,8 @@ def _massive_cache_receipt(
     if receipt_path.is_symlink() or not receipt_path.is_file():
         raise free_sources.FreeSourceError("Massive cache receipt is unsafe")
     receipt, fetched_at, source_sha = _parse_massive_cache_receipt(receipt_path, session_date)
-    raw_path = directory / receipt["raw_file"]
-    if raw_path.is_symlink() or not raw_path.is_file():
-        raise free_sources.FreeSourceError("Massive cached response is missing or unsafe")
+    raw_path = directory / f"{source_sha}.json"
+    raw_payload.read(raw_path, expected_sha256=source_sha)
     return raw_path, fetched_at, source_sha
 
 
@@ -223,10 +220,10 @@ def _cache_massive(
         if existing[0] != body:
             raise free_sources.FreeSourceError("Massive date already has a different response")
         return
-    _write_private_atomic(raw_path, body)
+    sealed = raw_payload.seal(raw_path, body, expected_sha256=source_sha)
     receipt = {
         "date": session_date.isoformat(), "fetched_at": fetched_at.isoformat(),
-        "raw_file": raw_path.name, "source_sha256": source_sha,
+        "raw_file": sealed.name, "source_sha256": source_sha,
     }
     write_text_atomic(receipt_path, json.dumps(receipt, sort_keys=True) + "\n")
     receipt_path.chmod(0o600)
@@ -474,7 +471,10 @@ def capture_massive_splits(
             observed.update((row["ticker"], row["ex_date"]) for row in rows)
             page_shas.append(source_sha)
             reconciliation_at = fetched_at
-            _write_private_atomic(data_dir / "massive" / "splits" / f"{source_sha}.json", body)
+            raw_payload.seal(
+                data_dir / "massive" / "splits" / f"{source_sha}.json", body,
+                expected_sha256=source_sha,
+            )
             con = db.connect(database, wait_s=0)
             try:
                 loaded = free_sources.load_splits(con, body, fetched_at=fetched_at)
@@ -575,7 +575,7 @@ def _parse_massive_cache_receipt(receipt_path, session_date):
         source_sha = receipt["source_sha256"]
         if free_sources.SHA256.fullmatch(source_sha) is None:
             raise ValueError
-        if receipt["raw_file"] != f"{source_sha}.json":
+        if receipt["raw_file"] not in {f"{source_sha}.json", f"{source_sha}.json.zst"}:
             raise ValueError
         fetched_at = datetime.fromisoformat(receipt["fetched_at"])
         if fetched_at.utcoffset() is None:

@@ -9,7 +9,7 @@ import duckdb
 import pytest
 
 from engine import free_massive_options as options
-from engine import free_sources
+from engine import free_sources, raw_payload
 from tools import free_massive_options as capture
 
 AS_OF = date(2026, 10, 6)
@@ -91,6 +91,10 @@ def test_recorded_contract_and_daily_pages_load_through_shared_limiter(tmp_path)
     )
     assert receipts == 2
     assert len(session.urls) == 2
+    for body in (CONTRACTS, DAILY):
+        logical = data_dir / f"{hashlib.sha256(body).hexdigest()}.json"
+        assert not logical.exists()
+        assert raw_payload.read(logical, expected_sha256=logical.stem) == body
 
 
 def test_tampered_cached_response_fails_sha_check(tmp_path):
@@ -123,6 +127,9 @@ def test_capture_resumes_from_verified_receipts_without_network_or_limiter(tmp_p
         selected_underlyings=("SPY",), contracts_only=True,
         rate_limit=lambda: calls.append("reserved"), close_overrides={"SPY": 500.0},
     )
+    logical = data_dir / f"{hashlib.sha256(CONTRACTS).hexdigest()}.json"
+    logical.write_bytes(raw_payload.read(logical))
+    raw_payload.compressed_path(logical).unlink()
     second = capture.capture(
         database=database, data_dir=data_dir, daily_database=tmp_path / "unused.duckdb",
         api_key="fixture-key", session=Session(fail=True), now=lambda: NOW, as_of=AS_OF,
@@ -143,7 +150,8 @@ def test_missing_cached_response_file_is_a_source_error(tmp_path):
         selected_underlyings=("SPY",), contracts_only=True,
         rate_limit=lambda: None, close_overrides={"SPY": 500.0},
     )
-    (data_dir / f"{hashlib.sha256(CONTRACTS).hexdigest()}.json").unlink()
+    logical = data_dir / f"{hashlib.sha256(CONTRACTS).hexdigest()}.json"
+    raw_payload.compressed_path(logical).unlink()
 
     with pytest.raises(free_sources.FreeSourceError, match="file is missing or unreadable"):
         capture.capture(

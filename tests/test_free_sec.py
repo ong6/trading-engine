@@ -10,7 +10,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from engine import free_sec, free_sources
+from engine import free_sec, free_sources, raw_payload
 from tools import free_sec as capture
 
 # Fixed entry time: writestr(name, ...) stamps the current time, so two fixtures
@@ -195,6 +195,10 @@ def test_sec_client_paces_parallel_requests_and_resumes_by_url_and_hash(tmp_path
     assert session.started == [0.0, 0.2]
     assert clock.sleeps == [0.2]
     assert all(headers["Accept-Encoding"] == "gzip, deflate" for headers in session.headers)
+    assert not list(tmp_path.rglob("*.raw"))
+    sealed = list(tmp_path.rglob("*.raw.zst"))
+    assert len(sealed) == 2
+    assert sorted(raw_payload.decode(path.read_bytes()) for path in sealed) == [b"first", b"second"]
     resumed = capture.SecClient(
         "Fixture Contact fixture@example.com", tmp_path,
         session=_Session(bodies, clock, fail_urls=urls), now=lambda: ALLOWED,

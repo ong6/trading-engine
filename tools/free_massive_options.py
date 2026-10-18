@@ -14,7 +14,7 @@ from urllib.parse import quote, urlencode, urlparse
 import requests
 
 from engine import free_massive_options as options
-from engine import free_sources
+from engine import free_sources, raw_payload
 from engine.lib import db
 from engine.lib.settings import REPO_ROOT
 from tools import free_sources as daily_capture
@@ -101,13 +101,17 @@ def _cached_body(database: Path, data_dir: Path, url: str) -> tuple[bytes, datet
         return None
     source_sha, fetched_at = receipt
     try:
-        raw = (data_dir / f"{source_sha}.json").read_bytes()
-    except OSError as exc:
+        raw = raw_payload.read(
+            data_dir / f"{source_sha}.json", expected_sha256=source_sha,
+        )
+    except free_sources.FreeSourceError as exc:
+        if "missing" in str(exc):
+            raise free_sources.FreeSourceError(
+                "Massive option cached response file is missing or unreadable"
+            ) from exc
         raise free_sources.FreeSourceError(
-            "Massive option cached response file is missing or unreadable"
+            "Massive option cached response hash or encoding is invalid"
         ) from exc
-    if hashlib.sha256(raw).hexdigest() != source_sha:
-        raise free_sources.FreeSourceError("Massive option cached response hash is invalid")
     return raw, fetched_at.replace(tzinfo=timezone.utc)
 
 
@@ -143,7 +147,9 @@ def _fetch(
     body = daily_capture._response_body(response, "Massive options")
     fetched_at = now()
     source_sha = hashlib.sha256(body).hexdigest()
-    daily_capture._write_private_atomic(data_dir / f"{source_sha}.json", body)
+    raw_payload.seal(
+        data_dir / f"{source_sha}.json", body, expected_sha256=source_sha,
+    )
     return body, fetched_at, source_sha, False
 
 
