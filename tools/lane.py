@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import fnmatch
 import hashlib
 import json
 import os
@@ -153,26 +154,45 @@ def _normalize_claim(value: str) -> str:
     return path.as_posix()
 
 
-def _witness(pattern: str, many: bool) -> str:
-    segments = []
-    for segment in pattern.split("/"):
-        if segment == "**":
-            if many:
-                segments.extend(("x", "x"))
-            continue
-        value = re.sub(r"\[[^]]+\]", "x", segment)
-        value = value.replace("*", "x").replace("?", "x") or "x"
-        segments.append(value)
-    return "/".join(segments)
+def _segment_has_magic(segment: str) -> bool:
+    return any(character in segment for character in GLOB_MAGIC)
 
 
-def _literal_prefix(pattern: str) -> tuple[str, ...]:
-    prefix = []
-    for part in pattern.split("/"):
-        if any(character in part for character in GLOB_MAGIC):
-            break
-        prefix.append(part)
-    return tuple(prefix)
+def _segment_disjoint(left: str, right: str) -> bool:
+    left_magic = _segment_has_magic(left)
+    right_magic = _segment_has_magic(right)
+    if not left_magic and not right_magic:
+        return left != right
+    if not left_magic:
+        return not fnmatch.fnmatchcase(left, right)
+    if not right_magic:
+        return not fnmatch.fnmatchcase(right, left)
+    return False
+
+
+def _exact_matches(pattern: str, exact: str) -> bool:
+    pattern_parts = pattern.split("/")
+    exact_parts = exact.split("/")
+    cache: dict[tuple[int, int], bool] = {}
+
+    def matches(pattern_index: int, exact_index: int) -> bool:
+        key = (pattern_index, exact_index)
+        if key in cache:
+            return cache[key]
+        if pattern_index == len(pattern_parts):
+            result = exact_index == len(exact_parts)
+        elif pattern_parts[pattern_index] == "**":
+            result = matches(pattern_index + 1, exact_index) or (
+                exact_index < len(exact_parts) and matches(pattern_index, exact_index + 1)
+            )
+        else:
+            result = exact_index < len(exact_parts) and fnmatch.fnmatchcase(
+                exact_parts[exact_index], pattern_parts[pattern_index]
+            ) and matches(pattern_index + 1, exact_index + 1)
+        cache[key] = result
+        return result
+
+    return matches(0, 0)
 
 
 def claims_overlap(left: str, right: str) -> bool:
@@ -183,24 +203,34 @@ def claims_overlap(left: str, right: str) -> bool:
     right_magic = any(character in right for character in GLOB_MAGIC)
     if not left_magic and not right_magic:
         return False
-    candidates = {
-        _witness(left, False),
-        _witness(left, True),
-        _witness(right, False),
-        _witness(right, True),
-    }
-    if any(
-        PurePosixPath(candidate).match(left) and PurePosixPath(candidate).match(right)
-        for candidate in candidates
-        if candidate
-    ):
-        return True
-    left_prefix = _literal_prefix(left)
-    right_prefix = _literal_prefix(right)
-    common = min(len(left_prefix), len(right_prefix))
-    if left_prefix[:common] != right_prefix[:common]:
+    if not left_magic:
+        return _exact_matches(right, left)
+    if not right_magic:
+        return _exact_matches(left, right)
+    left_parts = left.split("/")
+    right_parts = right.split("/")
+    if "**" not in left_parts and "**" not in right_parts:
+        if len(left_parts) != len(right_parts):
+            return False
+        return not any(
+            _segment_disjoint(left_part, right_part)
+            for left_part, right_part in zip(left_parts, right_parts, strict=True)
+        )
+    prefix_pairs = zip(left_parts, right_parts, strict=False)
+    for left_part, right_part in prefix_pairs:
+        if left_part == "**" or right_part == "**":
+            break
+        if _segment_disjoint(left_part, right_part):
+            return False
+    suffix_pairs = zip(reversed(left_parts), reversed(right_parts), strict=False)
+    for left_part, right_part in suffix_pairs:
+        if left_part == "**" or right_part == "**":
+            break
+        if _segment_disjoint(left_part, right_part):
+            return False
+    if not left_parts or not right_parts:
         return False
-    return bool(left_prefix or right_prefix)
+    return True
 
 
 def _claim_block(rows: Iterable[dict]) -> str:

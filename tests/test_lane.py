@@ -399,11 +399,28 @@ def test_create_never_invokes_publish_or_destructive_git_actions(tmp_path, monke
     assert not any(args[:2] == ("worktree", "remove") for args in calls)
 
 
-def test_claim_matching_distinguishes_disjoint_paths_and_fails_safe_for_globs():
+@pytest.mark.parametrize(
+    ("left", "right", "witness"),
+    [
+        ("*.py", "tools*", "tools.py"),
+        ("file?.txt", "file[0-9].txt", "file1.txt"),
+        ("[a-c]*.md", "*b.md", "b.md"),
+        ("tools/**", "**/lane.py", "tools/nested/lane.py"),
+        ("**/*.py", "tools/?ane.py", "tools/lane.py"),
+    ],
+)
+def test_claim_matching_fails_safe_for_adversarial_intersections(left, right, witness):
+    assert lane._exact_matches(left, witness)
+    assert lane._exact_matches(right, witness)
+    assert lane.claims_overlap(left, right) is True
+
+
+def test_claim_matching_proves_only_sound_disjoint_paths():
     assert lane.claims_overlap("tools/**", "tools/lane.py") is True
     assert lane.claims_overlap("tools/*.py", "tools/lane.py") is True
     assert lane.claims_overlap("tools/lane.py", "tests/test_lane.py") is False
     assert lane.claims_overlap("tools/a.py", "tools/b.py") is False
+    assert lane.claims_overlap("tools/*.py", "docs/*.py") is False
 
 
 def test_exact_base_and_claim_block_validation_fail_closed(tmp_path):
