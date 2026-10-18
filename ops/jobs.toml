@@ -1,0 +1,870 @@
+schema_version = 1
+maximum_receipt_retention_days = 180
+
+[defaults]
+owner = "public-engine"
+repository = "trading-engine"
+authority = "data"
+enabled = true
+calendar = "always"
+parameters = {}
+locks = [{ name = "job:{job_id}", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" }]
+
+[defaults.idempotency]
+template = "{job_id}:{version}:{scheduled_for}"
+
+[defaults.run_record]
+retention_days = 180
+
+[defaults.timeout]
+attempt_seconds = 600
+term_grace_seconds = 30
+overall_seconds = 600
+
+[defaults.retry]
+max_attempts = 1
+exit_codes = []
+backoff_seconds = []
+deadline_seconds = 600
+
+[defaults.alert]
+severity = "FAIL"
+grace_seconds = 300
+
+[defaults.catch_up]
+mode = "none"
+max_age_seconds = 0
+max_count = 0
+
+[defaults.resources]
+nice = 19
+io_scheduling_class = "idle"
+cpu_quota_percent = 0
+memory_high_bytes = 0
+memory_max_bytes = 0
+minimum_available_memory_bytes = 0
+tasks_max = 0
+scratch_bytes = 0
+output_bytes = 0
+min_free_bytes = 0
+unlimited_reason = "audit-only parity; legacy scheduler remains the resource authority"
+
+
+[[jobs]]
+job_id = "run-daily"
+version = 1
+authority = "paper"
+argv = ["{repo}/engine/run_daily.sh"]
+schedules = ["Mon..Fri *-*-* 22:30:00 UTC"]
+calendar = "UTC-weekday"
+locks = [
+  { name = "job:run-daily", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 0, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 32400
+overall_seconds = 32400
+
+[jobs.retry]
+deadline_seconds = 32400
+
+[jobs.legacy.cron]
+name = "run_daily"
+fields = "30 22 * * 1-5"
+log = "logs/cron.log"
+append = true
+
+
+[[jobs]]
+job_id = "run-weekly-verify"
+version = 1
+argv = ["{repo}/engine/run_weekly_verify.sh"]
+schedules = ["Sat *-*-* 02:00:00 UTC"]
+locks = [
+  { name = "job:run-weekly-verify", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-reader", mode = "shared", wait_seconds = 0, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 14400
+overall_seconds = 14400
+
+[jobs.retry]
+deadline_seconds = 14400
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.legacy.cron]
+name = "run_weekly_verify"
+fields = "0 2 * * 6"
+log = "logs/verify-cron.log"
+append = true
+
+
+[[jobs]]
+job_id = "run-weekend-sweeps"
+version = 1
+argv = ["{repo}/engine/run_weekend_sweeps.sh"]
+schedules = ["Sat *-*-* 06:00:00 UTC"]
+locks = [
+  { name = "job:run-weekend-sweeps", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 0, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 86400
+overall_seconds = 86400
+
+[jobs.retry]
+deadline_seconds = 86400
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.legacy.cron]
+name = "run_weekend_sweeps"
+fields = "0 6 * * 6"
+log = "logs/sweeps-cron.log"
+append = true
+
+
+[[jobs]]
+job_id = "run-weekly-liquid"
+version = 1
+argv = ["{repo}/engine/run_weekly_liquid.sh"]
+schedules = ["Sun *-*-* 02:00:00 UTC"]
+locks = [
+  { name = "job:run-weekly-liquid", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 1800, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 14400
+overall_seconds = 14400
+
+[jobs.retry]
+deadline_seconds = 14400
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.legacy.cron]
+name = "run_weekly_liquid"
+fields = "0 2 * * 0"
+log = "logs/liquid-cron.log"
+append = true
+
+
+[[jobs]]
+job_id = "run-weekly-walkforward"
+version = 1
+authority = "shadow"
+argv = ["{repo}/engine/run_weekly_walkforward.sh"]
+schedules = ["Sun *-*-* 06:00:00 UTC"]
+locks = [
+  { name = "job:run-weekly-walkforward", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 0, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 64800
+overall_seconds = 64800
+
+[jobs.retry]
+deadline_seconds = 64800
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.legacy.cron]
+name = "run_weekly_walkforward"
+fields = "0 6 * * 0"
+log = "logs/walkforward-cron.log"
+append = true
+
+
+[[jobs]]
+job_id = "friday-postflight"
+version = 1
+argv = [".venv/bin/python", "-m", "tools.verify_friday_postflight", "--publish"]
+schedules = ["Sat *-*-* 05:15:00 UTC"]
+locks = [
+  { name = "job:friday-postflight", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-reader", mode = "shared", wait_seconds = 0, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 3600
+overall_seconds = 3600
+
+[jobs.retry]
+deadline_seconds = 3600
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.legacy.cron]
+name = "friday_postflight"
+fields = "15 5 * * 6"
+log = "logs/friday-postflight.log"
+append = false
+working_directory = true
+
+
+[[jobs]]
+job_id = "trading-engine-agent-data-capture"
+version = 1
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "server.agent_data_capture_runner"]
+schedules = ["Tue..Sat *-*-* 01:25:00 UTC"]
+locks = [
+  { name = "job:trading-engine-agent-data-capture", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 60, timeout_status = "terminal_failure" },
+]
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.legacy.service]
+unit = "trading-engine-agent-data-capture.service"
+description = "Trading engine append-only agent data capture"
+after = ["network-online.target"]
+wants = ["network-online.target"]
+comments = [
+  "# Runner stages: server.agent_price_observations capture",
+  "# server.agent_corporate_action_observations capture",
+  "# server.agent_provider_responses capture",
+  "# server.agent_independent_price_evidence capture",
+]
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "server.agent_data_capture_runner"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 19
+io_scheduling_class = "idle"
+timeout_start = "10min"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "trading-engine-agent-data-capture.timer"
+description = "Schedule trading engine append-only agent data capture"
+on_calendar = ["Tue..Sat *-*-* 01:25:00 UTC"]
+persistent = true
+accuracy_sec = "1min"
+service_unit = "trading-engine-agent-data-capture.service"
+
+
+[[jobs]]
+job_id = "trading-engine-agent-shadow"
+version = 1
+authority = "shadow"
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "server.agent_shadow_schedule", "run"]
+schedules = ["Tue..Sat *-*-* 01:30:00 UTC"]
+locks = [
+  { name = "job:trading-engine-agent-shadow", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 60, timeout_status = "retryable_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 300
+overall_seconds = 1500
+
+[jobs.retry]
+max_attempts = 3
+exit_codes = [1]
+backoff_seconds = [300, 300]
+deadline_seconds = 1500
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.legacy.service]
+unit = "trading-engine-agent-shadow.service"
+description = "Trading engine agent-only shadow decision"
+after = ["network-online.target", "trae-proxy.service"]
+wants = ["network-online.target", "trae-proxy.service"]
+start_limit_interval = "30min"
+start_limit_burst = 3
+type = "exec"
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "server.agent_shadow_schedule", "run"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 19
+io_scheduling_class = "idle"
+timeout_start = "5min"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+restart = "on-failure"
+restart_sec = "5min"
+
+[jobs.legacy.timer]
+unit = "trading-engine-agent-shadow.timer"
+description = "Schedule trading engine agent-only shadow decision"
+on_calendar = ["Tue..Sat *-*-* 01:30:00 UTC"]
+persistent = true
+accuracy_sec = "1min"
+service_unit = "trading-engine-agent-shadow.service"
+
+
+[[jobs]]
+job_id = "trading-engine-daily-opportunity"
+version = 1
+authority = "paper"
+argv = ["%h/trading-engine/server/run_daily_opportunity.sh"]
+schedules = ["Tue..Sat *-*-* 02:00:00 UTC"]
+locks = [
+  { name = "job:trading-engine-daily-opportunity", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 60, timeout_status = "retryable_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 600
+overall_seconds = 1800
+
+[jobs.retry]
+max_attempts = 3
+exit_codes = [1]
+backoff_seconds = [300, 300]
+deadline_seconds = 1800
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.legacy.service]
+unit = "trading-engine-daily-opportunity.service"
+description = "Trading engine daily opportunity assessment"
+after = ["network-online.target", "trae-proxy.service"]
+wants = ["network-online.target", "trae-proxy.service"]
+start_limit_interval = "30min"
+start_limit_burst = 3
+type = "exec"
+exec_start = [{ argv = ["%h/trading-engine/server/run_daily_opportunity.sh"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 19
+io_scheduling_class = "idle"
+timeout_start = "10min"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+restart = "on-failure"
+restart_prevent_exit_status = 75
+restart_sec = "5min"
+
+[jobs.legacy.timer]
+unit = "trading-engine-daily-opportunity.timer"
+description = "Schedule trading engine daily opportunity assessment"
+on_calendar = ["Tue..Sat *-*-* 02:00:00 UTC"]
+persistent = true
+accuracy_sec = "1min"
+service_unit = "trading-engine-daily-opportunity.service"
+
+
+[[jobs]]
+job_id = "trading-engine-hourly-opportunity"
+version = 1
+authority = "shadow"
+argv = ["%h/trading-engine/server/run_hourly_opportunity.sh", "hourly_market_watch_v5"]
+schedules = ["Mon..Fri *-*-* 10..16:15:00 America/New_York"]
+calendar = "XNYS"
+locks = [
+  { name = "job:trading-engine-hourly-opportunity", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 60, timeout_status = "terminal_failure" },
+]
+
+[jobs.legacy.service]
+unit = "trading-engine-hourly-opportunity.service"
+description = "Trading engine hourly market opportunity observer"
+after = ["network-online.target", "trae-proxy.service"]
+wants = ["network-online.target", "trae-proxy.service"]
+exec_start = [{ argv = ["%h/trading-engine/server/run_hourly_opportunity.sh", "hourly_market_watch_v5"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 19
+io_scheduling_class = "idle"
+timeout_start = "10min"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "trading-engine-hourly-opportunity.timer"
+description = "Schedule hourly market opportunity observations"
+on_calendar = ["Mon..Fri *-*-* 10..16:15:00 America/New_York"]
+persistent = false
+accuracy_sec = "1min"
+service_unit = "trading-engine-hourly-opportunity.service"
+
+
+[[jobs]]
+job_id = "trading-engine-four-hour-opportunity"
+version = 1
+authority = "shadow"
+argv = ["%h/trading-engine/server/run_hourly_opportunity.sh", "four_hour_opportunity_review_v5"]
+schedules = [
+  "Mon..Fri *-*-* 10:30:00 America/New_York",
+  "Mon..Fri *-*-* 13:30:00 America/New_York",
+]
+calendar = "XNYS"
+locks = [
+  { name = "job:trading-engine-four-hour-opportunity", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 60, timeout_status = "terminal_failure" },
+]
+
+[jobs.legacy.service]
+unit = "trading-engine-four-hour-opportunity.service"
+description = "Trading engine four-hour market opportunity observer"
+after = ["network-online.target", "trae-proxy.service"]
+wants = ["network-online.target", "trae-proxy.service"]
+exec_start = [{ argv = ["%h/trading-engine/server/run_hourly_opportunity.sh", "four_hour_opportunity_review_v5"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 19
+io_scheduling_class = "idle"
+timeout_start = "10min"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "trading-engine-four-hour-opportunity.timer"
+description = "Schedule four-hour market opportunity observations"
+on_calendar = [
+  "Mon..Fri *-*-* 10:30:00 America/New_York",
+  "Mon..Fri *-*-* 13:30:00 America/New_York",
+]
+persistent = false
+accuracy_sec = "1min"
+service_unit = "trading-engine-four-hour-opportunity.service"
+
+
+[[jobs]]
+job_id = "trading-engine-tradingview-history"
+version = 1
+argv = ["%h/trading-engine/server/run_tradingview_history_archive.sh"]
+schedules = [
+  "Mon..Fri *-*-* 03,07,11,21,23:40:00 UTC",
+  "Sat *-*-* 03,07,11,15,19,23:40:00 UTC",
+  "Sun *-*-* 01,03,11,15,19,23:40:00 UTC",
+]
+locks = [
+  { name = "job:trading-engine-tradingview-history", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 900, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 14400
+overall_seconds = 14400
+
+[jobs.retry]
+deadline_seconds = 14400
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.legacy.service]
+unit = "trading-engine-tradingview-history.service"
+description = "Trading engine resumable TradingView history archive"
+after = ["network-online.target"]
+wants = ["network-online.target"]
+exec_start = [{ argv = ["%h/trading-engine/server/run_tradingview_history_archive.sh"] }]
+environment = ["PYTHONUNBUFFERED=1", "TRADING_ENGINE_LOCK_WAIT_S=900"]
+nice = 19
+io_scheduling_class = "idle"
+timeout_start = "4h"
+standard_output = "append:%h/trading-engine/logs/tradingview-history.log"
+standard_error = "append:%h/trading-engine/logs/tradingview-history.log"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "trading-engine-tradingview-history.timer"
+description = "Continue the bounded TradingView history archive outside weekday market hours"
+on_calendar = [
+  "Mon..Fri *-*-* 03,07,11,21,23:40:00 UTC",
+  "Sat *-*-* 03,07,11,15,19,23:40:00 UTC",
+  "Sun *-*-* 01,03,11,15,19,23:40:00 UTC",
+]
+persistent = true
+randomized_delay_sec = "10min"
+service_unit = "trading-engine-tradingview-history.service"
+
+
+[[jobs]]
+job_id = "trading-engine-p15-scoring"
+version = 1
+authority = "paper"
+argv = ["%h/trading-engine/server/run_p15_scoring.sh"]
+schedules = ["Tue..Sat *-*-* 02:30:00 UTC"]
+locks = [
+  { name = "job:trading-engine-p15-scoring", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 60, timeout_status = "retryable_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 32400
+overall_seconds = 98400
+
+[jobs.retry]
+max_attempts = 3
+exit_codes = [1]
+backoff_seconds = [300, 300]
+deadline_seconds = 98400
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.legacy.service]
+unit = "trading-engine-p15-scoring.service"
+description = "Trading engine P15 nightly candidate scoring"
+after = ["network-online.target", "trae-proxy.service"]
+wants = ["network-online.target", "trae-proxy.service"]
+start_limit_interval = "30min"
+start_limit_burst = 3
+type = "exec"
+exec_start = [{ argv = ["%h/trading-engine/server/run_p15_scoring.sh"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 19
+io_scheduling_class = "idle"
+timeout_start = "9h"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+restart = "on-failure"
+restart_prevent_exit_status = 75
+restart_sec = "5min"
+
+[jobs.legacy.timer]
+unit = "trading-engine-p15-scoring.timer"
+description = "Run P15 scoring after the nightly evidence pipeline"
+on_calendar = ["Tue..Sat *-*-* 02:30:00 UTC"]
+persistent = true
+service_unit = "trading-engine-p15-scoring.service"
+
+
+[[jobs]]
+job_id = "trading-engine-p15-preopen"
+version = 1
+authority = "paper"
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "server.p15_preopen", "--run"]
+schedules = ["Mon..Fri *-*-* 09:05:00 America/New_York"]
+calendar = "XNYS"
+locks = [
+  { name = "job:trading-engine-p15-preopen", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 60, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 1200
+overall_seconds = 1200
+
+[jobs.retry]
+deadline_seconds = 1200
+
+[jobs.legacy.service]
+unit = "trading-engine-p15-preopen.service"
+description = "Trading engine P15 cancel-only pre-open reassessment"
+after = ["network-online.target", "trae-proxy.service"]
+wants = ["network-online.target", "trae-proxy.service"]
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "server.p15_preopen", "--run"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 19
+io_scheduling_class = "idle"
+timeout_start = "20min"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "trading-engine-p15-preopen.timer"
+description = "Run P15 cancel-only reassessment before the opening auction"
+on_calendar = ["Mon..Fri *-*-* 09:05:00 America/New_York"]
+persistent = false
+service_unit = "trading-engine-p15-preopen.service"
+
+
+[[jobs]]
+job_id = "trading-engine-p15-events"
+version = 1
+authority = "shadow"
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "farm.p15_event_runner", "--run"]
+schedules = [
+  "Mon..Fri *-*-* 09:35,50:00 America/New_York",
+  "Mon..Fri *-*-* 10..15:05,20,35,50 America/New_York",
+]
+calendar = "XNYS"
+locks = [
+  { name = "job:trading-engine-p15-events", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 60, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 840
+overall_seconds = 840
+
+[jobs.retry]
+deadline_seconds = 840
+
+[jobs.legacy.service]
+unit = "trading-engine-p15-events.service"
+description = "Trading engine P15 shadow event scoring"
+after = ["network-online.target", "trae-proxy.service"]
+wants = ["network-online.target", "trae-proxy.service"]
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "farm.p15_event_runner", "--run"] }]
+exec_start_post = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.publish_snapshot", "--min-age-minutes", "120"], ignore_failure = true }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 19
+io_scheduling_class = "idle"
+timeout_start = "14min"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "trading-engine-p15-events.timer"
+description = "Run P15 shadow event scoring during regular market hours"
+on_calendar = [
+  "Mon..Fri *-*-* 09:35,50:00 America/New_York",
+  "Mon..Fri *-*-* 10..15:05,20,35,50 America/New_York",
+]
+persistent = false
+service_unit = "trading-engine-p15-events.service"
+
+
+[[jobs]]
+job_id = "trading-engine-ops-digest"
+version = 1
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.ops_digest"]
+schedules = ["*-*-* *:08:00 UTC"]
+locks = [
+  { name = "job:trading-engine-ops-digest", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-reader", mode = "shared", wait_seconds = 0, timeout_status = "terminal_failure" },
+]
+
+[jobs.catch_up]
+mode = "all_bounded"
+max_age_seconds = 172800
+max_count = 48
+
+[jobs.legacy.service]
+unit = "trading-engine-ops-digest.service"
+description = "Trading engine hourly operations digest"
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.ops_digest"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 19
+io_scheduling_class = "idle"
+timeout_start = "10min"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "trading-engine-ops-digest.timer"
+description = "Collate the past hour's runs, log signals and probes"
+on_calendar = ["*-*-* *:08:00 UTC"]
+persistent = true
+accuracy_sec = "1min"
+service_unit = "trading-engine-ops-digest.service"
+
+
+[[jobs]]
+job_id = "trading-engine-p16-challengers"
+version = 1
+authority = "shadow"
+enabled = false
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "server.p16_challenger_runner", "--run"]
+schedules = ["Tue..Sat *-*-* 03:00:00 UTC"]
+locks = [
+  { name = "job:trading-engine-p16-challengers", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 60, timeout_status = "retryable_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 32400
+overall_seconds = 98400
+
+[jobs.retry]
+max_attempts = 3
+exit_codes = [1]
+backoff_seconds = [300, 300]
+deadline_seconds = 98400
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.legacy.service]
+unit = "trading-engine-p16-challengers.service"
+description = "Trading engine P16 pre-entry challenger family"
+after = ["network-online.target", "trae-proxy.service", "trading-engine-p15-scoring.service"]
+wants = ["network-online.target", "trae-proxy.service"]
+start_limit_interval = "30min"
+start_limit_burst = 3
+type = "exec"
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "server.p16_challenger_runner", "--run"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 19
+io_scheduling_class = "idle"
+timeout_start = "9h"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+restart = "on-failure"
+restart_sec = "5min"
+
+[jobs.legacy.timer]
+unit = "trading-engine-p16-challengers.timer"
+description = "Run P16 challengers after the P15 nightly scoring job"
+on_calendar = ["Tue..Sat *-*-* 03:00:00 UTC"]
+persistent = true
+service_unit = "trading-engine-p16-challengers.service"
+
+
+[[jobs]]
+job_id = "massive-options-daily"
+version = 1
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.free_massive_options"]
+schedules = ["*-*-* 11:35:00 UTC"]
+locks = [
+  { name = "job:massive-options-daily", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "options-writer", mode = "exclusive", wait_seconds = 60, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 10800
+overall_seconds = 10800
+
+[jobs.retry]
+deadline_seconds = 10800
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.resources]
+nice = 10
+
+[jobs.legacy.service]
+unit = "massive-options-daily.service"
+description = "Capture bounded Massive option contracts and daily bars"
+after = ["network-online.target"]
+wants = ["network-online.target"]
+primary_index = 1
+comments = ["# Split refresh is fail-soft: options still use the prior as-of-correct split view."]
+exec_start = [
+  { argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.free_sources", "massive", "--splits"], ignore_failure = true },
+  { argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.free_massive_options"] },
+]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 10
+io_scheduling_class = "idle"
+timeout_start = "3h"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "massive-options-daily.timer"
+description = "Schedule bounded Massive options capture"
+on_calendar = ["*-*-* 11:35:00 UTC"]
+persistent = true
+accuracy_sec = "1min"
+service_unit = "massive-options-daily.service"
+
+
+[[jobs]]
+job_id = "trading-engine-accounts-settle"
+version = 1
+authority = "paper"
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "engine.accounts", "settle", "--late"]
+schedules = [
+  "Tue..Sat *-*-* 07:45:00 UTC",
+  "Tue..Sat *-*-* 11:55:00 UTC",
+]
+locks = [
+  { name = "job:trading-engine-accounts-settle", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-writer", mode = "exclusive", wait_seconds = 60, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 1800
+overall_seconds = 1800
+
+[jobs.retry]
+deadline_seconds = 1800
+
+[jobs.catch_up]
+mode = "latest"
+max_age_seconds = 86400
+max_count = 1
+
+[jobs.resources]
+nice = 10
+
+[jobs.legacy.service]
+unit = "trading-engine-accounts-settle.service"
+description = "Settle late trading-engine account fills"
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "engine.accounts", "settle", "--late"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 10
+io_scheduling_class = "idle"
+timeout_start = "30min"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "trading-engine-accounts-settle.timer"
+description = "Schedule late trading-engine account settlement"
+on_calendar = [
+  "Tue..Sat *-*-* 07:45:00 UTC",
+  "Tue..Sat *-*-* 11:55:00 UTC",
+]
+persistent = true
+accuracy_sec = "1min"
+service_unit = "trading-engine-accounts-settle.service"
+
+
+[[jobs]]
+job_id = "registry-audit"
+version = 1
+argv = [".venv/bin/python", "-m", "engine.job_contract", "audit", "--repo-root", "."]
+schedules = []
+
+[jobs.resources]
+minimum_available_memory_bytes = 16777216
+min_free_bytes = 1048576
