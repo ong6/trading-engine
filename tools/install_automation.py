@@ -98,14 +98,15 @@ UNIT_SOURCES = {
         "server/trading-engine-accounts-settle.timer"
     ),
 }
-AUTOSTART_UNITS = frozenset(
+TRADINGVIEW_HISTORY_TIMER = "trading-engine-tradingview-history.timer"
+COLLECTION_POLICY_RELATIVE = Path("server/collection-policy.json")
+_BASE_AUTOSTART_UNITS = frozenset(
     {
         "trading-engine-agent-data-capture.timer",
         "trading-engine-agent-shadow.timer",
         "trading-engine-daily-opportunity.timer",
         "trading-engine-hourly-opportunity.timer",
         "trading-engine-four-hour-opportunity.timer",
-        "trading-engine-tradingview-history.timer",
         "trading-engine-p15-scoring.timer",
         "trading-engine-p15-preopen.timer",
         "trading-engine-p15-events.timer",
@@ -116,6 +117,24 @@ AUTOSTART_UNITS = frozenset(
         "trading-engine-ui.service",
     }
 )
+
+
+def _desired_unit_sets(repo_root: Path) -> tuple[frozenset[str], frozenset[str]]:
+    try:
+        policy = json.loads((repo_root / COLLECTION_POLICY_RELATIVE).read_text())
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("collection policy is unreadable") from exc
+    if (not isinstance(policy, dict)
+            or set(policy) != {"schema_version", "tradingview_history"}
+            or policy["schema_version"] != 1
+            or not isinstance(policy["tradingview_history"], bool)):
+        raise RuntimeError("collection policy is invalid")
+    if policy["tradingview_history"]:
+        return (_BASE_AUTOSTART_UNITS | {TRADINGVIEW_HISTORY_TIMER}, frozenset())
+    return (_BASE_AUTOSTART_UNITS, frozenset({TRADINGVIEW_HISTORY_TIMER}))
+
+
+AUTOSTART_UNITS, PAUSED_UNITS = _desired_unit_sets(REPO_ROOT)
 MAX_AUTOMATION_SOURCE_BYTES = 1_048_576
 
 
@@ -693,6 +712,11 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
     home = (home or Path.home()).resolve()
     errors = _validate_checkout(repo_root, home)
     try:
+        autostart_units, paused_units = _desired_unit_sets(repo_root)
+    except RuntimeError as exc:
+        errors.append(str(exc))
+        autostart_units, paused_units = AUTOSTART_UNITS, PAUSED_UNITS
+    try:
         raw_payload.codec_version_number()
     except Exception as exc:  # noqa: BLE001 - installation must report any codec startup defect
         errors.append(f"raw-zstd-codec-unavailable:{type(exc).__name__}:{exc}")
@@ -715,12 +739,20 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
         "enable_units": sorted(
             unit
             for unit, state in units.items()
-            if unit in AUTOSTART_UNITS and state["enabled"] != "enabled"
+            if unit in autostart_units and state["enabled"] != "enabled"
         ),
         "start_units": sorted(
             unit
             for unit, state in units.items()
-            if unit in AUTOSTART_UNITS and state["active"] != "active"
+            if unit in autostart_units and state["active"] != "active"
+        ),
+        "disable_units": sorted(
+            unit for unit, state in units.items()
+            if unit in paused_units and state["enabled"] == "enabled"
+        ),
+        "stop_units": sorted(
+            unit for unit, state in units.items()
+            if unit in paused_units and state["active"] == "active"
         ),
         "enable_linger": linger != "yes",
     }
@@ -746,7 +778,9 @@ def _checked(args: list[str], *, input_text: str | None = None) -> None:
         raise RuntimeError(f"{args[0]} failed: {detail}")
 
 
-def _verify_applied(repo_root: Path, home: Path, units: list[str]) -> tuple[dict, dict, str]:
+def _verify_applied(
+    repo_root: Path, home: Path, units: list[str], paused_units: list[str],
+) -> tuple[dict, dict, str]:
     installed = _installed_units(repo_root, home)
     mismatched = sorted(unit for unit, state in installed.items() if not state["matches"])
     if mismatched:
@@ -772,6 +806,16 @@ def _verify_applied(repo_root: Path, home: Path, units: list[str]) -> tuple[dict
         raise RuntimeError(f"installed service units are not enabled: {', '.join(disabled)}")
     if inactive:
         raise RuntimeError(f"installed service units are not active: {', '.join(inactive)}")
+    incorrectly_enabled = sorted(
+        unit for unit in paused_units if installed[unit]["enabled"] == "enabled"
+    )
+    incorrectly_active = sorted(
+        unit for unit in paused_units if installed[unit]["active"] == "active"
+    )
+    if incorrectly_enabled:
+        raise RuntimeError(f"paused service units remain enabled: {', '.join(incorrectly_enabled)}")
+    if incorrectly_active:
+        raise RuntimeError(f"paused service units remain active: {', '.join(incorrectly_active)}")
     linger = _linger_state()
     if linger != "yes":
         raise RuntimeError(f"user lingering is not enabled: {linger}")
@@ -861,6 +905,16 @@ def _current_service_changes(units: list[str]) -> tuple[list[str], list[str]]:
     )
 
 
+def _current_paused_changes(units: list[str]) -> tuple[list[str], list[str]]:
+    """Return paused units that still need disabling or stopping."""
+    enabled = {unit: _service_state("is-enabled", unit) for unit in units}
+    active = {unit: _service_state("is-active", unit) for unit in units}
+    return (
+        sorted(unit for unit, state in enabled.items() if state == "enabled"),
+        sorted(unit for unit, state in active.items() if state == "active"),
+    )
+
+
 def apply(summary: dict, _desired_crontab: str, repo_root: Path, home: Path) -> dict:
     """Apply a validated plan; caller must have explicitly requested mutation."""
     # The caller may have displayed an earlier dry-run. Re-read every source and
@@ -878,21 +932,29 @@ def apply(summary: dict, _desired_crontab: str, repo_root: Path, home: Path) -> 
     if _linger_state() != "yes":
         _checked(["loginctl", "enable-linger", str(os.getuid())])
         summary["changes"]["enable_linger"] = True
-    units = sorted(AUTOSTART_UNITS)
+    autostart_units, paused_unit_set = _desired_unit_sets(repo_root)
+    units, paused_units = sorted(autostart_units), sorted(paused_unit_set)
     enable_units, start_units = _current_service_changes(units)
+    disable_units, stop_units = _current_paused_changes(paused_units)
     summary["changes"]["enable_units"] = enable_units
     summary["changes"]["start_units"] = start_units
+    summary["changes"]["disable_units"] = disable_units
+    summary["changes"]["stop_units"] = stop_units
     if changed_units:
         _checked(["systemctl", "--user", "daemon-reload"])
     if enable_units:
         _checked(["systemctl", "--user", "enable", *enable_units])
-    changed = set(changed_units) & AUTOSTART_UNITS
+    if stop_units:
+        _checked(["systemctl", "--user", "stop", *stop_units])
+    if disable_units:
+        _checked(["systemctl", "--user", "disable", *disable_units])
+    changed = set(changed_units) & autostart_units
     if changed:
         _checked(["systemctl", "--user", "restart", *sorted(changed)])
     inactive_unchanged = sorted(set(start_units) - changed)
     if inactive_unchanged:
         _checked(["systemctl", "--user", "start", *inactive_unchanged])
-    scheduler, installed, linger = _verify_applied(repo_root, home, units)
+    scheduler, installed, linger = _verify_applied(repo_root, home, units, paused_units)
     return {
         **summary,
         "status": "ok",

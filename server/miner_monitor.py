@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from datetime import timezone
+import json
+from pathlib import Path
 
 import duckdb
 
 from engine.lib.util import table_exists
+from engine.lib.settings import REPO_ROOT
 from server.json_utils import loads_object
 
 from .read_model_utils import (
@@ -31,6 +34,20 @@ _SCHEDULED_MINER_PARAMS = {
                             "max_chunks": 50},
 }
 JOB_SCAN_BATCH_SIZE = 256
+COLLECTION_POLICY_PATH = REPO_ROOT / "server/collection-policy.json"
+
+
+def _tradingview_collection_enabled(policy_path: Path = COLLECTION_POLICY_PATH) -> bool:
+    try:
+        policy = json.loads(policy_path.read_text())
+    except (OSError, ValueError) as exc:
+        raise ValueError("collection policy is unreadable") from exc
+    if (not isinstance(policy, dict)
+            or set(policy) != {"schema_version", "tradingview_history"}
+            or policy["schema_version"] != 1
+            or not isinstance(policy["tradingview_history"], bool)):
+        raise ValueError("collection policy is invalid")
+    return policy["tradingview_history"]
 
 
 def _intraday_has_issues(raw: dict) -> bool:
@@ -242,10 +259,11 @@ def evidence_status(meta: dict, con: duckdb.DuckDBPyConnection) -> dict:
         if kind == "tradingview_history":
             try:
                 paused = _tradingview_paused_status(meta.get(meta_key))
+                enabled = _tradingview_collection_enabled()
             except (KeyError, TypeError, ValueError):
                 miners[kind] = {"status": "invalid", "reason": "evidence-invalid"}
                 continue
-            if paused is not None:
+            if paused is not None and not enabled:
                 miners[kind] = paused
                 continue
         row = latest_jobs.get(kind)
