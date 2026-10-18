@@ -407,6 +407,86 @@ raise SystemExit(result.exit_code)
     assert effects.read_text().splitlines() == ["once"]
 
 
+@pytest.mark.parametrize("launch_state", ["preparing", "identity-published"])
+def test_prelaunch_handshake_boundaries_recover_without_manual_surgery(
+    tmp_path, launch_state
+):
+    effect = tmp_path / "effect"
+    spec, repo = _spec(
+        tmp_path, f"from pathlib import Path\nPath({str(effect)!r}).write_text('once')\n"
+    )
+    destination, operator_key, canonical_key, scope = _destination(
+        tmp_path / "logs", spec, explicit_key="boundary-key"
+    )
+    stale = {
+        "schema_version": 1, "run_id": "old", "job_id": spec.job_id,
+        "spec_version": 1, "spec_sha256": spec.spec_sha256,
+        "idempotency_key": canonical_key, "operator_idempotency_key": operator_key,
+        "idempotency_scope_sha256": scope, "scheduled_for": "2026-10-18T12:00:00Z",
+        "started_at": "2026-10-18T11:59:00Z", "attempt": 1,
+        "argv": list(spec.argv), "parameter_sha256": run_job._hash_json({}),
+        "source_sha": "a" * 40, "state": "running", "launch_state": launch_state,
+    }
+    if launch_state == "identity-published":
+        child_pid, child_identity = _exited_process_identity()
+        stale.update({"child_pid": child_pid, "child_process_identity": child_identity})
+    run_job._atomic_json(destination / "1.running.json", stale)
+
+    result = _execute(spec, repo, tmp_path, idempotency_key="boundary-key")
+
+    statuses = [json.loads(path.read_text())["work_status"] for path in result.receipts]
+    assert statuses == ["interrupted", "success"]
+    assert json.loads(result.receipts[0].read_text())["reason"] == "prelaunch-interrupted"
+    assert effect.read_text() == "once"
+
+
+def test_task_popen_failure_terminalizes_reserved_attempt(tmp_path):
+    effect = tmp_path / "effect"
+    spec, repo = _spec(
+        tmp_path, f"from pathlib import Path\nPath({str(effect)!r}).touch()\n"
+    )
+    calls = 0
+
+    def fail_task_popen(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise FileNotFoundError("injected task launch failure")
+        return run_job.subprocess.Popen(*args, **kwargs)
+
+    result = _execute(spec, repo, tmp_path, popen=fail_task_popen)
+
+    assert result.exit_code == 1
+    assert result.final["work_status"] == "terminal_failure"
+    assert result.final["reason"] == "child-popen-failed:FileNotFoundError"
+    assert not effect.exists()
+    assert not list((tmp_path / "logs/job-runs").glob("**/*.running.json"))
+
+
+def test_marker_identity_failure_blocks_child_before_side_effect(tmp_path, monkeypatch):
+    effect = tmp_path / "effect"
+    spec, repo = _spec(
+        tmp_path, f"from pathlib import Path\nPath({str(effect)!r}).touch()\n"
+    )
+    original = run_job._replace_json
+    failed = False
+
+    def fail_first_marker(path, payload):
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise OSError("injected marker replacement failure")
+        return original(path, payload)
+
+    monkeypatch.setattr(run_job, "_replace_json", fail_first_marker)
+    result = _execute(spec, repo, tmp_path)
+
+    assert result.exit_code == 1
+    assert result.final["reason"] == "child-start-handshake-failed"
+    assert not effect.exists()
+    assert not list((tmp_path / "logs/job-runs").glob("**/*.running.json"))
+
+
 @pytest.mark.parametrize(("fail_until", "statuses"), [(1, ["retryable_failure", "success"]),
                                                         (9, ["retryable_failure"] * 3)])
 def test_bounded_retry_then_success_or_exhaustion(tmp_path, fail_until, statuses):
@@ -444,7 +524,7 @@ def test_attempt_timeout_escalates_from_term_to_kill(tmp_path, ignore_term, term
     spec, repo = _spec(
         tmp_path,
         f"import signal, time\n{setup}\ntime.sleep(10)\n",
-        attempt_seconds=0.05,
+        attempt_seconds=0.2,
         term_grace_seconds=0.05,
     )
 

@@ -44,6 +44,13 @@ class JobRunError(RuntimeError):
     """The runner refused an unsafe or inconsistent invocation."""
 
 
+class ChildLaunchError(JobRunError):
+    def __init__(self, reason: str, pid: int | None = None, identity: str | None = None):
+        super().__init__(reason)
+        self.pid = pid
+        self.identity = identity
+
+
 @dataclass(frozen=True)
 class RunResult:
     exit_code: int
@@ -554,12 +561,38 @@ def _wait_child(
     popen: Callable[..., subprocess.Popen] = subprocess.Popen,
     pass_fds: tuple[int, ...] = (),
     on_started: Callable[[int, str], None] | None = None,
+    on_releasing: Callable[[], None] | None = None,
     deadline: float | None = None,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> tuple[int | None, int, str | None, str | None, int | None]:
-    process = popen(
-        argv, cwd=cwd, env=dict(env), start_new_session=True, pass_fds=pass_fds
-    )
+    gate_read = gate_write = None
+    launch_argv = argv
+    inherited = pass_fds
+    if on_started is not None:
+        gate_read, gate_write = os.pipe()
+        launch_argv = [
+            sys.executable, str(Path(__file__).resolve()), "_child", str(gate_read),
+            "--", *argv,
+        ]
+        inherited = (*pass_fds, gate_read)
+    launch_env = dict(env)
+    if on_started is not None:
+        launch_env["ENGINE_JOB_TASK_PYTHONPATH"] = launch_env.get("PYTHONPATH", "")
+        launch_env["PYTHONPATH"] = os.pathsep.join(
+            (str(Path(__file__).resolve().parents[1]), launch_env.get("PYTHONPATH", ""))
+        )
+    try:
+        process = popen(
+            launch_argv, cwd=cwd, env=launch_env, start_new_session=True,
+            pass_fds=inherited,
+        )
+    except OSError as exc:
+        for descriptor in (gate_read, gate_write):
+            if descriptor is not None:
+                os.close(descriptor)
+        raise ChildLaunchError(f"child-popen-failed:{type(exc).__name__}") from exc
+    if gate_read is not None:
+        os.close(gate_read)
     process_identity = _process_identity(process.pid)
     if process_identity is None:
         try:
@@ -567,17 +600,26 @@ def _wait_child(
         except ProcessLookupError:
             pass
         process.wait()
-        raise JobRunError("could not establish child process identity")
+        if gate_write is not None:
+            os.close(gate_write)
+        raise ChildLaunchError("child-process-identity-unavailable", process.pid)
     if on_started is not None:
         try:
             on_started(process.pid, process_identity)
-        except BaseException:
+            if on_releasing is not None:
+                on_releasing()
+            os.write(gate_write, b"1")
+        except BaseException as exc:
+            os.close(gate_write)
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
             process.wait()
-            raise
+            raise ChildLaunchError(
+                "child-start-handshake-failed", process.pid, process_identity
+            ) from exc
+        os.close(gate_write)
     termination = None
     forwarded: int | None = None
     previous_handlers: dict[int, Any] = {}
@@ -776,14 +818,22 @@ def execute_job(
                 continue
             child_pid = stale.get("child_pid")
             child_identity = stale.get("child_process_identity")
-            if (isinstance(child_pid, bool) or not isinstance(child_pid, int)
-                    or not isinstance(child_identity, str) or not child_identity):
+            launch_state = stale.get("launch_state")
+            has_identity = (
+                not isinstance(child_pid, bool) and isinstance(child_pid, int)
+                and isinstance(child_identity, str) and bool(child_identity)
+            )
+            if not has_identity and launch_state != "preparing":
                 raise JobRunError("running attempt lacks a verifiable child identity")
-            if _process_identity(child_pid) == child_identity:
+            if has_identity and _process_identity(child_pid) == child_identity:
                 raise JobRunError("prior child for idempotency key is still running")
+            stale_reason = (
+                "prelaunch-interrupted" if launch_state in {"preparing", "identity-published"}
+                else "stale-interrupted-attempt"
+            )
             final_path = stale_path.with_name(stale_path.name.replace(".running.json", ".json"))
             receipt = _finish_receipt(
-                stale, ended=now(), work_status="interrupted", reason="stale-interrupted-attempt",
+                stale, ended=now(), work_status="interrupted", reason=stale_reason,
                 process_exit=None, locks=stale.get("locks", []), retry_disposition="resume",
             )
             publish(receipt, final_path, stale_path)
@@ -870,16 +920,27 @@ def execute_job(
                             )
                             publish(receipt, final_path)
                             return finish(receipt)
-                        (probe_exit, probe_pid, probe_identity, probe_termination,
-                         probe_forwarded) = _wait_child(
-                            probe_argv, env=common_env, cwd=repo_root,
-                            timeout_seconds=min(
-                                float(spec.completion_probe["timeout_seconds"]), probe_remaining
-                            ),
-                            term_grace_seconds=float(spec.timeout["term_grace_seconds"]),
-                            popen=popen, pass_fds=pass_fds, deadline=deadline_at,
-                            monotonic=monotonic,
-                        )
+                        try:
+                            (probe_exit, probe_pid, probe_identity, probe_termination,
+                             probe_forwarded) = _wait_child(
+                                probe_argv, env=common_env, cwd=repo_root,
+                                timeout_seconds=min(
+                                    float(spec.completion_probe["timeout_seconds"]),
+                                    probe_remaining,
+                                ),
+                                term_grace_seconds=float(spec.timeout["term_grace_seconds"]),
+                                popen=popen, pass_fds=pass_fds, deadline=deadline_at,
+                                monotonic=monotonic,
+                            )
+                        except ChildLaunchError as exc:
+                            receipt = _finish_receipt(
+                                base, ended=now(), work_status="terminal_failure",
+                                reason=f"completion-probe-{exc}", process_exit=None,
+                                locks=lock_rows, child_pid=exc.pid,
+                                child_process_identity=exc.identity,
+                            )
+                            publish(receipt, final_path)
+                            return finish(receipt)
                         if probe_termination is not None and monotonic() >= deadline_at:
                             receipt = _finish_receipt(
                                 base, ended=now(), work_status="retryable_failure",
@@ -913,7 +974,7 @@ def execute_job(
                     running_path = destination / f"{attempt}.running.json"
                     running_row = {
                         **base, "state": "running", "wrapper_pid": os.getpid(),
-                        "locks": lock_rows,
+                        "locks": lock_rows, "launch_state": "preparing",
                     }
                     _atomic_json(running_path, running_row)
 
@@ -924,8 +985,16 @@ def execute_job(
                         row: dict[str, Any] = running_row,
                     ) -> None:
                         row.update(
-                            {"child_pid": pid, "child_process_identity": identity}
+                            {"child_pid": pid, "child_process_identity": identity,
+                             "launch_state": "identity-published"}
                         )
+                        _replace_json(marker, row)
+
+                    def child_releasing(
+                        marker: Path = running_path,
+                        row: dict[str, Any] = running_row,
+                    ) -> None:
+                        row["launch_state"] = "released"
                         _replace_json(marker, row)
 
                     child_env = {
@@ -941,19 +1010,25 @@ def execute_job(
                         )
                         publish(receipt, final_path, running_path)
                         return finish(receipt)
-                    (process_exit, child_pid, child_identity, termination,
-                     forwarded) = _wait_child(
-                        argv, env=child_env, cwd=repo_root,
-                        timeout_seconds=max(
-                            0.001, min(float(spec.timeout["attempt_seconds"]), remaining)
-                        ),
-                        term_grace_seconds=float(spec.timeout["term_grace_seconds"]),
-                        popen=popen, pass_fds=pass_fds, on_started=child_started,
-                        deadline=deadline_at, monotonic=monotonic,
-                    )
-                    status, reason = _status_for_exit(
-                        process_exit, termination, retry_codes, forwarded
-                    )
+                    try:
+                        (process_exit, child_pid, child_identity, termination,
+                         forwarded) = _wait_child(
+                            argv, env=child_env, cwd=repo_root,
+                            timeout_seconds=max(
+                                0.001, min(float(spec.timeout["attempt_seconds"]), remaining)
+                            ),
+                            term_grace_seconds=float(spec.timeout["term_grace_seconds"]),
+                            popen=popen, pass_fds=pass_fds, on_started=child_started,
+                            on_releasing=child_releasing, deadline=deadline_at,
+                            monotonic=monotonic,
+                        )
+                    except ChildLaunchError as exc:
+                        child_pid, child_identity = exc.pid, exc.identity
+                        status, reason = "terminal_failure", str(exc)
+                    else:
+                        status, reason = _status_for_exit(
+                            process_exit, termination, retry_codes, forwarded
+                        )
             delay = (
                 float(spec.retry["backoff_seconds"][retry_index])
                 if retry_index + 1 < maximum else 0.0
@@ -1095,6 +1170,30 @@ def _backfill_command(
     )
 
 
+def _child_exec(start_fd: int, argv: list[str]) -> int:
+    """Wait for the durable parent marker, then replace this launcher with the task."""
+    if argv[:1] == ["--"]:
+        argv = argv[1:]
+    if not argv:
+        return 125
+    try:
+        admitted = os.read(start_fd, 1)
+    finally:
+        os.close(start_fd)
+    if admitted != b"1":
+        return 125
+    environment = dict(os.environ)
+    environment.pop("ENGINE_JOB_START_FD", None)
+    task_pythonpath = environment.pop("ENGINE_JOB_TASK_PYTHONPATH", None)
+    if task_pythonpath is not None:
+        environment["PYTHONPATH"] = task_pythonpath
+    try:
+        os.execvpe(argv[0], argv, environment)
+    except OSError as exc:
+        print(f"run_job child exec failed: {type(exc).__name__}", file=sys.stderr)
+        return 127
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1121,11 +1220,16 @@ def _parser() -> argparse.ArgumentParser:
     execute.add_argument("--parameters-json", default="{}")
     execute.add_argument("--repo-root", type=Path, required=True)
     execute.add_argument("--logs-dir", type=Path, required=True)
+    child = commands.add_parser("_child", help=argparse.SUPPRESS)
+    child.add_argument("start_fd", type=int)
+    child.add_argument("argv", nargs=argparse.REMAINDER)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "_child":
+        return _child_exec(args.start_fd, args.argv)
     repo_root = args.repo_root.resolve()
     try:
         registry = load_registry(repo_root)
