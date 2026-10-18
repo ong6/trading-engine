@@ -214,7 +214,7 @@
       "tools/release_manifest.py": "90b52c70a99d5ccab09d0efd6b453f6ac814243decee68071c7f658b4d96e217",
       "tools/sec_edgar_capture.py": "63dc9eb0b5f6dc2ac910077a07c58e65a95b5ba0961ae2b5cd4d3d5148b4ecab"
     },
-    "source_commit": "c5d3483b2a7cfad6d99089b8d11de4fef7e3ad60"
+    "source_commit": "5d41d502c92d255b05a6f29ff1bbeecc363717c8"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -403,5 +403,5 @@
     "trend_limit": 20,
     "version": "p15-universe-v1"
   },
-  "registration_sha256": "f9682cad4e37bea01ad0d057d2194137f5733d06391f7462fb0c85f0984e2e7a"
+  "registration_sha256": "386eac84462cf37edd593e746de86c363725410c6a5cab4c7986ae7b989ce67e"
 }
