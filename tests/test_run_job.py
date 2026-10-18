@@ -38,6 +38,8 @@ def _spec(
     completion_probe_code: str | None = "raise SystemExit(1)\n",
     runner_enabled: bool = True,
     retention_days: int = 180,
+    overall_seconds: float = 20,
+    cpu_quota_percent: float = 50,
 ) -> tuple[job_contract.JobSpec, Path]:
     repo = tmp_path / "repo"
     repo.mkdir(parents=True)
@@ -75,14 +77,14 @@ calendar = "always"
 locks = {lock_text}
 idempotency = {{ template = "{{job_id}}:{{version}}:{{scheduled_for}}", completion_probe = {completion_probe} }}
 run_record = {{ retention_days = {retention_days} }}
-timeout = {{ attempt_seconds = {attempt_seconds}, term_grace_seconds = {term_grace_seconds}, overall_seconds = 20 }}
-retry = {{ max_attempts = {max_attempts}, exit_codes = {list(retry_codes)}, backoff_seconds = {list(backoffs)}, deadline_seconds = 20 }}
+timeout = {{ attempt_seconds = {attempt_seconds}, term_grace_seconds = {term_grace_seconds}, overall_seconds = {overall_seconds} }}
+retry = {{ max_attempts = {max_attempts}, exit_codes = {list(retry_codes)}, backoff_seconds = {list(backoffs)}, deadline_seconds = {overall_seconds} }}
 alert = {{ severity = "FAIL", grace_seconds = 0 }}
 catch_up = {{ mode = "{catch_up[0]}", max_age_seconds = {catch_up[1]}, max_count = {catch_up[2]} }}
 [jobs.resources]
 nice = 0
 io_scheduling_class = "best-effort"
-cpu_quota_percent = 50
+cpu_quota_percent = {cpu_quota_percent}
 memory_high_bytes = 1048576
 memory_max_bytes = 2097152
 minimum_available_memory_bytes = {memory_required}
@@ -535,6 +537,52 @@ def test_retryable_lock_refusal_uses_bounded_attempt_policy(tmp_path):
     assert exhausted.final["retry_disposition"] == "exhausted"
 
 
+def test_overall_deadline_caps_lock_wait_and_prevents_child_launch(tmp_path):
+    marker = tmp_path / "launched"
+    locks = (
+        '[{ name = "job:synthetic-job", mode = "exclusive", wait_seconds = 0, '
+        'timeout_status = "superseded" }, { name = "market-writer", mode = "exclusive", '
+        'wait_seconds = 60, timeout_status = "retryable_failure" }]'
+    )
+    spec, repo = _spec(
+        tmp_path, f"from pathlib import Path\nPath({str(marker)!r}).touch()\n",
+        locks=locks, attempt_seconds=0.05, overall_seconds=0.1,
+    )
+    held = run_job._lock_path(tmp_path / "logs", "domains", "market-writer")
+    held.parent.mkdir(parents=True)
+    began = time.monotonic()
+    with held.open("a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result = _execute(spec, repo, tmp_path)
+    elapsed = time.monotonic() - began
+
+    assert elapsed < 0.5
+    assert result.final["reason"] == "overall-deadline-exhausted"
+    assert not marker.exists()
+
+
+def test_overall_deadline_caps_completion_probe_and_outer_runtime(tmp_path):
+    marker = tmp_path / "launched"
+    spec, repo = _spec(
+        tmp_path, f"from pathlib import Path\nPath({str(marker)!r}).touch()\n",
+        attempt_seconds=0.05, term_grace_seconds=1, overall_seconds=0.1,
+        completion_probe_code=(
+            "import signal, time\n"
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "time.sleep(5)\n"
+        ),
+    )
+    began = time.monotonic()
+    result = _execute(spec, repo, tmp_path)
+    elapsed = time.monotonic() - began
+
+    assert elapsed < 0.5
+    assert result.final["reason"] == "overall-deadline-exhausted"
+    assert result.final["termination"] in {"TERM", "KILL"}
+    assert not marker.exists()
+    assert "RuntimeMaxSec=0.1s" in run_job.transient_properties(spec)
+
+
 @pytest.mark.parametrize(("code", "status", "runner_exit"),
                          [(0, "success", 0), (75, "degraded", 75), (2, "terminal_failure", 1)])
 def test_status_and_process_exit_are_distinct(tmp_path, code, status, runner_exit):
@@ -668,7 +716,9 @@ def test_run_uses_transient_resources_and_internal_executor_is_not_public(tmp_pa
     )
     assert command[0:2] == ["systemd-run", "--user"]
     assert "--property=KillMode=control-group" in command
-    assert "--property=MemoryHigh=0" not in command
+    assert "--property=RuntimeMaxSec=600s" in command
+    assert "--property=CPUQuota=100%" in command
+    assert "--property=MemoryHigh=536870912" in command
     assert f"--setenv={run_job.TRANSIENT_SPEC_ENV}={spec.spec_sha256}" in command
     with pytest.raises(run_job.JobRunError, match="resource boundary"):
         run_job.execute_job(
@@ -676,15 +726,37 @@ def test_run_uses_transient_resources_and_internal_executor_is_not_public(tmp_pa
         )
     monkeypatch.setenv(run_job.TRANSIENT_SPEC_ENV, spec.spec_sha256)
     monkeypatch.setenv("INVOCATION_ID", "spoofed")
-    with pytest.raises(run_job.JobRunError, match="transient cgroup"):
-        run_job.verify_transient_executor(spec)
+    unit = next(item.split("=", 1)[1] for item in command if item.startswith("--unit="))
+    monkeypatch.setenv(run_job.TRANSIENT_UNIT_ENV, unit + ".service")
+    controls = {
+        "CPUQuotaPerSecUSec": "1s", "MemoryHigh": "536870912",
+        "MemoryMax": "1073741824", "TasksMax": "32", "RuntimeMaxUSec": "10min",
+        "KillMode": "control-group", "Nice": "19", "IOSchedulingClass": "3",
+    }
+    cgroup = f"0::/user.slice/{unit}.service\n"
+    run_job.verify_transient_executor(spec, cgroup_text=cgroup, properties=controls)
+    incomplete = dict(controls)
+    incomplete.pop("MemoryMax")
+    with pytest.raises(run_job.JobRunError, match="controls are incomplete"):
+        run_job.verify_transient_executor(spec, cgroup_text=cgroup, properties=incomplete)
+    wrong = {**controls, "MemoryMax": "1"}
+    with pytest.raises(run_job.JobRunError, match="MemoryMax"):
+        run_job.verify_transient_executor(spec, cgroup_text=cgroup, properties=wrong)
 
     monkeypatch.delenv(run_job.TRANSIENT_SPEC_ENV, raising=False)
     monkeypatch.delenv("INVOCATION_ID", raising=False)
+    monkeypatch.delenv(run_job.TRANSIENT_UNIT_ENV, raising=False)
     assert run_job.main([
         "_execute", "registry-audit", "--repo-root", str(ROOT),
         "--logs-dir", str(tmp_path / "logs"), "--scheduled-for", _iso_for_cli(SLOT),
     ]) == 2
+
+
+def test_fractional_cpu_quota_is_rendered_without_truncation(tmp_path):
+    spec, _repo = _spec(tmp_path, "pass\n", cpu_quota_percent=0.5)
+    properties = run_job.transient_properties(spec)
+    assert "CPUQuota=0.5%" in properties
+    assert not any(item == "CPUQuota=0%" for item in properties)
 
 
 def _iso_for_cli(moment: datetime) -> str:

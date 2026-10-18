@@ -8,6 +8,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -27,6 +28,7 @@ from engine.lib.settings import LOGS_DIR, REPO_ROOT
 RECEIPT_SCHEMA_VERSION = 1
 MAX_RECEIPT_BYTES = 1_048_576
 TRANSIENT_SPEC_ENV = "ENGINE_JOB_TRANSIENT_SPEC_SHA256"
+TRANSIENT_UNIT_ENV = "ENGINE_JOB_TRANSIENT_UNIT"
 STATUS_EXIT = {
     "success": 0,
     "noop": 0,
@@ -63,17 +65,90 @@ def require_runner_admission(spec: JobSpec) -> None:
         raise JobRunError("scheduled/catch-up execution requires a later migration")
 
 
-def verify_transient_executor(spec: JobSpec) -> None:
+def _current_systemd_unit(cgroup_text: str | None = None) -> str:
+    if cgroup_text is None:
+        try:
+            cgroup_text = Path("/proc/self/cgroup").read_text()
+        except OSError as exc:
+            raise JobRunError("internal executor cgroup is unverifiable") from exc
+    for line in cgroup_text.splitlines():
+        path = line.rsplit(":", 1)[-1]
+        for raw in reversed(path.split("/")):
+            unit = raw.replace("\\x2d", "-")
+            if unit.endswith(".service"):
+                return unit
+    raise JobRunError("internal executor has no systemd service cgroup")
+
+
+def _systemctl_properties(unit: str) -> dict[str, str]:
+    names = (
+        "CPUQuotaPerSecUSec", "MemoryHigh", "MemoryMax", "TasksMax", "RuntimeMaxUSec",
+        "KillMode", "Nice", "IOSchedulingClass",
+    )
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "show", unit,
+             *[item for name in names for item in ("--property", name)]],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise JobRunError("could not inspect transient systemd controls") from exc
+    if result.returncode != 0:
+        raise JobRunError("could not inspect transient systemd controls")
+    properties = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    if set(properties) != set(names):
+        raise JobRunError("transient systemd controls are incomplete")
+    return properties
+
+
+def _systemd_seconds(value: str) -> float:
+    units = {"us": 1e-6, "ms": 1e-3, "s": 1.0, "min": 60.0, "h": 3600.0}
+    parts = re.findall(r"([0-9]+(?:\.[0-9]+)?)\s*(us|ms|s|min|h)", value)
+    if not parts:
+        raise JobRunError(f"invalid systemd duration: {value}")
+    return sum(float(number) * units[unit] for number, unit in parts)
+
+
+def verify_transient_executor(
+    spec: JobSpec,
+    *,
+    cgroup_text: str | None = None,
+    properties: Mapping[str, str] | None = None,
+) -> None:
     if os.environ.get(TRANSIENT_SPEC_ENV) != spec.spec_sha256:
         raise JobRunError("internal executor lacks the registered spec identity")
     if not os.environ.get("INVOCATION_ID"):
         raise JobRunError("internal executor is not a systemd invocation")
-    try:
-        cgroup = Path("/proc/self/cgroup").read_text()
-    except OSError as exc:
-        raise JobRunError("internal executor cgroup is unverifiable") from exc
-    if "trading-engine-job-" not in cgroup and "trading\\x2dengine\\x2djob\\x2d" not in cgroup:
+    unit = _current_systemd_unit(cgroup_text)
+    if unit != os.environ.get(TRANSIENT_UNIT_ENV):
+        raise JobRunError("internal executor unit identity does not match its cgroup")
+    if not unit.startswith(f"trading-engine-job-{spec.job_id[:40]}-"):
         raise JobRunError("internal executor is outside the registered transient cgroup")
+    controls = dict(properties) if properties is not None else _systemctl_properties(unit)
+    resources = spec.resources
+    expected_io = {"none": 0, "realtime": 1, "best-effort": 2, "idle": 3}
+    mismatches = []
+    try:
+        if abs(_systemd_seconds(controls["CPUQuotaPerSecUSec"])
+               - float(resources["cpu_quota_percent"]) / 100.0) > 1e-6:
+            mismatches.append("CPUQuota")
+        for field, prop in (("memory_high_bytes", "MemoryHigh"),
+                            ("memory_max_bytes", "MemoryMax"), ("tasks_max", "TasksMax")):
+            if int(controls[prop]) != int(resources[field]):
+                mismatches.append(prop)
+        if abs(_systemd_seconds(controls["RuntimeMaxUSec"])
+               - float(spec.timeout["overall_seconds"])) > 1e-6:
+            mismatches.append("RuntimeMaxSec")
+        if controls["KillMode"] != "control-group":
+            mismatches.append("KillMode")
+        if int(controls["Nice"]) != int(resources["nice"]):
+            mismatches.append("Nice")
+        if int(controls["IOSchedulingClass"]) != expected_io[resources["io_scheduling_class"]]:
+            mismatches.append("IOSchedulingClass")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise JobRunError("transient systemd controls are incomplete") from exc
+    if mismatches:
+        raise JobRunError("transient systemd control mismatch: " + ", ".join(mismatches))
 
 
 def _iso(moment: datetime) -> str:
@@ -305,6 +380,7 @@ def _acquire_domain_locks(
     *,
     monotonic: Callable[[], float],
     sleep: Callable[[float], None],
+    deadline: float | None = None,
 ) -> tuple[ExitStack, list[dict[str, Any]], LockSpec | None, tuple[int, ...]]:
     stack = ExitStack()
     observations = []
@@ -317,6 +393,9 @@ def _acquire_domain_locks(
             descriptors.append(handle.fileno())
             flag = fcntl.LOCK_SH if lock.mode == "shared" else fcntl.LOCK_EX
             began = monotonic()
+            allowed_wait = lock.wait_seconds
+            if deadline is not None:
+                allowed_wait = min(allowed_wait, max(0.0, deadline - began))
             acquired = False
             while True:
                 try:
@@ -325,9 +404,9 @@ def _acquire_domain_locks(
                     break
                 except BlockingIOError:
                     elapsed = monotonic() - began
-                    if elapsed >= lock.wait_seconds:
+                    if elapsed >= allowed_wait:
                         break
-                    sleep(min(0.05, lock.wait_seconds - elapsed))
+                    sleep(min(0.05, allowed_wait - elapsed))
             waited = max(0.0, monotonic() - began)
             observations.append(
                 {"domain": lock.name, "mode": lock.mode, "wait_seconds": waited,
@@ -475,6 +554,8 @@ def _wait_child(
     popen: Callable[..., subprocess.Popen] = subprocess.Popen,
     pass_fds: tuple[int, ...] = (),
     on_started: Callable[[int, str], None] | None = None,
+    deadline: float | None = None,
+    monotonic: Callable[[], float] = time.monotonic,
 ) -> tuple[int | None, int, str | None, str | None, int | None]:
     process = popen(
         argv, cwd=cwd, env=dict(env), start_new_session=True, pass_fds=pass_fds
@@ -522,8 +603,13 @@ def _wait_child(
                 os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            grace = term_grace_seconds
+            if deadline is not None:
+                grace = min(grace, max(0.0, deadline - monotonic()))
             try:
-                code = process.wait(timeout=term_grace_seconds)
+                if grace <= 0:
+                    raise subprocess.TimeoutExpired(argv, grace)
+                code = process.wait(timeout=grace)
             except subprocess.TimeoutExpired:
                 termination = "KILL"
                 try:
@@ -720,6 +806,10 @@ def execute_job(
             return finish(receipt)
 
         started_monotonic = monotonic()
+        deadline_at = started_monotonic + min(
+            float(spec.timeout["overall_seconds"]),
+            float(spec.retry["deadline_seconds"]),
+        )
         maximum = int(spec.retry["max_attempts"])
         retry_codes = set(spec.retry["exit_codes"])
         argv = child_argv(spec, repo_root, clean_parameters)
@@ -730,9 +820,18 @@ def execute_job(
             attempt_started = now()
             base = base_receipt(attempt, attempt_started)
             final_path = destination / f"{attempt}.json"
+            if monotonic() >= deadline_at:
+                receipt = _finish_receipt(
+                    base, ended=now(), work_status="retryable_failure",
+                    reason="overall-deadline-exhausted", process_exit=None, locks=[],
+                    retry_disposition="exhausted",
+                )
+                publish(receipt, final_path)
+                return finish(receipt)
             preflight = resource_refusal(spec, logs_dir)
             stack, lock_rows, refused, domain_fds = _acquire_domain_locks(
-                logs_dir, spec.locks, monotonic=monotonic, sleep=sleep
+                logs_dir, spec.locks, monotonic=monotonic, sleep=sleep,
+                deadline=deadline_at,
             )
             with stack:
                 status: str
@@ -742,7 +841,10 @@ def execute_job(
                 child_identity: str | None = None
                 termination: str | None = None
                 forwarded: int | None = None
-                if preflight or refused:
+                if monotonic() >= deadline_at:
+                    status = "retryable_failure"
+                    reason = "overall-deadline-exhausted"
+                elif preflight or refused:
                     status = refused.timeout_status if refused else "retryable_failure"
                     reason = (
                         f"lock-timeout:{refused.name}"
@@ -759,13 +861,35 @@ def execute_job(
                         "ENGINE_JOB_PARAMETERS_SHA256": parameter_hash,
                     }
                     if probe_argv is not None:
+                        probe_remaining = deadline_at - monotonic()
+                        if probe_remaining <= 0:
+                            receipt = _finish_receipt(
+                                base, ended=now(), work_status="retryable_failure",
+                                reason="overall-deadline-exhausted", process_exit=None,
+                                locks=lock_rows, retry_disposition="exhausted",
+                            )
+                            publish(receipt, final_path)
+                            return finish(receipt)
                         (probe_exit, probe_pid, probe_identity, probe_termination,
                          probe_forwarded) = _wait_child(
                             probe_argv, env=common_env, cwd=repo_root,
-                            timeout_seconds=float(spec.completion_probe["timeout_seconds"]),
+                            timeout_seconds=min(
+                                float(spec.completion_probe["timeout_seconds"]), probe_remaining
+                            ),
                             term_grace_seconds=float(spec.timeout["term_grace_seconds"]),
-                            popen=popen, pass_fds=pass_fds,
+                            popen=popen, pass_fds=pass_fds, deadline=deadline_at,
+                            monotonic=monotonic,
                         )
+                        if probe_termination is not None and monotonic() >= deadline_at:
+                            receipt = _finish_receipt(
+                                base, ended=now(), work_status="retryable_failure",
+                                reason="overall-deadline-exhausted", process_exit=probe_exit,
+                                locks=lock_rows, child_pid=probe_pid,
+                                child_process_identity=probe_identity,
+                                termination=probe_termination, retry_disposition="exhausted",
+                            )
+                            publish(receipt, final_path)
+                            return finish(receipt)
                         if probe_exit == 0 and probe_termination is None and probe_forwarded is None:
                             receipt = _finish_receipt(
                                 base, ended=now(), work_status="noop",
@@ -808,11 +932,15 @@ def execute_job(
                         **common_env,
                         "ENGINE_JOB_RECEIPT_PATH": str(final_path),
                     }
-                    elapsed = monotonic() - started_monotonic
-                    remaining = min(
-                        float(spec.timeout["overall_seconds"]),
-                        float(spec.retry["deadline_seconds"]),
-                    ) - elapsed
+                    remaining = deadline_at - monotonic()
+                    if remaining <= 0:
+                        receipt = _finish_receipt(
+                            base, ended=now(), work_status="retryable_failure",
+                            reason="overall-deadline-exhausted", process_exit=None,
+                            locks=lock_rows, retry_disposition="exhausted",
+                        )
+                        publish(receipt, final_path, running_path)
+                        return finish(receipt)
                     (process_exit, child_pid, child_identity, termination,
                      forwarded) = _wait_child(
                         argv, env=child_env, cwd=repo_root,
@@ -821,6 +949,7 @@ def execute_job(
                         ),
                         term_grace_seconds=float(spec.timeout["term_grace_seconds"]),
                         popen=popen, pass_fds=pass_fds, on_started=child_started,
+                        deadline=deadline_at, monotonic=monotonic,
                     )
                     status, reason = _status_for_exit(
                         process_exit, termination, retry_codes, forwarded
@@ -899,18 +1028,19 @@ def transient_properties(spec: JobSpec) -> list[str]:
     resources = spec.resources
     properties = [
         f"TimeoutStartSec={int(spec.timeout['overall_seconds'])}s",
+        f"RuntimeMaxSec={float(spec.timeout['overall_seconds']):g}s",
         "KillMode=control-group",
         f"Nice={int(resources['nice'])}",
         f"IOSchedulingClass={resources['io_scheduling_class']}",
     ]
-    for field, name in (
-        ("cpu_quota_percent", "CPUQuota"), ("memory_high_bytes", "MemoryHigh"),
-        ("memory_max_bytes", "MemoryMax"), ("tasks_max", "TasksMax"),
-    ):
-        value = int(resources[field])
+    cpu_quota = float(resources["cpu_quota_percent"])
+    if cpu_quota:
+        properties.append(f"CPUQuota={cpu_quota:g}%")
+    for field, name in (("memory_high_bytes", "MemoryHigh"),
+                        ("memory_max_bytes", "MemoryMax"), ("tasks_max", "TasksMax")):
+        value = resources[field]
         if value:
-            suffix = "%" if field == "cpu_quota_percent" else ""
-            properties.append(f"{name}={value}{suffix}")
+            properties.append(f"{name}={value}")
     return properties
 
 
@@ -928,11 +1058,13 @@ def _transient_command(
         f"{spec.job_id}:{spec.version}:{_iso(scheduled_for)}:{_hash_json(parameters)}"
     )
     identity = hashlib.sha256(identity_source.encode()).hexdigest()[:12]
+    unit = f"trading-engine-job-{spec.job_id[:40]}-{identity}"
     command = [
         "systemd-run", "--user", "--wait", "--collect", "--quiet",
-        f"--unit=trading-engine-job-{spec.job_id[:40]}-{identity}",
+        f"--unit={unit}",
         f"--working-directory={repo_root}", f"--setenv=PYTHONPATH={repo_root}",
         f"--setenv={TRANSIENT_SPEC_ENV}={spec.spec_sha256}",
+        f"--setenv={TRANSIENT_UNIT_ENV}={unit}.service",
     ]
     command.extend(f"--property={value}" for value in transient_properties(spec))
     command.extend(

@@ -32,7 +32,7 @@ timeout = {{ attempt_seconds = 10, term_grace_seconds = 1, overall_seconds = 10 
 retry = {{ max_attempts = 1, exit_codes = [], backoff_seconds = [], deadline_seconds = 10 }}
 alert = {{ severity = "FAIL", grace_seconds = 0 }}
 catch_up = {{ mode = "none", max_age_seconds = 0, max_count = 0 }}
-resources = {{ nice = 0, io_scheduling_class = "best-effort", cpu_quota_percent = 0, memory_high_bytes = 0, memory_max_bytes = 0, minimum_available_memory_bytes = 0, tasks_max = 0, scratch_bytes = 0, output_bytes = 0, min_free_bytes = 0, unlimited_reason = "synthetic fixture" }}
+resources = {{ nice = 0, io_scheduling_class = "best-effort", cpu_quota_percent = 50, memory_high_bytes = 1048576, memory_max_bytes = 2097152, minimum_available_memory_bytes = 0, tasks_max = 8, scratch_bytes = 0, output_bytes = 0, min_free_bytes = 0, unlimited_reason = "synthetic fixture" }}
 """
 
 
@@ -115,6 +115,32 @@ def test_registry_rejects_unsafe_or_unbounded_contracts(tmp_path, old, new, mess
     text = _manifest(_job_block()).replace(old, new)
     with pytest.raises(job_contract.JobContractError, match=message):
         _load(tmp_path, text)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ("memory_high_bytes = 1048576", "memory_high_bytes = 1048576.5", "nonnegative integer"),
+        ("tasks_max = 8", "tasks_max = 8.5", "nonnegative integer"),
+        ("cpu_quota_percent = 50", "cpu_quota_percent = nan", "nonnegative"),
+        ("cpu_quota_percent = 50", "cpu_quota_percent = inf", "nonnegative"),
+        ("memory_high_bytes = 1048576", "memory_high_bytes = 3000000", "exceeds"),
+        ("nice = 0", "nice = 20", "nice"),
+        ('io_scheduling_class = "best-effort"', 'io_scheduling_class = "invalid"',
+         "io_scheduling_class"),
+    ],
+)
+def test_registry_rejects_lossy_or_invalid_resource_limits(tmp_path, old, new, message):
+    with pytest.raises(job_contract.JobContractError, match=message):
+        _load(tmp_path, _manifest(_job_block()).replace(old, new))
+
+
+def test_registry_accepts_supported_fractional_cpu_quota(tmp_path):
+    registry = _load(
+        tmp_path,
+        _manifest(_job_block()).replace("cpu_quota_percent = 50", "cpu_quota_percent = 0.5"),
+    )
+    assert registry.get("test-job").resources["cpu_quota_percent"] == 0.5
 
 
 def test_registry_rejects_duplicate_ids_across_manifests(tmp_path):

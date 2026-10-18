@@ -871,5 +871,9 @@ argv = [".venv/bin/python", "-m", "engine.job_contract", "audit", "--repo-root",
 schedules = []
 
 [jobs.resources]
+cpu_quota_percent = 100
+memory_high_bytes = 536870912
+memory_max_bytes = 1073741824
 minimum_available_memory_bytes = 16777216
+tasks_max = 32
 min_free_bytes = 1048576

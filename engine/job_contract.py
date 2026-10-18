@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import tomllib
@@ -134,7 +135,7 @@ def _mapping(value: Any, label: str) -> Mapping[str, Any]:
 def _positive_number(value: Any, label: str, *, allow_zero: bool = False) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise JobContractError(f"{label} must be numeric")
-    if value < 0 or (not allow_zero and value == 0):
+    if not math.isfinite(value) or value < 0 or (not allow_zero and value == 0):
         raise JobContractError(f"{label} must be {'nonnegative' if allow_zero else 'positive'}")
     return float(value)
 
@@ -283,9 +284,26 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
     resources = _mapping(raw.get("resources"), f"{label}.resources")
     for field in (
         "memory_high_bytes", "memory_max_bytes", "minimum_available_memory_bytes",
-        "scratch_bytes", "output_bytes", "min_free_bytes", "tasks_max", "cpu_quota_percent",
+        "scratch_bytes", "output_bytes", "min_free_bytes", "tasks_max",
     ):
-        _positive_number(resources.get(field), f"{label}.resources.{field}", allow_zero=True)
+        value = resources.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise JobContractError(f"{label}.resources.{field} must be a nonnegative integer")
+    cpu_quota = _positive_number(
+        resources.get("cpu_quota_percent"), f"{label}.resources.cpu_quota_percent",
+        allow_zero=True,
+    )
+    if cpu_quota > 10_000:
+        raise JobContractError(f"{label}.resources.cpu_quota_percent exceeds 10000")
+    nice = resources.get("nice")
+    if isinstance(nice, bool) or not isinstance(nice, int) or not -20 <= nice <= 19:
+        raise JobContractError(f"{label}.resources.nice must be an integer from -20 through 19")
+    if resources.get("io_scheduling_class") not in {"none", "realtime", "best-effort", "idle"}:
+        raise JobContractError(f"{label}.resources.io_scheduling_class is invalid")
+    memory_high = resources["memory_high_bytes"]
+    memory_max = resources["memory_max_bytes"]
+    if memory_high and memory_max and memory_high > memory_max:
+        raise JobContractError(f"{label}: memory_high_bytes exceeds memory_max_bytes")
     if (resources.get("memory_max_bytes") == 0 or resources.get("cpu_quota_percent") == 0
             or resources.get("tasks_max") == 0):
         reason = resources.get("unlimited_reason")
@@ -301,6 +319,11 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
             raise JobContractError(f"{label}: admitted runner needs a bounded runner_mode")
         if runner_mode == "synthetic" and completion_probe["kind"] != "command":
             raise JobContractError(f"{label}: mutable synthetic runner needs a task-side probe")
+        if any(
+            resources[field] <= 0
+            for field in ("cpu_quota_percent", "memory_high_bytes", "memory_max_bytes", "tasks_max")
+        ):
+            raise JobContractError(f"{label}: admitted runner needs explicit resource limits")
         if schedules or catch_up["mode"] != "none":
             raise JobContractError(
                 f"{label}: scheduled/catch-up runner execution requires a later migration"
