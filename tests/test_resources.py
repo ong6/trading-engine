@@ -1,7 +1,10 @@
 import importlib.util
 import json
 import multiprocessing
+import os
 import stat
+import subprocess
+import sys
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
@@ -377,3 +380,71 @@ def test_dividend_backfill_closes_connection_on_initial_query_failure(monkeypatc
     with pytest.raises(RuntimeError, match="injected query failure"):
         backfill_dividends.main()
     assert connection.closed is True
+
+
+def test_historical_restatement_tool_dry_runs_from_direct_path(tmp_path):
+    database = tmp_path / "incident.duckdb"
+    connection = db.connect(database)
+    try:
+        connection.execute(
+            "CREATE TABLE split_adjustments (ticker VARCHAR,ex_date DATE,ratio DOUBLE,"
+            "break_date DATE,outcome VARCHAR,rows_restated BIGINT,observed DOUBLE,"
+            "applied_at TIMESTAMP)"
+        )
+        connection.execute(
+            "INSERT INTO split_adjustments VALUES "
+            "('TEST','2026-01-05',2.0,'2026-01-02','applied',1,2.0,NULL)"
+        )
+        connection.execute(
+            "CREATE TABLE prices (ticker VARCHAR,date DATE,open DOUBLE,high DOUBLE,"
+            "low DOUBLE,close DOUBLE,volume BIGINT)"
+        )
+        connection.execute(
+            "INSERT INTO prices VALUES "
+            "('TEST','2026-01-01',10,11,9,10,100),"
+            "('TEST','2026-01-02',5,6,4,5,200),"
+            "('TEST','2026-01-05',5,6,4,5,200)"
+        )
+    finally:
+        connection.close()
+
+    root = Path(__file__).resolve().parents[1]
+    tool = (
+        root / "docs" / "history" / "incident-tools-2026-09-02"
+        / "repair_restatements.py"
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(tool),
+            "--db",
+            str(database),
+            "--target",
+            "TEST:2026-01-02:2.0",
+        ],
+        cwd=root,
+        env={
+            "PATH": os.environ["PATH"],
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": str(root),
+            "TZ": "UTC",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.args[1] == str(tool) and "-m" not in result.args
+    assert "dry-run: no changes written" in result.stdout
+    assert _incident_database_is_unchanged(database)
+
+
+def _incident_database_is_unchanged(database):
+    connection = db.connect(database, read_only=True)
+    try:
+        return connection.execute(
+            "SELECT outcome,COUNT(*) FROM split_adjustments GROUP BY outcome"
+        ).fetchone() == ("applied", 1)
+    finally:
+        connection.close()

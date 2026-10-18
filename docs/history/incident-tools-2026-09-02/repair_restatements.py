@@ -22,9 +22,9 @@ ever been held).
 
 Usage (dry-run is the default and opens the store read-only):
 
-    .venv/bin/python -m engine.repair_restatements --db <copy>              # dry-run, defaults
-    .venv/bin/python -m engine.repair_restatements --db <copy> --apply --yahoo
-    .venv/bin/python -m engine.repair_restatements --apply --yahoo          # live store
+    PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --db <copy>
+    PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --db <copy> --apply --yahoo
+    PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --apply --yahoo
 
 `--target TICKER:BREAK_DATE:RATIO` (repeatable) overrides the three defaults.
 `--yahoo` pulls each name's current yfinance history and reports
