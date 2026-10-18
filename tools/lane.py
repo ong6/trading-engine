@@ -777,6 +777,7 @@ def _audit_unlocked(
             "public_identity": public_identity_error(identity_name, identity_email) is None,
             "stash_free": state["stash_count"] == 0,
             "store_free": not _protected_stores(target),
+            "unpushed_free": state["unpushed_commit_count"] == 0,
             "worktree_clean": not state["dirty"],
             "running_process_free": not _running_pids(target),
         }

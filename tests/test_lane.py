@@ -334,13 +334,31 @@ def test_concurrent_cli_creators_are_serialized_by_claim_lock(tmp_path):
     assert len([row for row in _claims(fixture) if row["state"] == "active"]) == 1
 
 
-def test_release_audits_status_and_keeps_unpushed_worktree(tmp_path):
+def test_release_refuses_unpushed_work_then_accepts_remote_handoff(tmp_path):
     fixture = _fixture(tmp_path)
     _create(fixture)
     target = fixture["root"] / "lane-one"
     head = _commit(target)
     status = _status(fixture, "lane-one", head)
 
+    audit = lane.audit_lane(
+        lanes_root=fixture["root"],
+        home=fixture["home"],
+        lane="lane-one",
+        status_path=status,
+    )
+    assert audit["ok"] is False
+    assert audit["checks"]["unpushed_free"] is False
+    assert audit["unpushed_commit_count"] == 1
+    with pytest.raises(lane.LaneError, match="unpushed_free"):
+        lane.release_lane(
+            lanes_root=fixture["root"],
+            home=fixture["home"],
+            lane="lane-one",
+            status_path=status,
+        )
+
+    _git(target, "push", "-u", "origin", "HEAD")
     audit = lane.audit_lane(
         lanes_root=fixture["root"],
         home=fixture["home"],
@@ -356,7 +374,8 @@ def test_release_audits_status_and_keeps_unpushed_worktree(tmp_path):
     )
 
     assert audit["ok"] is True
-    assert audit["unpushed_commit_count"] == 1
+    assert audit["checks"]["unpushed_free"] is True
+    assert audit["unpushed_commit_count"] == 0
     assert released["head_sha"] == head
     assert target.is_dir()
     row = _claims(fixture)[0]
