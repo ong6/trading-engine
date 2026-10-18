@@ -25,7 +25,7 @@ each plan's YAML `status` must match its row.
 | [P12](p12-agent-research-product.md) | Agent research product | done | Full data, execution, and evaluation programme delivered 2026-09-23; data/news spend external |
 | [P13](p13-market-data-source-hardening.md) | Market-data source hardening | done | TradingView realtime/history active under owner-asserted rights; Alpaca dormant |
 | [P14](p14-tradingview-history-archive.md) | TradingView historical archive | done | Resumable current-liquid-universe daily bars with exact transcripts and research-only authority |
-| [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | active | Revision 14 binds the P22 commission/account runtime on top of revision 13; scoring, labels, gates and collection continue unchanged |
+| [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | active | Revision 15 adds accepted data, money, flow, operations, board and test corrections on top of revision 14; scoring, labels, gates, schedules and frozen valid-data outcomes remain unchanged |
 | [P16](p16-challenger-lab-and-text-edge.md) | Challenger lab, text edge, evaluation science | active | W0 P15 revision-4 activation complete; W9b registration remains |
 | [P17](p17-personal-host-ibkr-paper-execution.md) | Personal-host IBKR paper execution and reconciliation | proposed | Future work, explicitly not now; requires a Stage 1 pass and owner approval before any implementation or account action |
 | [P18](p18-backtest-core.md) | Shared backtest core | done | Completed: native event/portfolio simulation, deterministic reports, proving ground, and example |
@@ -36,9 +36,10 @@ each plan's YAML `status` must match its row.
 | [P23](p23-hourly-ops-digest.md) | Hourly operations digest | done | Completed 2026-10-15: hourly digest at :08 UTC with SQLite metrics; `--report` checks every scheduled run and driver stage against the timers and crontab |
 | [P24](p24-quant-review-and-speed.md) | Senior-quant review, pipeline fixes, speed and new research lanes | active | Parallel lanes: producer audit, invariant fixes, nightly/simulator/test speed, quant audit, wave-1 landing, and four new pre-registered studies |
 
-Recommended order: follow [`../product.md`](../product.md) ("Focus now"). Complete P22 without
-disturbing the revision-14 evidence path, then continue P15 and P7 activation; P8/P9 keep running
-untouched; P2 remains admitted; P3's bounded free captures run while paid data waits.
+Recommended order: follow [`../product.md`](../product.md) ("Focus now"). Keep the revision-15
+registered evidence path green; production deployment and D0 remain orchestrator-owned operations,
+not another feature-build workstream. Continue P15 and P7 activation; P8/P9 keep running untouched;
+P2 remains admitted; P3's bounded free captures run while paid data waits.
 
 ## Plan template
 

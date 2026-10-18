@@ -32,7 +32,7 @@ accounting, halts, and kill switches. That split is the product, not a temporary
 5. **Inside the drawdown envelope**: a policy that can lose most of the book fails regardless of
    its recent run.
 
-## Where it stands (2026-10-06)
+## Where it stands (source state 2026-10-18)
 
 The engine runs nightly data collection, screening, a paper league, three frozen forward records,
 weekly walk-forward checks, recovery bundles, research-only market data, and the daily opportunity
@@ -43,10 +43,12 @@ product (P12).
 
 [The profitability evidence loop (P15)](plans/p15-profitability-evidence-loop.md) went live on
 2026-09-29 after a verified 90-table recovery bundle. The current source registration is
-revision 14: P22's `ibkr_pro_tiered_v1` commissions from the migration `--d0`, restarted book
-evaluation clocks and account engine on top of revision 13's exact cash-resized SPY validation
-and nightly event-label maturation. It retains revision 12's bounded complete-metadata recovery
-and earlier corrections. Scoring, labels, statistical gates and schedules are unchanged.
+revision 15: price admission, trusted-bar money paths, data-flow and operations corrections,
+rejected-bar/prospective board state, and test-runtime improvements on top of revision 14's P22
+commissions, restarted book-evaluation clocks and account engine. It retains revision 13's exact
+cash-resized SPY validation and nightly event-label maturation, revision 12's bounded
+complete-metadata recovery, and earlier corrections. Scoring, labels, statistical gates,
+schedules and frozen valid-data outcomes are unchanged.
 P15 is `active` and collecting; no performance claim exists before its registered looks.
 Earlier operational revisions introduced stage timings, bounded collection, snapshot throttling,
 cached status projections and queue scratch handling. Revision 10 corrected pending
@@ -197,7 +199,7 @@ Each row has the default that applies until the owner decides.
 
 ## Focus now (in order)
 
-1. **Keep the evidence clean and the revision 14 operating path green.** Use per-stage timings to
+1. **Keep the evidence clean and the revision 15 registered path green.** Use per-stage timings to
    watch the bounded collection, shared snapshots, queue, observers, and status projections. Keep
    scheduled producers green, miss no agent windows, allow no identity drift, and leave no
    uncommitted work on the host. A broken producer beats every item below.
