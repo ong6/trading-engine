@@ -1,0 +1,392 @@
+"""Append-only, hash-chained trial events shared by research backends."""
+
+from __future__ import annotations
+
+import fcntl
+import json
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+from .canonical import canonical_bytes, canonical_sha256
+
+TRIAL_SCHEMA_VERSION = 1
+GENESIS_SELECTION_N = 139
+EVENT_KINDS = frozenset({
+    "registered",
+    "evaluation_started",
+    "evaluated",
+    "failed",
+    "abandoned",
+    "holdout_opened",
+    "confirmed",
+    "retired",
+    "alias",
+    "inventory_reconciliation",
+})
+ATTEMPT_KINDS = frozenset({"evaluation_started", "evaluated", "failed", "abandoned"})
+TERMINAL_ATTEMPT_KINDS = frozenset({"evaluated", "failed", "abandoned"})
+
+
+class TrialLedgerError(ValueError):
+    pass
+
+
+def _timestamp(value: datetime) -> str:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise TrialLedgerError("trial event timestamp must have an explicit timezone")
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def trial_id(study_sha256: str, parameters: Mapping[str, Any]) -> str:
+    return canonical_sha256({"parameters": parameters, "study_sha256": study_sha256})
+
+
+def _event_core(
+    *, kind: str, event_id: str, trial: str | None, attempt: str | None,
+    event_at: str, payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "event_id": event_id,
+        "trial_id": trial,
+        "attempt_id": attempt,
+        "event_at": event_at,
+        "payload": json.loads(canonical_bytes(payload)),
+    }
+
+
+def _record(
+    core: Mapping[str, Any], *, sequence: int, recorded_at: str, previous: str | None,
+) -> dict[str, Any]:
+    unsigned = {
+        "schema_version": TRIAL_SCHEMA_VERSION,
+        "sequence": sequence,
+        **core,
+        "recorded_at": recorded_at,
+        "previous_row_sha256": previous,
+    }
+    return {**unsigned, "row_sha256": canonical_sha256(unsigned)}
+
+
+def _registration_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    required = {
+        "study_sha256", "parents", "n_contribution", "selection_start", "selection_end",
+        "source_ref",
+    }
+    if not isinstance(payload, Mapping) or set(payload) != required:
+        raise TrialLedgerError("registration payload fields differ")
+    parents, source = payload["parents"], payload["source_ref"]
+    contribution = payload["n_contribution"]
+    start, end = payload["selection_start"], payload["selection_end"]
+    if (not isinstance(payload["study_sha256"], str) or len(payload["study_sha256"]) != 64
+            or not isinstance(parents, list) or any(not isinstance(item, str) or not item for item in parents)
+            or parents != sorted(set(parents))
+            or type(contribution) is not int or contribution < 1
+            or type(start) is not int or type(end) is not int
+            or end - start + 1 != contribution
+            or not isinstance(source, Mapping) or not source):
+        raise TrialLedgerError("registration payload is invalid")
+    try:
+        int(payload["study_sha256"], 16)
+    except ValueError as exc:
+        raise TrialLedgerError("registration study identity is invalid") from exc
+    return json.loads(canonical_bytes(payload))
+
+
+def _validate_records(records: Sequence[Mapping[str, Any]]) -> None:
+    previous, event_ids, registrations = None, {}, {}
+    attempts: dict[tuple[str, str], list[str]] = {}
+    holdouts, retired = set(), set()
+    selection_n = GENESIS_SELECTION_N
+    required = {
+        "schema_version", "sequence", "kind", "event_id", "trial_id", "attempt_id",
+        "event_at", "payload", "recorded_at", "previous_row_sha256", "row_sha256",
+    }
+    for index, row in enumerate(records, 1):
+        if not isinstance(row, Mapping) or set(row) != required:
+            raise TrialLedgerError(f"trial row {index} fields differ")
+        unsigned = {key: row[key] for key in required - {"row_sha256"}}
+        if (row["schema_version"] != TRIAL_SCHEMA_VERSION or row["sequence"] != index
+                or row["previous_row_sha256"] != previous
+                or row["row_sha256"] != canonical_sha256(unsigned)
+                or row["kind"] not in EVENT_KINDS
+                or not isinstance(row["event_id"], str) or not row["event_id"]
+                or not isinstance(row["payload"], Mapping)):
+            raise TrialLedgerError(f"trial row {index} identity differs")
+        try:
+            event_at = datetime.fromisoformat(row["event_at"].replace("Z", "+00:00"))
+            recorded_at = datetime.fromisoformat(row["recorded_at"].replace("Z", "+00:00"))
+        except (AttributeError, ValueError) as exc:
+            raise TrialLedgerError(f"trial row {index} timestamp differs") from exc
+        if event_at.utcoffset() != timezone.utc.utcoffset(event_at) or recorded_at < event_at:
+            raise TrialLedgerError(f"trial row {index} timestamp differs")
+        core = _event_core(
+            kind=row["kind"], event_id=row["event_id"], trial=row["trial_id"],
+            attempt=row["attempt_id"], event_at=row["event_at"], payload=row["payload"],
+        )
+        existing = event_ids.setdefault(row["event_id"], core)
+        if existing is not core:
+            raise TrialLedgerError(f"trial event id is duplicated: {row['event_id']}")
+        kind, current_trial, attempt = row["kind"], row["trial_id"], row["attempt_id"]
+        if kind == "registered":
+            if not isinstance(current_trial, str) or not current_trial or attempt is not None:
+                raise TrialLedgerError("registration identity is invalid")
+            if current_trial in registrations:
+                raise TrialLedgerError("trial registration is duplicated")
+            payload = _registration_payload(row["payload"])
+            if any(parent not in registrations for parent in payload["parents"]):
+                raise TrialLedgerError("trial parent must be registered first")
+            if payload["selection_start"] != selection_n + 1:
+                raise TrialLedgerError("selection count is not gap-free")
+            selection_n = payload["selection_end"]
+            registrations[current_trial] = row
+        elif kind == "inventory_reconciliation":
+            if current_trial is not None or attempt is not None:
+                raise TrialLedgerError("reconciliation cannot name a trial or attempt")
+            expected = {
+                "sealed_through_sequence", "sealed_row_sha256", "register_sha256",
+                "selection_n", "source_hashes",
+            }
+            payload = row["payload"]
+            bound = index - 1
+            before = records[:bound]
+            if (set(payload) != expected or payload["sealed_through_sequence"] != bound
+                    or payload["sealed_row_sha256"] != previous
+                    or payload["register_sha256"] != canonical_sha256(
+                        [item["row_sha256"] for item in before]
+                    )
+                    or payload["selection_n"] != selection_n
+                    or not isinstance(payload["source_hashes"], Mapping)
+                    or any(not isinstance(key, str) or not key or not isinstance(value, str)
+                           or len(value) != 64 for key, value in payload["source_hashes"].items())):
+                raise TrialLedgerError("inventory reconciliation differs")
+        else:
+            if not isinstance(current_trial, str) or current_trial not in registrations:
+                raise TrialLedgerError("trial event has no prior registration")
+            if kind in ATTEMPT_KINDS:
+                if not isinstance(attempt, str) or not attempt:
+                    raise TrialLedgerError("attempt event needs an attempt id")
+                key = current_trial, attempt
+                history = attempts.setdefault(key, [])
+                if kind == "evaluation_started":
+                    if history:
+                        raise TrialLedgerError("attempt has already started")
+                elif not history or history[0] != "evaluation_started":
+                    raise TrialLedgerError("attempt terminal event has no start")
+                elif any(item in TERMINAL_ATTEMPT_KINDS for item in history):
+                    raise TrialLedgerError("attempt already has a terminal event")
+                history.append(kind)
+            elif attempt is not None:
+                raise TrialLedgerError(f"{kind} cannot name an attempt")
+            if kind == "holdout_opened":
+                if current_trial in holdouts:
+                    raise TrialLedgerError("holdout has already been opened")
+                if not any(key[0] == current_trial for key in attempts):
+                    raise TrialLedgerError("holdout cannot open before an evaluation starts")
+                holdouts.add(current_trial)
+            elif kind == "confirmed" and current_trial not in holdouts:
+                raise TrialLedgerError("confirmation requires an opened holdout")
+            elif kind == "retired":
+                if current_trial in retired:
+                    raise TrialLedgerError("trial has already been retired")
+                retired.add(current_trial)
+            elif kind == "alias":
+                target = row["payload"].get("canonical_trial_id")
+                if target not in registrations or target == current_trial:
+                    raise TrialLedgerError("trial alias target is invalid")
+        previous = row["row_sha256"]
+
+
+@dataclass(frozen=True)
+class LedgerSummary:
+    status: str
+    selection_n: int
+    selection_contributions: int
+    registered_trials: int
+    attempts: int
+    row_count: int
+    row_sha256: str | None
+    register_sha256: str
+
+
+class JsonlTrialLedger:
+    """Process-safe JSONL adapter; reports and CSVs are projections of these events."""
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+
+    @staticmethod
+    def _read_stream(stream) -> list[dict[str, Any]]:
+        stream.seek(0)
+        raw = stream.read()
+        if raw and not raw.endswith("\n"):
+            raise TrialLedgerError("trial ledger has a torn final row")
+        records = []
+        for index, line in enumerate(raw.splitlines(), 1):
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise TrialLedgerError(f"trial row {index} is not JSON") from exc
+            records.append(row)
+        _validate_records(records)
+        return records
+
+    def read(self) -> tuple[dict[str, Any], ...]:
+        if not self.path.exists():
+            return ()
+        with self.path.open("r", encoding="utf-8") as stream:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_SH)
+            try:
+                return tuple(self._read_stream(stream))
+            finally:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+    def append(
+        self,
+        *,
+        kind: str,
+        event_id: str,
+        payload: Mapping[str, Any],
+        trial: str | None = None,
+        attempt: str | None = None,
+        event_at: datetime | None = None,
+        recorded_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        if kind not in EVENT_KINDS:
+            raise TrialLedgerError(f"unknown trial event kind: {kind}")
+        event_time, recorded_time = event_at or _now(), recorded_at or _now()
+        core = _event_core(
+            kind=kind,
+            event_id=event_id,
+            trial=trial,
+            attempt=attempt,
+            event_at=_timestamp(event_time),
+            payload=payload,
+        )
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+        with os.fdopen(descriptor, "r+", encoding="utf-8") as stream:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            try:
+                records = self._read_stream(stream)
+                prior = next((row for row in records if row["event_id"] == event_id), None)
+                if prior is not None:
+                    prior_core = _event_core(
+                        kind=prior["kind"], event_id=prior["event_id"], trial=prior["trial_id"],
+                        attempt=prior["attempt_id"], event_at=prior["event_at"],
+                        payload=prior["payload"],
+                    )
+                    comparable = {key: value for key, value in core.items() if key != "event_at"}
+                    previous = {key: value for key, value in prior_core.items() if key != "event_at"}
+                    if comparable != previous:
+                        raise TrialLedgerError(f"event id was reused with different content: {event_id}")
+                    return prior
+                row = _record(
+                    core,
+                    sequence=len(records) + 1,
+                    recorded_at=_timestamp(recorded_time),
+                    previous=records[-1]["row_sha256"] if records else None,
+                )
+                _validate_records([*records, row])
+                stream.seek(0, os.SEEK_END)
+                stream.write(canonical_bytes(row, newline=True).decode("utf-8"))
+                stream.flush()
+                os.fsync(stream.fileno())
+                return row
+            finally:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+    def register(
+        self,
+        *,
+        trial: str,
+        study_sha256: str,
+        source_ref: Mapping[str, Any],
+        selection_start: int,
+        n_contribution: int = 1,
+        parents: Sequence[str] = (),
+        event_at: datetime | None = None,
+        event_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.append(
+            kind="registered",
+            event_id=event_id or f"registered:{trial}",
+            trial=trial,
+            payload={
+                "study_sha256": study_sha256,
+                "parents": sorted(set(parents)),
+                "n_contribution": n_contribution,
+                "selection_start": selection_start,
+                "selection_end": selection_start + n_contribution - 1,
+                "source_ref": dict(source_ref),
+            },
+            event_at=event_at,
+        )
+
+    def reconcile(
+        self,
+        source_hashes: Mapping[str, str],
+        *,
+        event_id: str,
+        event_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        records = self.read()
+        summary = _summary(records)
+        return self.append(
+            kind="inventory_reconciliation",
+            event_id=event_id,
+            payload={
+                "sealed_through_sequence": len(records),
+                "sealed_row_sha256": records[-1]["row_sha256"] if records else None,
+                "register_sha256": canonical_sha256([row["row_sha256"] for row in records]),
+                "selection_n": summary.selection_n,
+                "source_hashes": dict(source_hashes),
+            },
+            event_at=event_at,
+        )
+
+    def summary(self) -> LedgerSummary:
+        return _summary(self.read())
+
+    def selection_n(self, *, require_reconciled: bool = True) -> int:
+        summary = self.summary()
+        if require_reconciled and summary.status != "complete":
+            raise TrialLedgerError(f"trial ledger is {summary.status}; DSR census is unavailable")
+        return summary.selection_n
+
+
+def _summary(records: Sequence[Mapping[str, Any]]) -> LedgerSummary:
+    _validate_records(records)
+    registrations = [row for row in records if row["kind"] == "registered"]
+    selection_n = max(
+        (row["payload"]["selection_end"] for row in registrations),
+        default=GENESIS_SELECTION_N,
+    )
+    contributions = sum(row["payload"]["n_contribution"] for row in registrations)
+    reconciliations = [row for row in records if row["kind"] == "inventory_reconciliation"]
+    latest = reconciliations[-1] if reconciliations else None
+    if latest is None:
+        status = "unreconciled"
+    elif any(row["kind"] != "inventory_reconciliation"
+             for row in records[latest["sequence"]:]):
+        status = "stale"
+    else:
+        status = "complete"
+    return LedgerSummary(
+        status=status,
+        selection_n=selection_n,
+        selection_contributions=contributions,
+        registered_trials=len(registrations),
+        attempts=len({(row["trial_id"], row["attempt_id"]) for row in records
+                      if row["kind"] == "evaluation_started"}),
+        row_count=len(records),
+        row_sha256=records[-1]["row_sha256"] if records else None,
+        register_sha256=canonical_sha256([row["row_sha256"] for row in records]),
+    )
