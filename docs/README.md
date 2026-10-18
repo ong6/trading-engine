@@ -212,6 +212,7 @@ and does not authorize work or live trading; `scope.md` is the queue.
 - 2026-09-22 to 09-23: [`agent-trading-review`](history/agent-trading-review-2026-09-22.md),
   [`agent-backtesting-roadmap`](history/agent-backtesting-roadmap-2026-09-23.md),
   [`agent-research-product-completion-audit`](history/agent-research-product-completion-audit-2026-09-23.md)
+- 2026-10-18: [`retired PIT restore identities`](history/retired-pit-restore-2026-10-18.md)
 
 ## Generated reports
 
