@@ -1,17 +1,33 @@
+import importlib.util
 import json
 import multiprocessing
 import stat
 from contextlib import contextmanager
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import pytest
 
-from engine import backfill_dividends
 from engine.lib import db
 from engine.lib import resources as rsc
 from farm import experiment
 from farm.backtest import replay
+
+
+def _historical_tool(name):
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "history"
+        / "incident-tools-2026-09-02"
+        / f"{name}.py"
+    )
+    spec = importlib.util.spec_from_file_location(f"historical_{name}", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_read_meta_missing_or_corrupt_is_empty(tmp_path):
@@ -339,6 +355,8 @@ def test_replay_screen_copy_unregisters_frame_when_insert_fails(con):
 
 
 def test_dividend_backfill_closes_connection_on_initial_query_failure(monkeypatch):
+    backfill_dividends = _historical_tool("backfill_dividends")
+
     class Connection:
         closed = False
 

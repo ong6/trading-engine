@@ -15,6 +15,7 @@ generated reports under [`../../data/reports/`](../../data/reports/README.md).
 | 2026-08-20 | [`synthesis-price-adjustment-and-fills-2026-08-20.md`](synthesis-price-adjustment-and-fills-2026-08-20.md) | Reverse splits, stranded cash, fill-model synthesis | Explains the fill-model fix over a universe change |
 | 2026-09-02 | [`architecture-review-2026-09-02.md`](architecture-review-2026-09-02.md) | Architecture and open-source readiness review, with 2026-09-11 addendum | Source of the package layout and centralized DB opens |
 | 2026-09-02 | [`evaluation-2026-09-02.md`](evaluation-2026-09-02.md) | League, research farm and data evaluation | Cited by the XS momentum and multi-asset charters |
+| 2026-09-02 | [`incident-tools-2026-09-02/`](incident-tools-2026-09-02/) | Verbatim missed-dividend and false-restatement repair tools | Replays the completed incidents without exposing one-off commands in `engine.*` |
 | 2026-09-03 | [`split-restatements-reaudit-2026-09-03.md`](split-restatements-reaudit-2026-09-03.md) | Split-restatement re-audit | Evidence for the corporate-actions reconciler |
 | 2026-09-06 | [`review-2026-09-06.md`](review-2026-09-06.md) | Full review, extended with the 2026-09-07 v4 cohort | Last complete narrative review before maintain mode |
 | 2026-09-06 | [`execution-capital-data-hardening-2026-09-06.md`](execution-capital-data-hardening-2026-09-06.md) | Fill-model v4, capital and cost sensitivity | Narrative for `data/reports/capital-sensitivity/` |

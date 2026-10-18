@@ -28,7 +28,7 @@ on the old scale. Example, TRST 2:1 ex 1986-07-22 (Yahoo close, volume):
 The old ±20% adjudicator saw the drop from the bogus ex-date bar to the first real bar as "the
 break" and divided every earlier (already-adjusted) row by the ratio. The store is now on the
 wrong scale for the whole pre-break history of these 16 tickers (17 rows; CHCO twice, so its
-pre-1987 history is divided by 2.25). The 30-session median check in `repair_restatements.py
+pre-1987 history is divided by 2.25). The 30-session median check in `incident-tools-2026-09-02/repair_restatements.py
 --yahoo` reads `before = 1/ratio, after = 1.0` for these names, which is exactly what a
 false restatement looks like, so the BUILDLOG's reading of GRC, ERIC, BRO, ODC, TRST, INDB and
 UBSI as "Yahoo itself discontinuous" was wrong: Yahoo is discontinuous only for the 1–6 zero-volume
@@ -115,7 +115,7 @@ Of the WRONG/AMBIGUOUS names only two have ever traded:
 
 - **AYA** (WRONG): 3 fills, all 2026-09-01 buys at 26.60, and 3 open positions (`ew_benchmark`,
   `ew_trend_gated`, `ew_voltarget`, qty 25–29). Fills are post-break, so a revert does not change
-  fill prices; `repair_restatements.py` will still rebuild the books because fills exist.
+  fill prices; `incident-tools-2026-09-02/repair_restatements.py` will still rebuild the books because fills exist.
 - **ODC** (WRONG): 4 fills (`mr_overlay`, `mr_overlay_gated`; buy 2026-07-20, sell 2026-07-22),
   no open position. Post-break; books rebuild only.
 
@@ -132,23 +132,23 @@ flips the watermark to `reverted_false_break`, appends an `audit_log` row. Dry-r
 Ratios must match the watermark to 1e-9, hence the long fractions.
 
 ```
-.venv/bin/python engine/repair_restatements.py --target ASTH:2015-04-29:0.1 --yahoo
-.venv/bin/python engine/repair_restatements.py --target AYA:2018-03-07:0.25 --yahoo
-.venv/bin/python engine/repair_restatements.py --target BRO:1983-03-25:1.5 --yahoo
-.venv/bin/python engine/repair_restatements.py --target CHCO:1989-01-06:1.5 --target CHCO:1987-10-05:1.5 --yahoo
-.venv/bin/python engine/repair_restatements.py --target CTO:1992-08-19:2.0 --yahoo
-.venv/bin/python engine/repair_restatements.py --target ERIC:1982-10-12:1.5 --yahoo
-.venv/bin/python engine/repair_restatements.py --target GRC:1981-05-07:1.5 --yahoo
-.venv/bin/python engine/repair_restatements.py --target INDB:1987-10-07:1.5 --yahoo
-.venv/bin/python engine/repair_restatements.py --target IPAR:1990-08-08:0.4 --yahoo
-.venv/bin/python engine/repair_restatements.py --target ODC:1983-08-03:2.0 --yahoo
-.venv/bin/python engine/repair_restatements.py --target SKE:2017-10-25:0.1 --yahoo
-.venv/bin/python engine/repair_restatements.py --target TECX:2024-06-24:0.08333333333333333 --yahoo
-.venv/bin/python engine/repair_restatements.py --target TJGC:2026-06-03:0.3333333333333333 --yahoo
-.venv/bin/python engine/repair_restatements.py --target TMP:1989-06-05:1.5 --yahoo
-.venv/bin/python engine/repair_restatements.py --target TRST:1986-07-23:2.0 --yahoo
-.venv/bin/python engine/repair_restatements.py --target UBSI:1988-02-17:2.0 --yahoo
-.venv/bin/python engine/repair_restatements.py --target ISSC:2005-07-21:1.5            # no Yahoo history; --yahoo would report n/a
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target ASTH:2015-04-29:0.1 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target AYA:2018-03-07:0.25 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target BRO:1983-03-25:1.5 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target CHCO:1989-01-06:1.5 --target CHCO:1987-10-05:1.5 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target CTO:1992-08-19:2.0 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target ERIC:1982-10-12:1.5 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target GRC:1981-05-07:1.5 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target INDB:1987-10-07:1.5 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target IPAR:1990-08-08:0.4 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target ODC:1983-08-03:2.0 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target SKE:2017-10-25:0.1 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target TECX:2024-06-24:0.08333333333333333 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target TJGC:2026-06-03:0.3333333333333333 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target TMP:1989-06-05:1.5 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target TRST:1986-07-23:2.0 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target UBSI:1988-02-17:2.0 --yahoo
+PYTHONPATH=$PWD .venv/bin/python docs/history/incident-tools-2026-09-02/repair_restatements.py --target ISSC:2005-07-21:1.5            # no Yahoo history; --yahoo would report n/a
 ```
 
 Add `--apply` to write. The two CHCO targets commute (both multiply disjoint-or-nested prefixes),
