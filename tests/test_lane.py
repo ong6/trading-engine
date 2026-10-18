@@ -191,6 +191,55 @@ def test_overlapping_active_claim_is_refused_before_worktree_creation(tmp_path):
     assert [row["lane"] for row in _claims(fixture)] == ["lane-one"]
 
 
+def test_legacy_claim_table_requires_complete_migration_and_blocks_overlap(tmp_path):
+    fixture = _fixture(tmp_path)
+    legacy = (
+        "# Engine lanes\n\n"
+        "| Lane | Clone / branch | Claims (only these files) |\n"
+        "|---|---|---|\n"
+        "| Historical lane (released) | old / old | `docs/old.md` |\n"
+        "| Active platform lane | active / build/active | `tools/**` |\n"
+    )
+    fixture["claims"].write_text(legacy)
+
+    with pytest.raises(lane.LaneError, match="legacy claims require"):
+        _create(fixture, claim_globs=("tools/lane.py",))
+    assert not (fixture["root"] / "lane-one").exists()
+
+    legacy_rows = lane._legacy_claim_rows(legacy)
+    by_label = {label: digest for digest, label in legacy_rows.items()}
+    active_digest = by_label["Active platform lane"]
+    migrated_claim = {
+        "base_sha": fixture["base"],
+        "branch": "build/active",
+        "claim_globs": ["tools/**"],
+        "claimed_at": "2026-10-18T18:00:00Z",
+        "lane": "active-platform",
+        "legacy_row_sha256": active_digest,
+        "owner": "orchestrator",
+        "schema_version": lane.SCHEMA_VERSION,
+        "session": "legacy-migration",
+        "state": "active",
+    }
+    migration = {
+        "legacy_sha256": lane._legacy_digest(legacy),
+        "record_type": "legacy-migration",
+        "reviewed_rows": [
+            {"row_sha256": by_label["Historical lane (released)"], "state": "released"},
+            {"row_sha256": active_digest, "state": "active"},
+        ],
+        "schema_version": lane.SCHEMA_VERSION,
+        "state": "complete",
+    }
+    fixture["claims"].write_text(
+        lane._render_claims(legacy, [migrated_claim], migration)
+    )
+
+    with pytest.raises(lane.LaneError, match="overlaps active lane active-platform"):
+        _create(fixture, claim_globs=("tools/lane.py",))
+    assert not (fixture["root"] / "lane-one").exists()
+
+
 @pytest.mark.parametrize("kind", ["dirty", "unpushed", "stash"])
 def test_existing_target_state_is_never_reused(tmp_path, kind):
     fixture = _fixture(tmp_path)

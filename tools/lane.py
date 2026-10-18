@@ -233,8 +233,10 @@ def claims_overlap(left: str, right: str) -> bool:
     return True
 
 
-def _claim_block(rows: Iterable[dict]) -> str:
+def _claim_block(rows: Iterable[dict], migration: dict | None = None) -> str:
     lines = [CLAIMS_START, "```jsonl"]
+    if migration is not None:
+        lines.append(json.dumps(migration, sort_keys=True, separators=(",", ":")))
     lines.extend(
         json.dumps(row, sort_keys=True, separators=(",", ":"))
         for row in sorted(rows, key=lambda item: (item["claimed_at"], item["lane"]))
@@ -243,15 +245,16 @@ def _claim_block(rows: Iterable[dict]) -> str:
     return "\n".join(lines)
 
 
-def _parse_claims(content: str) -> list[dict]:
+def _parse_claim_document(content: str) -> tuple[list[dict], dict | None]:
     starts = content.count(CLAIMS_START)
     ends = content.count(CLAIMS_END)
     if starts == ends == 0:
-        return []
+        return [], None
     if starts != 1 or ends != 1 or content.index(CLAIMS_START) > content.index(CLAIMS_END):
         raise LaneError("CLAIMS.md has a malformed structured claims block")
     body = content.split(CLAIMS_START, 1)[1].split(CLAIMS_END, 1)[0]
     rows = []
+    migration = None
     for raw in body.splitlines():
         line = raw.strip()
         if not line or line.startswith("```"):
@@ -262,6 +265,11 @@ def _parse_claims(content: str) -> list[dict]:
             raise LaneError("CLAIMS.md contains malformed structured JSON") from exc
         if not isinstance(row, dict) or row.get("schema_version") != SCHEMA_VERSION:
             raise LaneError("CLAIMS.md contains an unsupported claim row")
+        if row.get("record_type") == "legacy-migration":
+            if migration is not None:
+                raise LaneError("CLAIMS.md contains duplicate legacy migration records")
+            migration = row
+            continue
         required = {
             "base_sha",
             "branch",
@@ -278,11 +286,88 @@ def _parse_claims(content: str) -> list[dict]:
     lanes = [row["lane"] for row in rows]
     if len(lanes) != len(set(lanes)):
         raise LaneError("CLAIMS.md contains duplicate structured lanes")
+    return rows, migration
+
+
+def _parse_claims(content: str) -> list[dict]:
+    rows, _migration = _parse_claim_document(content)
     return rows
 
 
-def _render_claims(content: str, rows: list[dict]) -> str:
-    block = _claim_block(rows)
+def _legacy_content(content: str) -> str:
+    if CLAIMS_START not in content:
+        return content
+    before, remainder = content.split(CLAIMS_START, 1)
+    _block, after = remainder.split(CLAIMS_END, 1)
+    heading = "## Structured lane claims"
+    stripped = before.rstrip()
+    if stripped.endswith(heading):
+        stripped = stripped[: -len(heading)].rstrip()
+    return f"{stripped}\n{after.lstrip()}"
+
+
+def _legacy_claim_rows(content: str) -> dict[str, str]:
+    result = {}
+    for raw in _legacy_content(content).splitlines():
+        line = raw.strip()
+        if not (line.startswith("|") and line.endswith("|")):
+            continue
+        cells = [cell.strip() for cell in line[1:-1].split("|")]
+        if len(cells) < 3 or cells[0].casefold() == "lane":
+            continue
+        if all(not cell.strip(":- ") for cell in cells):
+            continue
+        digest = hashlib.sha256(line.encode()).hexdigest()
+        result[digest] = cells[0]
+    return result
+
+
+def _legacy_digest(content: str) -> str:
+    return hashlib.sha256(_legacy_content(content).encode()).hexdigest()
+
+
+def _validate_legacy_migration(
+    content: str, rows: list[dict], migration: dict | None
+) -> None:
+    legacy_rows = _legacy_claim_rows(content)
+    if not legacy_rows:
+        return
+    if migration is None:
+        raise LaneError("legacy claims require a reviewed structured migration")
+    if (
+        migration.get("state") != "complete"
+        or migration.get("legacy_sha256") != _legacy_digest(content)
+        or not isinstance(migration.get("reviewed_rows"), list)
+    ):
+        raise LaneError("legacy migration record is incomplete or stale")
+    reviewed = migration["reviewed_rows"]
+    reviewed_by_digest = {}
+    for item in reviewed:
+        if (
+            not isinstance(item, dict)
+            or item.get("state") not in {"active", "released"}
+            or not isinstance(item.get("row_sha256"), str)
+        ):
+            raise LaneError("legacy migration review entry is invalid")
+        reviewed_by_digest[item["row_sha256"]] = item["state"]
+    if set(reviewed_by_digest) != set(legacy_rows):
+        raise LaneError("legacy migration does not review every table row")
+    represented = {
+        row.get("legacy_row_sha256")
+        for row in rows
+        if row.get("state") == "active" and row.get("legacy_row_sha256")
+    }
+    active = {
+        digest for digest, state in reviewed_by_digest.items() if state == "active"
+    }
+    if represented != active:
+        raise LaneError("legacy active rows are not exactly represented by structured claims")
+
+
+def _render_claims(
+    content: str, rows: list[dict], migration: dict | None = None
+) -> str:
+    block = _claim_block(rows, migration)
     if CLAIMS_START not in content:
         prefix = content.rstrip()
         return f"{prefix}\n\n## Structured lane claims\n\n{block}\n" if prefix else f"{block}\n"
@@ -332,13 +417,15 @@ def _claims_lock(root: Path):
         os.close(descriptor)
 
 
-def _claims(root: Path) -> tuple[Path, str, list[dict]]:
+def _claims(root: Path) -> tuple[Path, str, list[dict], dict | None]:
     path = root / "CLAIMS.md"
     try:
         content = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise LaneError(f"cannot read CLAIMS.md: {exc}") from exc
-    return path, content, _parse_claims(content)
+    rows, migration = _parse_claim_document(content)
+    _validate_legacy_migration(content, rows, migration)
+    return path, content, rows, migration
 
 
 def _refuse_overlap(rows: list[dict], claims: tuple[str, ...]) -> None:
@@ -573,7 +660,7 @@ def create_lane(
     public_name, public_email = _public_identity(source, name, email)
 
     with _claims_lock(root):
-        claims_path, content, rows = _claims(root)
+        claims_path, content, rows, migration = _claims(root)
         _refuse_overlap(rows, claims)
         _git(source, "worktree", "add", "-b", branch, str(target), base)
         try:
@@ -603,7 +690,11 @@ def create_lane(
             "state": "active",
         }
         rows.append(row)
-        _atomic_text(claims_path, _render_claims(content, rows), claims_path.stat().st_mode & 0o777)
+        _atomic_text(
+            claims_path,
+            _render_claims(content, rows, migration),
+            claims_path.stat().st_mode & 0o777,
+        )
     return {"claim": row, "environment": environment, "hook": hook, "target": str(target)}
 
 
@@ -732,7 +823,7 @@ def audit_lane(
     root = _validated_root(lanes_root, home)
     status = status_path or home / ".tae" / "out" / lane / "STATUS"
     with _claims_lock(root):
-        _path, _content, rows = _claims(root)
+        _path, _content, rows, _migration = _claims(root)
         return _audit_unlocked(root, home, lane, status, rows)
 
 
@@ -747,7 +838,7 @@ def release_lane(
     root = _validated_root(lanes_root, home)
     status = status_path or home / ".tae" / "out" / lane / "STATUS"
     with _claims_lock(root):
-        path, content, rows = _claims(root)
+        path, content, rows, migration = _claims(root)
         report = _audit_unlocked(root, home, lane, status, rows)
         if not report["ok"]:
             failed = sorted(key for key, passed in report["checks"].items() if not passed)
@@ -756,7 +847,11 @@ def release_lane(
         row["head_sha"] = report["head_sha"]
         row["released_at"] = _timestamp(clock)
         row["state"] = "released"
-        _atomic_text(path, _render_claims(content, rows), path.stat().st_mode & 0o777)
+        _atomic_text(
+            path,
+            _render_claims(content, rows, migration),
+            path.stat().st_mode & 0o777,
+        )
     return report
 
 
