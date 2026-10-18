@@ -50,25 +50,7 @@ body() {
     || echo "WARN: account freshness failed"
   "${PY}" -m server.p15_incremental_collect
 
-  # Freeze one breadth-qualified market date for both screen and league. A
-  # partial batch or stray phantom quote may remain in prices for audit, but it
-  # must not advance paper state. The resolver requires >=90% of active liquid
-  # names (and >=1,000 names for a production-sized universe) to have real bars.
-  stage market-date
-  market_date="$("${PY}" -m engine.market_date)"
-  if [[ ! "${market_date}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-    echo "ERROR: invalid breadth-qualified market date: ${market_date}"
-    return 1
-  fi
-  echo "INFO: breadth-qualified market date ${market_date}"
-
-  # rank universe + trend template, write screens/eod. --skip-if-done: on a
-  # weekend/holiday run collect no-ops so market_date is already screened — no-op
-  # cleanly (exit 0) instead of aborting the nightly; real failures still exit 1.
-  stage screen
-  "${PY}" -m engine.screen --date "${market_date}" --skip-if-done
-
-  # --- Corporate actions: fetch, then reconcile. MUST sit between screen and
+  # --- Corporate actions: fetch, then reconcile. MUST run before screen and
   # league, because the league steps the books against `prices` and a stored
   # scale break makes a held name look like it crashed ~(1−1/ratio) overnight.
   #
@@ -90,6 +72,24 @@ body() {
     || echo "WARN: corporate-actions fetch failed (exit $?) — reconcile still runs over stored actions; the >40% move tripwire is independent of this fetch"
   stage reconcile
   "${PY}" -m engine.actions --mode reconcile
+
+  # Freeze one breadth-qualified market date for both screen and league. A
+  # partial batch or stray phantom quote may remain in prices for audit, but it
+  # must not advance paper state. The resolver requires >=90% of active liquid
+  # names (and >=1,000 names for a production-sized universe) to have real bars.
+  stage market-date
+  market_date="$("${PY}" -m engine.market_date)"
+  if [[ ! "${market_date}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    echo "ERROR: invalid breadth-qualified market date: ${market_date}"
+    return 1
+  fi
+  echo "INFO: breadth-qualified market date ${market_date}"
+
+  # rank universe + trend template, write screens/eod. --skip-if-done: on a
+  # weekend/holiday run collect no-ops so market_date is already screened — no-op
+  # cleanly (exit 0) instead of aborting the nightly; real failures still exit 1.
+  stage screen
+  "${PY}" -m engine.screen --date "${market_date}" --skip-if-done
 
   # Paper league (exec-design §1 nightly order: … → screen → league → report → sync).
   # --init is idempotent (creates only absent portfolios); the step writes

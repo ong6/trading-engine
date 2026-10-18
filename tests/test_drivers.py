@@ -211,10 +211,10 @@ def test_daily_stage_order(fake_repo):
         "engine.universe",
         "engine.account_watch",
         "server.p15_incremental_collect",
+        "engine.actions",
+        "engine.actions",
         "engine.market_date",
         "engine.screen",
-        "engine.actions",
-        "engine.actions",
         "sim.league",
         "engine.forward_review",
         "engine.xs_forward_review",
@@ -245,6 +245,8 @@ def test_daily_market_date_failure_is_fatal_before_screen(fake_repo):
     assert argv == [
         "-m engine.universe", "-m engine.account_watch",
         "-m server.p15_incremental_collect",
+        "-m engine.actions --mode incremental",
+        "-m engine.actions --mode reconcile",
         "-m engine.market_date",
     ]
 

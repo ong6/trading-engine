@@ -18,18 +18,20 @@ def _universe(con):
 
 def _fresh(_yf, canon):
     return pd.DataFrame({"ticker": canon, "date": D, "open": [13.0, 6.5, 6.0],
-                         "high": [13.0, 6.5, 6.0], "low": [13.0, 6.5, 6.0],
+                         "high": [13.5, 6.5, 6.1], "low": [13.0, 6.49, 6.0],
                          "close": [13.44, 6.492, 6.036], "volume": [1000, 5000, 4000]})
 
 
-def test_replaces_only_target_rows(con):
+def test_unknown_basis_preserves_target_rows_and_evidence(con):
     _universe(con)
     insert_bars(con, "JEM", D, close=[161.28, 6.492, 6.036])   # 12x on the first row
     insert_bars(con, "NBR", D, close=50.0)
     out = rt.refetch(con, "JEM", apply=True, force=False, fetch=_fresh, show_dates=[])
     assert out["rows_before"] == 3 and out["rows_after"] == 3
     assert con.execute("SELECT close FROM prices WHERE ticker='JEM' AND date=?",
-                       [D[0]]).fetchone()[0] == pytest.approx(13.44)
+                       [D[0]]).fetchone()[0] == pytest.approx(161.28)
+    assert out["status"] == "withheld" and out["rows_written"] == 0
+    assert con.execute("SELECT count(*) FROM price_observation_rejects WHERE reason='basis_unverified'").fetchone() == (3,)
     assert con.execute("SELECT COUNT(*) FROM prices WHERE ticker='NBR' AND close=50").fetchone()[0] == 3
 
 

@@ -3641,4 +3641,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; documentation and manual-harness lines only, budget ok.
 - **Next:** orchestrator acceptance of the runbook and Sunday execution-time gates.
 
+## 2026-10-17 — Reject impossible price observations before cache admission
+
+- **Why:** revision 15 admission gate, approved by the orchestrator; reproduction:
+  `db.upsert_prices` admitted O=10, H=9, L=8, C=8.5 on 2026-10-16 (one row).
+- **What:** preserve rejected observations and replacement predecessors; guard daily,
+  intraday and split restatement writes; withhold unverified basis changes.
+- **Evidence:** targeted pytest across admission, collection, actions, verifier and drivers:
+  251 passed under both UTC and Asia/Singapore; snapshot-copy cleanup moved 360, valid rows changed 0.
+- **Metrics:** server +8, tools unchanged, product +366.
+- **Next:** orchestrator integrates revision-15 source registrations; full-suite hash gates remain blocked.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -123,13 +123,10 @@ def _frame_from_sub(sub: pd.DataFrame, canon: str, interval: str) -> pd.DataFram
     """Turn one ticker's intraday OHLCV sub-frame into our long schema."""
     sub = sub.reset_index()
     sub = sub.rename(columns={sub.columns[0]: "ts"})
-    if any(f not in sub.columns for f in _YF_FIELDS):
-        return None
-    out = sub[["ts", "Open", "High", "Low", "Close", "Volume"]].rename(columns=_YF_FIELDS)
+    out = sub.reindex(columns=["ts", "Open", "High", "Low", "Close", "Volume"]).rename(columns=_YF_FIELDS)
     out["ticker"] = canon
     out["interval"] = interval
     out["ts"] = _to_utc(out["ts"])
-    out = out.dropna(subset=["close"])
     if out.empty:
         return None
     return out[["ticker", "ts", "interval", "open", "high", "low", "close", "volume"]]

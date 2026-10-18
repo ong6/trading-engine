@@ -40,7 +40,6 @@ import pandas as pd
 import yfinance as yf
 from yfinance.exceptions import YFPricesMissingError
 
-from engine import actions
 from engine.lib import db
 from engine.lib import resources as rsc
 from engine.lib.log import get_logger
@@ -84,12 +83,9 @@ def _frame_from_sub(sub: pd.DataFrame, canon: str) -> pd.DataFrame | None:
     """Turn a single ticker's OHLCV sub-frame into our long schema."""
     sub = sub.reset_index()
     sub = sub.rename(columns={sub.columns[0]: "date"})
-    if any(f not in sub.columns for f in _YF_FIELDS):
-        return None
-    out = sub[["date", "Open", "High", "Low", "Close", "Volume"]].rename(columns=_YF_FIELDS)
+    out = sub.reindex(columns=["date", "Open", "High", "Low", "Close", "Volume"]).rename(columns=_YF_FIELDS)
     out["ticker"] = canon
     out["date"] = pd.to_datetime(out["date"]).dt.date
-    out = out.dropna(subset=["close"])
     if out.empty:
         return None
     return out[["ticker", "date", "open", "high", "low", "close", "volume"]]
@@ -97,7 +93,7 @@ def _frame_from_sub(sub: pd.DataFrame, canon: str) -> pd.DataFrame | None:
 
 def _extract_long(raw: pd.DataFrame, yf_to_canon: dict[str, str]) -> tuple[pd.DataFrame, set[str]]:
     """Flatten a yf.download result into long form. Returns (df, set of yf
-    tickers that actually produced usable rows)."""
+    tickers that returned observations)."""
     if raw is None or raw.empty:
         return pd.DataFrame(), set()
 
@@ -220,7 +216,6 @@ def _upsert_batch(db_path: str | Path, frame: pd.DataFrame) -> int:
     con = db.connect(db_path)
     try:
         with db.transaction(con):
-            actions.record_split_like_rewrites(con, frame)
             return db.upsert_prices(con, frame)
     finally:
         con.close()
@@ -263,6 +258,7 @@ def mode_bootstrap_floor(db_path: str | Path, limit: int | None) -> tuple[int, i
         raw = _download(batch, period=None, start=start)
         df, got = _extract_long(raw, sub_map)
         n = _upsert_batch(db_path, df)
+        got -= {y for y, canon in sub_map.items() if canon in df.attrs.get("rejected_tickers", set())}
         got_all |= got
         log.info(f"[bootstrap] batch {len(batch)} tickers -> {n} rows ({len(got)} with data)")
         time.sleep(2)
@@ -335,6 +331,7 @@ def mode_backfill(db_path: str | Path, limit: int | None) -> tuple[int, int]:
         try:
             with db.transaction(con):
                 n = db.upsert_prices(con, df)
+                got -= {y for y, canon in sub_map.items() if canon in df.attrs.get("rejected_tickers", set())}
                 if got:
                     done_canon = [sub_map[y] for y in got]
                     con.executemany(
@@ -494,6 +491,7 @@ def mode_refresh_liquid(
         raw = _download(batch, period=None, start=start)
         df, got = _extract_long(raw, sub_map)
         n = _upsert_batch(db_path, df)
+        got -= {y for y, canon in sub_map.items() if canon in df.attrs.get("rejected_tickers", set())}
         got_all |= got
         log.info(
             f"[refresh-liquid] candidates batch {i} ({len(batch)} tickers) -> {n} rows ({len(got)} with data)"
@@ -595,6 +593,7 @@ def mode_incremental(
         if found:
             df = pd.concat([f for f in (df, *found) if not f.empty], ignore_index=True)
         n = _upsert_batch(db_path, df)
+        got -= {y for y, canon in sub_map.items() if canon in df.attrs.get("rejected_tickers", set())}
         got_all |= got
         log.info(f"[incremental] batch {len(batch)} -> {n} rows ({len(got)} with data)")
         time.sleep(2)

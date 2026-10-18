@@ -148,8 +148,8 @@ def test_rechecks_binding_and_stored_prices_after_network(monkeypatch, tmp_path,
             con.execute("UPDATE universe SET name='Different security'")
         else:
             frame = result[0].copy()
-            frame["close"] = 200
-            db.upsert_prices(con, frame)
+            frame["close"] = 101
+            assert db.upsert_prices(con, frame) == 1
         con.close()
         return result
 
