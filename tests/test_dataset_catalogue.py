@@ -1,8 +1,10 @@
 import ast
+import copy
 import fnmatch
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 from engine.accounts.sources import SOURCE_PATHS, SOURCE_TABLES
@@ -26,10 +28,26 @@ REQUIRED_FIELDS = {
     "registration",
     "quality_gate",
 }
-OBJECT_KINDS = {"table", "view", "sequence"}
+ALLOWED_KINDS = {
+    "duckdb_table",
+    "duckdb_view",
+    "file_set",
+    "generation",
+    "external_backup",
+}
+ALLOWED_SEMANTICS = {
+    "authoritative",
+    "append_only_evidence",
+    "mutable_projection",
+    "current_state",
+    "derived",
+    "cache",
+}
+LIST_FIELDS = {"schema_owner", "producer", "readers", "registration"}
+TEXT_FIELDS = REQUIRED_FIELDS - LIST_FIELDS - {"kind", "semantics"}
 DDL_RE = re.compile(
     r"\bCREATE\s+(?:OR\s+REPLACE\s+)?"
-    r"(?!(?:TEMP|TEMPORARY)\s)(TABLE|VIEW|SEQUENCE)\s+"
+    r"(?!(?:TEMP|TEMPORARY)\s)(TABLE|VIEW)\s+"
     r"(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)",
     re.IGNORECASE,
 )
@@ -42,6 +60,7 @@ EXTERNAL_DYNAMIC_CONSTANTS = {
     "RETENTION_TABLE": "broker_paper_authority_retained_events",
     "RISK_EVIDENCE_TABLE": "broker_paper_authority_risk_evaluations",
 }
+NON_DUCKDB_DDL_SOURCES = {Path("tools/ops_digest.py")}
 IGNORED_MANAGED_PATHS = {
     # A historical repair docstring describes a store/Yahoo price ratio; it is
     # not a path.  The script is retained under docs/history.
@@ -62,9 +81,10 @@ def _python_sources() -> list[Path]:
 
 def _catalogued_objects(catalogue: dict) -> set[str]:
     return {
-        item
+        f"{dataset['kind'].removeprefix('duckdb_')}:"
+        f"{dataset['location'].rsplit('.', 1)[1]}"
         for dataset in catalogue["datasets"]
-        for item in dataset.get("objects", [])
+        if dataset["kind"] in {"duckdb_table", "duckdb_view"}
     }
 
 
@@ -104,7 +124,7 @@ def _dynamic_objects(tree: ast.AST, path: Path) -> set[str]:
     unresolved = []
     dynamic_re = re.compile(
         r"\bCREATE\s+(?:OR\s+REPLACE\s+)?"
-        r"(?!(?:TEMP|TEMPORARY)\s)(TABLE|VIEW|SEQUENCE)\s+"
+        r"(?!(?:TEMP|TEMPORARY)\s)(TABLE|VIEW)\s+"
         r"(?:IF\s+NOT\s+EXISTS\s+)?\{([A-Za-z_][A-Za-z0-9_]*)\}",
         re.IGNORECASE,
     )
@@ -130,6 +150,8 @@ def _dynamic_objects(tree: ast.AST, path: Path) -> set[str]:
 def _declared_objects(sources: list[Path]) -> set[str]:
     objects = set()
     for path in sources:
+        if path.is_relative_to(ROOT) and path.relative_to(ROOT) in NON_DUCKDB_DDL_SOURCES:
+            continue
         text = path.read_text()
         tree = ast.parse(text, filename=str(path))
         for kind, name in DDL_RE.findall(text):
@@ -166,12 +188,7 @@ def _path_references(sources: list[Path]) -> set[str]:
 def _location_patterns(catalogue: dict) -> list[str]:
     patterns = []
     for dataset in catalogue["datasets"]:
-        if dataset["kind"] in {
-            "duckdb_objects",
-            "sqlite_objects",
-            "file_set",
-            "generation",
-        }:
+        if dataset["kind"] in {"file_set", "generation"}:
             location = dataset["location"]
             if "{" in location:
                 before, choices, after = re.fullmatch(r"([^{}]*)\{([^{}]+)\}(.*)", location).groups()
@@ -191,22 +208,67 @@ def _covered_path(reference: str, patterns: list[str]) -> bool:
     )
 
 
-def test_catalogue_records_have_complete_contracts_and_unique_ids():
-    catalogue = _load_catalogue()
-
-    assert catalogue["catalogue_version"] == 1
+def _validate_catalogue(catalogue: dict) -> None:
+    assert catalogue["catalogue_version"] == 2
     datasets = catalogue["datasets"]
     assert datasets
-    assert all(REQUIRED_FIELDS <= set(dataset) for dataset in datasets)
+    assert all(set(dataset) == REQUIRED_FIELDS for dataset in datasets)
+    assert all(dataset["kind"] in ALLOWED_KINDS for dataset in datasets)
+    assert all(dataset["semantics"] in ALLOWED_SEMANTICS for dataset in datasets)
+    assert all(
+        isinstance(dataset[field], str) and dataset[field].strip()
+        for dataset in datasets
+        for field in TEXT_FIELDS | {"kind", "semantics"}
+    )
+    assert all(
+        isinstance(dataset[field], list)
+        and dataset[field]
+        and all(isinstance(value, str) and value.strip() for value in dataset[field])
+        for dataset in datasets
+        for field in LIST_FIELDS
+    )
     ids = [dataset["id"] for dataset in datasets]
     assert len(ids) == len(set(ids))
+    assert all(re.fullmatch(r"[a-z][a-z0-9_.-]+", identifier) for identifier in ids)
+    identities = [(dataset["kind"], dataset["location"]) for dataset in datasets]
+    assert len(identities) == len(set(identities))
 
-    objects = [item for dataset in datasets for item in dataset.get("objects", [])]
-    assert len(objects) == len(set(objects))
-    assert all(
-        item.count(":") == 1 and item.split(":", 1)[0] in OBJECT_KINDS
-        for item in objects
+    relation_location = re.compile(
+        r"(?:store/.+\.duckdb|scratch/.+\.duckdb|memory://[^#]+)"
+        r"#main\.[A-Za-z_][A-Za-z0-9_]*$"
     )
+    assert all(
+        relation_location.fullmatch(dataset["location"])
+        for dataset in datasets
+        if dataset["kind"] in {"duckdb_table", "duckdb_view"}
+    )
+    assert all(
+        "#" not in dataset["location"]
+        for dataset in datasets
+        if dataset["kind"] in {"file_set", "generation", "external_backup"}
+    )
+
+
+def test_catalogue_records_implement_the_accepted_contract():
+    _validate_catalogue(_load_catalogue())
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("kind", "duckdb_objects"),
+        ("semantics", "authoritative_and_cache"),
+        ("readers", []),
+        ("retention", ""),
+        ("location", "store/market.duckdb"),
+    ],
+)
+def test_catalogue_validator_rejects_invalid_contracts(field, invalid):
+    catalogue = copy.deepcopy(_load_catalogue())
+    catalogue["datasets"][0][field] = invalid
+
+    with pytest.raises(AssertionError):
+        _validate_catalogue(catalogue)
 
 
 def test_catalogue_matches_every_persistent_ddl_object_bidirectionally():
@@ -260,13 +322,15 @@ def test_account_source_databases_and_tables_are_catalogued():
 
     for source, (_environment_name, filename) in SOURCE_PATHS.items():
         database = f"store/pit/{filename}"
-        records = [dataset for dataset in datasets if dataset["location"] == database]
-        assert records, f"account source database is uncatalogued: {database}"
+        assert any(
+            dataset["kind"] == "file_set" and dataset["location"] == database
+            for dataset in datasets
+        ), f"account source database is uncatalogued: {database}"
         catalogued = {
-            item.split(":", 1)[1]
-            for dataset in records
-            for item in dataset.get("objects", [])
-            if item.startswith(("table:", "view:"))
+            dataset["location"].rsplit(".", 1)[1]
+            for dataset in datasets
+            if dataset["kind"] in {"duckdb_table", "duckdb_view"}
+            and dataset["location"].startswith(database + "#main.")
         }
         assert set(SOURCE_TABLES[source]) <= catalogued, {
             "database": database,
