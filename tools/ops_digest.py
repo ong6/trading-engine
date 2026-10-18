@@ -149,7 +149,8 @@ CREATE TABLE IF NOT EXISTS job_runs (
   run_id TEXT, attempt INT, job_id TEXT, spec_version INT, spec_sha256 TEXT,
   idempotency_key TEXT, scheduled_for TEXT, started TEXT, ended TEXT, seconds REAL,
   process_exit INT, work_status TEXT, reason TEXT, retry_disposition TEXT,
-  catch_up_disposition TEXT, receipt_path TEXT, PRIMARY KEY (run_id, attempt));
+  catch_up_disposition TEXT, receipt_path TEXT, alert_state TEXT, alert_after TEXT,
+  PRIMARY KEY (run_id, attempt));
 CREATE TABLE IF NOT EXISTS log_counts (
   hour TEXT, source TEXT, lines INT, bytes INT, errors INT, warns INT,
   PRIMARY KEY (hour, source));
@@ -557,7 +558,8 @@ def collect_job_receipts(
 
 
 def registered_receipt_alerts(
-    receipts: list[dict], now: datetime, repo_root: Path = REPO_ROOT
+    receipts: list[dict], now: datetime, repo_root: Path = REPO_ROOT,
+    db: sqlite3.Connection | None = None,
 ) -> tuple[list[dict], list[dict], list[str]]:
     """Apply the exact registered alert policy to immutable generic receipts."""
     try:
@@ -567,6 +569,18 @@ def registered_receipt_alerts(
     failures, warnings, errors = [], [], []
     for receipt in receipts:
         identity = f"{receipt.get('run_id', '?')}:{receipt.get('attempt', '?')}"
+        key = (receipt.get("run_id"), receipt.get("attempt"))
+
+        def disposition(
+            state: str, after: str | None = None, receipt_key: tuple = key
+        ) -> None:
+            if db is not None:
+                db.execute(
+                    "UPDATE job_runs SET alert_state=?, alert_after=? "
+                    "WHERE run_id=? AND attempt=?",
+                    (state, after, *receipt_key),
+                )
+
         spec = registry.by_id.get(str(receipt.get("job_id", "")))
         if spec is None:
             errors.append(f"unknown-job-receipt:{receipt.get('job_id', '?')}:{identity}")
@@ -577,13 +591,26 @@ def registered_receipt_alerts(
             continue
         status = receipt.get("work_status")
         if status in {"success", "noop"}:
+            disposition("resolved")
             continue
+        if receipt.get("retry_disposition") == "retry" and db is not None:
+            later = db.execute(
+                "SELECT 1 FROM job_runs WHERE run_id=? AND attempt>? "
+                "AND work_status IN ('success','noop') LIMIT 1",
+                (receipt["run_id"], receipt["attempt"]),
+            ).fetchone()
+            if later:
+                disposition("resolved")
+                continue
         ended = datetime.fromisoformat(str(receipt["ended_at"]).replace("Z", "+00:00"))
         grace = timedelta(seconds=float(spec.alert["grace_seconds"]))
-        if now.astimezone(UTC) - ended.astimezone(UTC) < grace:
+        alert_after = ended.astimezone(UTC) + grace
+        if now.astimezone(UTC) < alert_after:
+            disposition("pending", _iso(alert_after))
             continue
         severity = spec.alert["severity"]
         if severity == "ignore":
+            disposition("ignored")
             continue
         transient = (
             status in {"degraded", "superseded"}
@@ -591,9 +618,26 @@ def registered_receipt_alerts(
         )
         if severity == "WARN" or transient:
             warnings.append(receipt)
+            disposition("warned", _iso(alert_after))
         else:
             failures.append(receipt)
+            disposition("failed", _iso(alert_after))
     return failures, warnings, errors
+
+
+def pending_job_receipts(db: sqlite3.Connection) -> list[dict]:
+    rows = db.execute(
+        "SELECT run_id, attempt, job_id, spec_version, spec_sha256, idempotency_key, "
+        "scheduled_for, started, ended, process_exit, work_status, reason, retry_disposition, "
+        "catch_up_disposition FROM job_runs WHERE work_status NOT IN ('success','noop') "
+        "AND COALESCE(alert_state, 'pending')='pending' ORDER BY ended, attempt"
+    ).fetchall()
+    fields = (
+        "run_id", "attempt", "job_id", "spec_version", "spec_sha256", "idempotency_key",
+        "scheduled_for", "started_at", "ended_at", "process_exit", "work_status", "reason",
+        "retry_disposition", "catch_up_disposition",
+    )
+    return [dict(zip(fields, row, strict=True)) for row in rows]
 
 
 def store_runs(db: sqlite3.Connection, runs: list[UnitRun]) -> list[dict]:
@@ -976,9 +1020,10 @@ def collect_hour(
         job_receipts, receipt_projection_gaps = collect_job_receipts(db, logs_dir, since)
         gaps.extend(receipt_projection_gaps)
         config_errors = registry_schedule_audit(run, repo_root=REPO_ROOT)
+        alert_receipts = pending_job_receipts(db)
         (failed_job_receipts, warned_job_receipts,
          receipt_policy_errors) = registered_receipt_alerts(
-            job_receipts, now, repo_root=REPO_ROOT
+            alert_receipts, now, repo_root=REPO_ROOT, db=db
         )
         config_errors.extend(receipt_policy_errors)
         gaps.extend(f"job registry config error: {item}" for item in config_errors)
@@ -1070,6 +1115,10 @@ def open_db(ops_dir: Path) -> sqlite3.Connection:
     for column in FLOW_FIELDS:
         if column not in stage_columns:
             db.execute(f"ALTER TABLE stage_runs ADD COLUMN {column} REAL")  # noqa: S608
+    job_columns = {row[1] for row in db.execute("PRAGMA table_info(job_runs)")}
+    for column in ("alert_state", "alert_after"):
+        if column not in job_columns:
+            db.execute(f"ALTER TABLE job_runs ADD COLUMN {column} TEXT")  # noqa: S608
     return db
 
 

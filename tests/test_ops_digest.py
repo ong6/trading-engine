@@ -430,6 +430,31 @@ def test_ignore_alert_registration_keeps_terminal_receipt_out_of_hour_status(
     assert "terminal_failure" in hour["text"]
 
 
+def test_pending_receipt_is_reconsidered_after_grace_and_fresh_window(
+    tmp_path, monkeypatch
+):
+    repo, spec = _alert_registry(tmp_path, "FAIL", 7200)
+    monkeypatch.setattr(ops_digest, "REPO_ROOT", repo)
+    receipt = _registered_receipt(
+        spec=spec, work_status="terminal_failure", process_exit=1,
+        started_at="2026-10-10T03:00:00Z", ended_at="2026-10-10T03:01:00Z",
+        reason="delayed-escalation",
+    )
+    path = tmp_path / "logs/job-runs/registry-audit/slot/key/1.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(receipt))
+
+    [first] = _collect(tmp_path, {}, now=datetime(2026, 10, 10, 3, 2, tzinfo=UTC))
+    [second] = _collect(tmp_path, {}, now=datetime(2026, 10, 10, 4, 5, tzinfo=UTC))
+    [third] = _collect(tmp_path, {}, now=datetime(2026, 10, 10, 5, 5, tzinfo=UTC))
+
+    assert (first["status"], second["status"], third["status"]) == ("OK", "OK", "FAIL")
+    with closing(sqlite3.connect(tmp_path / "logs/ops/ops.sqlite")) as db:
+        assert db.execute(
+            "SELECT alert_state, alert_after FROM job_runs"
+        ).fetchone() == ("failed", "2026-10-10T05:01:00Z")
+
+
 def test_registered_alerts_fail_on_unknown_or_mismatched_spec_identity():
     unknown = _registered_receipt(job_id="unknown-job")
     mismatch = _registered_receipt(spec_sha256="0" * 64)
