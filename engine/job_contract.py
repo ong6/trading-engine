@@ -60,6 +60,8 @@ class JobSpec:
     parameters: Mapping[str, Mapping[str, Any]]
     authority: str
     enabled: bool
+    runner_enabled: bool
+    runner_mode: str
     schedules: tuple[str, ...]
     calendar: str
     locks: tuple[LockSpec, ...]
@@ -290,6 +292,20 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
         if not isinstance(reason, str) or not reason.strip():
             raise JobContractError(f"{label}: unlimited resources need a reason")
 
+    runner_enabled = raw.get("runner_enabled")
+    runner_mode = raw.get("runner_mode")
+    if not isinstance(runner_enabled, bool):
+        raise JobContractError(f"{label}: runner_enabled must be boolean")
+    if runner_enabled:
+        if runner_mode not in {"read_only", "synthetic"}:
+            raise JobContractError(f"{label}: admitted runner needs a bounded runner_mode")
+        if schedules or catch_up["mode"] != "none":
+            raise JobContractError(
+                f"{label}: scheduled/catch-up runner execution requires a later migration"
+            )
+    elif runner_mode != "blocked":
+        raise JobContractError(f"{label}: blocked runner must use runner_mode=blocked")
+
     legacy = _mapping(raw.get("legacy", {}), f"{label}.legacy")
     service = legacy.get("service")
     timer = legacy.get("timer")
@@ -331,7 +347,8 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
     frozen_raw = MappingProxyType(dict(raw))
     return JobSpec(
         job_id=job_id, owner=owner, repository=repository, version=version, argv=argv,
-        parameters=parameters, authority=authority, enabled=raw["enabled"], schedules=schedules,
+        parameters=parameters, authority=authority, enabled=raw["enabled"],
+        runner_enabled=runner_enabled, runner_mode=runner_mode, schedules=schedules,
         calendar=calendar, locks=tuple(locks), idempotency_template=template,
         completion_probe=MappingProxyType(dict(completion_probe)),
         retention_days=retention, timeout=MappingProxyType(dict(timeout)),

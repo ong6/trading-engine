@@ -34,6 +34,7 @@ def _spec(
     memory_required: int = 0,
     min_free_bytes: int = 0,
     completion_probe_code: str | None = None,
+    runner_enabled: bool = True,
 ) -> tuple[job_contract.JobSpec, Path]:
     repo = tmp_path / "repo"
     repo.mkdir(parents=True)
@@ -63,6 +64,8 @@ argv = ["{sys.executable}", "{{repo}}/synthetic_job.py"]
 parameters = {parameters}
 authority = "data"
 enabled = true
+runner_enabled = {str(runner_enabled).lower()}
+runner_mode = "{'synthetic' if runner_enabled else 'blocked'}"
 schedules = []
 calendar = "always"
 locks = {lock_text}
@@ -97,6 +100,7 @@ def _execute(spec, repo, tmp_path, **kwargs):
         repo_root=repo,
         logs_dir=tmp_path / "logs",
         projector=kwargs.pop("projector", lambda receipt, ops: None),
+        executor_verified=True,
         **kwargs,
     )
 
@@ -131,6 +135,25 @@ path.with_suffix('.env').write_text(json.dumps({k: os.environ[k] for k in (
     assert Path(environment["ENGINE_JOB_RECEIPT_PATH"]) == first.receipts[-1]
     assert len(first.final["parameter_sha256"]) == 64
     assert str(state) not in json.dumps(first.final)
+
+
+def test_committed_production_jobs_are_audit_only_runner_refusals(tmp_path):
+    registry = job_contract.load_registry(ROOT)
+    launched = False
+
+    def forbidden_popen(*args, **kwargs):
+        nonlocal launched
+        launched = True
+        raise AssertionError("audit-only job launched")
+
+    for job_id in ("run-daily", "trading-engine-p15-scoring",
+                   "trading-engine-accounts-settle"):
+        with pytest.raises(run_job.JobRunError, match="audit-only"):
+            run_job.execute_job(
+                registry.get(job_id), scheduled_for=SLOT, repo_root=ROOT,
+                logs_dir=tmp_path / "logs", popen=forbidden_popen, executor_verified=True,
+            )
+    assert launched is False
 
 
 def test_live_idempotency_key_refuses_a_concurrent_child(tmp_path):
@@ -345,7 +368,8 @@ def test_terminal_receipt_projects_into_existing_ops_database(tmp_path):
     spec, repo = _spec(tmp_path, "pass\n")
     logs = tmp_path / "logs"
     result = run_job.execute_job(
-        spec, scheduled_for=SLOT, repo_root=repo, logs_dir=logs, ops_dir=logs / "ops"
+        spec, scheduled_for=SLOT, repo_root=repo, logs_dir=logs, ops_dir=logs / "ops",
+        executor_verified=True,
     )
 
     with closing(sqlite3.connect(logs / "ops/ops.sqlite")) as db:
@@ -362,7 +386,9 @@ def test_terminal_receipt_projects_into_existing_ops_database(tmp_path):
     [(('none', 0, 0), []), (('latest', 86400, 1), [3]), (('all_bounded', 86400, 2), [2, 3])],
 )
 def test_catch_up_is_age_and_count_bounded(tmp_path, policy, expected):
-    spec, _repo = _spec(tmp_path, "pass\n", catch_up=policy)
+    spec, _repo = _spec(
+        tmp_path, "pass\n", catch_up=policy, runner_enabled=policy[0] == "none"
+    )
     slots = [SLOT - timedelta(hours=value) for value in (30, 3, 2, 1)]
     plan = run_job.plan_catch_up(spec, slots, SLOT)
     assert list(plan.execute) == [slots[index] for index in expected]
@@ -388,15 +414,42 @@ def test_backfill_validates_parameters_and_builds_a_bounded_transient_unit(tmp_p
     assert f"--working-directory={repo}" in command
     assert f"--setenv=PYTHONPATH={repo}" in command
     assert "--property=TimeoutStartSec=20s" in command
+    assert "--property=KillMode=control-group" in command
     assert "--property=CPUQuota=50%" in command
     assert "--property=MemoryMax=2097152" in command
-    assert command[-1] == json.dumps(values, sort_keys=True, separators=(",", ":"))
+    assert json.dumps(values, sort_keys=True, separators=(",", ":")) in command
     with pytest.raises(run_job.JobRunError, match="missing required"):
         run_job.validate_parameters(spec, {"from": "2026-10-01"})
     with pytest.raises(run_job.JobRunError, match="must not be after"):
         run_job.validate_backfill_parameters(spec, "2026-10-03", "2026-10-02", "incident-1")
     with pytest.raises(run_job.JobRunError, match="must not be empty"):
         run_job.validate_backfill_parameters(spec, "2026-10-01", "2026-10-02", " ")
+
+
+def test_run_uses_transient_resources_and_internal_executor_is_not_public(tmp_path, monkeypatch):
+    spec = job_contract.load_registry(ROOT).get("registry-audit")
+    command = run_job._transient_command(
+        spec, repo_root=ROOT, logs_dir=tmp_path / "logs", scheduled_for=SLOT,
+        idempotency_key=None, parameters={},
+    )
+    assert command[0:2] == ["systemd-run", "--user"]
+    assert "--property=KillMode=control-group" in command
+    assert "--property=MemoryHigh=0" not in command
+    assert f"--setenv={run_job.TRANSIENT_SPEC_ENV}={spec.spec_sha256}" in command
+    with pytest.raises(run_job.JobRunError, match="resource boundary"):
+        run_job.execute_job(
+            spec, scheduled_for=SLOT, repo_root=ROOT, logs_dir=tmp_path / "direct"
+        )
+
+    monkeypatch.delenv(run_job.TRANSIENT_SPEC_ENV, raising=False)
+    assert run_job.main([
+        "_execute", "registry-audit", "--repo-root", str(ROOT),
+        "--logs-dir", str(tmp_path / "logs"), "--scheduled-for", _iso_for_cli(SLOT),
+    ]) == 2
+
+
+def _iso_for_cli(moment: datetime) -> str:
+    return moment.isoformat().replace("+00:00", "Z")
 
 
 def test_completed_synthetic_backfill_is_an_evidenced_noop(tmp_path):
@@ -440,6 +493,7 @@ def test_public_read_only_registry_audit_runs_through_common_runner(tmp_path):
         repo_root=ROOT,
         logs_dir=tmp_path / "logs",
         projector=lambda receipt, ops: None,
+        executor_verified=True,
     )
     assert result.exit_code == 0 and result.final["work_status"] == "success"
     assert json.loads(result.receipts[-1].read_text())["job_id"] == "registry-audit"

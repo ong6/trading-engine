@@ -25,6 +25,7 @@ from engine.lib.settings import LOGS_DIR, REPO_ROOT
 
 RECEIPT_SCHEMA_VERSION = 1
 MAX_RECEIPT_BYTES = 1_048_576
+TRANSIENT_SPEC_ENV = "ENGINE_JOB_TRANSIENT_SPEC_SHA256"
 STATUS_EXIT = {
     "success": 0,
     "noop": 0,
@@ -52,6 +53,13 @@ class CatchUpPlan:
     execute: tuple[datetime, ...]
     skipped: tuple[datetime, ...]
     disposition: str
+
+
+def require_runner_admission(spec: JobSpec) -> None:
+    if not spec.runner_enabled:
+        raise JobRunError(f"job is audit-only and not admitted to the runner: {spec.job_id}")
+    if spec.schedules or spec.catch_up["mode"] != "none":
+        raise JobRunError("scheduled/catch-up execution requires a later migration")
 
 
 def _iso(moment: datetime) -> str:
@@ -194,7 +202,7 @@ def _finish_receipt(
     child_pid: int | None = None,
     termination: str | None = None,
     retry_disposition: str = "none",
-    catch_up_disposition: str = "scheduled",
+    catch_up_disposition: str = "not-applicable",
     evidence: Iterable[str] = (),
 ) -> dict[str, Any]:
     return {
@@ -447,8 +455,12 @@ def execute_job(
     sleep: Callable[[float], None] = time.sleep,
     popen: Callable[..., subprocess.Popen] = subprocess.Popen,
     projector: Callable[[Mapping[str, Any], Path], None] = _project,
+    executor_verified: bool = False,
 ) -> RunResult:
     """Execute one registered invocation; scheduled production paths do not call this yet."""
+    require_runner_admission(spec)
+    if not executor_verified:
+        raise JobRunError("direct execution lacks the registered transient resource boundary")
     if not spec.enabled:
         raise JobRunError(f"job is disabled: {spec.job_id}")
     scheduled_for = scheduled_for.astimezone(UTC)
@@ -716,6 +728,7 @@ def transient_properties(spec: JobSpec) -> list[str]:
     resources = spec.resources
     properties = [
         f"TimeoutStartSec={int(spec.timeout['overall_seconds'])}s",
+        "KillMode=control-group",
         f"Nice={int(resources['nice'])}",
         f"IOSchedulingClass={resources['io_scheduling_class']}",
     ]
@@ -730,6 +743,40 @@ def transient_properties(spec: JobSpec) -> list[str]:
     return properties
 
 
+def _transient_command(
+    spec: JobSpec,
+    *,
+    repo_root: Path,
+    logs_dir: Path,
+    scheduled_for: datetime,
+    idempotency_key: str | None,
+    parameters: Mapping[str, Any],
+) -> list[str]:
+    require_runner_admission(spec)
+    identity_source = idempotency_key or (
+        f"{spec.job_id}:{spec.version}:{_iso(scheduled_for)}:{_hash_json(parameters)}"
+    )
+    identity = hashlib.sha256(identity_source.encode()).hexdigest()[:12]
+    command = [
+        "systemd-run", "--user", "--wait", "--collect", "--quiet",
+        f"--unit=trading-engine-job-{spec.job_id[:40]}-{identity}",
+        f"--working-directory={repo_root}", f"--setenv=PYTHONPATH={repo_root}",
+        f"--setenv={TRANSIENT_SPEC_ENV}={spec.spec_sha256}",
+    ]
+    command.extend(f"--property={value}" for value in transient_properties(spec))
+    command.extend(
+        [
+            sys.executable, "-m", "tools.run_job", "_execute", spec.job_id,
+            "--repo-root", str(repo_root), "--logs-dir", str(logs_dir),
+            "--scheduled-for", _iso(scheduled_for),
+            "--parameters-json", json.dumps(parameters, sort_keys=True, separators=(",", ":")),
+        ]
+    )
+    if idempotency_key is not None:
+        command.extend(("--idempotency-key", idempotency_key))
+    return command
+
+
 def _backfill_command(
     spec: JobSpec,
     *,
@@ -739,22 +786,10 @@ def _backfill_command(
     idempotency_key: str,
     parameters: Mapping[str, Any],
 ) -> list[str]:
-    identity = hashlib.sha256(idempotency_key.encode()).hexdigest()[:12]
-    command = [
-        "systemd-run", "--user", "--wait", "--collect", "--quiet",
-        f"--unit=trading-engine-job-{spec.job_id[:40]}-{identity}",
-        f"--working-directory={repo_root}", f"--setenv=PYTHONPATH={repo_root}",
-    ]
-    command.extend(f"--property={value}" for value in transient_properties(spec))
-    command.extend(
-        [
-            sys.executable, "-m", "tools.run_job", "_execute", spec.job_id,
-            "--repo-root", str(repo_root), "--logs-dir", str(logs_dir),
-            "--scheduled-for", _iso(scheduled_for), "--idempotency-key", idempotency_key,
-            "--parameters-json", json.dumps(parameters, sort_keys=True, separators=(",", ":")),
-        ]
+    return _transient_command(
+        spec, repo_root=repo_root, logs_dir=logs_dir, scheduled_for=scheduled_for,
+        idempotency_key=idempotency_key, parameters=parameters,
     )
-    return command
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -779,7 +814,7 @@ def _parser() -> argparse.ArgumentParser:
     execute = commands.add_parser("_execute", help=argparse.SUPPRESS)
     execute.add_argument("job_id")
     execute.add_argument("--scheduled-for", required=True)
-    execute.add_argument("--idempotency-key", required=True)
+    execute.add_argument("--idempotency-key")
     execute.add_argument("--parameters-json", default="{}")
     execute.add_argument("--repo-root", type=Path, required=True)
     execute.add_argument("--logs-dir", type=Path, required=True)
@@ -792,6 +827,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         registry = load_registry(repo_root)
         spec = registry.get(args.job_id)
+        require_runner_admission(spec)
         if args.command == "backfill":
             parameters = validate_backfill_parameters(
                 spec, args.from_date, args.through, args.reason
@@ -805,13 +841,27 @@ def main(argv: list[str] | None = None) -> int:
             result = subprocess.run(command, cwd=repo_root, env={**os.environ, "PYTHONPATH": str(repo_root)},
                                     check=False)
             return result.returncode
-        parameters = json.loads(args.parameters_json) if args.command == "_execute" else {}
+        if args.command == "run":
+            scheduled_for = parse_timestamp(args.scheduled_for)
+            command = _transient_command(
+                spec, repo_root=repo_root, logs_dir=args.logs_dir.resolve(),
+                scheduled_for=scheduled_for, idempotency_key=args.idempotency_key, parameters={},
+            )
+            result = subprocess.run(
+                command, cwd=repo_root, env={**os.environ, "PYTHONPATH": str(repo_root)},
+                check=False,
+            )
+            return result.returncode
+        if os.environ.get(TRANSIENT_SPEC_ENV) != spec.spec_sha256:
+            raise JobRunError("internal executor lacks a verified transient unit identity")
+        parameters = json.loads(args.parameters_json)
         if not isinstance(parameters, dict):
             raise JobRunError("parameters JSON must be an object")
         result = execute_job(
             spec, scheduled_for=parse_timestamp(args.scheduled_for), parameters=parameters,
             idempotency_key=args.idempotency_key, repo_root=repo_root,
             logs_dir=args.logs_dir.resolve(),
+            executor_verified=True,
         )
         print(json.dumps(result.final, sort_keys=True))
         return result.exit_code

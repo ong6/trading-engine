@@ -6,6 +6,8 @@ owner = "public-engine"
 repository = "trading-engine"
 authority = "data"
 enabled = true
+runner_enabled = false
+runner_mode = "blocked"
 calendar = "always"
 parameters = {}
 locks = [{ name = "job:{job_id}", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" }]
@@ -863,6 +865,8 @@ service_unit = "trading-engine-accounts-settle.service"
 [[jobs]]
 job_id = "registry-audit"
 version = 1
+runner_enabled = true
+runner_mode = "read_only"
 argv = [".venv/bin/python", "-m", "engine.job_contract", "audit", "--repo-root", "."]
 schedules = []
 

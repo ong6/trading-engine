@@ -21,6 +21,8 @@ argv = ["python", "-m", "fixture"]
 parameters = {{}}
 authority = "data"
 enabled = true
+runner_enabled = true
+runner_mode = "synthetic"
 schedules = []
 calendar = "always"
 locks = [{{ name = "job:{job_id}", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" }}]
@@ -52,6 +54,9 @@ def test_public_registry_has_every_current_schedule_and_disabled_p16():
     assert sum(job.timer_unit is not None for job in registry.jobs) == 13
     assert sum(isinstance(job.legacy.get("cron"), dict) for job in registry.jobs) == 6
     assert registry.get("trading-engine-p16-challengers").enabled is False
+    assert all(not job.runner_enabled for job in registry.jobs if job.schedules)
+    assert registry.get("registry-audit").runner_enabled is True
+    assert registry.get("registry-audit").runner_mode == "read_only"
     assert not registry.get("registry-audit").schedules
     assert all(len(job.spec_sha256) == 64 for job in registry.jobs)
 
@@ -120,6 +125,21 @@ def test_registry_rejects_duplicate_ids_across_manifests(tmp_path):
 
     with pytest.raises(job_contract.JobContractError, match="duplicate job id"):
         job_contract.load_registry(tmp_path, paths=[first, second])
+
+
+def test_registry_refuses_runner_admission_for_scheduled_or_catch_up_work(tmp_path):
+    scheduled = _job_block().replace(
+        "schedules = []", 'schedules = ["Mon *-*-* 00:00:00 UTC"]'
+    )
+    with pytest.raises(job_contract.JobContractError, match="later migration"):
+        _load(tmp_path, _manifest(scheduled))
+
+    catch_up = _job_block().replace(
+        'catch_up = { mode = "none", max_age_seconds = 0, max_count = 0 }',
+        'catch_up = { mode = "latest", max_age_seconds = 60, max_count = 1 }',
+    )
+    with pytest.raises(job_contract.JobContractError, match="later migration"):
+        _load(tmp_path, _manifest(catch_up))
 
 
 def test_host_manifest_discovery_keeps_public_manifest_first(tmp_path):
