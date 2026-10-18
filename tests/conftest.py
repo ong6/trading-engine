@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS prices (
     ticker VARCHAR NOT NULL, date DATE NOT NULL,
     open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume BIGINT,
     source VARCHAR DEFAULT 'yfinance', fetched_at TIMESTAMP,
+    first_fetched_at TIMESTAMP,
     PRIMARY KEY (ticker, date)
 )
 """

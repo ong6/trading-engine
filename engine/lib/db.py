@@ -223,10 +223,6 @@ def connect(path: str | Path | None = None, *,
 def _require_columns(
     con: duckdb.DuckDBPyConnection, table: str, required: frozenset[str],
 ) -> None:
-    # The shared test harness intentionally keeps a small legacy in-memory price
-    # shape. Migration enforcement is for persistent operational databases.
-    if con.execute("SELECT current_database()").fetchone()[0] == "memory":
-        return
     columns = {
         row[0]
         for row in con.execute(
@@ -1308,7 +1304,16 @@ def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
 
 
 def backfill_first_fetched_at(con: duckdb.DuckDBPyConnection) -> int:
-    """Backfill pre-migration price rows from their last known fetch timestamp."""
+    """Explicitly add/backfill availability for the registered D0 migration."""
+    columns = {
+        row[0]
+        for row in con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='main' AND table_name='prices'"
+        ).fetchall()
+    }
+    if "first_fetched_at" not in columns:
+        con.execute("ALTER TABLE prices ADD COLUMN first_fetched_at TIMESTAMP")
     pending = con.execute(
         """SELECT COUNT(*) FROM prices
         WHERE first_fetched_at IS NULL AND fetched_at IS NOT NULL"""

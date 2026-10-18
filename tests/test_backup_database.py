@@ -217,8 +217,9 @@ def test_create_and_verify_transactional_bundle(tmp_path):
     connection.close()
 
 
-def test_create_uses_fresh_latest_snapshot_instead_of_live_store(tmp_path):
+def test_create_uses_fresh_latest_snapshot_instead_of_live_store(tmp_path, monkeypatch):
     root, source = _repo(tmp_path)
+    monkeypatch.setattr(backup_database, "MIN_FREE_BYTES", 0)
     _stamp_schema(source)
     published = publish_snapshot.publish_snapshot(root, source)
     destination = tmp_path / "outside" / "snapshot"
@@ -238,6 +239,7 @@ def test_generation_backup_avoids_primary_and_restores_cold_rows(
     tmp_path, monkeypatch,
 ):
     root, source = _repo(tmp_path)
+    monkeypatch.setattr(backup_database, "MIN_FREE_BYTES", 0)
     connection = duckdb.connect(str(source))
     connection.execute(
         "CREATE TABLE intraday_prices (ticker VARCHAR, ts TIMESTAMP, interval VARCHAR, "

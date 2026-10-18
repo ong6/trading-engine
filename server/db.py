@@ -77,6 +77,18 @@ def read_con() -> duckdb.DuckDBPyConnection:
             db_path(), newer_than_database=_EVIDENCE_SNAPSHOT_REQUIRED.get(),
         )
     except GenerationError as exc:
+        # Before schema ID 0 is installed, preserve compatibility for old and
+        # synthetic stores. A revision-16 store is never allowed this fallback.
+        try:
+            legacy = _connect(read_only=True)
+        except Exception:
+            raise DBBusyError(str(exc)) from exc
+        try:
+            if engine_db.recorded_schema_id(legacy) is None:
+                return legacy
+        except engine_db.SchemaMigrationRequired:
+            pass
+        legacy.close()
         raise DBBusyError(str(exc)) from exc
     try:
         connection = engine_db.connect(pin.info.path, read_only=True, wait_s=0)
