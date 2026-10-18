@@ -1,0 +1,731 @@
+#!/usr/bin/env python3
+"""Run a registered job with common locks, timeouts, retries and bounded receipts."""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import uuid
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from typing import Any, Callable, Iterable, Mapping
+
+from engine.job_contract import JobContractError, JobSpec, LockSpec, load_registry
+from engine.lib.settings import LOGS_DIR, REPO_ROOT
+
+RECEIPT_SCHEMA_VERSION = 1
+MAX_RECEIPT_BYTES = 1_048_576
+STATUS_EXIT = {
+    "success": 0,
+    "noop": 0,
+    "degraded": 75,
+    "superseded": 75,
+    "retryable_failure": 1,
+    "terminal_failure": 1,
+    "interrupted": 130,
+}
+
+
+class JobRunError(RuntimeError):
+    """The runner refused an unsafe or inconsistent invocation."""
+
+
+@dataclass(frozen=True)
+class RunResult:
+    exit_code: int
+    receipts: tuple[Path, ...]
+    final: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class CatchUpPlan:
+    execute: tuple[datetime, ...]
+    skipped: tuple[datetime, ...]
+    disposition: str
+
+
+def _iso(moment: datetime) -> str:
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_timestamp(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise JobRunError(f"invalid timestamp: {value}") from exc
+    if parsed.tzinfo is None:
+        raise JobRunError("timestamps must include a timezone")
+    return parsed.astimezone(UTC)
+
+
+def _hash_json(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
+    """Create one JSON file atomically without replacing an existing receipt."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    if len(encoded) > MAX_RECEIPT_BYTES:
+        raise JobRunError("job receipt exceeds the size bound")
+    temporary = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        view = memoryview(encoded)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise OSError("short receipt write")
+            view = view[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        os.link(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except FileExistsError as exc:
+        raise JobRunError(f"job receipt already exists: {path.name}") from exc
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        if path.stat().st_size > MAX_RECEIPT_BYTES:
+            raise JobRunError(f"job receipt is too large: {path}")
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise JobRunError(f"malformed job receipt: {path}") from exc
+    if not isinstance(value, dict) or value.get("schema_version") != RECEIPT_SCHEMA_VERSION:
+        raise JobRunError(f"malformed job receipt: {path}")
+    return value
+
+
+def _receipt_directory(logs_dir: Path, spec: JobSpec, scheduled_for: datetime) -> Path:
+    slot = scheduled_for.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return logs_dir / "job-runs" / spec.job_id / slot
+
+
+def _job_receipts(logs_dir: Path, spec: JobSpec) -> list[tuple[Path, dict[str, Any]]]:
+    root = logs_dir / "job-runs" / spec.job_id
+    if not root.exists():
+        return []
+    rows = []
+    for path in sorted(root.glob("*/*.json")):
+        if path.name.endswith(".running.json"):
+            continue
+        rows.append((path, _read_json(path)))
+    return rows
+
+
+def _running_receipts(logs_dir: Path, spec: JobSpec) -> list[tuple[Path, dict[str, Any]]]:
+    root = logs_dir / "job-runs" / spec.job_id
+    if not root.exists():
+        return []
+    return [(path, _read_json(path)) for path in sorted(root.glob("*/*.running.json"))]
+
+
+def _source_sha(repo_root: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    value = result.stdout.strip()
+    return value if result.returncode == 0 and len(value) == 40 else "unknown"
+
+
+def _base_receipt(
+    spec: JobSpec,
+    *,
+    scheduled_for: datetime,
+    idempotency_key: str,
+    attempt: int,
+    run_id: str,
+    started: datetime,
+    parameter_hash: str,
+    source_sha: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": RECEIPT_SCHEMA_VERSION,
+        "run_id": run_id,
+        "job_id": spec.job_id,
+        "spec_version": spec.version,
+        "spec_sha256": spec.spec_sha256,
+        "idempotency_key": idempotency_key,
+        "scheduled_for": _iso(scheduled_for),
+        "started_at": _iso(started),
+        "attempt": attempt,
+        "argv": list(spec.argv),
+        "parameter_sha256": parameter_hash,
+        "source_sha": source_sha,
+    }
+
+
+def _finish_receipt(
+    base: Mapping[str, Any],
+    *,
+    ended: datetime,
+    work_status: str,
+    reason: str,
+    process_exit: int | None,
+    locks: Iterable[Mapping[str, Any]],
+    child_pid: int | None = None,
+    termination: str | None = None,
+    retry_disposition: str = "none",
+    catch_up_disposition: str = "scheduled",
+    evidence: Iterable[str] = (),
+) -> dict[str, Any]:
+    return {
+        **base,
+        "ended_at": _iso(ended),
+        "work_status": work_status,
+        "reason": reason,
+        "process_exit": process_exit,
+        "locks": list(locks),
+        "child_pid": child_pid,
+        "systemd_invocation": os.environ.get("INVOCATION_ID"),
+        "termination": termination,
+        "retry_disposition": retry_disposition,
+        "catch_up_disposition": catch_up_disposition,
+        "counters": {},
+        "business_receipts": list(evidence),
+    }
+
+
+def _write_final(running: Path, final: Path, receipt: Mapping[str, Any]) -> None:
+    _atomic_json(final, receipt)
+    running.unlink(missing_ok=True)
+
+
+def _lock_path(logs_dir: Path, group: str, name: str) -> Path:
+    digest = hashlib.sha256(name.encode()).hexdigest()
+    return logs_dir / "job-locks" / group / f"{digest}.lock"
+
+
+@contextmanager
+def _idempotency_lock(logs_dir: Path, key: str):
+    path = _lock_path(logs_dir, "idempotency", key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise JobRunError("idempotency key already has a live run") from exc
+        yield
+
+
+def _acquire_domain_locks(
+    logs_dir: Path,
+    locks: tuple[LockSpec, ...],
+    *,
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], None],
+) -> tuple[ExitStack, list[dict[str, Any]], LockSpec | None]:
+    stack = ExitStack()
+    observations = []
+    try:
+        for lock in locks:
+            path = _lock_path(logs_dir, "domains", lock.name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            handle = stack.enter_context(path.open("a+"))
+            flag = fcntl.LOCK_SH if lock.mode == "shared" else fcntl.LOCK_EX
+            began = monotonic()
+            acquired = False
+            while True:
+                try:
+                    fcntl.flock(handle, flag | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except BlockingIOError:
+                    elapsed = monotonic() - began
+                    if elapsed >= lock.wait_seconds:
+                        break
+                    sleep(min(0.05, lock.wait_seconds - elapsed))
+            waited = max(0.0, monotonic() - began)
+            observations.append(
+                {"domain": lock.name, "mode": lock.mode, "wait_seconds": waited,
+                 "acquired": acquired}
+            )
+            if not acquired:
+                return stack, observations, lock
+        return stack, observations, None
+    except BaseException:
+        stack.close()
+        raise
+
+
+def _available_memory_bytes() -> int | None:
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def resource_refusal(spec: JobSpec, root: Path) -> str | None:
+    resources = spec.resources
+    reserve = int(resources["min_free_bytes"]) + int(resources["scratch_bytes"]) + int(
+        resources["output_bytes"]
+    )
+    if shutil.disk_usage(root).free < reserve:
+        return "disk-reserve"
+    required_memory = int(resources["minimum_available_memory_bytes"])
+    available = _available_memory_bytes()
+    if required_memory and (available is None or available < required_memory):
+        return "memory-reserve"
+    return None
+
+
+def validate_parameters(spec: JobSpec, supplied: Mapping[str, Any]) -> dict[str, Any]:
+    unknown = set(supplied) - set(spec.parameters)
+    if unknown:
+        raise JobRunError("unsupported job parameters: " + ", ".join(sorted(unknown)))
+    clean: dict[str, Any] = {}
+    for name, rule in spec.parameters.items():
+        if name not in supplied:
+            if rule.get("required", False):
+                raise JobRunError(f"missing required job parameter: {name}")
+            continue
+        value = supplied[name]
+        kind = rule["type"]
+        try:
+            if kind == "date":
+                value = date.fromisoformat(str(value)).isoformat()
+            elif kind == "integer":
+                if isinstance(value, bool):
+                    raise ValueError
+                value = int(value)
+            elif kind == "number":
+                if isinstance(value, bool):
+                    raise ValueError
+                value = float(value)
+            elif kind == "boolean":
+                if not isinstance(value, bool):
+                    raise ValueError
+            elif kind == "string":
+                value = str(value)
+        except (TypeError, ValueError) as exc:
+            raise JobRunError(f"invalid {kind} parameter: {name}") from exc
+        clean[name] = value
+    return clean
+
+
+def child_argv(spec: JobSpec, repo_root: Path, parameters: Mapping[str, Any]) -> list[str]:
+    argv = [
+        value.replace("{repo}", str(repo_root)).replace("%h/trading-engine", str(repo_root))
+        for value in spec.argv
+    ]
+    for name in sorted(parameters):
+        rule = spec.parameters[name]
+        value = parameters[name]
+        if rule["type"] == "boolean":
+            if value:
+                argv.append(str(rule["option"]))
+        else:
+            argv.extend((str(rule["option"]), str(value)))
+    return argv
+
+
+def _wait_child(
+    argv: list[str],
+    *,
+    env: Mapping[str, str],
+    cwd: Path,
+    timeout_seconds: float,
+    term_grace_seconds: float,
+    popen: Callable[..., subprocess.Popen] = subprocess.Popen,
+) -> tuple[int | None, int, str | None]:
+    process = popen(argv, cwd=cwd, env=dict(env), start_new_session=True)
+    termination = None
+    try:
+        return process.wait(timeout=timeout_seconds), process.pid, termination
+    except subprocess.TimeoutExpired:
+        termination = "TERM"
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            code = process.wait(timeout=term_grace_seconds)
+        except subprocess.TimeoutExpired:
+            termination = "KILL"
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            code = process.wait()
+        return code, process.pid, termination
+
+
+def _status_for_exit(code: int | None, termination: str | None, retry_codes: set[int]) -> tuple[str, str]:
+    if termination is not None:
+        return "retryable_failure", f"attempt-timeout-{termination.lower()}"
+    if code == 0:
+        return "success", "process-exit-0"
+    if code == 75:
+        return "degraded", "process-exit-75"
+    if code is not None and code < 0 and -code == signal.SIGTERM:
+        return "interrupted", "process-terminated"
+    if code in retry_codes:
+        return "retryable_failure", f"retryable-exit-{code}"
+    return "terminal_failure", f"terminal-exit-{code}"
+
+
+def _project(receipt: Mapping[str, Any], ops_dir: Path) -> None:
+    from tools import ops_digest
+
+    ops_digest.project_job_receipt(receipt, ops_dir)
+
+
+def execute_job(
+    spec: JobSpec,
+    *,
+    scheduled_for: datetime,
+    parameters: Mapping[str, Any] | None = None,
+    idempotency_key: str | None = None,
+    repo_root: Path = REPO_ROOT,
+    logs_dir: Path = LOGS_DIR,
+    ops_dir: Path | None = None,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+    popen: Callable[..., subprocess.Popen] = subprocess.Popen,
+    projector: Callable[[Mapping[str, Any], Path], None] = _project,
+) -> RunResult:
+    """Execute one registered invocation; scheduled production paths do not call this yet."""
+    if not spec.enabled:
+        raise JobRunError(f"job is disabled: {spec.job_id}")
+    scheduled_for = scheduled_for.astimezone(UTC)
+    clean_parameters = validate_parameters(spec, parameters or {})
+    parameter_hash = _hash_json(clean_parameters)
+    key = idempotency_key or spec.idempotency_template.format(
+        job_id=spec.job_id, version=spec.version, scheduled_for=_iso(scheduled_for)
+    )
+    if not key or len(key) > 512 or any(value in key for value in ("\0", "\n")):
+        raise JobRunError("invalid idempotency key")
+    destination = _receipt_directory(logs_dir, spec, scheduled_for)
+    ops_dir = ops_dir or logs_dir / "ops"
+    receipt_paths: list[Path] = []
+    source_sha = _source_sha(repo_root)
+
+    with _idempotency_lock(logs_dir, key):
+        completed = _job_receipts(logs_dir, spec)
+        running = _running_receipts(logs_dir, spec)
+        attempts = [row.get("attempt", 0) for _path, row in completed + running
+                    if row.get("idempotency_key") == key]
+        for stale_path, stale in running:
+            if stale.get("idempotency_key") != key:
+                continue
+            final_path = stale_path.with_name(stale_path.name.replace(".running.json", ".json"))
+            receipt = _finish_receipt(
+                stale, ended=now(), work_status="interrupted", reason="stale-interrupted-attempt",
+                process_exit=None, locks=[], retry_disposition="resume",
+            )
+            _write_final(stale_path, final_path, receipt)
+            completed.append((final_path, receipt))
+            receipt_paths.append(final_path)
+        prior_success = next(
+            ((path, row) for path, row in reversed(completed)
+             if row.get("idempotency_key") == key and row.get("work_status") in {"success", "noop"}),
+            None,
+        )
+        next_attempt = max(attempts, default=0) + 1
+        run_id = str(uuid.uuid4())
+        if prior_success:
+            began = now()
+            base = _base_receipt(
+                spec, scheduled_for=scheduled_for, idempotency_key=key, attempt=next_attempt,
+                run_id=run_id, started=began, parameter_hash=parameter_hash, source_sha=source_sha,
+            )
+            final = destination / f"{next_attempt}.json"
+            receipt = _finish_receipt(
+                base, ended=now(), work_status="noop", reason="completed-idempotency-key",
+                process_exit=None, locks=[], evidence=[str(prior_success[0])],
+            )
+            _atomic_json(final, receipt)
+            receipt_paths.append(final)
+            try:
+                projector(receipt, ops_dir)
+            except Exception as exc:  # observability never changes the job result
+                print(f"[run-job] receipt projection unavailable: {type(exc).__name__}", file=sys.stderr)
+            prune_receipts(logs_dir / "job-runs", spec.retention_days, now())
+            return RunResult(0, tuple(receipt_paths), receipt)
+
+        began = now()
+        preflight = resource_refusal(spec, logs_dir)
+        stack, lock_rows, refused = _acquire_domain_locks(
+            logs_dir, spec.locks, monotonic=monotonic, sleep=sleep
+        )
+        with stack:
+            if preflight or refused:
+                base = _base_receipt(
+                    spec, scheduled_for=scheduled_for, idempotency_key=key, attempt=next_attempt,
+                    run_id=run_id, started=began, parameter_hash=parameter_hash,
+                    source_sha=source_sha,
+                )
+                status = refused.timeout_status if refused else "terminal_failure"
+                reason = f"lock-timeout:{refused.name}" if refused else f"resource-refusal:{preflight}"
+                receipt = _finish_receipt(
+                    base, ended=now(), work_status=status, reason=reason, process_exit=None,
+                    locks=lock_rows,
+                )
+                final = destination / f"{next_attempt}.json"
+                _atomic_json(final, receipt)
+                receipt_paths.append(final)
+                try:
+                    projector(receipt, ops_dir)
+                except Exception as exc:
+                    print(f"[run-job] receipt projection unavailable: {type(exc).__name__}",
+                          file=sys.stderr)
+                return RunResult(STATUS_EXIT[status], tuple(receipt_paths), receipt)
+
+            started_monotonic = monotonic()
+            maximum = int(spec.retry["max_attempts"])
+            retry_codes = set(spec.retry["exit_codes"])
+            argv = child_argv(spec, repo_root, clean_parameters)
+            final_receipt: Mapping[str, Any] = {}
+            for retry_index in range(maximum):
+                attempt = next_attempt + retry_index
+                attempt_started = now()
+                base = _base_receipt(
+                    spec, scheduled_for=scheduled_for, idempotency_key=key, attempt=attempt,
+                    run_id=run_id, started=attempt_started, parameter_hash=parameter_hash,
+                    source_sha=source_sha,
+                )
+                running_path = destination / f"{attempt}.running.json"
+                final_path = destination / f"{attempt}.json"
+                running_row = {**base, "state": "running", "wrapper_pid": os.getpid()}
+                _atomic_json(running_path, running_row)
+                env = dict(os.environ)
+                env.update(
+                    {
+                        "PYTHONPATH": str(repo_root),
+                        "ENGINE_JOB_RUN_ID": run_id,
+                        "ENGINE_JOB_SCHEDULED_FOR": _iso(scheduled_for),
+                        "ENGINE_JOB_IDEMPOTENCY_KEY": key,
+                        "ENGINE_JOB_RECEIPT_PATH": str(final_path),
+                        "ENGINE_JOB_PARAMETERS_SHA256": parameter_hash,
+                    }
+                )
+                elapsed = monotonic() - started_monotonic
+                remaining = min(
+                    float(spec.timeout["overall_seconds"]),
+                    float(spec.retry["deadline_seconds"]),
+                ) - elapsed
+                code, child_pid, termination = _wait_child(
+                    argv, env=env, cwd=repo_root,
+                    timeout_seconds=max(0.001, min(float(spec.timeout["attempt_seconds"]), remaining)),
+                    term_grace_seconds=float(spec.timeout["term_grace_seconds"]), popen=popen,
+                )
+                status, reason = _status_for_exit(code, termination, retry_codes)
+                delay = (
+                    float(spec.retry["backoff_seconds"][retry_index])
+                    if retry_index + 1 < maximum else 0.0
+                )
+                elapsed = monotonic() - started_monotonic
+                retry = (
+                    status == "retryable_failure"
+                    and retry_index + 1 < maximum
+                    and elapsed + delay < float(spec.retry["deadline_seconds"])
+                    and elapsed + delay < float(spec.timeout["overall_seconds"])
+                )
+                disposition = "retry" if retry else (
+                    "exhausted" if status == "retryable_failure" else "none"
+                )
+                receipt = _finish_receipt(
+                    base, ended=now(), work_status=status, reason=reason, process_exit=code,
+                    locks=lock_rows, child_pid=child_pid, termination=termination,
+                    retry_disposition=disposition,
+                )
+                _write_final(running_path, final_path, receipt)
+                receipt_paths.append(final_path)
+                try:
+                    projector(receipt, ops_dir)
+                except Exception as exc:
+                    print(f"[run-job] receipt projection unavailable: {type(exc).__name__}",
+                          file=sys.stderr)
+                final_receipt = receipt
+                if not retry:
+                    break
+                sleep(delay)
+            prune_receipts(logs_dir / "job-runs", spec.retention_days, now())
+            status = str(final_receipt["work_status"])
+            return RunResult(STATUS_EXIT[status], tuple(receipt_paths), final_receipt)
+
+
+def plan_catch_up(spec: JobSpec, missed: Iterable[datetime], now: datetime) -> CatchUpPlan:
+    slots = sorted({slot.astimezone(UTC) for slot in missed})
+    policy = spec.catch_up
+    age = timedelta(seconds=float(policy["max_age_seconds"]))
+    eligible = [slot for slot in slots if slot <= now and now - slot <= age]
+    mode = policy["mode"]
+    if mode == "none":
+        chosen: list[datetime] = []
+    elif mode == "latest":
+        chosen = eligible[-1:]
+    else:
+        chosen = eligible[-int(policy["max_count"]):]
+    skipped = [slot for slot in slots if slot not in chosen]
+    disposition = "none" if not chosen else ("latest" if mode == "latest" else "all_bounded")
+    return CatchUpPlan(tuple(chosen), tuple(skipped), disposition)
+
+
+def prune_receipts(root: Path, retention_days: int, now: datetime) -> int:
+    cutoff = now.astimezone(UTC) - timedelta(days=retention_days)
+    removed = 0
+    if not root.exists():
+        return removed
+    for path in sorted(root.glob("*/*/*.json")):
+        if path.name.endswith(".running.json"):
+            continue
+        try:
+            ended = parse_timestamp(str(_read_json(path)["ended_at"]))
+        except (JobRunError, KeyError):
+            continue
+        if ended < cutoff:
+            path.unlink()
+            removed += 1
+    for directory in sorted((p for p in root.glob("*/*") if p.is_dir()), reverse=True):
+        try:
+            directory.rmdir()
+            directory.parent.rmdir()
+        except OSError:
+            pass
+    return removed
+
+
+def transient_properties(spec: JobSpec) -> list[str]:
+    resources = spec.resources
+    properties = [
+        f"TimeoutStartSec={int(spec.timeout['overall_seconds'])}s",
+        f"Nice={int(resources['nice'])}",
+        f"IOSchedulingClass={resources['io_scheduling_class']}",
+    ]
+    for field, name in (
+        ("cpu_quota_percent", "CPUQuota"), ("memory_high_bytes", "MemoryHigh"),
+        ("memory_max_bytes", "MemoryMax"), ("tasks_max", "TasksMax"),
+    ):
+        value = int(resources[field])
+        if value:
+            suffix = "%" if field == "cpu_quota_percent" else ""
+            properties.append(f"{name}={value}{suffix}")
+    return properties
+
+
+def _backfill_command(
+    spec: JobSpec,
+    *,
+    repo_root: Path,
+    logs_dir: Path,
+    scheduled_for: datetime,
+    idempotency_key: str,
+    parameters: Mapping[str, Any],
+) -> list[str]:
+    identity = hashlib.sha256(idempotency_key.encode()).hexdigest()[:12]
+    command = [
+        "systemd-run", "--user", "--wait", "--collect", "--quiet",
+        f"--unit=trading-engine-job-{spec.job_id[:40]}-{identity}",
+        f"--working-directory={repo_root}", f"--setenv=PYTHONPATH={repo_root}",
+    ]
+    command.extend(f"--property={value}" for value in transient_properties(spec))
+    command.extend(
+        [
+            sys.executable, "-m", "tools.run_job", "_execute", spec.job_id,
+            "--repo-root", str(repo_root), "--logs-dir", str(logs_dir),
+            "--scheduled-for", _iso(scheduled_for), "--idempotency-key", idempotency_key,
+            "--parameters-json", json.dumps(parameters, sort_keys=True, separators=(",", ":")),
+        ]
+    )
+    return command
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    run = commands.add_parser("run")
+    run.add_argument("job_id")
+    run.add_argument("--scheduled-for", required=True)
+    run.add_argument("--idempotency-key")
+    run.add_argument("--repo-root", type=Path, default=REPO_ROOT)
+    run.add_argument("--logs-dir", type=Path, default=LOGS_DIR)
+
+    backfill = commands.add_parser("backfill")
+    backfill.add_argument("job_id")
+    backfill.add_argument("--from", dest="from_date", required=True)
+    backfill.add_argument("--through", required=True)
+    backfill.add_argument("--reason", required=True)
+    backfill.add_argument("--idempotency-key", required=True)
+    backfill.add_argument("--repo-root", type=Path, default=REPO_ROOT)
+    backfill.add_argument("--logs-dir", type=Path, default=LOGS_DIR)
+
+    execute = commands.add_parser("_execute", help=argparse.SUPPRESS)
+    execute.add_argument("job_id")
+    execute.add_argument("--scheduled-for", required=True)
+    execute.add_argument("--idempotency-key", required=True)
+    execute.add_argument("--parameters-json", default="{}")
+    execute.add_argument("--repo-root", type=Path, required=True)
+    execute.add_argument("--logs-dir", type=Path, required=True)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    repo_root = args.repo_root.resolve()
+    try:
+        registry = load_registry(repo_root)
+        spec = registry.get(args.job_id)
+        if args.command == "backfill":
+            parameters = validate_parameters(
+                spec,
+                {"from": args.from_date, "through": args.through, "reason": args.reason},
+            )
+            scheduled_for = datetime.now(UTC)
+            command = _backfill_command(
+                spec, repo_root=repo_root, logs_dir=args.logs_dir.resolve(),
+                scheduled_for=scheduled_for, idempotency_key=args.idempotency_key,
+                parameters=parameters,
+            )
+            result = subprocess.run(command, cwd=repo_root, env={**os.environ, "PYTHONPATH": str(repo_root)},
+                                    check=False)
+            return result.returncode
+        parameters = json.loads(args.parameters_json) if args.command == "_execute" else {}
+        if not isinstance(parameters, dict):
+            raise JobRunError("parameters JSON must be an object")
+        result = execute_job(
+            spec, scheduled_for=parse_timestamp(args.scheduled_for), parameters=parameters,
+            idempotency_key=args.idempotency_key, repo_root=repo_root,
+            logs_dir=args.logs_dir.resolve(),
+        )
+        print(json.dumps(result.final, sort_keys=True))
+        return result.exit_code
+    except (JobContractError, JobRunError, json.JSONDecodeError) as exc:
+        print(f"run_job: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
