@@ -21,7 +21,6 @@ from pathlib import Path
 
 import duckdb
 
-from engine.lib import db as engine_db
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
@@ -111,6 +110,7 @@ SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 RENAME_NOREPLACE = 1
 MIN_FREE_BYTES = 70 * 1024**3
+CURRENT_DATABASE_SCHEMA_ID = 0
 
 # Interface owned here and implemented by the private trading-data exporter.
 # The exporter must preserve these identities, fingerprint complete immutable
@@ -1117,7 +1117,7 @@ def _restore_generation(info: SnapshotInfo, destination: Path) -> dict:
         snapshot = database_snapshot(connection, connection.execute(
             "SELECT current_database()"
         ).fetchone()[0])
-        schema_identity = engine_db.require_compatible_database_schema(connection)
+        schema_identity = _generation_schema_identity(connection)
     except duckdb.Error as exc:
         raise BackupError(f"generation restore failed: {exc}") from exc
     finally:
@@ -1153,15 +1153,51 @@ def _generation_identity(info: SnapshotInfo) -> dict:
     }
 
 
+def _generation_schema_identity(connection: duckdb.DuckDBPyConnection) -> dict:
+    database = connection.execute("SELECT current_database()").fetchone()[0]
+    try:
+        record = connection.execute(
+            "SELECT migration_id, post_catalog_sha256 FROM schema_migrations "
+            "ORDER BY migration_id DESC LIMIT 1"
+        ).fetchone()
+    except duckdb.Error as exc:
+        raise BackupError("restored generation has no valid schema migration ledger") from exc
+    if record is None or record[0] != CURRENT_DATABASE_SCHEMA_ID:
+        raise BackupError("restored generation database schema ID is unsupported")
+    tables = [
+        row for row in _catalog_rows(connection, database)["tables"]
+        if row[1] != "schema_migrations"
+    ]
+    base = _catalog_rows(connection, database)
+    indexes = [row for row in base["indexes"] if row[2] != "schema_migrations"]
+    sequences = connection.execute(
+        "SELECT schema_name, sequence_name, sql FROM duckdb_sequences() "
+        "WHERE database_name=? AND NOT temporary ORDER BY schema_name, sequence_name",
+        [database],
+    ).fetchall()
+    catalog_hash = canonical_sha256({
+        "tables": tables,
+        "views": base["views"],
+        "indexes": indexes,
+        "sequences": sequences,
+    })
+    if record[1] != catalog_hash:
+        raise BackupError("restored generation catalog changed outside migrations")
+    return {"database_schema_id": record[0], "catalog_sha256": catalog_hash}
+
+
 def _legacy_unversioned_source(source: Path) -> bool:
     """Allow old-format recovery tests/stores only until schema ID 0 is installed."""
     try:
         connection = duckdb.connect(str(source), read_only=True)
         try:
-            return engine_db.recorded_schema_id(connection) is None
+            return connection.execute(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema='main' AND table_name='schema_migrations'"
+            ).fetchone() is None
         finally:
             connection.close()
-    except (duckdb.Error, OSError, engine_db.SchemaMigrationRequired):
+    except (duckdb.Error, OSError):
         return False
 
 

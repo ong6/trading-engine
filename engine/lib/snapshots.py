@@ -19,6 +19,8 @@ SNAPSHOT_PATTERN = re.compile(r"market-\d{8}T\d{12}Z(?:-\d+)?\.duckdb")
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 GENERATION_MANIFEST_SCHEMA_VERSION = 2
+MINIMUM_DATABASE_SCHEMA_ID = 0
+CURRENT_DATABASE_SCHEMA_ID = 0
 _VERIFIED_CACHE_LIMIT = 16
 _verified_generations: dict[tuple, dict[Path, tuple[int, ...]]] = {}
 
@@ -177,11 +179,10 @@ def _generation_info(
         or not isinstance(body.get("metrics"), dict)
     ):
         return None
-    from engine.lib import db as engine_db
     if not (
-        engine_db.MINIMUM_DATABASE_SCHEMA_ID
+        MINIMUM_DATABASE_SCHEMA_ID
         <= schema_id
-        <= engine_db.CURRENT_DATABASE_SCHEMA_ID
+        <= CURRENT_DATABASE_SCHEMA_ID
     ):
         return None
     parts: list[dict] = []
