@@ -63,6 +63,7 @@ elif a[0]=='show':
  print('\\n'.join(f'{k}={v}' for k,v in u.items()))
 elif a[0] in ('is-enabled','is-active'):
  names=[x for x in a[1:] if not x.startswith('-')]
+ if a[0]=='is-enabled' and names==['cron']:print('enabled');sys.exit(0)
  key='UnitFileState' if a[0]=='is-enabled' else 'ActiveState'
  values=[s['units'].get(n,{}).get(key,'disabled' if key=='UnitFileState' else 'inactive') for n in names]
  if '--quiet' not in a: print('\\n'.join(values))
@@ -157,9 +158,7 @@ def main() -> int:
     (root / ".venv").symlink_to(repo / ".venv")
     excludes = output / "git-excludes"
     excludes.write_text(".venv\n")
-    subprocess.run(
-        ["git", "config", "core.excludesFile", str(excludes)], cwd=root, check=True
-    )
+    subprocess.run(["git", "config", "core.excludesFile", str(excludes)], cwd=root, check=True)
     shutil.rmtree(root / "data")
     shutil.copytree(args.evidence, root / "data")
     database = root / "store/market.duckdb"

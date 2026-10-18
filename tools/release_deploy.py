@@ -1208,7 +1208,10 @@ print(json.dumps(applied, sort_keys=True))
 
         _audit_result, before = invoke("--audit")
         if before.get("status") not in {"ok", "changes-required"} or before.get("errors"):
-            raise DeployError("automation installer preflight is invalid")
+            reasons = ", ".join(map(str, before.get("errors", []))) or str(
+                before.get("status", "unknown")
+            )
+            raise DeployError(f"automation installer preflight is invalid: {reasons}")
         changes = before.get("changes", {})
         candidates = set(changes.get("service_units", []))
         state.automation = {
