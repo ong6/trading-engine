@@ -510,7 +510,14 @@ def store_job_receipt(
         "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         row,
     )
-    return bool(cursor.rowcount)
+    inserted = bool(cursor.rowcount)
+    if not inserted and receipt_path:
+        db.execute(
+            "UPDATE job_runs SET receipt_path=? WHERE run_id=? AND attempt=? "
+            "AND COALESCE(receipt_path, '')=''",
+            (receipt_path, row[0], row[1]),
+        )
+    return inserted
 
 
 def project_job_receipt(receipt: Mapping[str, object], ops_dir: Path = OPS_DIR) -> None:
@@ -921,6 +928,7 @@ def collect_hour(
     probes, sections, fp, degraded, contract, invariants, gateway_report = (
         [], {}, {}, [], None, None, None)
     job_receipts, config_errors = [], []
+    receipt_projection_gaps: list[str] = []
     if last:
         collect_files(db, logs_dir, ops_dir, signals)
         job_receipts, receipt_projection_gaps = collect_job_receipts(db, logs_dir, since)
@@ -971,7 +979,8 @@ def collect_hour(
     if (failed or failed_stages or failed_job_receipts or config_errors
             or (health and health["http_status"] != 200) or gateway_status == "fail"):
         status = "FAIL"
-    elif errors or warns or degraded or warned_job_receipts or gateway_status == "warn" or any(
+    elif errors or warns or degraded or warned_job_receipts or receipt_projection_gaps or (
+            gateway_status == "warn") or any(
             r.get("slow") or r["result"] == SKIPPED_RESULT for r in runs) or any(
             p["ms"] > SLOW_PROBE_MS for p in probes) or (
             contract is not None and contract["status"] != "ok"):
@@ -1436,9 +1445,19 @@ def registry_schedule_audit(run: Runner, repo_root: Path = REPO_ROOT) -> list[st
     registered_units = {
         job.service_unit for job in registry.jobs if job.timer_unit and job.service_unit
     }
+    registered_timer_specs = {
+        job.service_unit: "timer " + "; ".join(job.schedules)
+        for job in registry.jobs if job.timer_unit and job.service_unit
+    }
+    cron_entries = job_contract.render_cron_entries(registry, repo_root)
     registered_cron = {
         name.replace("_", "-")
-        for name in job_contract.render_cron_entries(registry, repo_root)
+        for name in cron_entries
+    }
+    registered_cron_specs = {
+        str(job.legacy["cron"].get("name", job.job_id)).replace("_", "-"):
+        "cron " + str(job.legacy["cron"]["fields"])
+        for job in registry.jobs if isinstance(job.legacy.get("cron"), Mapping)
     }
     errors = []
     for schedule in timer_schedules(run):
@@ -1449,10 +1468,16 @@ def registry_schedule_audit(run: Runner, repo_root: Path = REPO_ROOT) -> list[st
         )
         if public and unit not in registered_units:
             errors.append(f"undocumented-installed-timer:{unit}")
+        elif public and schedule.spec != registered_timer_specs[unit]:
+            errors.append(f"installed-timer-schedule-mismatch:{unit}")
     for schedule in cron_schedules(run):
         name = (schedule.driver or schedule.job).replace("_", "-")
         if (schedule.driver or name == "friday-postflight") and name not in registered_cron:
             errors.append(f"undocumented-installed-cron:{name}")
+        elif (schedule.driver or name == "friday-postflight") and (
+            schedule.spec != registered_cron_specs[name]
+        ):
+            errors.append(f"installed-cron-schedule-mismatch:{name}")
     return sorted(set(errors))
 
 

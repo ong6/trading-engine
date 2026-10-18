@@ -336,8 +336,8 @@ def test_backfill_validates_parameters_and_builds_a_bounded_transient_unit(tmp_p
         'reason = { type = "string", option = "--reason", required = true } }'
     )
     spec, repo = _spec(tmp_path, "pass\n", parameters=parameters)
-    values = run_job.validate_parameters(
-        spec, {"from": "2026-10-01", "through": "2026-10-02", "reason": "incident-1"}
+    values = run_job.validate_backfill_parameters(
+        spec, "2026-10-01", "2026-10-02", "incident-1"
     )
     command = run_job._backfill_command(
         spec, repo_root=repo, logs_dir=tmp_path / "logs", scheduled_for=SLOT,
@@ -353,6 +353,10 @@ def test_backfill_validates_parameters_and_builds_a_bounded_transient_unit(tmp_p
     assert command[-1] == json.dumps(values, sort_keys=True, separators=(",", ":"))
     with pytest.raises(run_job.JobRunError, match="missing required"):
         run_job.validate_parameters(spec, {"from": "2026-10-01"})
+    with pytest.raises(run_job.JobRunError, match="must not be after"):
+        run_job.validate_backfill_parameters(spec, "2026-10-03", "2026-10-02", "incident-1")
+    with pytest.raises(run_job.JobRunError, match="must not be empty"):
+        run_job.validate_backfill_parameters(spec, "2026-10-01", "2026-10-02", " ")
 
 
 def test_public_read_only_registry_audit_runs_through_common_runner(tmp_path):

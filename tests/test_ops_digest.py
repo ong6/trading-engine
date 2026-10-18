@@ -343,8 +343,23 @@ def test_direct_receipt_projection_is_idempotent(tmp_path):
     receipt = _registered_receipt()
     ops_digest.project_job_receipt(receipt, tmp_path / "ops")
     ops_digest.project_job_receipt(receipt, tmp_path / "ops")
-    with closing(sqlite3.connect(tmp_path / "ops/ops.sqlite")) as db:
-        assert db.execute("SELECT COUNT(*), MIN(seconds) FROM job_runs").fetchone() == (1, 2.0)
+    with closing(ops_digest.open_db(tmp_path / "ops")) as db:
+        ops_digest.store_job_receipt(db, receipt, "job-runs/registry-audit/slot/1.json")
+        db.commit()
+        assert db.execute(
+            "SELECT COUNT(*), MIN(seconds), MIN(receipt_path) FROM job_runs"
+        ).fetchone() == (1, 2.0, "job-runs/registry-audit/slot/1.json")
+
+
+def test_malformed_registered_receipt_makes_the_digest_warn(tmp_path):
+    broken = tmp_path / "logs/job-runs/registry-audit/slot/1.json"
+    broken.parent.mkdir(parents=True)
+    broken.write_text("not json")
+
+    [hour] = _collect(tmp_path, {})
+
+    assert hour["status"] == "WARN"
+    assert "malformed registered job receipt" in hour["text"]
 
 
 def test_failed_run_marks_hour_and_report_lists_it(tmp_path):
@@ -592,6 +607,23 @@ def test_registry_schedule_audit_flags_only_undocumented_engine_schedules():
     assert ops_digest.registry_schedule_audit(run) == [
         "undocumented-installed-cron:run-rogue",
         "undocumented-installed-timer:trading-engine-rogue.service",
+    ]
+
+
+def test_registry_schedule_audit_compares_an_installed_timer_calendar():
+    def run(args, _timeout):
+        if args[:3] == ["systemctl", "--user", "list-timers"]:
+            return "x trading-engine-p15-preopen.timer trading-engine-p15-preopen.service\n"
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return (
+                "Unit=trading-engine-p15-preopen.service\n"
+                "TimersCalendar={ OnCalendar=Mon..Fri *-*-* 08:05:00 America/New_York ; }\n"
+                "AccuracyUSec=1min\nRandomizedDelayUSec=0\n"
+            )
+        return ""
+
+    assert ops_digest.registry_schedule_audit(run) == [
+        "installed-timer-schedule-mismatch:trading-engine-p15-preopen.service"
     ]
 
 

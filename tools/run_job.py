@@ -334,6 +334,19 @@ def validate_parameters(spec: JobSpec, supplied: Mapping[str, Any]) -> dict[str,
     return clean
 
 
+def validate_backfill_parameters(
+    spec: JobSpec, from_date: str, through: str, reason: str
+) -> dict[str, Any]:
+    parameters = validate_parameters(
+        spec, {"from": from_date, "through": through, "reason": reason}
+    )
+    if parameters["from"] > parameters["through"]:
+        raise JobRunError("backfill --from must not be after --through")
+    if not str(parameters["reason"]).strip():
+        raise JobRunError("backfill reason must not be empty")
+    return parameters
+
+
 def child_argv(spec: JobSpec, repo_root: Path, parameters: Mapping[str, Any]) -> list[str]:
     argv = [
         value.replace("{repo}", str(repo_root)).replace("%h/trading-engine", str(repo_root))
@@ -699,9 +712,8 @@ def main(argv: list[str] | None = None) -> int:
         registry = load_registry(repo_root)
         spec = registry.get(args.job_id)
         if args.command == "backfill":
-            parameters = validate_parameters(
-                spec,
-                {"from": args.from_date, "through": args.through, "reason": args.reason},
+            parameters = validate_backfill_parameters(
+                spec, args.from_date, args.through, args.reason
             )
             scheduled_for = datetime.now(UTC)
             command = _backfill_command(
