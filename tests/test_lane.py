@@ -68,6 +68,7 @@ def _fixture(tmp_path: Path) -> dict:
         "remote": remote,
         "root": root,
         "source": source,
+        "uv": _fake_uv(tmp_path),
     }
 
 
@@ -83,6 +84,7 @@ def _create(fixture: dict, name: str = "lane-one", **overrides):
         "owner": "fixture-owner",
         "session": "fixture-session",
         "clock": lambda: FIXED_NOW,
+        "uv": str(fixture["uv"]),
     }
     arguments.update(overrides)
     return lane.create_lane(**arguments)
@@ -121,6 +123,7 @@ def _fake_uv(tmp_path: Path) -> Path:
         "set -eu\n"
         "mkdir -p \"$UV_PROJECT_ENVIRONMENT/bin\"\n"
         "touch \"$UV_PROJECT_ENVIRONMENT/bin/python\"\n"
+        "chmod 755 \"$UV_PROJECT_ENVIRONMENT/bin/python\"\n"
     )
     program.chmod(0o700)
     return program
@@ -159,7 +162,7 @@ def test_same_lock_reuses_keyed_environment(tmp_path):
     ).resolve()
 
 
-def test_different_lock_creates_private_frozen_environment(tmp_path):
+def test_different_lock_builds_an_isolated_shared_environment(tmp_path):
     fixture = _fixture(tmp_path)
     old_base = fixture["base"]
     (fixture["source"] / "uv.lock").write_text("version = 2\n")
@@ -167,13 +170,58 @@ def test_different_lock_creates_private_frozen_environment(tmp_path):
     _git(fixture["source"], "commit", "-m", "change lock fixture")
     fixture["base"] = old_base
 
-    result = _create(fixture, uv=str(_fake_uv(tmp_path)))
+    result = _create(fixture)
 
     target_venv = fixture["root"] / "lane-one" / ".venv"
-    assert result["environment"]["kind"] == "private-frozen"
-    assert target_venv.is_dir()
-    assert not target_venv.is_symlink()
+    assert result["environment"]["kind"] == "shared-read-only"
+    assert target_venv.is_symlink()
     assert (target_venv / "bin" / "python").is_file()
+
+
+def test_shared_environment_is_registry_owned_read_only_and_audited(tmp_path):
+    fixture = _fixture(tmp_path)
+    result = _create(fixture)
+    target = fixture["root"] / "lane-one"
+    shared = Path(result["environment"]["registry_key"])
+    interpreter = shared / "bin" / "python"
+
+    assert shared.parent == fixture["root"] / ".shared-venvs"
+    assert shared.is_dir() and not shared.is_symlink()
+    assert target.joinpath(".venv").resolve() == shared
+    assert interpreter.resolve().is_file() and os.access(interpreter, os.X_OK)
+    assert not any(
+        path.lstat().st_mode & 0o222
+        for path in (shared, *shared.rglob("*"))
+        if not path.is_symlink()
+    )
+    receipt = shared / "lane-environment-receipt.json"
+    assert receipt.is_file()
+    assert fixture["source"].joinpath(".venv").resolve() != shared
+
+    head = _git(target, "rev-parse", "HEAD").stdout.strip()
+    status = _status(fixture, "lane-one", head)
+    interpreter.parent.chmod(0o755)
+    interpreter.unlink()
+    report = lane.audit_lane(
+        lanes_root=fixture["root"],
+        home=fixture["home"],
+        lane="lane-one",
+        status_path=status,
+    )
+
+    assert report["checks"]["environment_matches"] is False
+
+
+def test_shared_environment_registry_refuses_symlink_escape(tmp_path):
+    fixture = _fixture(tmp_path)
+    outside = tmp_path / "outside-environments"
+    outside.mkdir()
+    (fixture["root"] / ".shared-venvs").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(lane.LaneError, match="must be a real directory"):
+        _create(fixture)
+
+    assert list(outside.iterdir()) == []
 
 
 def test_overlapping_active_claim_is_refused_before_worktree_creation(tmp_path):
@@ -309,6 +357,8 @@ def test_concurrent_cli_creators_are_serialized_by_claim_lock(tmp_path):
             "fixture-owner",
             "--session",
             name,
+            "--uv",
+            str(fixture["uv"]),
         ]
 
     first = subprocess.Popen(

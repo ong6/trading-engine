@@ -482,9 +482,91 @@ def _environment_record(target: Path) -> Path:
     return _admin_dir(target) / "lane-environment.json"
 
 
+def _regular_directory(path: Path, label: str) -> os.stat_result:
+    try:
+        details = path.lstat()
+    except OSError as exc:
+        raise LaneError(f"cannot inspect {label}: {exc}") from exc
+    if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
+        raise LaneError(f"{label} must be a real directory")
+    return details
+
+
+def _freeze_environment(path: Path) -> None:
+    entries = sorted(path.rglob("*"), key=lambda item: len(item.parts), reverse=True)
+    for entry in entries:
+        details = entry.lstat()
+        if stat.S_ISLNK(details.st_mode):
+            continue
+        if stat.S_ISDIR(details.st_mode):
+            entry.chmod(0o555)
+        elif stat.S_ISREG(details.st_mode):
+            executable = bool(details.st_mode & 0o111)
+            entry.chmod(0o555 if executable else 0o444)
+        else:
+            raise LaneError("shared environment contains a special file")
+    path.chmod(0o555)
+
+
+def _environment_is_read_only(path: Path) -> bool:
+    try:
+        entries = [path, *path.rglob("*")]
+        for entry in entries:
+            details = entry.lstat()
+            if stat.S_ISLNK(details.st_mode):
+                continue
+            if not (stat.S_ISDIR(details.st_mode) or stat.S_ISREG(details.st_mode)):
+                return False
+            if details.st_mode & 0o222:
+                return False
+    except OSError:
+        return False
+    return True
+
+
+def _shared_environment_valid(
+    root: Path, target: Path, lock_sha256: str, record: dict
+) -> bool:
+    registry = root / ".shared-venvs"
+    shared_key = registry / lock_sha256
+    receipt_path = shared_key / "lane-environment-receipt.json"
+    interpreter = shared_key / "bin" / "python"
+    try:
+        _regular_directory(registry, "shared environment registry")
+        _regular_directory(shared_key, "shared lock environment")
+        if not target.joinpath(".venv").is_symlink():
+            return False
+        if target.joinpath(".venv").resolve(strict=True) != shared_key.resolve(strict=True):
+            return False
+        receipt_details = receipt_path.lstat()
+        if stat.S_ISLNK(receipt_details.st_mode) or not stat.S_ISREG(receipt_details.st_mode):
+            return False
+        receipt_bytes = receipt_path.read_bytes()
+        receipt = json.loads(receipt_bytes)
+        resolved_interpreter = interpreter.resolve(strict=True)
+        interpreter_details = resolved_interpreter.stat()
+    except (LaneError, OSError, json.JSONDecodeError, RuntimeError):
+        return False
+    return (
+        record.get("kind") == "shared-read-only"
+        and record.get("lock_sha256") == lock_sha256
+        and record.get("registry_key") == str(shared_key)
+        and record.get("venv") == str(shared_key)
+        and record.get("receipt_sha256") == hashlib.sha256(receipt_bytes).hexdigest()
+        and receipt.get("schema_version") == SCHEMA_VERSION
+        and receipt.get("kind") == "shared-read-only"
+        and receipt.get("lock_sha256") == lock_sha256
+        and receipt.get("build_command")
+        == ["uv", "sync", "--extra", "dev", "--frozen", "--no-install-project"]
+        and stat.S_ISREG(interpreter_details.st_mode)
+        and os.access(interpreter, os.X_OK)
+        and _environment_is_read_only(shared_key)
+    )
+
+
 def _select_environment(
     root: Path,
-    source: Path,
+    _source: Path,
     target: Path,
     *,
     uv: str,
@@ -492,36 +574,73 @@ def _select_environment(
     target_lock = target / "uv.lock"
     target_hash = _lock_hash(target_lock)
     registry = root / ".shared-venvs"
-    registry.mkdir(mode=0o700, exist_ok=True)
+    if registry.exists() or registry.is_symlink():
+        _regular_directory(registry, "shared environment registry")
+    else:
+        registry.mkdir(mode=0o700)
     shared_key = registry / target_hash
-    source_lock = source / "uv.lock"
-    source_venv = source / ".venv"
-
-    if not shared_key.exists() and not shared_key.is_symlink():
-        if source_lock.is_file() and _lock_hash(source_lock) == target_hash:
-            resolved_venv = source_venv.resolve()
-            if (resolved_venv / "bin" / "python").is_file():
-                shared_key.symlink_to(resolved_venv, target_is_directory=True)
-    if shared_key.is_symlink() and (shared_key.resolve() / "bin" / "python").is_file():
-        (target / ".venv").symlink_to(shared_key, target_is_directory=True)
-        record = {
+    if shared_key.is_symlink():
+        raise LaneError("shared lock environment cannot be a symlink")
+    if not shared_key.exists():
+        building = registry / f".{target_hash}.building-{os.getpid()}"
+        if building.exists() or building.is_symlink():
+            raise LaneError("partial shared environment build requires audited recovery")
+        building.mkdir(mode=0o700)
+        environment = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(building)}
+        command = [uv, "sync", "--extra", "dev", "--frozen", "--no-install-project"]
+        _run(target, command, env=environment)
+        interpreter = building / "bin" / "python"
+        try:
+            interpreter_details = interpreter.resolve(strict=True).stat()
+        except (OSError, RuntimeError) as exc:
+            raise LaneError("shared environment interpreter is missing") from exc
+        if not stat.S_ISREG(interpreter_details.st_mode) or not os.access(interpreter, os.X_OK):
+            raise LaneError("shared environment interpreter is not a regular executable")
+        project = target / "pyproject.toml"
+        receipt = {
+            "build_command": [
+                "uv",
+                "sync",
+                "--extra",
+                "dev",
+                "--frozen",
+                "--no-install-project",
+            ],
             "kind": "shared-read-only",
             "lock_sha256": target_hash,
-            "registry_key": str(shared_key),
-            "venv": str(shared_key.resolve()),
+            "project_sha256": _lock_hash(project) if project.is_file() else None,
+            "schema_version": SCHEMA_VERSION,
         }
+        _atomic_text(
+            building / "lane-environment-receipt.json",
+            json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n",
+        )
+        _freeze_environment(building)
+        try:
+            os.replace(building, shared_key)
+        except OSError as exc:
+            raise LaneError(f"cannot publish shared environment: {exc}") from exc
+    _regular_directory(shared_key, "shared lock environment")
+    receipt_path = shared_key / "lane-environment-receipt.json"
+    try:
+        receipt_bytes = receipt_path.read_bytes()
+    except OSError as exc:
+        raise LaneError("shared environment receipt is missing") from exc
+    lane_venv = target / ".venv"
+    if lane_venv.exists() or lane_venv.is_symlink():
+        if not lane_venv.is_symlink() or lane_venv.resolve() != shared_key.resolve():
+            raise LaneError("lane environment does not select the lock-keyed registry")
     else:
-        environment = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(target / ".venv")}
-        _run(target, [uv, "sync", "--extra", "dev", "--frozen"], env=environment)
-        private = target / ".venv"
-        if private.is_symlink() or not (private / "bin" / "python").is_file():
-            raise LaneError("frozen private environment was not created")
-        record = {
-            "kind": "private-frozen",
-            "lock_sha256": target_hash,
-            "registry_key": None,
-            "venv": str(private.resolve()),
-        }
+        lane_venv.symlink_to(shared_key, target_is_directory=True)
+    record = {
+        "kind": "shared-read-only",
+        "lock_sha256": target_hash,
+        "receipt_sha256": hashlib.sha256(receipt_bytes).hexdigest(),
+        "registry_key": str(shared_key),
+        "venv": str(shared_key),
+    }
+    if not _shared_environment_valid(root, target, target_hash, record):
+        raise LaneError("shared environment failed integrity validation")
     _atomic_text(
         _environment_record(target),
         json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n",
@@ -782,19 +901,11 @@ def _audit_unlocked(
             "running_process_free": not _running_pids(target),
         }
     )
-    environment_ok = bool(environment and environment.get("lock_sha256") == current_lock)
-    if environment_ok and environment["kind"] == "shared-read-only":
-        venv = target / ".venv"
-        environment_ok = (
-            venv.is_symlink()
-            and venv.resolve() == Path(environment["venv"]).resolve()
-            and Path(environment["registry_key"]) == root / ".shared-venvs" / current_lock
-        )
-    elif environment_ok and environment["kind"] == "private-frozen":
-        venv = target / ".venv"
-        environment_ok = not venv.is_symlink() and (venv / "bin" / "python").is_file()
-    else:
-        environment_ok = False
+    environment_ok = bool(
+        environment
+        and environment.get("lock_sha256") == current_lock
+        and _shared_environment_valid(root, target, current_lock, environment)
+    )
     checks["environment_matches"] = environment_ok
 
     status_done, fields = _status_fields(status_path)
