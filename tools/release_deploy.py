@@ -30,6 +30,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
+from unittest import mock
 
 from engine.lib.settings import REPO_ROOT
 from tools import (
@@ -537,6 +538,7 @@ class ReleaseOperations:
         self.tool_paths = tool_paths or {}
         self.selected_tools: dict[str, dict[str, Any]] = {}
         self.transaction_lock_held = False
+        self.producer_locks_held: frozenset[str] = frozenset()
         self.process_root = process_root
 
     def _executable_identity(self, path: Path) -> dict[str, Any]:
@@ -1238,7 +1240,12 @@ class ReleaseOperations:
                     fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError as exc:
                     raise DeployError(f"producer lock is held: {relative}") from exc
-            yield frozenset(backup_database.LOCK_FILES)
+            held = frozenset(backup_database.LOCK_FILES)
+            self.producer_locks_held = held
+            try:
+                yield held
+            finally:
+                self.producer_locks_held = frozenset()
 
     def predeploy_adapter_check(self, state: ReleaseState) -> dict[str, Any]:
         if state.adapter_set == "none":
@@ -1262,14 +1269,27 @@ print(json.dumps({'registration_revision': registration, 'cost_breaks': [[str(a)
             python=Path(state.repo_root) / ".venv/bin/python",
         )
 
-    def create_backup(self, state: ReleaseState) -> dict[str, Any]:
+    def create_backup(self, state: ReleaseState, held_locks: frozenset[str]) -> dict[str, Any]:
+        if (
+            held_locks != frozenset(backup_database.LOCK_FILES)
+            or self.producer_locks_held != held_locks
+        ):
+            raise DeployError("recovery backup requires every producer lock to remain held")
         self._check_workspace(state, copies=3)
         destination = self.store.directory / "recovery"
         if destination.exists():
             return backup_database.verify_backup(destination)
-        result = backup_database.create_backup(
-            Path(state.repo_root), Path(state.database), destination
-        )
+        original_window = backup_database._exclusive_backup_window
+
+        def inherited_window(repo_root: Path, *, skip_locks: frozenset[str] = frozenset()):
+            if skip_locks:
+                raise backup_database.BackupError("nested inherited locks are not supported")
+            return original_window(repo_root, skip_locks=held_locks)
+
+        with mock.patch.object(backup_database, "_exclusive_backup_window", inherited_window):
+            result = backup_database.create_backup(
+                Path(state.repo_root), Path(state.database), destination
+            )
         verified = backup_database.verify_backup(destination)
         if result["manifest_sha256"] != verified["manifest_sha256"]:
             raise DeployError("recovery bundle identity changed after creation")
@@ -2471,6 +2491,23 @@ class ReleaseDeployment:
         if self.journal.read(step) is not None:
             self.operations.quiesce(state)
 
+    def _publish_terminal_after_activation(self, state: ReleaseState, terminal_phase: str) -> None:
+        prior_phase = state.phase
+        state.phase = terminal_phase
+        state.last_failure = None
+        try:
+            self.store.save(state)
+        except BaseException as state_error:
+            state.phase = prior_phase
+            try:
+                self.operations.quiesce(state)
+            except BaseException as quiesce_error:
+                raise DeployError(
+                    "terminal state publication failed and compensating quiescence failed: "
+                    f"{quiesce_error}"
+                ) from state_error
+            raise
+
     def _load_prepared(self, *, recovery: bool = False) -> ReleaseState:
         state = self.store.load()
         expected_keys = {
@@ -2678,13 +2715,13 @@ class ReleaseDeployment:
                 {"adapter_set": state.adapter_set, "d0": state.d0},
                 lambda: self.operations.predeploy_adapter_check(state),
             )
-            state.backup = self.journal.run(
-                "create-backup",
-                {"original_sha": state.original_sha, "database": state.database},
-                lambda: self.operations.create_backup(state),
-            )
-            self.store.save(state)
             with self.operations.producer_locks(state) as held_locks:
+                state.backup = self.journal.run(
+                    "create-backup",
+                    {"original_sha": state.original_sha, "database": state.database},
+                    lambda: self.operations.create_backup(state, held_locks),
+                )
+                self.store.save(state)
                 state.inventory["artifact_manifest"] = self.journal.run(
                     "capture-artifacts",
                     {"original_sha": state.original_sha},
@@ -2822,9 +2859,7 @@ class ReleaseDeployment:
                 raise DeployError("release state changed before producer activation")
             self.operations.validate_state_source(fresh, fresh.approved_sha)
             self._activate_with_receipt(state, step="release-producers", include_autopush=True)
-            state.phase = "verified"
-            state.last_failure = None
-            self.store.save(state)
+            self._publish_terminal_after_activation(state, "verified")
             return {"status": "verified", "state": asdict(state)}
         except BaseException as exc:
             self._save_failure(state, exc)
@@ -2861,9 +2896,7 @@ class ReleaseDeployment:
             self._activate_with_receipt(
                 state, step="abort-release-producers", include_autopush=True
             )
-            state.phase = "aborted"
-            state.last_failure = None
-            self.store.save(state)
+            self._publish_terminal_after_activation(state, "aborted")
             return {"status": "aborted", "state": asdict(state)}
         except BaseException as exc:
             self._save_failure(state, exc)
@@ -2961,9 +2994,7 @@ class ReleaseDeployment:
                 step="rollback-release-producers",
                 include_autopush=False,
             )
-            state.phase = "rolled-back"
-            state.last_failure = None
-            self.store.save(state)
+            self._publish_terminal_after_activation(state, "rolled-back")
             return {"status": "rolled-back", "state": asdict(state)}
         except BaseException as exc:
             self._save_failure(state, exc)
@@ -2990,9 +3021,7 @@ class ReleaseDeployment:
                 raise DeployError("release state changed before resume activation")
             self.operations.validate_reconciled_source(fresh, reconciled_sha)
             self._activate_with_receipt(state, step="resume-autopush", include_autopush=True)
-            state.phase = "resumed"
-            state.last_failure = None
-            self.store.save(state)
+            self._publish_terminal_after_activation(state, "resumed")
             return {"status": "resumed", "reconciled_sha": reconciled_sha, "state": asdict(state)}
         except BaseException as exc:
             self._save_failure(state, exc)

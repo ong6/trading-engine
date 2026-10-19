@@ -37,6 +37,7 @@ class FakeOperations:
         self.writers_active = False
         self.transaction_mutex = threading.Lock()
         self.transaction_lock_held = False
+        self.producer_locks_held = False
         self.semantic_entered: threading.Event | None = None
         self.semantic_continue: threading.Event | None = None
         self.fail_semantic = False
@@ -163,13 +164,18 @@ class FakeOperations:
     @contextmanager
     def producer_locks(self, _state):
         self.calls.append("locks")
-        yield frozenset({"fixture.lock"})
+        self.producer_locks_held = True
+        try:
+            yield frozenset({"fixture.lock"})
+        finally:
+            self.producer_locks_held = False
 
     def predeploy_adapter_check(self, state):
         self.calls.append("predeploy-adapter-check")
         return {"adapter_set": state.adapter_set}
 
-    def create_backup(self, _state):
+    def create_backup(self, _state, _held_locks):
+        assert self.producer_locks_held
         self.calls.append("create-backup")
         return {"manifest_sha256": "e" * 64}
 
@@ -466,6 +472,36 @@ def test_activation_receipt_write_failure_requiesces_and_retry_is_fresh(transact
         release_deploy.ReceiptJournal(deployment.store).read("release-producers")["status"]
         == "running"
     )
+
+    result = deployment.verify(execute=True)
+    assert result["status"] == "verified"
+    assert operations.calls.count("semantic-verify") == 2
+    assert operations.releases == [True, True]
+
+
+def test_terminal_state_write_failure_requiesces_and_keeps_phase_resumable(
+    transaction, monkeypatch
+):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    deployment.apply(execute=True, approve_plan=None)
+    original_save = deployment.store.save
+    failed = {"value": False}
+
+    def fail_terminal_once(state):
+        if state.phase == "verified" and not failed["value"]:
+            failed["value"] = True
+            raise OSError("simulated terminal state fsync failure")
+        return original_save(state)
+
+    monkeypatch.setattr(deployment.store, "save", fail_terminal_once)
+    with pytest.raises(OSError, match="terminal state fsync"):
+        deployment.verify(execute=True)
+    persisted = deployment.store.load()
+    assert persisted.phase == "verifying"
+    assert persisted.last_failure is not None
+    assert operations.writers_active is False
+    assert release_deploy.ReceiptJournal(deployment.store).completed("release-producers")
 
     result = deployment.verify(execute=True)
     assert result["status"] == "verified"
@@ -1850,7 +1886,9 @@ def test_running_source_switch_receipt_adopts_approved_head(transaction):
     state = deployment.store.load()
     state.phase = "applying"
     state.inventory = operations.capture_inventory(state)
-    state.backup = operations.create_backup(state)
+    operations.producer_locks_held = True
+    state.backup = operations.create_backup(state, frozenset({"fixture.lock"}))
+    operations.producer_locks_held = False
     deployment.store.save(state)
     journal = release_deploy.ReceiptJournal(deployment.store)
     journal.run("capture-inventory", {"original_sha": OLD_SHA}, lambda: state.inventory)
@@ -2069,12 +2107,61 @@ def test_artifact_restore_removes_new_release_files_after_incident_capture(tmp_p
     assert result["quarantined_extra_paths"] == ["data/new-release.json"]
 
 
-def test_apply_captures_artifacts_only_after_quiescence_and_lock(transaction):
+def test_apply_holds_producer_locks_across_backup_and_artifact_capture(transaction):
     prepare(transaction)
     deployment, operations, _repo, _database = transaction
     deployment.apply(execute=True, approve_plan=None)
     assert operations.calls.index("quiesce") < operations.calls.index("locks")
-    assert operations.calls.index("locks") < operations.calls.index("capture-artifacts")
+    assert operations.calls.index("locks") < operations.calls.index("create-backup")
+    assert operations.calls.index("create-backup") < operations.calls.index("capture-artifacts")
+
+
+def test_backup_primitive_reuses_the_outer_held_lock_set(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    database = repo / "store/market.duckdb"
+    database.parent.mkdir(parents=True)
+    database.write_bytes(b"fixture")
+    store = release_deploy.StateStore(tmp_path / "state")
+    os.mkdir(store.directory, 0o700)
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    held = frozenset(release_deploy.backup_database.LOCK_FILES)
+    observed = []
+
+    @contextmanager
+    def fake_window(_repo_root, *, skip_locks=frozenset()):
+        observed.append(skip_locks)
+        yield
+
+    def fake_create(_repo_root, _database, destination):
+        with release_deploy.backup_database._exclusive_backup_window(_repo_root):
+            destination.mkdir(mode=0o700)
+            manifest = {
+                "manifest_sha256": "a" * 64,
+                "release_identity": {"git_sha": OLD_SHA},
+            }
+            path = destination / "manifest.json"
+            path.write_text(json.dumps(manifest))
+            path.chmod(0o600)
+        return {"manifest_sha256": "a" * 64}
+
+    monkeypatch.setattr(release_deploy.backup_database, "_exclusive_backup_window", fake_window)
+    monkeypatch.setattr(release_deploy.backup_database, "create_backup", fake_create)
+    monkeypatch.setattr(
+        release_deploy.backup_database,
+        "verify_backup",
+        lambda _destination: {"manifest_sha256": "a" * 64},
+    )
+    state = SimpleNamespace(repo_root=str(repo), database=str(database), original_sha=OLD_SHA)
+    operations.producer_locks_held = held
+    operations.create_backup(state, held)
+    assert observed == [held]
 
 
 def test_common_semantics_reject_killed_evidence_for_adapter_none(tmp_path, monkeypatch):
