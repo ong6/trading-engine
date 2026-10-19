@@ -7,7 +7,7 @@ import json
 import os
 import shutil
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
@@ -44,6 +44,77 @@ class CacheCorruption(CacheError):
 
 class CacheConflict(CacheError):
     pass
+
+
+def _identity_sha(value: str, field: str) -> str:
+    if not isinstance(value, str) or len(value) != 64:
+        raise ValueError(f"{field} must be a SHA-256")
+    int(value, 16)
+    return value
+
+
+@dataclass(frozen=True)
+class PanelCacheIdentity:
+    generation_sha256: str
+    part_sha256s: tuple[str, ...]
+    columns: tuple[str, ...]
+    date_start: str
+    date_end: str
+    normalization_version: str
+    quality_version: str
+    calendar_version: str
+    availability_version: str
+
+    def as_dict(self) -> dict[str, Any]:
+        _identity_sha(self.generation_sha256, "generation_sha256")
+        if not self.part_sha256s or any(
+                _identity_sha(item, "part_sha256s") != item for item in self.part_sha256s):
+            raise ValueError("panel identity needs immutable source parts")
+        if not self.columns or not all(self.columns):
+            raise ValueError("panel identity needs selected columns")
+        date.fromisoformat(self.date_start), date.fromisoformat(self.date_end)
+        for field in (
+            "normalization_version", "quality_version", "calendar_version",
+            "availability_version",
+        ):
+            if not getattr(self, field):
+                raise ValueError(f"panel identity needs {field}")
+        return json.loads(canonical_bytes(asdict(self)))
+
+
+@dataclass(frozen=True)
+class UniverseCacheIdentity:
+    panel_sha256: str
+    membership_sha256: str
+    recipe_sha256: str
+    coverage_version: str
+
+    def as_dict(self) -> dict[str, Any]:
+        for field in ("panel_sha256", "membership_sha256", "recipe_sha256"):
+            _identity_sha(getattr(self, field), field)
+        if not self.coverage_version:
+            raise ValueError("universe identity needs a coverage version")
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class TableCacheIdentity:
+    source_sha256: str
+    schema_sha256: str
+    recipe_sha256: str
+    availability_version: str
+    date_start: str
+    date_end: str
+    family: str
+
+    def as_dict(self) -> dict[str, Any]:
+        for field in ("source_sha256", "schema_sha256", "recipe_sha256"):
+            _identity_sha(getattr(self, field), field)
+        date.fromisoformat(self.date_start), date.fromisoformat(self.date_end)
+        _safe_name(self.family)
+        if not self.availability_version:
+            raise ValueError("table identity needs an availability version")
+        return asdict(self)
 
 
 def repository_containing(start: Path) -> Path | None:
@@ -354,10 +425,13 @@ class ResearchCache:
 
     def panel(
         self,
-        identity: Mapping[str, Any],
+        identity: PanelCacheIdentity,
         builder: Callable[[], PriceSource],
     ) -> CachedPanel:
-        obj = self.get("panel", identity)
+        if not isinstance(identity, PanelCacheIdentity):
+            raise TypeError("panel cache identity must be PanelCacheIdentity")
+        identity_row = identity.as_dict()
+        obj = self.get("panel", identity_row)
         if obj is None:
             built: PriceSource | None = None
 
@@ -368,7 +442,7 @@ class ResearchCache:
                     raise TypeError("panel builder must return PriceSource")
                 return self._write_panel(data_root, built)
 
-            obj = self.build("panel", identity, write)
+            obj = self.build("panel", identity_row, write)
         return CachedPanel(obj, self.load_panel(obj))
 
     @staticmethod
@@ -441,13 +515,16 @@ class ResearchCache:
 
     def universe(
         self,
-        identity: Mapping[str, Any],
+        identity: UniverseCacheIdentity,
         source: PriceSource,
         builder: Callable[[], Universe],
         *,
         exclusions: Mapping[str, Sequence[str]] | None = None,
     ) -> CachedUniverse:
-        obj = self.get("universe", identity)
+        if not isinstance(identity, UniverseCacheIdentity):
+            raise TypeError("universe cache identity must be UniverseCacheIdentity")
+        identity_row = identity.as_dict()
+        obj = self.get("universe", identity_row)
         if obj is None:
             def write(data_root: Path) -> Mapping[str, Any]:
                 universe = builder()
@@ -471,7 +548,7 @@ class ResearchCache:
                 coverage = self._coverage(universe)
                 np.save(data_root / "coverage.npy", coverage, allow_pickle=False)
                 return {"format": "study-universe-v1", "listing_count": len(rows)}
-            obj = self.build("universe", identity, write)
+            obj = self.build("universe", identity_row, write)
         metadata = obj.read_json("universe.json")
         required = {"format", "source_sha256", "delisting_return", "listings", "exclusions"}
         if (not isinstance(metadata, dict) or set(metadata) != required
@@ -495,7 +572,7 @@ class ResearchCache:
     def table(
         self,
         kind: str,
-        identity: Mapping[str, Any],
+        identity: TableCacheIdentity,
         builder: Callable[[], pd.DataFrame],
         *,
         family: str,
@@ -504,8 +581,13 @@ class ResearchCache:
     ) -> CacheObject:
         if kind not in {"feature", "label"}:
             raise ValueError("cached table kind must be feature or label")
+        if not isinstance(identity, TableCacheIdentity):
+            raise TypeError("table cache identity must be TableCacheIdentity")
         family_name = _safe_name(family)
-        obj = self.get(kind, identity)
+        identity_row = identity.as_dict()
+        if identity.family != family_name:
+            raise ValueError("table identity family differs from the cache partition family")
+        obj = self.get(kind, identity_row)
         if obj is not None:
             return obj
 
@@ -548,4 +630,4 @@ class ResearchCache:
             }, newline=True).decode())
             return {"format": "study-table-parquet-v1", "rows": len(frame), "columns": columns}
 
-        return self.build(kind, identity, write)
+        return self.build(kind, identity_row, write)

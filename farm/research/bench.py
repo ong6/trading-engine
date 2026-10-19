@@ -19,11 +19,38 @@ from farm.study.data import DerivedInput, MarketData
 from farm.study.examples.spy_trend import run_example
 from farm.study.synthetic import generate_market
 
-from .cache import ResearchCache
-from .canonical import canonical_bytes
+from .cache import PanelCacheIdentity, ResearchCache, UniverseCacheIdentity
+from .canonical import canonical_bytes, canonical_sha256
 
 SCAN_PANEL_DIGEST = "70bddbc92931bd627c9eb79dd3ed827633806aea8c04bcc0f759ff2700a637b8"
 REGISTERED_COLD_SECONDS = 133.41
+
+
+def _panel_identity(source, *, generation: dict) -> PanelCacheIdentity:
+    return PanelCacheIdentity(
+        generation_sha256=canonical_sha256(generation),
+        part_sha256s=(source.declaration.snapshot_sha256,),
+        columns=tuple(sorted(source.panel.fields)),
+        date_start=source.sessions[0].isoformat(),
+        date_end=source.sessions[-1].isoformat(),
+        normalization_version="farm-study-panel-v1",
+        quality_version="declared-source-v1",
+        calendar_version=f"{source.declaration.timezone}-sessions-v1",
+        availability_version="price-source-declaration-v1",
+    )
+
+
+def _universe_identity(panel_digest: str, universe) -> UniverseCacheIdentity:
+    membership = [row.canonical() for row in universe.listings]
+    return UniverseCacheIdentity(
+        panel_sha256=panel_digest,
+        membership_sha256=canonical_sha256(membership),
+        recipe_sha256=canonical_sha256({
+            "kind": "point-in-time-universe",
+            "delisting_return": universe.delisting_return,
+        }),
+        coverage_version="farm-study-coverage-v1",
+    )
 
 
 def _rss_bytes() -> int:
@@ -48,18 +75,18 @@ def synthetic_benchmark(cache_root: str | Path, output_root: str | Path) -> dict
     market = generate_market(seed=71, session_count=1_900)
     uncached_seconds = time.perf_counter() - started
     identities = {
-        "primary": {
+        "primary": _panel_identity(market.data.primary, generation={
             "benchmark": "scan-synthetic-v1",
             "seed": 71,
             "sessions": 1_900,
-            "source": market.data.primary.declaration.snapshot_sha256,
-        },
-        "secondary": {
+            "role": "primary",
+        }),
+        "secondary": _panel_identity(market.data.secondary, generation={
             "benchmark": "scan-synthetic-v1",
             "seed": 71,
             "sessions": 1_900,
-            "source": market.data.secondary.declaration.snapshot_sha256,
-        },
+            "role": "secondary",
+        }),
     }
     cold_started = time.perf_counter()
     cold_primary = cache.panel(identities["primary"], lambda source=market.data.primary: source)
@@ -166,20 +193,23 @@ def panel_benchmark(
         ticker_count=ticker_count, session_count=session_count
     )
     uncached_seconds = time.perf_counter() - started
-    panel_identity = {
+    panel_identity = _panel_identity(data.primary, generation={
         "benchmark": "study-panel-v1",
         "ticker_count": ticker_count,
         "session_count": session_count,
-        "source": data.primary.declaration.snapshot_sha256,
-    }
+    })
     cold_started = time.perf_counter()
     cold = cache.panel(panel_identity, lambda source=data.primary: source)
     cold_seconds = time.perf_counter() - cold_started
-    universe_identity = {**panel_identity, "kind": "point-in-time-universe"}
+    universe_identity = _universe_identity(cold.object.digest, universe)
     cached_universe = cache.universe(
         universe_identity, cold.source, lambda value=universe: value,
     )
-    candidate_identity = {**panel_identity, "kind": "candidate-features"}
+    candidate_identity = {
+        "panel_sha256": cold.object.digest,
+        "kind": "candidate-features",
+        "recipe_sha256": canonical_sha256({"recipe": "study-benchmark-candidates-v1"}),
+    }
     candidates = cache.build(
         "feature", candidate_identity,
         lambda path, market_data=data: _write_candidates(path, market_data),

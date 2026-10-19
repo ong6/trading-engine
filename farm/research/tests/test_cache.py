@@ -6,7 +6,13 @@ import numpy as np
 import pandas as pd
 
 from engine.lib.resources import write_text_atomic
-from farm.research.cache import CacheCorruption, ResearchCache
+from farm.research.cache import (
+    CacheCorruption,
+    PanelCacheIdentity,
+    ResearchCache,
+    TableCacheIdentity,
+    UniverseCacheIdentity,
+)
 from farm.study.bench import build_market
 
 pytest = importlib.import_module("pytest")
@@ -27,6 +33,41 @@ def _identity(kind, revision="v1"):
     }
 
 
+def _panel_identity(revision="v1"):
+    return PanelCacheIdentity(
+        generation_sha256="1" * 64,
+        part_sha256s=("2" * 64,),
+        columns=("open", "close"),
+        date_start="2024-01-01",
+        date_end="2024-12-31",
+        normalization_version="v1",
+        quality_version=revision,
+        calendar_version="XNYS-v1",
+        availability_version="daily-close-v1",
+    )
+
+
+def _universe_identity(panel_digest):
+    return UniverseCacheIdentity(
+        panel_sha256=panel_digest,
+        membership_sha256="3" * 64,
+        recipe_sha256="4" * 64,
+        coverage_version="pit-v1",
+    )
+
+
+def _table_identity(family, revision="v1"):
+    return TableCacheIdentity(
+        source_sha256="5" * 64,
+        schema_sha256="6" * 64,
+        recipe_sha256=("7" if revision == "v1" else "8") * 64,
+        availability_version="daily-close-v1",
+        date_start="2024-01-01",
+        date_end="2024-12-31",
+        family=family,
+    )
+
+
 def test_panel_and_universe_cold_warm_are_read_only_and_byte_equivalent(tmp_path):
     cache = ResearchCache(tmp_path / "cache")
     market, universe = build_market(ticker_count=48, session_count=45)
@@ -37,8 +78,8 @@ def test_panel_and_universe_cold_warm_are_read_only_and_byte_equivalent(tmp_path
         builds += 1
         return market.primary
 
-    cold = cache.panel(_identity("panel"), panel_builder)
-    warm = cache.panel(_identity("panel"), panel_builder)
+    cold = cache.panel(_panel_identity(), panel_builder)
+    warm = cache.panel(_panel_identity(), panel_builder)
     assert not cold.object.hit and warm.object.hit and builds == 1
     assert warm.source.declaration == market.primary.declaration
     assert warm.source.tickers == market.primary.tickers
@@ -48,7 +89,7 @@ def test_panel_and_universe_cold_warm_are_read_only_and_byte_equivalent(tmp_path
         warm.source.panel.fields["close"][0, 0] = 0
 
     cached_universe = cache.universe(
-        _identity("universe"), warm.source, lambda: universe,
+        _universe_identity(warm.object.digest), warm.source, lambda: universe,
         exclusions={"T0001": ["coverage"]},
     )
     assert cached_universe.universe.listings == universe.listings
@@ -60,16 +101,16 @@ def test_panel_and_universe_cold_warm_are_read_only_and_byte_equivalent(tmp_path
 def test_cache_refuses_corruption_schema_drift_and_identity_staleness(tmp_path):
     cache = ResearchCache(tmp_path / "cache")
     market, _ = build_market(ticker_count=32, session_count=40)
-    cached = cache.panel(_identity("panel"), lambda: market.primary)
+    cached = cache.panel(_panel_identity(), lambda: market.primary)
     field = cached.object.data_path / "arrays" / "field-close.npy"
     field.chmod(0o644)
     with field.open("r+b") as handle:
         handle.seek(-1, 2)
         handle.write(b"x")
     with pytest.raises(CacheCorruption, match="hash differs"):
-        cache.panel(_identity("panel"), lambda: market.primary)
+        cache.panel(_panel_identity(), lambda: market.primary)
 
-    fresh = cache.panel(_identity("panel", "quality-v2"), lambda: market.primary)
+    fresh = cache.panel(_panel_identity("quality-v2"), lambda: market.primary)
     assert fresh.object.digest != cached.object.digest
 
     truncated = cache.build("feature", _identity("feature", "truncated"), lambda path: (
@@ -101,11 +142,11 @@ def test_feature_and_label_tables_use_separate_namespaces_and_partitioned_parque
         "return_h1": [0.1, -0.1],
     })
     feature = cache.table(
-        "feature", _identity("feature"), lambda: features,
+        "feature", _table_identity("momentum"), lambda: features,
         family="momentum", expected_columns=tuple(features.columns),
     )
     label = cache.table(
-        "label", _identity("label"), lambda: labels,
+        "label", _table_identity("forward"), lambda: labels,
         family="forward", expected_columns=tuple(labels.columns),
     )
     assert "/features/objects/" in feature.path.as_posix()
@@ -141,7 +182,7 @@ def test_concurrent_builders_converge_and_crash_never_publishes(tmp_path):
 def test_held_memory_map_survives_rebuildable_object_retention(tmp_path):
     cache = ResearchCache(tmp_path / "cache")
     market, _ = build_market(ticker_count=32, session_count=40)
-    cached = cache.panel(_identity("panel"), lambda: market.primary)
+    cached = cache.panel(_panel_identity(), lambda: market.primary)
     held = cached.source.panel.fields["close"]
     coordinate = np.argwhere(~np.isnan(held))[0]
     expected = float(held[*coordinate])
@@ -155,6 +196,23 @@ def test_cache_root_inside_repository_is_refused(tmp_path):
     (repository / ".git").mkdir()
     with pytest.raises(ValueError, match="outside"):
         ResearchCache(repository / "cache", repository_root=repository)
+
+
+def test_specialized_cache_apis_refuse_caller_shaped_identity_mappings(tmp_path):
+    cache = ResearchCache(tmp_path / "cache")
+    market, universe = build_market(ticker_count=32, session_count=40)
+    arbitrary = _identity("caller-controlled")
+
+    with pytest.raises(TypeError, match="PanelCacheIdentity"):
+        cache.panel(arbitrary, lambda: market.primary)
+    with pytest.raises(TypeError, match="UniverseCacheIdentity"):
+        cache.universe(arbitrary, market.primary, lambda: universe)
+    with pytest.raises(TypeError, match="TableCacheIdentity"):
+        cache.table(
+            "feature", arbitrary,
+            lambda: pd.DataFrame({"session": ["2024-01-02"], "value": [1.0]}),
+            family="fixture",
+        )
 
 
 def test_cache_root_guard_finds_other_and_nested_worktrees_independent_of_cwd(
