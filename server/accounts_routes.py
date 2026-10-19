@@ -80,7 +80,6 @@ def _require_account_mutation(account_id: str, authorization: str | None) -> Non
     if con is None:
         raise RuntimeError("account mutation check requires the active writer connection")
     _invoke(_require_account_access, con, account_id, authorization)
-    _require_token(authorization)
 
 
 def _since(value: str | None) -> date | None:
@@ -177,6 +176,7 @@ def get_results(account_id: str, authorization: Annotated[str | None, Header()] 
 @router.post("/{account_id}/orders")
 def submit_order(account_id: str, body: dict,
                  authorization: Annotated[str | None, Header()] = None):
+    _require_token(authorization)
     received_at = datetime.now(timezone.utc)  # authoritative: before writer acquisition
     if body.get("account_id") != account_id:
         raise HTTPException(422, "path and intent account identifiers differ")
@@ -189,6 +189,7 @@ def submit_order(account_id: str, body: dict,
 @router.post("/{account_id}/orders/{order_id}/cancel")
 def cancel_order(account_id: str, order_id: int,
                  authorization: Annotated[str | None, Header()] = None):
+    _require_token(authorization)
     received_at = datetime.now(timezone.utc)
     with _write_connection() as con:
         _require_account_mutation(account_id, authorization)
@@ -198,6 +199,7 @@ def cancel_order(account_id: str, order_id: int,
 @router.post("/{account_id}/reconciliations")
 def post_reconciliation(account_id: str, body: dict,
                         authorization: Annotated[str | None, Header()] = None):
+    _require_token(authorization)
     received_at = datetime.now(timezone.utc)
     with _write_connection() as con:
         _require_account_mutation(account_id, authorization)
@@ -207,6 +209,7 @@ def post_reconciliation(account_id: str, body: dict,
 @router.post("/{account_id}/halt")
 def halt_account(account_id: str, body: dict | None = None,
                  authorization: Annotated[str | None, Header()] = None):
+    _require_token(authorization)
     received_at = datetime.now(timezone.utc)
     with _write_connection() as con:
         _require_account_mutation(account_id, authorization)
@@ -217,6 +220,7 @@ def halt_account(account_id: str, body: dict | None = None,
 @router.post("/{account_id}/resume")
 def resume_account(account_id: str, body: dict,
                    authorization: Annotated[str | None, Header()] = None):
+    _require_token(authorization)
     received_at = datetime.now(timezone.utc)
     if set(body) - {'by', 'note'}:
         raise HTTPException(409, 'resume is effective at receipt; a supplied effective time is not accepted')
@@ -228,6 +232,7 @@ def resume_account(account_id: str, body: dict,
 
 @router.post("/{account_id}/retire")
 def retire_account(account_id: str, authorization: Annotated[str | None, Header()] = None):
+    _require_token(authorization)
     received_at = datetime.now(timezone.utc)
     with _write_connection() as con:
         _require_account_mutation(account_id, authorization)
@@ -237,6 +242,7 @@ def retire_account(account_id: str, authorization: Annotated[str | None, Header(
 @router.post("/{account_id}/watch")
 def replace_account_watch(account_id: str, body: dict,
                           authorization: Annotated[str | None, Header()] = None):
+    _require_token(authorization)
     received_at = datetime.now(timezone.utc)
     with _write_connection() as con:
         _require_account_mutation(account_id, authorization)
