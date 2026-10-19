@@ -394,6 +394,50 @@ class ReceiptJournal:
         )
         return result
 
+    def run_fresh(
+        self,
+        step: str,
+        inputs: dict[str, Any],
+        action: Callable[[], dict[str, Any] | None],
+    ) -> dict[str, Any]:
+        """Run an observation/action again even when an older receipt completed."""
+        path = self._path(step)
+        transaction_id = _regular_json(self.directory.parent / "state.json").get("transaction_id")
+        if not isinstance(transaction_id, str):
+            raise DeployError("receipt has no transaction identity")
+        started = {
+            "schema_version": RECEIPT_SCHEMA_VERSION,
+            "step": step,
+            "transaction_id": transaction_id,
+            "input_sha256": _digest({"transaction_id": transaction_id, "inputs": inputs}),
+            "status": "running",
+            "started_at": _utc_now(),
+            "completed_at": None,
+            "result": {},
+            "error": None,
+        }
+        _atomic_json(path, started)
+        try:
+            result = action() or {}
+            if not isinstance(result, dict):
+                raise DeployError(f"step {step} returned a non-object result")
+        except BaseException as exc:
+            _atomic_json(
+                path,
+                {**started, "status": "failed", "error": f"{type(exc).__name__}: {exc}"},
+            )
+            raise
+        _atomic_json(
+            path,
+            {
+                **started,
+                "status": "complete",
+                "completed_at": _utc_now(),
+                "result": result,
+            },
+        )
+        return result
+
 
 @dataclass(frozen=True)
 class Migration:
@@ -2384,6 +2428,49 @@ class ReleaseDeployment:
         else:
             self.operations.quiesce(state)
 
+    def _fresh_semantic(
+        self, state: ReleaseState, *, step: str, rolled_back: bool
+    ) -> dict[str, Any]:
+        return self.journal.run_fresh(
+            step,
+            {
+                "source_sha": state.original_sha if rolled_back else state.approved_sha,
+                "backup": _digest(state.backup),
+            },
+            lambda: self.operations.semantic_verify(state, rolled_back=rolled_back),
+        )
+
+    def _activate_with_receipt(
+        self,
+        state: ReleaseState,
+        *,
+        step: str,
+        include_autopush: bool,
+    ) -> dict[str, Any]:
+        try:
+            result = self.journal.run_fresh(
+                step,
+                {
+                    "inventory": _digest(state.inventory),
+                    "include_autopush": include_autopush,
+                },
+                lambda: self.operations.release_producers(state, include_autopush=include_autopush),
+            )
+            self._fault(step)
+            return result
+        except BaseException as activation_error:
+            try:
+                self.operations.quiesce(state)
+            except BaseException as quiesce_error:
+                raise DeployError(
+                    f"activation receipt failed and compensating quiescence failed: {quiesce_error}"
+                ) from activation_error
+            raise
+
+    def _prepare_activation_attempt(self, state: ReleaseState, step: str) -> None:
+        if self.journal.read(step) is not None:
+            self.operations.quiesce(state)
+
     def _load_prepared(self, *, recovery: bool = False) -> ReleaseState:
         state = self.store.load()
         expected_keys = {
@@ -2727,22 +2814,14 @@ class ReleaseDeployment:
         state.phase = "verifying"
         self.store.save(state)
         try:
-            self.journal.run(
-                "semantic-verify",
-                {"approved_sha": state.approved_sha, "backup": _digest(state.backup)},
-                lambda: self.operations.semantic_verify(state, rolled_back=False),
-            )
+            self._prepare_activation_attempt(state, "release-producers")
+            self._fresh_semantic(state, step="semantic-verify", rolled_back=False)
             self._fault("semantic-verify")
             fresh = self.store.load()
             if fresh.transaction_id != state.transaction_id or fresh.phase != "verifying":
                 raise DeployError("release state changed before producer activation")
             self.operations.validate_state_source(fresh, fresh.approved_sha)
-            self.journal.run(
-                "release-producers",
-                {"inventory": _digest(state.inventory), "include_autopush": True},
-                lambda: self.operations.release_producers(state, include_autopush=True),
-            )
-            self._fault("release-producers")
+            self._activate_with_receipt(state, step="release-producers", include_autopush=True)
             state.phase = "verified"
             state.last_failure = None
             self.store.save(state)
@@ -2776,10 +2855,11 @@ class ReleaseDeployment:
         self.store.save(state)
         try:
             self.operations.validate_state_source(state, state.original_sha)
-            self.journal.run(
-                "abort-release-producers",
-                {"inventory": _digest(state.inventory)},
-                lambda: self.operations.release_producers(state, include_autopush=True),
+            self._prepare_activation_attempt(state, "abort-release-producers")
+            self._fresh_semantic(state, step="abort-semantic-verify", rolled_back=True)
+            self.operations.validate_state_source(state, state.original_sha)
+            self._activate_with_receipt(
+                state, step="abort-release-producers", include_autopush=True
             )
             state.phase = "aborted"
             state.last_failure = None
@@ -2870,19 +2950,16 @@ class ReleaseDeployment:
                     lambda: self.operations.publish_snapshot(state, held_locks, purpose="rollback"),
                     reconcile=lambda: self.operations.reconcile_snapshot(state, purpose="rollback"),
                 )
-            self.journal.run(
-                "rollback-semantic-verify",
-                {"original_sha": state.original_sha, "backup": _digest(state.backup)},
-                lambda: self.operations.semantic_verify(state, rolled_back=True),
-            )
+            self._prepare_activation_attempt(state, "rollback-release-producers")
+            self._fresh_semantic(state, step="rollback-semantic-verify", rolled_back=True)
             fresh = self.store.load()
             if fresh.transaction_id != state.transaction_id or fresh.phase != "rolling-back":
                 raise DeployError("release state changed before rollback activation")
             self.operations.validate_state_source(fresh, fresh.original_sha)
-            self.journal.run(
-                "rollback-release-producers",
-                {"inventory": _digest(state.inventory), "include_autopush": False},
-                lambda: self.operations.release_producers(state, include_autopush=False),
+            self._activate_with_receipt(
+                state,
+                step="rollback-release-producers",
+                include_autopush=False,
             )
             state.phase = "rolled-back"
             state.last_failure = None
@@ -2906,15 +2983,13 @@ class ReleaseDeployment:
         state.phase = "resuming"
         self.store.save(state)
         try:
+            self._prepare_activation_attempt(state, "resume-autopush")
+            self._fresh_semantic(state, step="resume-semantic-verify", rolled_back=True)
             fresh = self.store.load()
             if fresh.transaction_id != state.transaction_id or fresh.phase != "resuming":
                 raise DeployError("release state changed before resume activation")
             self.operations.validate_reconciled_source(fresh, reconciled_sha)
-            self.journal.run(
-                "resume-autopush",
-                {"reconciled_sha": reconciled_sha, "inventory": _digest(state.inventory)},
-                lambda: self.operations.release_producers(state, include_autopush=True),
-            )
+            self._activate_with_receipt(state, step="resume-autopush", include_autopush=True)
             state.phase = "resumed"
             state.last_failure = None
             self.store.save(state)

@@ -39,6 +39,7 @@ class FakeOperations:
         self.transaction_lock_held = False
         self.semantic_entered: threading.Event | None = None
         self.semantic_continue: threading.Event | None = None
+        self.fail_semantic = False
 
     @contextmanager
     def transaction_lock(self, _repo_root, _transaction_id):
@@ -247,12 +248,15 @@ class FakeOperations:
             self.semantic_entered.set()
             assert self.semantic_continue is not None
             assert self.semantic_continue.wait(timeout=10)
+        if self.fail_semantic:
+            raise release_deploy.DeployError("semantic state became unsafe")
         return {"status": "ok", "rolled_back": rolled_back}
 
     def release_producers(self, _state, *, include_autopush):
         assert self.transaction_lock_held
         self.calls.append(f"release:{include_autopush}")
         self.releases.append(include_autopush)
+        self.writers_active = True
         return {"autopush": include_autopush}
 
     def capture_incident(self, _state):
@@ -418,8 +422,55 @@ def test_apply_and_verify_are_idempotent_after_receipted_fault(transaction):
         deployment.verify(execute=True)
     deployment.fail_after = None
     assert deployment.verify(execute=True)["status"] == "verified"
-    assert operations.calls.count("semantic-verify") == 1
+    assert operations.calls.count("semantic-verify") == 2
     assert operations.releases == [True]
+
+
+def test_verify_retry_never_reuses_an_earlier_semantic_receipt(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    deployment.apply(execute=True, approve_plan=None)
+    deployment.fail_after = "semantic-verify"
+    with pytest.raises(release_deploy.DeployError, match="injected failure"):
+        deployment.verify(execute=True)
+    deployment.fail_after = None
+    operations.fail_semantic = True
+    with pytest.raises(release_deploy.DeployError, match="became unsafe"):
+        deployment.verify(execute=True)
+    assert operations.calls.count("semantic-verify") == 2
+    assert operations.releases == []
+
+
+def test_activation_receipt_write_failure_requiesces_and_retry_is_fresh(transaction, monkeypatch):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    deployment.apply(execute=True, approve_plan=None)
+    original_write = release_deploy._atomic_json
+    failed = {"value": False}
+
+    def fail_completed_activation(path, payload):
+        if (
+            path.name == "release-producers.json"
+            and payload.get("status") == "complete"
+            and not failed["value"]
+        ):
+            failed["value"] = True
+            raise OSError("simulated activation receipt fsync failure")
+        return original_write(path, payload)
+
+    monkeypatch.setattr(release_deploy, "_atomic_json", fail_completed_activation)
+    with pytest.raises(OSError, match="receipt fsync"):
+        deployment.verify(execute=True)
+    assert operations.writers_active is False
+    assert (
+        release_deploy.ReceiptJournal(deployment.store).read("release-producers")["status"]
+        == "running"
+    )
+
+    result = deployment.verify(execute=True)
+    assert result["status"] == "verified"
+    assert operations.calls.count("semantic-verify") == 2
+    assert operations.releases == [True, True]
 
 
 def test_transaction_lock_prevents_rollback_from_racing_verify(transaction):
