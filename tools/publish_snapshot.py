@@ -32,6 +32,7 @@ from engine.lib.snapshots import (
     pin_latest_generation,
     query_fingerprint,
     snapshot_directory,
+    source_storage_identity,
     table_logical_sha256,
     verified_snapshot_file,
 )
@@ -753,18 +754,24 @@ def _publish_locked(
         if previous_pin is not None and previous_pin.info.as_of > checked_at - timedelta(
             minutes=min_age_minutes
         ):
-            latest = previous_pin.info
-            previous_pin.close()
-            age_minutes = max(0.0, (checked_at - latest.as_of).total_seconds() / 60)
-            return {
-                "status": "skipped",
-                "reason": (
-                    f"latest snapshot is {age_minutes:.1f} minutes old; "
-                    f"minimum age is {min_age_minutes:g} minutes"
-                ),
-                "snapshot": latest.path.name,
-                "as_of": latest.as_of.isoformat(),
-            }
+            try:
+                fresh_pin = pin_latest_generation(source, newer_than_database=True)
+            except GenerationError:
+                pass
+            else:
+                latest = fresh_pin.info
+                fresh_pin.close()
+                previous_pin.close()
+                age_minutes = max(0.0, (checked_at - latest.as_of).total_seconds() / 60)
+                return {
+                    "status": "skipped",
+                    "reason": (
+                        f"latest snapshot is {age_minutes:.1f} minutes old; "
+                        f"minimum age is {min_age_minutes:g} minutes"
+                    ),
+                    "snapshot": latest.path.name,
+                    "as_of": latest.as_of.isoformat(),
+                }
     previous_target = None
     try:
         previous_target = os.readlink(directory / LATEST_NAME)
@@ -805,6 +812,7 @@ def _publish_locked(
                 as_of = datetime.now(timezone.utc)
             finally:
                 source_connection.close()
+            storage_identity = source_storage_identity(source)
         writer_lock_seconds = time.monotonic() - lock_started
         cohort = _install_cohort(directory, captured_cohort)
         body = {
@@ -813,6 +821,7 @@ def _publish_locked(
             "snapshot": destination.name,
             "source_database": str(source.relative_to(repo_root)),
             "source_data_commit": _data_commit(repo_root),
+            "source_storage_identity": storage_identity,
             "as_of": as_of.isoformat(),
             **schema_identity,
             "hot_database": {
@@ -858,7 +867,7 @@ def _publish_locked(
         _retain_newest(directory)
         return manifest
     except (
-        OSError, ValueError, GenerationError, backup_database.BackupError,
+        OSError, ValueError, duckdb.Error, GenerationError, backup_database.BackupError,
         engine_db.SchemaMigrationRequired,
     ) as exc:
         if pointer_advanced:

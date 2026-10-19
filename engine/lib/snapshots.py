@@ -341,6 +341,7 @@ class SnapshotInfo:
     cold_tables: dict[str, dict] = field(default_factory=dict)
     cohort: dict[str, dict[str, dict]] = field(default_factory=dict)
     source_snapshot: dict | None = None
+    source_storage_identity: dict | None = None
     manifest_sha256: str | None = None
     _lifetime_pin: object | None = field(default=None, compare=False, repr=False)
 
@@ -400,6 +401,46 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _storage_file_identity(path: Path) -> dict[str, int]:
+    value = path.stat()
+    if not path.is_file() or path.is_symlink():
+        raise OSError(f"storage identity is not a regular file: {path.name}")
+    return {
+        "device": value.st_dev,
+        "inode": value.st_ino,
+        "size_bytes": value.st_size,
+        "mtime_ns": value.st_mtime_ns,
+        "ctime_ns": value.st_ctime_ns,
+    }
+
+
+def source_storage_identity(database: Path) -> dict[str, dict[str, int] | None]:
+    """Identify the primary and its committed WAL without opening DuckDB."""
+    database = Path(database).absolute()
+    wal = database.with_name(f"{database.name}.wal")
+    return {
+        "database": _storage_file_identity(database),
+        "wal": _storage_file_identity(wal) if wal.exists() else None,
+    }
+
+
+def _valid_source_storage_identity(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {"database", "wal"}:
+        return False
+    fields = {"device", "inode", "size_bytes", "mtime_ns", "ctime_ns"}
+    for label in ("database", "wal"):
+        record = value[label]
+        if label == "wal" and record is None:
+            continue
+        if (
+            not isinstance(record, dict)
+            or set(record) != fields
+            or any(type(record[field]) is not int or record[field] < 0 for field in fields)
+        ):
+            return False
+    return True
+
+
 def _recorded_file(
     directory: Path, record: object, *, expected_path: Path | None = None,
 ) -> tuple[Path, int, str] | None:
@@ -439,7 +480,8 @@ def _generation_info(
         return None
     expected_fields = {
         "manifest_schema_version", "generation_id", "snapshot", "source_database",
-        "source_data_commit", "as_of", "database_schema_id", "catalog_sha256",
+        "source_data_commit", "source_storage_identity", "as_of",
+        "database_schema_id", "catalog_sha256",
         "hot_database", "row_counts", "source_snapshot", "parts", "cold_tables",
         "cohort", "metrics",
     }
@@ -476,6 +518,7 @@ def _generation_info(
         or not isinstance(body.get("cold_tables"), dict)
         or not isinstance(body.get("cohort"), dict)
         or not isinstance(body.get("metrics"), dict)
+        or not _valid_source_storage_identity(body.get("source_storage_identity"))
     ):
         return None
     if not (
@@ -596,6 +639,7 @@ def _generation_info(
         catalog_sha256=catalog_hash, generation_id=generation_id, parts=tuple(parts),
         cold_tables=body["cold_tables"], cohort=cohort,
         source_snapshot=body["source_snapshot"],
+        source_storage_identity=body["source_storage_identity"],
         manifest_sha256=manifest_hash,
     )
 
@@ -692,7 +736,7 @@ def latest_snapshot(
     info = _latest_info(database)
     if info is None:
         return None
-    if newer_than_database:
+    if newer_than_database and info.manifest_schema_version != GENERATION_MANIFEST_SCHEMA_VERSION:
         try:
             last_write = datetime.fromtimestamp(database.stat().st_mtime_ns / 1e9, timezone.utc)
         except OSError:
@@ -775,12 +819,10 @@ def pin_latest_generation(
             raise GenerationError("published generation exceeds its freshness budget")
         if newer_than_database:
             try:
-                last_write = datetime.fromtimestamp(
-                    database.stat().st_mtime_ns / 1e9, timezone.utc,
-                )
+                current_source = source_storage_identity(database)
             except OSError as exc:
                 raise GenerationError("primary freshness marker is unavailable") from exc
-            if info.as_of <= last_write:
+            if info.source_storage_identity != current_source:
                 raise GenerationError("published generation is stale for evidence reads")
         pins = info.manifest_path.parent / "pins"
         pins.mkdir(mode=0o700, exist_ok=True)
@@ -792,6 +834,13 @@ def pin_latest_generation(
                 handle.close()
                 continue
             _verify_files(info)
+            if newer_than_database:
+                try:
+                    current_source = source_storage_identity(database)
+                except OSError as exc:
+                    raise GenerationError("primary freshness marker is unavailable") from exc
+                if info.source_storage_identity != current_source:
+                    raise GenerationError("published generation is stale for evidence reads")
             return SnapshotPin(info, handle)
         except BaseException:
             handle.close()

@@ -326,6 +326,26 @@ def test_versioned_database_without_generation_refuses_primary_fallback(tmp_path
         )
 
 
+def test_generation_backup_refuses_commit_retained_in_held_writer_wal(
+    tmp_path, monkeypatch,
+):
+    root, source = _repo(tmp_path, generation=True)
+    monkeypatch.setattr(backup_database, "MIN_FREE_BYTES", 0)
+    _stamp_schema(source)
+    publish_snapshot.publish_snapshot(root, source)
+    destination = tmp_path / "outside" / "stale-generation"
+    writer = duckdb.connect(str(source))
+    try:
+        writer.execute("UPDATE prices SET volume=999 WHERE ticker='SPY'")
+        assert source.with_name(f"{source.name}.wal").is_file()
+        with pytest.raises(backup_database.BackupError, match="stale for evidence"):
+            backup_database.create_backup(root, source, destination)
+    finally:
+        writer.close()
+
+    assert not destination.exists()
+
+
 def test_remote_restore_interface_binds_generation_and_full_restore_checks():
     interface = backup_database.REMOTE_RESTORE_INTERFACE
     assert interface["rpo"] == {"config_key": "rpo_hours", "default": 24, "minimum": 1}

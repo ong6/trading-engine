@@ -201,6 +201,44 @@ def test_latest_snapshot_requires_publication_after_database_write(tmp_path):
     assert snapshots.latest_snapshot(source, newer_than_database=True) is None
 
 
+def test_generation_freshness_detects_a_commit_in_held_writer_wal(tmp_path):
+    root, source = _repo(tmp_path)
+    published = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    primary_mtime = source.stat().st_mtime_ns
+    writer = duckdb.connect(str(source))
+    try:
+        writer.execute("UPDATE prices SET volume=999 WHERE ticker='SPY'")
+        wal = source.with_name(f"{source.name}.wal")
+        assert wal.is_file()
+        assert source.stat().st_mtime_ns == primary_mtime
+        assert (
+            snapshots.source_storage_identity(source)
+            != published["source_storage_identity"]
+        )
+        with pytest.raises(snapshots.GenerationError, match="stale for evidence"):
+            snapshots.pin_latest_generation(source, newer_than_database=True)
+        assert snapshots.latest_snapshot(source, newer_than_database=True) is None
+    finally:
+        writer.close()
+
+
+def test_wal_commit_prevents_stale_minimum_age_skip(tmp_path):
+    root, source = _repo(tmp_path)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    writer = duckdb.connect(str(source))
+    try:
+        writer.execute("UPDATE prices SET volume=999 WHERE ticker='SPY'")
+        with pytest.raises(publish_snapshot.SnapshotError, match="different configuration"):
+            publish_snapshot.publish_snapshot(
+                root, source, now=NOW + timedelta(seconds=1), min_age_minutes=120,
+            )
+    finally:
+        writer.close()
+
+    with snapshots.pin_latest_generation(source) as info:
+        assert info.generation_id == first["generation_id"]
+
+
 def test_delta_generations_preserve_rows_share_parts_and_respect_reader_pins(tmp_path):
     root, source = _repo(tmp_path, cold=True)
     publish_snapshot.publish_snapshot(root, source, now=NOW)
