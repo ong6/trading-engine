@@ -8,9 +8,10 @@ import os
 import shutil
 import tempfile
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from zoneinfo import ZoneInfo
 
 from engine.lib.resources import write_text_atomic
 
@@ -86,12 +87,19 @@ def validate_rows(
     if not isinstance(value, list) or not value:
         raise ArtifactValidationError("recipe must return a non-empty list of rows")
     columns = [item["name"] for item in schema]
-    expected = set(columns) | ({"_availability"} if allow_input_availability else set())
+    expected = set(columns)
     rows = []
     for index, raw in enumerate(value):
-        if not isinstance(raw, dict) or set(raw) != expected:
+        observed = set(raw) if isinstance(raw, dict) else set()
+        valid_fields = (frozenset(observed) in {
+            frozenset(expected), frozenset(expected | {"_availability"})}
+                        if allow_input_availability else observed == expected)
+        if not isinstance(raw, dict) or not valid_fields:
             raise ArtifactValidationError(f"row {index} columns differ from the declaration")
         row = dict(raw)
+        if allow_input_availability and "_availability" in row \
+                and not isinstance(row["_availability"], dict):
+            raise ArtifactValidationError(f"row {index} availability must be a timestamp mapping")
         for declaration in schema:
             item = row[declaration["name"]]
             if item is None and declaration["nullable"]:
@@ -110,6 +118,35 @@ def validate_rows(
     return rows
 
 
+def _decision_at(resolved: ResolvedStudy, session: str) -> datetime:
+    decision = resolved.spec.document["strategy"]["decision"]
+    hour, minute = map(int, decision["time"].split(":"))
+    return datetime.combine(
+        date.fromisoformat(session), time(hour, minute), ZoneInfo(decision["timezone"])
+    )
+
+
+def _fallback_available_at(resolved: ResolvedStudy, session: str) -> datetime:
+    inputs = resolved.spec.document["inputs"]
+    hour, minute = map(int, inputs["calendar"]["session_close"].split(":"))
+    return datetime.combine(
+        date.fromisoformat(session), time(hour, minute), ZoneInfo(inputs["timezone"])
+    ) + timedelta(microseconds=1)
+
+
+def _available_at(resolved: ResolvedStudy, row: Mapping[str, Any], field: str) -> datetime:
+    raw = row.get("_availability", {}).get(field)
+    if raw is None:
+        return _fallback_available_at(resolved, row["session"])
+    try:
+        value = datetime.fromisoformat(raw)
+    except (TypeError, ValueError) as exc:
+        raise ArtifactValidationError(f"{field} availability is not an ISO timestamp") from exc
+    if value.tzinfo is None:
+        raise ArtifactValidationError(f"{field} availability needs an explicit timezone")
+    return value.astimezone(ZoneInfo(resolved.spec.document["inputs"]["timezone"]))
+
+
 def _evidence(resolved: ResolvedStudy) -> dict[str, Any]:
     inputs = resolved.spec.document["inputs"]
     membership_ref = inputs["membership"]["evidence"]
@@ -126,21 +163,34 @@ def _evidence(resolved: ResolvedStudy) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         raise ArtifactValidationError("edge evidence is not valid JSON") from exc
     if (not isinstance(membership, dict)
+            or set(membership) != {"point_in_time", "survivor_status", "rows"}
             or membership.get("point_in_time") != inputs["membership"]["point_in_time"]
             or membership.get("survivor_status") != inputs["survivor_status"]
-            or isinstance(membership.get("coverage"), bool)
-            or not isinstance(membership.get("coverage"), (int, float))
-            or not math.isfinite(float(membership["coverage"]))
-            or float(membership["coverage"]) < inputs["coverage"]["minimum"]
-            or type(membership.get("expected_rows")) is not int
-            or membership["expected_rows"] < 1):
+            or not isinstance(membership.get("rows"), list) or not membership["rows"]):
         raise ArtifactValidationError("membership PIT, survivor, or coverage evidence differs")
+    key_fields = tuple(inputs["primary_key"])
+    membership_keys = []
+    for index, row in enumerate(membership["rows"]):
+        if (not isinstance(row, dict) or set(row) != {*key_fields, "eligible"}
+                or type(row["eligible"]) is not bool
+                or not _value_valid(row["session"], "date")):
+            raise ArtifactValidationError(f"membership row {index} differs")
+        membership_keys.append(tuple(row[field] for field in key_fields))
+    if len(membership_keys) != len(set(membership_keys)):
+        raise ArtifactValidationError("membership table has duplicate decision keys")
+    eligible_keys = [key for key, row in zip(membership_keys, membership["rows"], strict=True)
+                     if row["eligible"]]
+    if not eligible_keys:
+        raise ArtifactValidationError("membership table has no eligible decision keys")
     if (not isinstance(quality, dict) or quality.get("status") != "accepted"
             or quality.get("version") != inputs["quality"]["version"]
             or quality.get("policy") != inputs["quality"]["policy"]
             or quality.get("invalid_rows") != 0):
         raise ArtifactValidationError("quality evidence differs from the declaration")
-    return {"membership": membership, "quality": quality}
+    return {
+        "membership": {**membership, "eligible_keys": eligible_keys},
+        "quality": quality,
+    }
 
 
 def _input_mount(
@@ -185,20 +235,32 @@ def _input_mount(
             allow_input_availability=True,
             primary_key=resolved.spec.document["inputs"]["primary_key"],
         )
+        for row in validated:
+            unknown = set(row.get("_availability", {})) - set(
+                resolved.spec.document["inputs"]["availability"]
+            )
+            if unknown:
+                raise ArtifactValidationError(
+                    f"input availability has undeclared fields: {sorted(unknown)}"
+                )
+            for field_name in resolved.spec.document["inputs"]["availability"]:
+                _available_at(resolved, row, field_name)
         declared_rows.extend(validated)
         if as_of_session is not None and "session" in validated[0]:
-            bounded = [row for row in validated if row["session"] <= as_of_session]
+            decision_at = _decision_at(resolved, as_of_session)
+            availability_fields = resolved.spec.document["inputs"]["availability"]
+            eligible = set(_evidence(resolved)["membership"]["eligible_keys"])
+            primary_key = resolved.spec.document["inputs"]["primary_key"]
+            bounded = [
+                row for row in validated
+                if row["session"] <= as_of_session
+                and tuple(row[name] for name in primary_key) in eligible
+                and all(_available_at(resolved, row, name) <= decision_at
+                        for name in availability_fields)
+            ]
             write_text_atomic(target, canonical_bytes(bounded, newline=True).decode())
     if not outcome and not declared_rows:
         raise ArtifactValidationError("StudySpec requires at least one declared rows_json input")
-    availability = {
-        item["field"]: item["known_at"]
-        for item in resolved.spec.document["inputs"]["availability"]
-    }
-    if not outcome:
-        for index, row in enumerate(declared_rows):
-            if row["_availability"] != availability:
-                raise ArtifactValidationError(f"input row {index} field availability differs")
     write_text_atomic(mount / "manifest.json", canonical_bytes(manifest, newline=True).decode())
     if prior_nodes:
         nodes = mount / "nodes"
@@ -289,7 +351,14 @@ def build_study_artifacts(
     evidence = _evidence(resolved)
     initial_mount, declared_inputs = _input_mount(resolved, root, outcome=False)
     shutil.rmtree(initial_mount)
-    decision_sessions = sorted({row["session"] for row in declared_inputs if "session" in row})
+    session_index = resolved.spec.document["inputs"]["primary_key"].index("session")
+    eligible_sessions = {
+        key[session_index] for key in evidence["membership"]["eligible_keys"]
+    }
+    decision_sessions = sorted({
+        row["session"] for row in declared_inputs
+        if "session" in row and row["session"] in eligible_sessions
+    })
     if not decision_sessions:
         decision_sessions = [None]
     prepare_sandbox_runtime(root)
@@ -309,7 +378,10 @@ def build_study_artifacts(
                 response = run_sandboxed(
                     package,
                     {
-                        "callback": node["callback"],
+                        "callback": {
+                            **node["callback"],
+                            "runtime_identity": resolved.spec.document["execution"],
+                        },
                         "package_sha256": package.digest,
                         "parameters": {
                             **node["parameters"], "_decision_session": decision_session,
@@ -338,13 +410,13 @@ def build_study_artifacts(
         primary_key = resolved.spec.document["inputs"]["primary_key"]
         if len({tuple(row[name] for name in primary_key) for row in rows}) != len(rows):
             raise ArtifactValidationError("feature recipe emitted duplicate decision rows")
-        observed_coverage = len(rows) / evidence["membership"]["expected_rows"]
+        eligible_keys = {tuple(key) for key in evidence["membership"]["eligible_keys"]}
+        row_keys = {tuple(row[name] for name in primary_key) for row in rows}
+        if not row_keys <= eligible_keys:
+            raise ArtifactValidationError("feature row is outside session-keyed PIT membership")
+        observed_coverage = len(row_keys) / len(eligible_keys)
         if observed_coverage < resolved.spec.document["inputs"]["coverage"]["minimum"]:
             raise ArtifactValidationError("actual feature row coverage misses the declared gate")
-        if "ticker" in {column["name"] for column in node["output_schema"]}:
-            members = evidence["membership"].get("members")
-            if not isinstance(members, list) or any(row["ticker"] not in members for row in rows):
-                raise ArtifactValidationError("feature row is outside PIT membership evidence")
         feature_rows[node["name"]] = rows
         feature_recipes.append({"name": node["name"], "package_sha256": package.digest})
         feature_schemas[node["name"]] = node["output_schema"]
@@ -398,7 +470,10 @@ def _build_label_artifact(
         response = run_sandboxed(
             package,
             {
-                "callback": outcomes["callback"],
+                "callback": {
+                    **outcomes["callback"],
+                    "runtime_identity": resolved.spec.document["execution"],
+                },
                 "package_sha256": package.digest,
                 "parameters": outcomes["parameters"],
                 "mode": "recipe",
@@ -473,8 +548,12 @@ def materialize_decision_features(
         if not start <= decision < end:
             raise ArtifactValidationError("decision session is outside the declared fold")
         selected = [row for row in rows if row["session"] == decision_session]
-        if any(datetime.fromisoformat(row[node["availability"]]).date() > decision
-               for row in selected):
+        decision_at = _decision_at(resolved, decision_session)
+        decision_zone = ZoneInfo(resolved.spec.document["strategy"]["decision"]["timezone"])
+        if any(
+            datetime.fromisoformat(row[node["availability"]]).astimezone(decision_zone)
+            > decision_at for row in selected
+        ):
             raise ArtifactValidationError(
                 f"decision {decision_session} contains unavailable features"
             )

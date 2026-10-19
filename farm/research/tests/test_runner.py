@@ -1,12 +1,11 @@
 import importlib
 import json
-import os
 
 from engine.lib.resources import write_text_atomic
 from farm.research.artifacts import build_study_artifacts
 from farm.research.cache import ResearchCache
 from farm.research.canonical import file_sha256
-from farm.research.runner import StudyRunError, StudyRunner, main
+from farm.research.runner import StudyRunError, StudyRunner, _verdict, main
 from farm.research.sandbox import SandboxError, build_callback_package, run_sandboxed
 from farm.research.spec import StudySpec
 from farm.research.tests.support import complete_contract
@@ -17,7 +16,7 @@ pytest = importlib.import_module("pytest")
 def _setup(
     tmp_path, *, phase="development", callback="strategy", workers=1,
     strategy_parameters=None, job_shape=(1, 1),
-    evaluation_callback="evaluation_recipe", label_callback="label_recipe",
+    label_callback="label_recipe",
 ):
     base = tmp_path / "contract"
     base.mkdir(parents=True)
@@ -41,8 +40,6 @@ def _setup(
     contract["features"][0]["callback"]["sha256"] = file_sha256(callback_path)
     contract["outcomes"]["callback"]["function"] = label_callback
     contract["outcomes"]["callback"]["sha256"] = file_sha256(callback_path)
-    contract["evaluation"]["callback"]["function"] = evaluation_callback
-    contract["evaluation"]["callback"]["sha256"] = file_sha256(callback_path)
     spec = StudySpec.from_dict(contract)
     resolved = spec.resolve(base)
     cache = ResearchCache(tmp_path / "cache")
@@ -71,9 +68,10 @@ def test_runner_seals_start_and_predictions_before_issuing_label_capability(tmp_
     result = runner.run(attempt="development-1", features=features)
     assert result.outcome_accessed and result.result_path is not None
     prediction = json.loads(result.predictions_path.read_text())["jobs"][0]["prediction"]
-    assert prediction["pid"] != os.getpid()
-    assert prediction["features"][0]["score"] == 1.0
+    assert prediction == {"positions": [{"session": "2024-01-02", "weight": 1.0}]}
     assert json.loads(result.result_path.read_text())["verdict"] == "admit"
+    evaluation = json.loads(result.result_path.read_text())["evaluation"]
+    assert evaluation["jobs"][0]["gross_return"] == pytest.approx(0.01)
     assert result.predictions_path.stat().st_mode & 0o222 == 0
 
 
@@ -130,8 +128,20 @@ def test_serial_parallel_fold_control_jobs_are_identical_and_decision_bounded(tm
     jobs = json.loads(run_two.predictions_path.read_text())["jobs"]
     assert len(jobs) == 6 and {job["kind"] for job in jobs} == {"variant", "control"}
     for job in jobs:
-        sessions = [row["session"] for row in job["prediction"]["features"]]
-        assert sessions == (["2024-01-02"] if job["fold"] == "fold-0" else ["2024-01-03"])
+        if job["kind"] == "control":
+            assert job["prediction"] == {"positions": []}
+        else:
+            assert job["prediction"] == {
+                "positions": [{"session": job["decision_session"], "weight": 1.0}]
+            }
+
+
+def test_strategy_children_receive_exactly_one_decision_view(tmp_path):
+    _, runner, features = _setup(
+        tmp_path, callback="single_decision_strategy", job_shape=(1, 2),
+    )
+    run = runner.run(attempt="one-decision", features=features)
+    assert len(json.loads(run.predictions_path.read_text())["jobs"]) == 4
 
 
 def test_census_is_one_immutable_snapshot_for_the_whole_attempt(tmp_path):
@@ -148,13 +158,7 @@ def test_census_is_one_immutable_snapshot_for_the_whole_attempt(tmp_path):
         StudyRunner(runner.resolved, work_root=tmp_path / "other-work")
 
 
-def test_missing_control_and_misaligned_labels_refuse_result(tmp_path):
-    _, runner, features = _setup(tmp_path / "control", evaluation_callback="missing_control_evaluation")
-    with pytest.raises(StudyRunError, match="omitted or invented"):
-        runner.run(attempt="missing-control", features=features)
-    assert (tmp_path / "control" / "work" / "synthetic-contract" / "v1" /
-            "missing-control" / "attempt-failed.json").is_file()
-
+def test_misaligned_labels_refuse_result(tmp_path):
     _, runner, features = _setup(
         tmp_path / "alignment", job_shape=(1, 2), label_callback="misaligned_label_recipe",
     )
@@ -163,9 +167,49 @@ def test_missing_control_and_misaligned_labels_refuse_result(tmp_path):
 
 
 def test_pass_precedes_overlapping_admit_threshold(tmp_path):
-    _, runner, features = _setup(tmp_path, evaluation_callback="strong_evaluation_recipe")
-    result = runner.run(attempt="strong", features=features)
-    assert json.loads(result.result_path.read_text())["verdict"] == "pass"
+    spec, _, _ = _setup(tmp_path)
+    evaluation = spec.as_dict()["evaluation"]
+    evaluation["rules"]["pass"]["threshold"] = 0.02
+    evaluation["rules"]["admit"]["threshold"] = 0.005
+    assert _verdict({"metrics": {"mean_net_return": 0.03}}, evaluation) == "pass"
+
+
+def test_runner_computes_gross_fill_return_and_applies_cost_registry(tmp_path):
+    _, runner, features = _setup(tmp_path)
+    result = runner.run(attempt="costed", features=features)
+    row = next(
+        item for item in json.loads(result.result_path.read_text())["evaluation"]["jobs"]
+        if item["kind"] == "variant"
+    )
+    assert row["gross_return"] == pytest.approx(0.01)
+    assert row["cost_returns"]["ibkr_tiered_auction_v1"] == pytest.approx(
+        5.142455445544554 / 10_000
+    )
+    assert row["net_returns"]["ibkr_tiered_auction_v1"] == pytest.approx(
+        0.01 - 5.142455445544554 / 10_000
+    )
+
+
+def test_strategy_cannot_supply_or_override_gross_returns(tmp_path):
+    _, runner, features = _setup(tmp_path, callback="invented_return_strategy")
+    with pytest.raises(StudyRunError, match="return only a positions list"):
+        runner.run(attempt="invented-return", features=features)
+
+
+@pytest.mark.parametrize("attempt", ["../escape", "a/b", ".", "..", ""])
+def test_attempt_id_must_be_a_token_and_cannot_write_outside_root(tmp_path, attempt):
+    _, runner, features = _setup(tmp_path)
+    with pytest.raises(StudyRunError, match="safe 1-64 character token"):
+        runner.run(attempt=attempt, features=features)
+    assert not (tmp_path / "escape").exists()
+
+
+def test_absolute_attempt_token_cannot_discard_output_root(tmp_path):
+    _, runner, features = _setup(tmp_path)
+    escaped = tmp_path / "absolute-escape"
+    with pytest.raises(StudyRunError, match="safe 1-64 character token"):
+        runner.run(attempt=str(escaped), features=features)
+    assert not escaped.exists()
 
 
 def test_pilot_callback_cannot_escape_sandbox(tmp_path):
@@ -178,7 +222,7 @@ def test_pilot_callback_cannot_escape_sandbox(tmp_path):
     )
     run = runner.run(attempt="adversarial", features=features)
     prediction = json.loads(run.predictions_path.read_text())["jobs"][0]["prediction"]
-    assert all(item["blocked"] for item in prediction["checks"].values())
+    assert prediction == {"positions": []}
 
 
 @pytest.mark.parametrize("section", ["strategy", "outcomes"])
@@ -230,7 +274,9 @@ def test_sandbox_refuses_undeclared_runtime_import(tmp_path):
     with pytest.raises(SandboxError, match="undeclared callback import: numpy"):
         run_sandboxed(
             package,
-            {"callback": reference, "package_sha256": package.digest, "parameters": {},
+            {"callback": {
+                 **reference, "runtime_identity": resolved.spec.document["execution"],
+             }, "package_sha256": package.digest, "parameters": {},
              "seed": 1, "phase": "pilot", "mode": "strategy", "memory_mb": 256},
             feature_root=feature_root, label_root=None,
             runtime_root=tmp_path / "execution", timeout=5,

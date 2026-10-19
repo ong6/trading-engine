@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import platform
 import shutil
-import sys
 from copy import deepcopy
 from pathlib import Path
 
 from engine.lib.resources import write_text_atomic
-from farm.research.canonical import file_sha256, python_runtime_sha256
+from farm.research.canonical import file_sha256
 
 
 def complete_contract(root: Path) -> dict:
@@ -17,25 +17,30 @@ def complete_contract(root: Path) -> dict:
     membership_path = root / "membership.json"
     quality_path = root / "quality.json"
     census_path = root / "census.jsonl"
+    lock_path = root / "uv.lock"
     write_text_atomic(input_path, (
-        '[{"_availability":{"close":"session close","session":"session open"},'
+        '[{"_availability":{"close":"2024-01-02T16:00:00-05:00",'
+        '"session":"2024-01-02T09:30:00-05:00"},'
         '"close":100.0,"session":"2024-01-02"},'
-        '{"_availability":{"close":"session close","session":"session open"},'
+        '{"_availability":{"close":"2024-01-03T16:00:00-05:00",'
+        '"session":"2024-01-03T09:30:00-05:00"},'
         '"close":101.0,"session":"2024-01-03"}]\n'
     ))
     write_text_atomic(outcome_path, (
-        '[{"return_h1":0.01,"session":"2024-01-02"},'
-        '{"return_h1":0.0,"session":"2024-01-03"}]\n'
+        '[{"entry_price":100.0,"exit_price":101.0,"session":"2024-01-02"},'
+        '{"entry_price":101.0,"exit_price":101.0,"session":"2024-01-03"}]\n'
     ))
     write_text_atomic(membership_path, (
-        '{"coverage":1.0,"expected_rows":2,"point_in_time":true,'
-        '"survivor_status":"point_in_time"}\n'
+        '{"point_in_time":true,"survivor_status":"point_in_time","rows":['
+        '{"eligible":true,"session":"2024-01-02"},'
+        '{"eligible":true,"session":"2024-01-03"}]}\n'
     ))
     write_text_atomic(quality_path, (
         '{"invalid_rows":0,"policy":"reject invalid OHLC geometry",'
         '"status":"accepted","version":"fixture-v1"}\n'
     ))
     write_text_atomic(census_path, '{"selection_n":140}\n')
+    write_text_atomic(lock_path, "fixture-lock\n")
     callback_path = root / "callbacks" / "study_fixture_callbacks.py"
     callback_path.parent.mkdir(exist_ok=True)
     shutil.copyfile(Path(__file__).with_name("fixture_callbacks.py"), callback_path)
@@ -71,13 +76,12 @@ def complete_contract(root: Path) -> dict:
                 {"name": "close", "dtype": "float64", "nullable": False},
             ],
             "availability": [
-                {"field": "session", "known_at": "session open"},
-                {"field": "close", "known_at": "session close"},
+                "session", "close",
             ],
             "primary_key": ["session"],
             "price_basis": "split-adjusted",
             "timezone": "America/New_York",
-            "calendar": {"name": "XNYS", "version": "fixture-v1"},
+            "calendar": {"name": "XNYS", "version": "fixture-v1", "session_close": "16:00"},
             "membership": {
                 "point_in_time": True,
                 "evidence": {"path": "membership.json", "sha256": file_sha256(membership_path)},
@@ -109,22 +113,24 @@ def complete_contract(root: Path) -> dict:
             "availability": "available_at",
             "output_schema": [
                 {"name": "session", "dtype": "date", "nullable": False},
-                {"name": "return_h1", "dtype": "float64", "nullable": False},
+                {"name": "entry_price", "dtype": "float64", "nullable": False},
+                {"name": "exit_price", "dtype": "float64", "nullable": False},
                 {"name": "available_at", "dtype": "datetime", "nullable": False},
             ],
         },
         "strategy": {
             "callback": callback | {"function": "strategy"},
             "parameters": {"threshold": 0.0},
-            "decision_rule": "rank at close",
-            "fill_rule": "next open",
-            "exit_rule": "next close",
+            "decision": {"time": "16:00", "timezone": "America/New_York"},
+            "fill_rule": {
+                "entry_price_field": "entry_price",
+                "exit_price_field": "exit_price",
+            },
             "universe_rule": "point-in-time membership",
             "liquidity_rule": "positive trailing volume",
             "capital": 10_000,
         },
         "evaluation": {
-            "callback": callback | {"function": "evaluation_recipe"},
             "variants": [{"name": "base", "parameters": {}}],
             "controls": ["cash"],
             "folds": [{"name": "development-1", "start": "2024-01-01", "end": "2024-07-01"}],
@@ -136,15 +142,18 @@ def complete_contract(root: Path) -> dict:
                 "selection_n": 140,
             },
             "rules": {
-                "pass": {"metric": "mean_net_return", "operator": ">=", "threshold": 2},
-                "admit": {"metric": "mean_net_return", "operator": ">=", "threshold": 1},
-                "kill": {"metric": "mean_net_return", "operator": "<", "threshold": 1},
+                "pass": {"metric": "mean_net_return", "operator": ">=", "threshold": 0.01},
+                "admit": {"metric": "mean_net_return", "operator": ">=", "threshold": 0.004},
+                "kill": {"metric": "mean_net_return", "operator": "<", "threshold": 0.004},
             },
             "holdout": {"lease_id": "fixture-holdout-v1", "marker": "holdout/opened.json"},
             "missing_data_policy": "refuse",
         },
         "costs": {
-            "profiles": [{"name": "fixture-zero", "sha256": "2" * 64, "rate_bps": 0.0}],
+            "profiles": [{
+                "name": "ibkr_tiered_auction_v1",
+                "sha256": "be60ad69ae19cc9f1e2bcd5a1c91ee312c4a690260f1678e8def45991e72337e",
+            }],
             "scope": {
                 name: {"status": "zero", "reason": "synthetic fixture", "sha256": "3" * 64}
                 for name in ("execution", "commission", "borrow_funding", "fx", "tax", "data")
@@ -156,8 +165,9 @@ def complete_contract(root: Path) -> dict:
             "memory_mb": 256,
             "expected_seconds": 5,
             "output_subdir": "synthetic-contract/v1",
-            "python_sha256": file_sha256(Path(sys.executable).resolve()),
-            "python_runtime_sha256": python_runtime_sha256(),
+            "python_version": platform.python_version(),
+            "uv_lock": {"path": "uv.lock", "sha256": file_sha256(lock_path)},
+            "packages": [],
         },
     }
     return deepcopy(contract)

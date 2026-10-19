@@ -6,8 +6,8 @@ import ast
 import hashlib
 import importlib.metadata
 import json
+import platform
 import re
-import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -15,13 +15,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
-from .canonical import (
-    canonical_bytes,
-    canonical_sha256,
-    distribution_sha256,
-    file_sha256,
-    python_runtime_sha256,
-)
+from .canonical import canonical_bytes, canonical_sha256, file_sha256
 
 SCHEMA_VERSION = 1
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
@@ -141,16 +135,26 @@ def _evidence_ref(value: object, path: str) -> dict[str, str]:
 
 
 def _module_ref(value: object, path: str) -> dict[str, str]:
-    row = _mapping(value, path, ("module", "source", "kind", "sha256"))
-    kind = _string(row["kind"], f"{path}.kind")
+    if not isinstance(value, Mapping):
+        raise ContractError(f"{path} must be an object")
+    kind = _string(value.get("kind"), f"{path}.kind")
     if kind not in {"module", "package", "runtime"}:
         raise ContractError(f"{path}.kind must be module, package, or runtime")
-    return {
-        "module": _string(row["module"], f"{path}.module"),
-        "source": _relative_path(row["source"], f"{path}.source"),
-        "kind": kind,
-        "sha256": _sha(row["sha256"], f"{path}.sha256"),
-    }
+    fields = (("module", "distribution", "kind", "version") if kind == "runtime"
+              else ("module", "source", "kind", "sha256"))
+    row = _mapping(value, path, fields)
+    result = {"module": _string(row["module"], f"{path}.module"), "kind": kind}
+    if kind == "runtime":
+        result.update({
+            "distribution": _string(row["distribution"], f"{path}.distribution"),
+            "version": _string(row["version"], f"{path}.version"),
+        })
+    else:
+        result.update({
+            "source": _relative_path(row["source"], f"{path}.source"),
+            "sha256": _sha(row["sha256"], f"{path}.sha256"),
+        })
+    return result
 
 
 def _callback(value: object, path: str) -> dict[str, Any]:
@@ -239,22 +243,19 @@ def _inputs(value: object) -> dict[str, Any]:
         raise ContractError(f"{path} feature/outcome parts have duplicate paths")
     if any(item["format"] != "rows_json" for item in feature_parts):
         raise ContractError("feature_parts must use the temporal rows_json adapter")
-    availability = []
-    for index, item in enumerate(_list(row["availability"], f"{path}.availability")):
-        item_path = f"{path}.availability[{index}]"
-        field = _mapping(item, item_path, ("field", "known_at"))
-        availability.append({
-            "field": _string(field["field"], f"{item_path}.field"),
-            "known_at": _string(field["known_at"], f"{item_path}.known_at"),
-        })
-    if len(availability) != len({item["field"] for item in availability}):
-        raise ContractError(f"{path}.availability has duplicate fields")
+    availability = _unique_strings(row["availability"], f"{path}.availability")
     timezone_name = _string(row["timezone"], f"{path}.timezone")
     try:
         ZoneInfo(timezone_name)
     except Exception as exc:
         raise ContractError(f"{path}.timezone is unknown") from exc
-    calendar = _mapping(row["calendar"], f"{path}.calendar", ("name", "version"))
+    calendar = _mapping(
+        row["calendar"], f"{path}.calendar", ("name", "version", "session_close")
+    )
+    close_parts = str(calendar["session_close"]).split(":")
+    if (len(close_parts) != 2 or any(not part.isdigit() for part in close_parts)
+            or not 0 <= int(close_parts[0]) <= 23 or not 0 <= int(close_parts[1]) <= 59):
+        raise ContractError(f"{path}.calendar.session_close must be HH:MM")
     membership = _mapping(
         row["membership"], f"{path}.membership", ("point_in_time", "evidence")
     )
@@ -272,6 +273,8 @@ def _inputs(value: object) -> dict[str, Any]:
     primary_key = _unique_strings(row["primary_key"], f"{path}.primary_key")
     if any(key not in {column["name"] for column in schema} for key in primary_key):
         raise ContractError(f"{path}.primary_key must name declared input columns")
+    if "session" not in primary_key:
+        raise ContractError(f"{path}.primary_key must include session for PIT membership")
     return {
         "generation_sha256": _sha(row["generation_sha256"], f"{path}.generation_sha256"),
         "feature_parts": feature_parts,
@@ -284,6 +287,7 @@ def _inputs(value: object) -> dict[str, Any]:
         "calendar": {
             "name": _string(calendar["name"], f"{path}.calendar.name"),
             "version": _string(calendar["version"], f"{path}.calendar.version"),
+            "session_close": str(calendar["session_close"]),
         },
         "membership": {
             "point_in_time": membership["point_in_time"],
@@ -360,15 +364,35 @@ def _outcomes(value: object) -> dict[str, Any]:
 def _strategy(value: object) -> dict[str, Any]:
     path = "strategy"
     row = _mapping(value, path, (
-        "callback", "parameters", "decision_rule", "fill_rule", "exit_rule", "universe_rule",
+        "callback", "parameters", "decision", "fill_rule", "universe_rule",
         "liquidity_rule", "capital",
     ))
+    decision = _mapping(row["decision"], f"{path}.decision", ("time", "timezone"))
+    decision_time = _string(decision["time"], f"{path}.decision.time")
+    parts = decision_time.split(":")
+    if (len(parts) != 2 or any(not part.isdigit() for part in parts)
+            or not 0 <= int(parts[0]) <= 23 or not 0 <= int(parts[1]) <= 59):
+        raise ContractError(f"{path}.decision.time must be HH:MM")
+    decision_zone = _string(decision["timezone"], f"{path}.decision.timezone")
+    try:
+        ZoneInfo(decision_zone)
+    except Exception as exc:
+        raise ContractError(f"{path}.decision.timezone is unknown") from exc
+    fill = _mapping(
+        row["fill_rule"], f"{path}.fill_rule", ("entry_price_field", "exit_price_field")
+    )
     return {
         "callback": _callback(row["callback"], f"{path}.callback"),
         "parameters": _json_mapping(row["parameters"], f"{path}.parameters"),
-        "decision_rule": _string(row["decision_rule"], f"{path}.decision_rule"),
-        "fill_rule": _string(row["fill_rule"], f"{path}.fill_rule"),
-        "exit_rule": _string(row["exit_rule"], f"{path}.exit_rule"),
+        "decision": {"time": decision_time, "timezone": decision_zone},
+        "fill_rule": {
+            "entry_price_field": _string(
+                fill["entry_price_field"], f"{path}.fill_rule.entry_price_field"
+            ),
+            "exit_price_field": _string(
+                fill["exit_price_field"], f"{path}.fill_rule.exit_price_field"
+            ),
+        },
         "universe_rule": _string(row["universe_rule"], f"{path}.universe_rule"),
         "liquidity_rule": _string(row["liquidity_rule"], f"{path}.liquidity_rule"),
         "capital": _number(row["capital"], f"{path}.capital", positive=True),
@@ -378,7 +402,7 @@ def _strategy(value: object) -> dict[str, Any]:
 def _evaluation(value: object) -> dict[str, Any]:
     path = "evaluation"
     row = _mapping(value, path, (
-        "callback", "variants", "controls", "folds", "benchmark_mode", "statistics",
+        "variants", "controls", "folds", "benchmark_mode", "statistics",
         "dsr_census", "rules", "holdout", "missing_data_policy",
     ))
     variants = []
@@ -429,7 +453,6 @@ def _evaluation(value: object) -> dict[str, Any]:
     if missing_policy not in {"refuse", "drop"}:
         raise ContractError(f"{path}.missing_data_policy must be refuse or drop")
     return {
-        "callback": _callback(row["callback"], f"{path}.callback"),
         "variants": variants,
         "controls": _unique_strings(row["controls"], f"{path}.controls"),
         "folds": folds,
@@ -455,14 +478,10 @@ def _costs(value: object) -> dict[str, Any]:
     profiles = []
     for index, item in enumerate(_list(row["profiles"], f"{path}.profiles")):
         item_path = f"{path}.profiles[{index}]"
-        profile = _mapping(item, item_path, ("name", "sha256", "rate_bps"))
-        rate = _number(profile["rate_bps"], f"{item_path}.rate_bps")
-        if rate < 0:
-            raise ContractError(f"{item_path}.rate_bps cannot be negative")
+        profile = _mapping(item, item_path, ("name", "sha256"))
         profiles.append({
             "name": _string(profile["name"], f"{item_path}.name"),
             "sha256": _sha(profile["sha256"], f"{item_path}.sha256"),
-            "rate_bps": rate,
         })
     if len(profiles) != len({item["name"] for item in profiles}):
         raise ContractError(f"{path}.profiles has duplicate names")
@@ -485,9 +504,19 @@ def _costs(value: object) -> dict[str, Any]:
 def _execution(value: object) -> dict[str, Any]:
     path = "execution"
     row = _mapping(value, path, (
-        "seed", "workers", "memory_mb", "expected_seconds", "output_subdir", "python_sha256",
-        "python_runtime_sha256",
+        "seed", "workers", "memory_mb", "expected_seconds", "output_subdir",
+        "python_version", "uv_lock", "packages",
     ))
+    packages = []
+    for index, item in enumerate(_list(row["packages"], f"{path}.packages", nonempty=False)):
+        item_path = f"{path}.packages[{index}]"
+        package = _mapping(item, item_path, ("name", "version"))
+        packages.append({
+            "name": _string(package["name"], f"{item_path}.name"),
+            "version": _string(package["version"], f"{item_path}.version"),
+        })
+    if len({item["name"] for item in packages}) != len(packages):
+        raise ContractError(f"{path}.packages has duplicate distributions")
     return {
         "seed": _integer(row["seed"], f"{path}.seed"),
         "workers": _integer(row["workers"], f"{path}.workers", minimum=1),
@@ -496,18 +525,19 @@ def _execution(value: object) -> dict[str, Any]:
             row["expected_seconds"], f"{path}.expected_seconds", positive=True
         ),
         "output_subdir": _relative_path(row["output_subdir"], f"{path}.output_subdir"),
-        "python_sha256": _sha(row["python_sha256"], f"{path}.python_sha256"),
-        "python_runtime_sha256": _sha(
-            row["python_runtime_sha256"], f"{path}.python_runtime_sha256"
-        ),
+        "python_version": _string(row["python_version"], f"{path}.python_version"),
+        "uv_lock": _evidence_ref(row["uv_lock"], f"{path}.uv_lock"),
+        "packages": packages,
     }
 
 
 def _module_path(base: Path, reference: Mapping[str, Any]) -> Path:
     if reference["kind"] == "runtime":
-        if distribution_sha256(reference["source"]) != reference["sha256"]:
-            raise ContractError(f"runtime distribution identity differs: {reference['source']}")
-        distribution = importlib.metadata.distribution(reference["source"])
+        if importlib.metadata.version(reference["distribution"]) != reference["version"]:
+            raise ContractError(
+                f"runtime distribution version differs: {reference['distribution']}"
+            )
+        distribution = importlib.metadata.distribution(reference["distribution"])
         candidates = [Path(distribution.locate_file(""))]
     else:
         candidates = [(base / reference["source"]).resolve()]
@@ -568,6 +598,28 @@ class StudySpec:
                 raise ContractError(f"features[{index}].output_schema must include every primary key")
         if not keys <= {column["name"] for column in normalized["outcomes"]["output_schema"]}:
             raise ContractError("outcomes.output_schema must include every primary key")
+        outcome_types = {
+            column["name"]: column["dtype"] for column in normalized["outcomes"]["output_schema"]
+        }
+        for field in normalized["strategy"]["fill_rule"].values():
+            if outcome_types.get(field) != "float64":
+                raise ContractError(
+                    f"strategy fill price field {field!r} must be a float64 outcome column"
+                )
+        declared_packages = {
+            item["name"]: item["version"] for item in normalized["execution"]["packages"]
+        }
+        callbacks = [node["callback"] for node in normalized["features"]] + [
+            normalized["outcomes"]["callback"], normalized["strategy"]["callback"],
+        ]
+        for callback in callbacks:
+            for dependency in callback["dependencies"]:
+                if (dependency["kind"] == "runtime"
+                        and declared_packages.get(dependency["distribution"])
+                        != dependency["version"]):
+                    raise ContractError(
+                        "every runtime dependency must match execution.packages"
+                    )
         detached = json.loads(canonical_bytes(normalized))
         return cls(detached)
 
@@ -599,10 +651,21 @@ class StudySpec:
 
     def resolve(self, base_dir: str | Path) -> ResolvedStudy:
         base = Path(base_dir).resolve()
-        if file_sha256(Path(sys.executable).resolve()) != self.document["execution"]["python_sha256"]:
-            raise ContractError("declared Python interpreter identity differs")
-        if python_runtime_sha256() != self.document["execution"]["python_runtime_sha256"]:
-            raise ContractError("declared Python runtime closure differs")
+        execution = self.document["execution"]
+        if platform.python_version() != execution["python_version"]:
+            raise ContractError("declared Python interpreter version differs")
+        lock_ref = execution["uv_lock"]
+        lock_path = (base / lock_ref["path"]).resolve()
+        if (not lock_path.is_relative_to(base) or not lock_path.is_file()
+                or file_sha256(lock_path) != lock_ref["sha256"]):
+            raise ContractError("declared uv.lock identity differs")
+        if any(importlib.metadata.version(item["name"]) != item["version"]
+               for item in execution["packages"]):
+            raise ContractError("declared runtime package version differs")
+        from farm.study.costs import resolve as resolve_cost
+        if any(resolve_cost(item["name"]).sha256 != item["sha256"]
+               for item in self.document["costs"]["profiles"]):
+            raise ContractError("declared cost registry identity differs")
         evidence: dict[str, Path] = {}
         refs = [
             *self.document["inputs"]["feature_parts"],
@@ -612,6 +675,7 @@ class StudySpec:
             self.document["inputs"]["membership"]["evidence"],
             self.document["inputs"]["quality"]["evidence"],
             self.document["evaluation"]["dsr_census"],
+            self.document["execution"]["uv_lock"],
         ))
         for reference in refs:
             relative = reference["path"]
@@ -626,18 +690,18 @@ class StudySpec:
         callbacks.extend((
             self.document["strategy"]["callback"],
             self.document["outcomes"]["callback"],
-            self.document["evaluation"]["callback"],
         ))
         resolved_callbacks: dict[str, Path] = {}
         for callback in callbacks:
-            references = [{key: callback[key] for key in ("module", "source", "kind", "sha256")},
-                          *callback["dependencies"]]
+            references = [
+                {key: callback[key] for key in ("module", "source", "kind", "sha256")},
+                *callback["dependencies"],
+            ]
             for reference in references:
-                module, expected = reference["module"], reference["sha256"]
+                module = reference["module"]
                 path = _module_path(base, reference)
-                observed = (distribution_sha256(reference["source"])
-                            if reference["kind"] == "runtime" else file_sha256(path))
-                if observed != expected:
+                if (reference["kind"] != "runtime"
+                        and file_sha256(path) != reference["sha256"]):
                     raise ContractError(f"callback module hash differs: {module}")
                 previous = resolved_callbacks.setdefault(module, path)
                 if previous != path:

@@ -18,7 +18,6 @@ from engine.lib.resources import write_text_atomic
 from .canonical import (
     canonical_bytes,
     canonical_sha256,
-    distribution_sha256,
     file_sha256,
     fsync_tree,
 )
@@ -60,6 +59,7 @@ def build_callback_package(
         "schema_version": 1,
         "entrypoint": {"module": reference["module"], "function": reference["function"]},
         "modules": sorted(refs, key=lambda item: item["module"]),
+        "runtime": resolved.spec.document["execution"],
     }
     digest = canonical_sha256(identity)
     objects = Path(root).resolve() / "callbacks" / "sha256"
@@ -68,12 +68,16 @@ def build_callback_package(
         manifest = json.loads((target / "manifest.json").read_text())
         if manifest != identity:
             raise SandboxError("callback package manifest differs")
+        lock_ref = identity["runtime"]["uv_lock"]
+        if file_sha256(target / "uv.lock") != lock_ref["sha256"]:
+            raise SandboxError("callback package lock bytes differ")
         for item in refs:
             path = (resolved.callback_paths[item["module"]] if item["kind"] == "runtime"
                     else _module_target(target / "src", item))
-            observed = (distribution_sha256(item["source"])
-                        if item["kind"] == "runtime" else file_sha256(path))
-            if observed != item["sha256"]:
+            if (item["kind"] == "runtime"
+                    and importlib.metadata.version(item["distribution"]) != item["version"]):
+                raise SandboxError("callback runtime version differs")
+            if item["kind"] != "runtime" and file_sha256(path) != item["sha256"]:
                 raise SandboxError("callback package bytes differ")
         return CallbackPackage(digest, target, reference)
     temporary = objects.parent / "builds" / f"{digest}.{uuid.uuid4().hex}"
@@ -83,13 +87,13 @@ def build_callback_package(
         for item in refs:
             source = resolved.callback_paths.get(item["module"])
             if item["kind"] == "runtime":
-                if distribution_sha256(item["source"]) != item["sha256"]:
+                if importlib.metadata.version(item["distribution"]) != item["version"]:
                     raise ContractError(
                         f"callback dependency changed after resolution: {item['module']}"
                     )
-                distribution = importlib.metadata.distribution(item["source"])
+                distribution = importlib.metadata.distribution(item["distribution"])
                 distribution_root = Path(distribution.locate_file("")).resolve()
-                runtime_root = temporary / "runtime" / item["source"]
+                runtime_root = temporary / "runtime" / item["distribution"]
                 for entry in distribution.files or ():
                     runtime_source = Path(distribution.locate_file(entry)).resolve()
                     if (not runtime_source.is_file()
@@ -107,6 +111,8 @@ def build_callback_package(
             shutil.copyfile(source, destination)
             if file_sha256(destination) != item["sha256"]:
                 raise SandboxError("callback copy differs")
+        lock_ref = resolved.spec.document["execution"]["uv_lock"]
+        shutil.copyfile(resolved.evidence_paths[lock_ref["path"]], temporary / "uv.lock")
         write_text_atomic(temporary / "manifest.json", canonical_bytes(identity, newline=True).decode())
         fsync_tree(temporary)
         for path in temporary.rglob("*"):

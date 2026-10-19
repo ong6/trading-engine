@@ -10,11 +10,13 @@ import json
 import math
 import operator
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
 from engine.lib.resources import write_text_atomic
+from farm.study.costs import calculate
 
 from .artifacts import (
     _build_label_artifact,
@@ -32,6 +34,9 @@ from .spec import ResolvedStudy, StudySpec
 
 class StudyRunError(RuntimeError):
     pass
+
+
+_ATTEMPT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 
 @dataclass(frozen=True)
@@ -105,7 +110,7 @@ def _max_concurrency(executions: list[dict]) -> int:
 
 def _verdict(result: object, evaluation: dict) -> str:
     if not isinstance(result, dict) or not isinstance(result.get("metrics"), dict):
-        raise StudyRunError("evaluation callback must return a metrics object")
+        raise StudyRunError("trusted evaluation must produce a metrics object")
     operations = {
         ">": operator.gt, ">=": operator.ge, "<": operator.lt,
         "<=": operator.le, "==": operator.eq, "!=": operator.ne,
@@ -124,49 +129,79 @@ def _verdict(result: object, evaluation: dict) -> str:
     return matched[0]
 
 
-def _reduce_evaluation(callback_result: object, predictions: dict, evaluation: dict,
-                       costs: dict) -> dict:
-    if (not isinstance(callback_result, dict)
-            or set(callback_result) - {"job_results", "details"}
-            or not isinstance(callback_result.get("job_results"), list)):
-        raise StudyRunError("evaluation callback must return job_results and optional details")
-    fields = {"kind", "name", "fold", "decision_session", "gross_return", "missing"}
-    expected = {
-        (job["kind"], job["name"], job["fold"], job["decision_session"])
-        for job in predictions["jobs"]
-    }
-    observed = {}
-    for row in callback_result["job_results"]:
-        if not isinstance(row, dict) or set(row) != fields:
-            raise StudyRunError("per-job evaluation schema differs")
-        key = (row["kind"], row["name"], row["fold"], row["decision_session"])
-        if key in observed:
-            raise StudyRunError("per-job evaluation is duplicated")
-        if (type(row["missing"]) is not bool or isinstance(row["gross_return"], bool)
-                or not isinstance(row["gross_return"], (int, float))
-                or not math.isfinite(float(row["gross_return"]))):
-            raise StudyRunError("per-job return or missing flag differs")
-        observed[key] = row
-    if set(observed) != expected:
-        raise StudyRunError("evaluation callback omitted or invented a fold/control job")
-    if evaluation["missing_data_policy"] == "refuse" and any(
-            row["missing"] for row in observed.values()):
-        raise StudyRunError("missing-data policy refused an incomplete job")
+def _reduce_evaluation(predictions: dict, labels: list[dict], evaluation: dict,
+                       costs: dict, primary_key: list[str], fill_rule: dict,
+                       capital: float) -> dict:
+    label_map = {}
+    for row in labels:
+        key = tuple(row[name] for name in primary_key)
+        if key in label_map:
+            raise StudyRunError("outcomes contain duplicate primary keys")
+        label_map[key] = row
     profiles = costs["profiles"]
     profile_hashes = {item["name"]: item["sha256"] for item in profiles}
     rows = []
-    for key in sorted(expected):
-        source = observed[key]
-        if source["missing"] and evaluation["missing_data_policy"] == "drop":
+    for job in predictions["jobs"]:
+        prediction = job["prediction"]
+        if not isinstance(prediction, dict) or set(prediction) != {"positions"} \
+                or not isinstance(prediction["positions"], list):
+            raise StudyRunError("strategy callback must return only a positions list")
+        positions = {}
+        for position in prediction["positions"]:
+            fields = {*primary_key, "weight"}
+            if not isinstance(position, dict) or set(position) != fields:
+                raise StudyRunError("position schema differs")
+            key = tuple(position[name] for name in primary_key)
+            weight = position["weight"]
+            if (key in positions or isinstance(weight, bool)
+                    or not isinstance(weight, (int, float)) or not math.isfinite(float(weight))):
+                raise StudyRunError("position key or weight differs")
+            if position["session"] != job["decision_session"]:
+                raise StudyRunError("position session differs from its decision job")
+            positions[key] = float(weight)
+        exposure = sum(abs(weight) for weight in positions.values())
+        if exposure > 1 + 1e-12:
+            raise StudyRunError("position gross exposure exceeds one")
+        missing = [key for key in positions if key not in label_map]
+        if missing and evaluation["missing_data_policy"] == "refuse":
+            raise StudyRunError("missing-data policy refused a position without prices")
+        if missing and evaluation["missing_data_policy"] == "drop":
             continue
-        net = {
-            item["name"]: float(source["gross_return"]) - item["rate_bps"] / 10_000
-            for item in profiles
-        }
+        gross = 0.0
+        for key, weight in positions.items():
+            label = label_map[key]
+            entry = label[fill_rule["entry_price_field"]]
+            exit_ = label[fill_rule["exit_price_field"]]
+            if (isinstance(entry, bool) or isinstance(exit_, bool)
+                    or not isinstance(entry, (int, float)) or not isinstance(exit_, (int, float))
+                    or not math.isfinite(float(entry)) or not math.isfinite(float(exit_))
+                    or entry <= 0 or exit_ <= 0):
+                raise StudyRunError("fill prices must be finite and positive")
+            gross += weight * (float(exit_) / float(entry) - 1)
+        cost_returns = {}
+        for profile in profiles:
+            total = 0.0
+            for key, weight in positions.items():
+                label = label_map[key]
+                entry = float(label[fill_rule["entry_price_field"]])
+                exit_ = float(label[fill_rule["exit_price_field"]])
+                notional = capital * abs(weight)
+                if notional:
+                    entry_side, exit_side = (("buy", "sell") if weight > 0 else ("sell", "buy"))
+                    total += calculate(
+                        profile["name"], side=entry_side, notional=notional,
+                        fill_price=entry, mdv60=label.get("mdv60"),
+                    ).total
+                    total += calculate(
+                        profile["name"], side=exit_side, notional=notional,
+                        fill_price=exit_, mdv60=label.get("mdv60"),
+                    ).total
+            cost_returns[profile["name"]] = total / capital
+        net = {name: gross - cost for name, cost in cost_returns.items()}
         rows.append({
-            "kind": key[0], "name": key[1], "fold": key[2],
-            "decision_session": key[3], "gross_return": float(source["gross_return"]),
-            "net_returns": net,
+            "kind": job["kind"], "name": job["name"], "fold": job["fold"],
+            "decision_session": job["decision_session"], "gross_return": gross,
+            "gross_exposure": exposure, "cost_returns": cost_returns, "net_returns": net,
         })
     primary = profiles[0]["name"]
     variants = [row for row in rows if row["kind"] == "variant"]
@@ -202,7 +237,7 @@ def _reduce_evaluation(callback_result: object, predictions: dict, evaluation: d
         },
         "cost_profile_hashes": profile_hashes,
         "jobs": rows,
-        "details": callback_result.get("details"),
+        "details": {"labels": labels},
     }
 
 
@@ -252,6 +287,8 @@ class StudyRunner:
         attempt: str,
         features: CacheObject,
     ) -> StudyRun:
+        if _ATTEMPT_ID.fullmatch(attempt) is None or attempt in {".", ".."}:
+            raise StudyRunError("attempt id must be a safe 1-64 character token")
         self._cache_object(features, "feature")
         phase = self.resolved.spec.document["study"]["phase"]
         cache_root = features.path.parents[3]
@@ -261,6 +298,8 @@ class StudyRunner:
         if not output_root.is_relative_to(self.work_root):
             raise StudyRunError("study output escaped its private root")
         run_directory = output_root / attempt
+        if not run_directory.resolve().is_relative_to(output_root):
+            raise StudyRunError("attempt path escaped the study output root")
         run_directory.mkdir(parents=True, exist_ok=False)
         started_receipt = {
             "attempt_id": attempt,
@@ -338,7 +377,9 @@ class StudyRunner:
                 response = run_sandboxed(
                     package,
                     {
-                        "callback": strategy["callback"],
+                        "callback": {
+                            **strategy["callback"], "runtime_identity": execution,
+                        },
                         "package_sha256": package.digest,
                         "parameters": job["parameters"],
                         "seed": job["seed"],
@@ -383,33 +424,14 @@ class StudyRunner:
                 )
                 self._cache_object(outcomes, "label")
                 validate_feature_label_alignment(self.resolved, features, outcomes)
-                outcome_reference = self.resolved.spec.document["evaluation"]["callback"]
-                outcome_package = build_callback_package(
-                    self.resolved, outcome_reference, run_directory,
-                )
-                outcome_response = run_sandboxed(
-                    outcome_package,
-                    {
-                        "callback": outcome_reference,
-                        "package_sha256": outcome_package.digest,
-                        "predictions": predictions,
-                        "evaluation": {
-                            **self.resolved.spec.as_dict()["evaluation"],
-                            "_census_snapshot": self.census.__dict__,
-                        },
-                        "mode": "evaluation",
-                        "memory_mb": execution["memory_mb"],
-                    },
-                    feature_root=None,
-                    label_root=outcomes.data_path,
-                    runtime_root=run_directory,
-                    timeout=execution["expected_seconds"],
-                )
                 evaluation_result = _reduce_evaluation(
-                    outcome_response["payload"],
                     predictions,
+                    outcomes.read_json("labels.json"),
                     self.resolved.spec.as_dict()["evaluation"],
                     self.resolved.spec.as_dict()["costs"],
+                    self.resolved.spec.as_dict()["inputs"]["primary_key"],
+                    self.resolved.spec.as_dict()["strategy"]["fill_rule"],
+                    self.resolved.spec.as_dict()["strategy"]["capital"],
                 )
                 evaluation_contract = self.resolved.spec.as_dict()["evaluation"]
                 result = {
@@ -448,7 +470,6 @@ class StudyRunner:
                 },
                 "worker_pids": [
                     *[row["host_pid"] for row in executions],
-                    *([outcome_response["host_pid"]] if outcome_accessed else []),
                 ],
             }
             receipt_path = run_directory / "receipt.json"

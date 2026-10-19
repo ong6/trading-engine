@@ -8,16 +8,18 @@ import ctypes
 import errno
 import importlib
 import importlib.abc
+import importlib.metadata
 import inspect
 import io
 import json
 import os
+import platform
 import resource
 import sys
 import time
 from pathlib import Path
 
-from .canonical import canonical_bytes, canonical_sha256, distribution_sha256, file_sha256
+from .canonical import canonical_bytes, canonical_sha256, file_sha256
 from .mounts import ReadOnlyMount
 
 _DENIED_SYSCALLS = (
@@ -73,6 +75,7 @@ def _callback(reference: dict, package_sha256: str):
         "schema_version": 1,
         "entrypoint": {"module": reference["module"], "function": reference["function"]},
         "modules": sorted(refs, key=lambda item: item["module"]),
+        "runtime": reference["runtime_identity"],
     }
     manifest_path = Path("/study/package/manifest.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -81,11 +84,11 @@ def _callback(reference: dict, package_sha256: str):
     source_root = Path("/study/package/src").resolve()
     for item in refs:
         if item["kind"] == "runtime":
-            observed = distribution_sha256(item["source"])
-            if observed != item["sha256"]:
+            observed = importlib.metadata.version(item["distribution"])
+            if observed != item["version"]:
                 raise ValueError(
                     f"callback dependency differs in sandbox: {item['module']} "
-                    f"{observed} != {item['sha256']}"
+                    f"{observed} != {item['version']}"
                 )
             continue
         else:
@@ -102,6 +105,17 @@ def _callback(reference: dict, package_sha256: str):
     return function
 
 
+def _runtime(reference: dict) -> None:
+    runtime = reference["runtime_identity"]
+    if platform.python_version() != runtime["python_version"]:
+        raise ValueError("sandbox Python version differs")
+    if file_sha256("/study/package/uv.lock") != runtime["uv_lock"]["sha256"]:
+        raise ValueError("sandbox uv.lock differs")
+    if any(importlib.metadata.version(item["name"]) != item["version"]
+           for item in runtime["packages"]):
+        raise ValueError("sandbox package versions differ")
+
+
 class _DeclaredImportGuard(importlib.abc.MetaPathFinder):
     def __init__(self, reference: dict):
         modules = [reference["module"], *(item["module"] for item in reference["dependencies"])]
@@ -113,7 +127,7 @@ class _DeclaredImportGuard(importlib.abc.MetaPathFinder):
         self.allowed.add("farm.research")
 
     def find_spec(self, fullname, path=None, target=None):
-        if (fullname in sys.stdlib_module_names or fullname in sys.modules
+        if (fullname.split(".", 1)[0] in sys.stdlib_module_names or fullname in sys.modules
                 or any(fullname == name or fullname.startswith(name + ".")
                        for name in self.allowed)):
             return None
@@ -124,7 +138,6 @@ def execute(request: dict) -> dict:
     common = {"callback", "package_sha256", "mode", "memory_mb"}
     required = {
         "strategy": common | {"parameters", "seed", "phase"},
-        "evaluation": common | {"predictions", "evaluation"},
         "recipe": common | {"parameters"},
     }
     if (not isinstance(request, dict) or request.get("mode") not in required
@@ -133,6 +146,7 @@ def execute(request: dict) -> dict:
     _limit(request["memory_mb"])
     _install_seccomp()
     sys.meta_path.insert(0, _DeclaredImportGuard(request["callback"]))
+    _runtime(request["callback"])
     callback = _callback(request["callback"], request["package_sha256"])
     started_ns = time.monotonic_ns()
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -142,12 +156,6 @@ def execute(request: dict) -> dict:
                 request["parameters"],
                 request["seed"],
                 request["phase"],
-            )
-        elif request["mode"] == "evaluation":
-            payload = callback(
-                request["predictions"],
-                ReadOnlyMount("/labels"),
-                request["evaluation"],
             )
         else:
             payload = callback(ReadOnlyMount("/features"), request["parameters"])

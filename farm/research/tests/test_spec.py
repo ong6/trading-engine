@@ -1,9 +1,8 @@
 import importlib
 import json
-from pathlib import Path
 
 from engine.lib.resources import write_text_atomic
-from farm.research.canonical import distribution_sha256, file_sha256
+from farm.research.canonical import file_sha256
 from farm.research.sandbox import build_callback_package, run_sandboxed
 from farm.research.spec import ContractError, StudySpec
 from farm.research.tests.support import complete_contract
@@ -17,7 +16,7 @@ def test_complete_contract_has_canonical_golden_bytes_and_derived_markdown(tmp_p
     second = StudySpec.from_dict(json.loads(first.canonical_bytes))
     assert first.canonical_bytes == second.canonical_bytes
     assert first.sha256 == second.sha256
-    assert first.sha256 == "c47527a6c5efda3c4370a506ba0bac74f29c3deb0666606bc2ff3c2e55c2c15b"
+    assert first.sha256 == "3a22384d310493af4e602f572a805034f695006769fdc98d201c7bd81335f8f4"
     assert first.resolve(tmp_path).spec == first
     markdown = first.to_markdown()
     assert f"Contract SHA-256: `{first.sha256}`" in markdown
@@ -65,7 +64,9 @@ def test_contract_identity_moves_with_late_revision_quality_calendar_or_callback
     mutations = []
     for section, field, value in (
         ("inputs", "generation_sha256", "4" * 64),
-        ("inputs", "calendar", {"name": "XNYS", "version": "fixture-v2"}),
+        ("inputs", "calendar", {
+            "name": "XNYS", "version": "fixture-v2", "session_close": "16:00",
+        }),
         ("inputs", "quality", base["inputs"]["quality"] | {"version": "fixture-v2"}),
     ):
         changed = complete_contract(tmp_path)
@@ -91,7 +92,7 @@ def test_contract_identity_moves_with_late_revision_quality_calendar_or_callback
         (lambda value: value["inputs"].__setitem__("survivor_status", "unknown"), "feature"),
         (lambda value: value["inputs"].__setitem__("price_basis", "raw"), "panel"),
         (lambda value: value["inputs"]["calendar"].__setitem__("version", "fixture-v2"), "panel"),
-        (lambda value: value["inputs"]["availability"][0].__setitem__("known_at", "prior day"), "feature"),
+        (lambda value: value["inputs"]["availability"].__setitem__(0, "volume"), "feature"),
         (lambda value: value["inputs"]["schema"][0].__setitem__("nullable", True), "feature"),
         (lambda value: value["inputs"]["membership"].__setitem__("point_in_time", False), "universe"),
         (lambda value: value["inputs"]["quality"].__setitem__("version", "fixture-v2"), "feature"),
@@ -150,7 +151,9 @@ def test_resolve_and_package_never_execute_parent_initializer_on_host(tmp_path):
     response = run_sandboxed(
         packaged,
         {
-            "callback": reference,
+            "callback": {
+                **reference, "runtime_identity": resolved.spec.document["execution"],
+            },
             "package_sha256": packaged.digest,
             "parameters": {},
             "seed": 1,
@@ -169,12 +172,12 @@ def test_resolve_and_package_never_execute_parent_initializer_on_host(tmp_path):
 
 def test_resolution_refuses_interpreter_identity_drift(tmp_path):
     contract = complete_contract(tmp_path)
-    contract["execution"]["python_sha256"] = "f" * 64
-    with pytest.raises(ContractError, match="interpreter identity differs"):
+    contract["execution"]["python_version"] = "0.0.0"
+    with pytest.raises(ContractError, match="interpreter version differs"):
         StudySpec.from_dict(contract).resolve(tmp_path)
     contract = complete_contract(tmp_path)
-    contract["execution"]["python_runtime_sha256"] = "f" * 64
-    with pytest.raises(ContractError, match="runtime closure differs"):
+    contract["execution"]["uv_lock"]["sha256"] = "f" * 64
+    with pytest.raises(ContractError, match="uv.lock identity differs"):
         StudySpec.from_dict(contract).resolve(tmp_path)
 
 
@@ -185,24 +188,18 @@ def test_feature_parts_must_use_temporal_rows_adapter(tmp_path):
         StudySpec.from_dict(contract)
 
 
-def test_runtime_distribution_identity_moves_when_any_submodule_moves(tmp_path, monkeypatch):
-    import farm.research.canonical as canonical
+def test_resolution_refuses_runtime_package_version_drift(tmp_path, monkeypatch):
+    import farm.research.spec as spec_module
 
-    package = tmp_path / "site" / "fixture_runtime"
-    package.mkdir(parents=True)
-    write_text_atomic(package / "__init__.py", "VALUE = 1\n")
-    write_text_atomic(package / "submodule.py", "VALUE = 2\n")
+    contract = complete_contract(tmp_path)
+    contract["execution"]["packages"] = [{"name": "fixture-runtime", "version": "1.0"}]
+    monkeypatch.setattr(spec_module.importlib.metadata, "version", lambda name: "2.0")
+    with pytest.raises(ContractError, match="runtime package version differs"):
+        StudySpec.from_dict(contract).resolve(tmp_path)
 
-    class Distribution:
-        files = (Path("fixture_runtime/__init__.py"), Path("fixture_runtime/submodule.py"))
 
-        def locate_file(self, item):
-            return tmp_path / "site" / item
-
-    monkeypatch.setattr(canonical.importlib.metadata, "distribution", lambda name: Distribution())
-    distribution_sha256.cache_clear()
-    before = distribution_sha256("fixture-runtime")
-    write_text_atomic(package / "submodule.py", "VALUE = 3\n")
-    distribution_sha256.cache_clear()
-    after = distribution_sha256("fixture-runtime")
-    assert before != after
+def test_resolution_refuses_cost_registry_identity_drift(tmp_path):
+    contract = complete_contract(tmp_path)
+    contract["costs"]["profiles"][0]["sha256"] = "f" * 64
+    with pytest.raises(ContractError, match="cost registry identity differs"):
+        StudySpec.from_dict(contract).resolve(tmp_path)

@@ -9,7 +9,7 @@ def feature_recipe(inputs, parameters):
         {
             "session": row["session"],
             "score": float(row["close"]) / 100.0,
-            "available_at": f"{row['session']}T21:00:00+00:00",
+            "available_at": f"{row['session']}T16:00:00-05:00",
         }
         for row in rows
     ]
@@ -30,7 +30,7 @@ def probing_feature_recipe(inputs, parameters):
         "session": row["session"],
         "score": float(row["close"]) / 100.0,
         "outcome_probe_blocked": blocked,
-        "available_at": f"{row['session']}T21:00:00+00:00",
+        "available_at": f"{row['session']}T16:00:00-05:00",
     } for row in inputs.read_json("parts/0.json")]
 
 
@@ -42,13 +42,31 @@ def future_feature_recipe(inputs, parameters):
     } for row in inputs.read_json("parts/0.json")]
 
 
+def same_day_late_feature_recipe(inputs, parameters):
+    return [{
+        "session": row["session"],
+        "score": 999.0,
+        "available_at": f"{row['session']}T23:59:59-05:00",
+    } for row in inputs.read_json("parts/0.json")]
+
+
+def ticker_feature_recipe(inputs, parameters):
+    return [{
+        "session": row["session"],
+        "ticker": row["ticker"],
+        "score": float(row["close"]) / 100.0,
+        "available_at": f"{row['session']}T16:00:00-05:00",
+    } for row in inputs.read_json("parts/0.json")]
+
+
 def label_recipe(inputs, parameters):
     rows = inputs.read_json("parts/0.json")
     return [
         {
             "session": row["session"],
-            "return_h1": float(row["return_h1"]),
-            "available_at": f"{row['session']}T22:00:00+00:00",
+            "entry_price": float(row["entry_price"]),
+            "exit_price": float(row["exit_price"]),
+            "available_at": f"{row['session']}T17:00:00-05:00",
         }
         for row in rows
     ]
@@ -61,70 +79,37 @@ def misaligned_label_recipe(inputs, parameters):
 def strategy(features, parameters, seed, mode):
     if "OUTCOME_ROOT" in os.environ:
         raise AssertionError("outcome namespace leaked into the strategy child")
-    return {
-        "features": features.read_json("nodes/fixture.json"),
-        "mode": mode,
-        "parameters": parameters,
-        "pid": os.getpid(),
-        "seed": seed,
-    }
-
-
-def evaluation_recipe(predictions, labels, evaluation):
-    return {
-        "job_results": [
-            {
-                "kind": job["kind"],
-                "name": job["name"],
-                "fold": job["fold"],
-                "decision_session": job["decision_session"],
-                "gross_return": 0.0 if job["kind"] == "control" else 1.0,
-                "missing": False,
-            }
-            for job in predictions["jobs"]
-        ],
-        "details": {"labels": labels.read_json("labels.json")},
-    }
-
-
-def missing_control_evaluation(predictions, labels, evaluation):
-    result = evaluation_recipe(predictions, labels, evaluation)
-    result["job_results"] = [
-        row for row in result["job_results"] if row["kind"] != "control"
+    rows = features.read_json("nodes/fixture.json")
+    positions = [] if parameters["_study_job"]["kind"] == "control" else [
+        {"session": row["session"], "weight": 1.0} for row in rows
     ]
-    return result
-
-
-def strong_evaluation_recipe(predictions, labels, evaluation):
-    result = evaluation_recipe(predictions, labels, evaluation)
-    for row in result["job_results"]:
-        if row["kind"] == "variant":
-            row["gross_return"] = 2.0
-    return result
+    return {"positions": positions}
 
 
 def deterministic_strategy(features, parameters, seed, mode):
-    return {
-        "features": features.read_json("nodes/fixture.json"),
-        "mode": mode,
-        "parameters": parameters,
-        "seed": seed,
-    }
+    return strategy(features, parameters, seed, mode)
 
 
 def crashing_strategy(features, parameters, seed, mode):
     raise RuntimeError("synthetic strategy crash")
 
 
+def invented_return_strategy(features, parameters, seed, mode):
+    return {"positions": [], "gross_return": 99.0}
+
+
 def slow_strategy(features, parameters, seed, mode):
     import time
 
     time.sleep(0.15)
-    return {
-        "features": features.read_json("nodes/fixture.json"),
-        "job": parameters["_study_job"],
-        "seed": seed,
-    }
+    return strategy(features, parameters, seed, mode)
+
+
+def single_decision_strategy(features, parameters, seed, mode):
+    rows = features.read_json("nodes/fixture.json")
+    if len(rows) != 1 or rows[0]["session"] != parameters["_study_job"]["decision_session"]:
+        raise ValueError("strategy received later or unrelated decision rows")
+    return strategy(features, parameters, seed, mode)
 
 
 def adversarial_strategy(features, parameters, seed, mode):
@@ -159,4 +144,4 @@ def adversarial_strategy(features, parameters, seed, mode):
     blocked("proc", lambda: Path("/proc/self/cmdline").read_bytes())
     blocked("network", lambda: socket.socket())
     blocked("process", lambda: subprocess.run(["/usr/bin/true"], check=True))
-    return {"checks": checks, "feature": features.read_json("nodes/fixture.json")}
+    return {"positions": []}

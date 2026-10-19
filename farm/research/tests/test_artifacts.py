@@ -42,9 +42,10 @@ def test_studyspec_builder_refuses_edge_evidence_and_input_availability_drift(
     if defect in {"coverage", "pit"}:
         path = base / "membership.json"
         evidence = json.loads(path.read_text())
-        evidence["coverage" if defect == "coverage" else "point_in_time"] = (
-            0.1 if defect == "coverage" else False
-        )
+        if defect == "coverage":
+            evidence["rows"].append({"session": "2024-01-04", "eligible": True})
+        else:
+            evidence["point_in_time"] = False
         write_text_atomic(path, json.dumps(evidence) + "\n")
         contract["inputs"]["membership"]["evidence"]["sha256"] = file_sha256(path)
     elif defect == "quality":
@@ -126,6 +127,71 @@ def test_trusted_builder_refuses_feature_published_after_fold_end(tmp_path):
         )
 
 
+def test_same_day_post_decision_timestamp_is_refused(tmp_path):
+    base, contract = _resolved(tmp_path, feature_function="same_day_late_feature_recipe")
+    resolved = StudySpec.from_dict(contract).resolve(base)
+    artifacts = build_study_artifacts(
+        ResearchCache(tmp_path / "cache"), resolved, tmp_path / "execution",
+    )
+    with pytest.raises(ArtifactValidationError, match="contains unavailable features"):
+        materialize_decision_features(
+            resolved, artifacts.features,
+            resolved.spec.document["evaluation"]["folds"][0],
+            "2024-01-02", tmp_path / "fold",
+        )
+
+
+def test_input_without_timestamp_is_available_only_after_session_close(tmp_path):
+    base, contract = _resolved(tmp_path)
+    path = base / "input.json"
+    rows = json.loads(path.read_text())
+    for row in rows:
+        row.pop("_availability")
+    write_text_atomic(path, json.dumps(rows) + "\n")
+    contract["inputs"]["feature_parts"][0]["sha256"] = file_sha256(path)
+    with pytest.raises(ArtifactValidationError, match="non-empty list"):
+        build_study_artifacts(
+            ResearchCache(tmp_path / "cache"), StudySpec.from_dict(contract).resolve(base),
+            tmp_path / "execution",
+        )
+
+
+def test_membership_table_is_applied_per_decision_session(tmp_path):
+    base, contract = _resolved(tmp_path, feature_function="ticker_feature_recipe")
+    input_path = base / "input.json"
+    rows = json.loads(input_path.read_text())
+    for row in rows:
+        row["ticker"] = "BBB"
+    write_text_atomic(input_path, json.dumps(rows) + "\n")
+    contract["inputs"]["feature_parts"][0]["sha256"] = file_sha256(input_path)
+    contract["inputs"]["schema"].append({
+        "name": "ticker", "dtype": "string", "nullable": False,
+    })
+    contract["inputs"]["primary_key"] = ["session", "ticker"]
+    contract["features"][0]["output_schema"].insert(1, {
+        "name": "ticker", "dtype": "string", "nullable": False,
+    })
+    contract["outcomes"]["output_schema"].insert(1, {
+        "name": "ticker", "dtype": "string", "nullable": False,
+    })
+    membership_path = base / "membership.json"
+    membership = {
+        "point_in_time": True,
+        "survivor_status": "point_in_time",
+        "rows": [
+            {"session": "2024-01-02", "ticker": "AAA", "eligible": True},
+            {"session": "2024-01-03", "ticker": "BBB", "eligible": True},
+        ],
+    }
+    write_text_atomic(membership_path, json.dumps(membership) + "\n")
+    contract["inputs"]["membership"]["evidence"]["sha256"] = file_sha256(membership_path)
+    with pytest.raises(ArtifactValidationError, match="non-empty list"):
+        build_study_artifacts(
+            ResearchCache(tmp_path / "cache"), StudySpec.from_dict(contract).resolve(base),
+            tmp_path / "execution",
+        )
+
+
 def test_label_builder_refuses_without_runner_attempt_capability(tmp_path):
     base, contract = _resolved(tmp_path)
     resolved = StudySpec.from_dict(contract).resolve(base)
@@ -162,7 +228,8 @@ def test_feature_label_alignment_uses_exact_declared_entity_key(tmp_path):
         "available_at": "2024-01-02T21:00:00+00:00",
     }]})
     label = FixtureObject({"labels.json": [{
-        "session": "2024-01-02", "ticker": "BBB", "return_h1": 0.1,
+        "session": "2024-01-02", "ticker": "BBB",
+        "entry_price": 100.0, "exit_price": 101.0,
         "available_at": "2024-01-02T22:00:00+00:00",
     }]})
     with pytest.raises(ArtifactValidationError, match="primary keys are not fold-aligned"):
