@@ -485,11 +485,15 @@ def test_versioned_connection_rejects_changed_view_definition(tmp_path):
     [
         lambda con: con.executemany("CREATE TABLE bypass_many (id INTEGER)", [()]),
         lambda con: con.sql("CREATE TABLE bypass_sql (id INTEGER)"),
+        lambda con: con.query("CREATE TABLE bypass_connection_query (id INTEGER)"),
         lambda con: con.from_query("CREATE TABLE bypass_query (id INTEGER)"),
         lambda con: con.execute("SELECT 1; CREATE TABLE bypass_multi (id INTEGER)"),
         lambda con: con.cursor().execute("CREATE TABLE bypass_cursor (id INTEGER)"),
         lambda con: con.duplicate().execute("CREATE TABLE bypass_duplicate (id INTEGER)"),
         lambda con: con.sql("SELECT 1").create("bypass_relation"),
+        lambda con: con.sql("SELECT 1 AS id").query(
+            "source_rows", "CREATE TABLE bypass_relation_query AS SELECT * FROM source_rows"
+        ),
         lambda con: con.execute("CREATE SCHEMA bypass_schema"),
     ],
 )
@@ -506,6 +510,71 @@ def test_versioned_connection_blocks_every_persistent_ddl_surface(tmp_path, atte
         ).fetchone() == (0,)
     finally:
         guarded.close()
+
+
+def test_relation_query_cannot_mutate_a_compatible_versioned_database(
+    tmp_path, monkeypatch,
+):
+    root, database, _verified, expected_catalog = _prepare(tmp_path, monkeypatch)
+    _apply(root, database, expected_catalog)
+    con = engine_db.connect(database)
+    try:
+        with pytest.raises(engine_db.SchemaMigrationRequired, match="explicit migration"):
+            con.sql("SELECT ticker FROM prices").query(
+                "price_rows",
+                "CREATE TABLE relation_query_bypass AS SELECT * FROM price_rows",
+            )
+        assert con.execute(
+            "SELECT COUNT(*) FROM duckdb_tables() "
+            "WHERE table_name='relation_query_bypass'"
+        ).fetchone() == (0,)
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "TRUNCATE TABLE bitemporal_facts",
+        (
+            "WITH doomed AS (SELECT 1 AS id) DELETE FROM bitemporal_facts USING doomed "
+            "WHERE bitemporal_facts.id=doomed.id"
+        ),
+        (
+            "WITH changed AS (SELECT 1 AS id) UPDATE bitemporal_facts SET revision=9 "
+            "FROM changed WHERE bitemporal_facts.id=changed.id"
+        ),
+        (
+            "MERGE INTO bitemporal_facts AS target USING (SELECT 1 AS id) AS source "
+            "ON target.id=source.id WHEN MATCHED THEN UPDATE SET revision=9"
+        ),
+        (
+            "INSERT INTO bitemporal_facts SELECT * FROM bitemporal_facts WHERE id=1 "
+            "ON CONFLICT(id) DO UPDATE SET revision=9"
+        ),
+    ],
+)
+def test_versioned_connection_rejects_every_cold_rewrite_form(
+    tmp_path, monkeypatch, statement,
+):
+    root, database, _verified, expected_catalog = _prepare(tmp_path, monkeypatch)
+    _apply(root, database, expected_catalog)
+    con = engine_db.connect(database)
+    try:
+        con.execute(
+            "INSERT INTO bitemporal_facts VALUES "
+            "(1,1,'SPY','SPY','fixture',TIMESTAMP '2020-01-01',NULL,"
+            "TIMESTAMP '2026-10-01',TIMESTAMP '2026-10-01',1,'{}',?,"
+            "'fixture','v1',?,NULL,?)",
+            ["d" * 64, "c" * 64, "e" * 64],
+        )
+        with pytest.raises(engine_db.SchemaMigrationRequired, match="append-only"):
+            con.execute(statement)
+        assert con.execute(
+            "SELECT id,revision FROM bitemporal_facts"
+        ).fetchall() == [(1, 1)]
+    finally:
+        con.close()
 
 
 def test_baseline_hash_binds_runtime_initializer_source(monkeypatch):

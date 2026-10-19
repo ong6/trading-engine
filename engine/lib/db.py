@@ -179,10 +179,6 @@ _NULL_BACKFILL = re.compile(
 _COLD_TABLE_NAMES = frozenset({
     "intraday_prices", "bitemporal_facts", "source_response_receipts",
 })
-_MUTATING_TABLE = re.compile(
-    r'^(UPDATE|DELETE\s+FROM|INSERT\s+OR\s+REPLACE\s+INTO)\s+'
-    r'(?:(?:"?main"?)\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?',
-)
 _RELATION_MUTATIONS = frozenset({
     "create", "create_view", "insert", "insert_into", "to_table", "to_view", "update",
 })
@@ -204,9 +200,10 @@ class SchemaMigrationRequired(RuntimeError):
 class GuardedRelation:
     """Keep relation-producing connection methods inside the schema boundary."""
 
-    def __init__(self, relation, *, versioned: bool):
+    def __init__(self, relation, *, versioned: bool, preflight):
         self._relation = relation
         self._versioned = versioned
+        self._preflight = preflight
 
     def __getattr__(self, name: str):
         attribute = getattr(self._relation, name)
@@ -225,9 +222,15 @@ class GuardedRelation:
             return attribute
 
         def guarded(*args, **kwargs):
+            if name == "query":
+                sql_query = args[1] if len(args) > 1 else kwargs.get("sql_query")
+                if isinstance(sql_query, str):
+                    self._preflight(sql_query)
             result = attribute(*args, **kwargs)
             if isinstance(result, duckdb.DuckDBPyRelation):
-                return GuardedRelation(result, versioned=self._versioned)
+                return GuardedRelation(
+                    result, versioned=self._versioned, preflight=self._preflight,
+                )
             return result
 
         return guarded
@@ -295,11 +298,6 @@ class GuardedConnection:
             return False
         normalized = " ".join(statement.strip().rstrip(";").split())
         upper = normalized.upper()
-        mutation = _MUTATING_TABLE.match(upper)
-        if mutation is not None and mutation.group(2).lower() in _COLD_TABLE_NAMES:
-            raise SchemaMigrationRequired(
-                f"cold table is append-only after schema activation: {mutation.group(2).lower()}"
-            )
         if " TEMP " in f" {upper} " or upper.startswith("CREATE TEMP"):
             return False
         match = _CREATE_OBJECT.match(upper)
@@ -351,9 +349,79 @@ class GuardedConnection:
             raise SchemaMigrationRequired("runtime schema copy requires an explicit migration")
         return False
 
+    @staticmethod
+    def _statement_tokens(statement: str) -> list[tuple[str, object]]:
+        positioned = duckdb.tokenize(statement)
+        return [
+            (statement[start:end].strip(), kind)
+            for (start, kind), (end, _next_kind) in zip(
+                positioned, [*positioned[1:], (len(statement), None)], strict=True,
+            )
+        ]
+
+    @staticmethod
+    def _identifier_after(
+        tokens: list[tuple[str, object]], start: int,
+    ) -> str | None:
+        names = []
+        for value, kind in tokens[start:]:
+            upper = value.upper()
+            if not names and upper in {
+                "FROM", "IGNORE", "INTO", "ONLY", "OR", "REPLACE", "TABLE",
+            }:
+                continue
+            if kind == duckdb.token_type.identifier:
+                names.append(value.strip('"').replace('""', '"').lower())
+                continue
+            if names and value == ".":
+                continue
+            break
+        return None if not names else names[-1]
+
+    def _assert_cold_statement(self, statement, tokens: list[tuple[str, object]]) -> None:
+        if not self._versioned or _SCHEMA_CHANGE_AUTHORITY.get():
+            return
+        words = [value.upper() for value, _kind in tokens]
+        statement_type = statement.type.name
+        marker = None
+        if statement_type == "DELETE":
+            marker = "TRUNCATE" if "TRUNCATE" in words else "DELETE"
+        elif statement_type == "UPDATE":
+            marker = "UPDATE"
+        elif statement_type == "MERGE_INTO":
+            marker = "MERGE"
+        elif statement_type == "INSERT":
+            marker = "INSERT"
+        if marker is None:
+            return
+        marker_index = words.index(marker)
+        if marker == "DELETE":
+            try:
+                marker_index = words.index("FROM", marker_index + 1)
+            except ValueError:
+                return
+        target = self._identifier_after(tokens, marker_index + 1)
+        if target not in _COLD_TABLE_NAMES:
+            return
+        conflict_update = (
+            statement_type == "INSERT"
+            and (
+                "REPLACE" in words[:words.index("INTO")]
+                or ("CONFLICT" in words and "UPDATE" in words[words.index("CONFLICT"):])
+            )
+        )
+        if statement_type != "INSERT" or conflict_update:
+            raise SchemaMigrationRequired(
+                f"cold table is append-only after schema activation: {target}"
+            )
+
     def _preflight_schema_sql(self, statement: str) -> bool:
         statements = self._connection.extract_statements(statement)
-        assertions = [self._assert_schema_statement(item.query) for item in statements]
+        assertions = []
+        for item in statements:
+            tokens = self._statement_tokens(item.query)
+            self._assert_cold_statement(item, tokens)
+            assertions.append(self._assert_schema_statement(item.query))
         if len(statements) > 1 and any(assertions):
             raise SchemaMigrationRequired(
                 "multi-statement runtime schema SQL requires an explicit migration"
@@ -381,14 +449,18 @@ class GuardedConnection:
             relation = self._connection.sql("SELECT NULL WHERE FALSE")
         else:
             relation = self._connection.sql(query, *args, **kwargs)
-        return GuardedRelation(relation, versioned=self._versioned)
+        return GuardedRelation(
+            relation, versioned=self._versioned, preflight=self._preflight_schema_sql,
+        )
 
     def query(self, query: str, *args, **kwargs):
         if self._preflight_schema_sql(query):
             relation = self._connection.query("SELECT NULL WHERE FALSE")
         else:
             relation = self._connection.query(query, *args, **kwargs)
-        return GuardedRelation(relation, versioned=self._versioned)
+        return GuardedRelation(
+            relation, versioned=self._versioned, preflight=self._preflight_schema_sql,
+        )
 
     def from_query(self, query: str, *args, **kwargs):
         return self.sql(query, *args, **kwargs)
@@ -396,11 +468,13 @@ class GuardedConnection:
     def table(self, table_name: str):
         return GuardedRelation(
             self._connection.table(table_name), versioned=self._versioned,
+            preflight=self._preflight_schema_sql,
         )
 
     def view(self, view_name: str):
         return GuardedRelation(
             self._connection.view(view_name), versioned=self._versioned,
+            preflight=self._preflight_schema_sql,
         )
 
     def duplicate(self):
