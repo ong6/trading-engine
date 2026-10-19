@@ -47,6 +47,31 @@ def test_contract_requires_availability_for_every_feature_input_field(tmp_path):
         StudySpec.from_dict(contract)
 
 
+@pytest.mark.parametrize(
+    ("section", "attribute", "value", "message"),
+    [
+        ("inputs", "nullable", True, "primary_key columns must be non-nullable"),
+        ("features", "nullable", True, "primary keys must be non-nullable"),
+        ("features", "dtype", "string", "match input dtypes"),
+        ("outcomes", "nullable", True, "primary keys must be non-nullable"),
+        ("outcomes", "dtype", "string", "match input dtypes"),
+    ],
+)
+def test_primary_key_contract_is_nonnullable_and_dtype_matched(
+    tmp_path, section, attribute, value, message,
+):
+    contract = complete_contract(tmp_path)
+    if section == "inputs":
+        column = contract["inputs"]["schema"][0]
+    elif section == "features":
+        column = contract["features"][0]["output_schema"][0]
+    else:
+        column = contract["outcomes"]["output_schema"][0]
+    column[attribute] = value
+    with pytest.raises(ContractError, match=message):
+        StudySpec.from_dict(contract)
+
+
 def test_contract_refuses_overlapping_fold_decision_windows(tmp_path):
     contract = complete_contract(tmp_path)
     contract["evaluation"]["folds"] = [
@@ -141,7 +166,7 @@ def test_contract_identity_moves_with_late_revision_quality_calendar_or_callback
             }),
             value["inputs"]["availability"].append("volume"),
         ), "feature"),
-        (lambda value: value["inputs"]["schema"][0].__setitem__("nullable", True), "feature"),
+        (lambda value: value["inputs"]["schema"][1].__setitem__("nullable", True), "feature"),
         (lambda value: (
             value["study"].__setitem__("phase", "pilot"),
             value["inputs"]["membership"].__setitem__("point_in_time", False),

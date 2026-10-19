@@ -131,6 +131,8 @@ def validate_rows(
                 )
         if availability is not None and row.get(availability) is None:
             raise ArtifactValidationError(f"row {index} lacks declared availability")
+        if any(row.get(name) is None for name in primary_key):
+            raise ArtifactValidationError(f"row {index} has a null primary key")
         rows.append(row)
     if primary_key:
         keys = [tuple(row[name] for name in primary_key) for row in rows]
@@ -224,11 +226,16 @@ def _evidence(resolved: ResolvedStudy) -> dict[str, Any]:
             or not isinstance(membership.get("rows"), list) or not membership["rows"]):
         raise ArtifactValidationError("membership PIT, survivor, or coverage evidence differs")
     key_fields = tuple(inputs["primary_key"])
+    input_schema = {column["name"]: column for column in inputs["schema"]}
     membership_keys = []
     for index, row in enumerate(membership["rows"]):
         if (not isinstance(row, dict) or set(row) != {*key_fields, "eligible"}
                 or type(row["eligible"]) is not bool
-                or not _value_valid(row["session"], "date")):
+                or any(
+                    row[field] is None
+                    or not _value_valid(row[field], input_schema[field]["dtype"])
+                    for field in key_fields
+                )):
             raise ArtifactValidationError(f"membership row {index} differs")
         membership_keys.append(tuple(row[field] for field in key_fields))
     if len(membership_keys) != len(set(membership_keys)):

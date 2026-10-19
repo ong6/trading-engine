@@ -280,6 +280,9 @@ def _inputs(value: object) -> dict[str, Any]:
         raise ContractError(f"{path}.primary_key must name declared input columns")
     if "session" not in primary_key:
         raise ContractError(f"{path}.primary_key must include session for PIT membership")
+    schema_by_name = {column["name"]: column for column in schema}
+    if any(schema_by_name[key]["nullable"] for key in primary_key):
+        raise ContractError(f"{path}.primary_key columns must be non-nullable")
     return {
         "generation_sha256": _sha(row["generation_sha256"], f"{path}.generation_sha256"),
         "feature_parts": feature_parts,
@@ -614,11 +617,36 @@ class StudySpec:
                     "development and holdout require point-in-time survivor evidence"
                 )
         keys = set(normalized["inputs"]["primary_key"])
+        input_schema = {
+            column["name"]: column for column in normalized["inputs"]["schema"]
+        }
         for index, node in enumerate(normalized["features"]):
-            if not keys <= {column["name"] for column in node["output_schema"]}:
+            output_schema = {column["name"]: column for column in node["output_schema"]}
+            if not keys <= set(output_schema):
                 raise ContractError(f"features[{index}].output_schema must include every primary key")
-        if not keys <= {column["name"] for column in normalized["outcomes"]["output_schema"]}:
+            if any(
+                output_schema[key]["nullable"]
+                or output_schema[key]["dtype"] != input_schema[key]["dtype"]
+                for key in keys
+            ):
+                raise ContractError(
+                    f"features[{index}].output_schema primary keys must be non-nullable "
+                    "and match input dtypes"
+                )
+        outcome_schema = {
+            column["name"]: column
+            for column in normalized["outcomes"]["output_schema"]
+        }
+        if not keys <= set(outcome_schema):
             raise ContractError("outcomes.output_schema must include every primary key")
+        if any(
+            outcome_schema[key]["nullable"]
+            or outcome_schema[key]["dtype"] != input_schema[key]["dtype"]
+            for key in keys
+        ):
+            raise ContractError(
+                "outcomes.output_schema primary keys must be non-nullable and match input dtypes"
+            )
         outcome_types = {
             column["name"]: column["dtype"] for column in normalized["outcomes"]["output_schema"]
         }

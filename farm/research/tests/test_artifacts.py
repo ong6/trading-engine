@@ -8,6 +8,7 @@ from farm.research.artifacts import (
     build_study_artifacts,
     materialize_decision_features,
     validate_feature_label_alignment,
+    validate_rows,
 )
 from farm.research.cache import CacheError, ResearchCache
 from farm.research.canonical import canonical_sha256, file_sha256
@@ -31,6 +32,18 @@ def test_studyspec_builder_executes_recipe_and_refuses_declared_schema_mismatch(
     with pytest.raises(ArtifactValidationError, match="columns differ"):
         build_study_artifacts(
             ResearchCache(tmp_path / "cache"), resolved, tmp_path / "execution"
+        )
+
+
+def test_row_validation_refuses_null_primary_key_even_for_nullable_schema():
+    with pytest.raises(ArtifactValidationError, match="null primary key"):
+        validate_rows(
+            [{"session": None, "value": 1.0}],
+            [
+                {"name": "session", "dtype": "date", "nullable": True},
+                {"name": "value", "dtype": "float64", "nullable": False},
+            ],
+            primary_key=["session"],
         )
 
 
@@ -243,6 +256,38 @@ def test_membership_table_is_applied_per_decision_session(tmp_path):
         build_study_artifacts(
             ResearchCache(tmp_path / "cache"), StudySpec.from_dict(contract).resolve(base),
             tmp_path / "execution",
+        )
+
+
+def test_membership_primary_keys_use_the_nonnullable_input_schema(tmp_path):
+    base, contract = _resolved(tmp_path, feature_function="ticker_feature_recipe")
+    input_path = base / "input.json"
+    rows = json.loads(input_path.read_text())
+    for row in rows:
+        row["ticker"] = "AAA"
+        row["_availability"]["ticker"] = f"{row['session']}T09:30:00-05:00"
+    write_text_atomic(input_path, json.dumps(rows) + "\n")
+    contract["inputs"]["feature_parts"][0]["sha256"] = file_sha256(input_path)
+    contract["inputs"]["schema"].append({
+        "name": "ticker", "dtype": "string", "nullable": False,
+    })
+    contract["inputs"]["availability"].append("ticker")
+    contract["inputs"]["primary_key"] = ["session", "ticker"]
+    for section in (contract["features"][0], contract["outcomes"]):
+        section["output_schema"].insert(1, {
+            "name": "ticker", "dtype": "string", "nullable": False,
+        })
+    membership_path = base / "membership.json"
+    membership = json.loads(membership_path.read_text())
+    for row in membership["rows"]:
+        row["ticker"] = None
+    write_text_atomic(membership_path, json.dumps(membership) + "\n")
+    contract["inputs"]["membership"]["evidence"]["sha256"] = file_sha256(membership_path)
+
+    resolved = StudySpec.from_dict(contract).resolve(base)
+    with pytest.raises(ArtifactValidationError, match="membership row 0 differs"):
+        build_study_artifacts(
+            ResearchCache(tmp_path / "cache"), resolved, tmp_path / "execution",
         )
 
 
