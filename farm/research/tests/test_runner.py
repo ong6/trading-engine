@@ -17,7 +17,7 @@ pytest = importlib.import_module("pytest")
 def _setup(
     tmp_path, *, phase="development", callback="strategy", workers=1,
     strategy_parameters=None, job_shape=(1, 1),
-    label_callback="label_recipe",
+    label_callback="label_recipe", statistics=None,
 ):
     base = tmp_path / "contract"
     base.mkdir(parents=True)
@@ -26,6 +26,8 @@ def _setup(
     contract["execution"]["workers"] = workers
     if strategy_parameters is not None:
         contract["strategy"]["parameters"] = strategy_parameters
+    if statistics is not None:
+        contract["evaluation"]["statistics"] = statistics
     contract["evaluation"]["variants"] = [
         {"name": f"variant-{index}", "parameters": {"variant_value": index}}
         for index in range(job_shape[0])
@@ -70,7 +72,9 @@ def test_runner_seals_start_and_predictions_before_issuing_label_capability(tmp_
     assert result.outcome_accessed and result.result_path is not None
     prediction = json.loads(result.predictions_path.read_text())["jobs"][0]["prediction"]
     assert prediction == {"positions": [{"session": "2024-01-02", "weight": 1.0}]}
-    assert json.loads(result.result_path.read_text())["verdict"] == "admit"
+    assert json.loads(result.result_path.read_text())["variant_verdicts"] == [
+        {"name": "variant-0", "verdict": "admit"},
+    ]
     evaluation = json.loads(result.result_path.read_text())["evaluation"]
     assert evaluation["jobs"][0]["gross_return"] == pytest.approx(0.01)
     assert result.predictions_path.stat().st_mode & 0o222 == 0
@@ -186,6 +190,26 @@ def test_serial_parallel_fold_control_jobs_are_identical_and_decision_bounded(tm
             assert job["prediction"] == {
                 "positions": [{"session": job["decision_session"], "weight": 1.0}]
             }
+
+
+def test_variants_receive_separate_metrics_verdicts_and_distinct_decision_counts(tmp_path):
+    _, runner, features = _setup(
+        tmp_path, callback="variant_direction_strategy", job_shape=(2, 1),
+        statistics=["mean_net_return", "observation_count"],
+    )
+    run = runner.run(attempt="variant-verdicts", features=features)
+    result = json.loads(run.result_path.read_text())
+
+    assert "verdict" not in result
+    assert result["variant_verdicts"] == [
+        {"name": "variant-0", "verdict": "admit"},
+        {"name": "variant-1", "verdict": "kill"},
+    ]
+    variants = {row["name"]: row for row in result["evaluation"]["variants"]}
+    assert variants["variant-0"]["metrics"]["observation_count"] == 1.0
+    assert variants["variant-1"]["metrics"]["observation_count"] == 1.0
+    assert variants["variant-0"]["metrics"]["mean_net_return"] > 0
+    assert variants["variant-1"]["metrics"]["mean_net_return"] < 0
 
 
 def test_strategy_children_receive_exactly_one_decision_view(tmp_path):

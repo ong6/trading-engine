@@ -98,6 +98,16 @@ def deterministic_strategy(features, parameters, seed, mode):
     return strategy(features, parameters, seed, mode)
 
 
+def variant_direction_strategy(features, parameters, seed, mode):
+    rows = features.read_json("nodes/fixture.json")
+    if parameters["_study_job"]["kind"] == "control":
+        return {"positions": []}
+    direction = 1.0 if parameters["variant_value"] == 0 else -1.0
+    return {"positions": [
+        {"session": row["session"], "weight": direction} for row in rows
+    ]}
+
+
 def crashing_strategy(features, parameters, seed, mode):
     raise RuntimeError("synthetic strategy crash")
 

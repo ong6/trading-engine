@@ -213,32 +213,52 @@ def _reduce_evaluation(predictions: dict, labels: list[dict], evaluation: dict,
             "gross_exposure": exposure, "cost_returns": cost_returns, "net_returns": net,
         })
     primary = profiles[0]["name"]
-    variants = [row for row in rows if row["kind"] == "variant"]
     controls = [row for row in rows if row["kind"] == "control"]
-    if not variants or not controls:
+    if not any(row["kind"] == "variant" for row in rows) or not controls:
         raise StudyRunError("trusted reduction needs variant and control observations")
     control_by_key = {}
     for row in controls:
         key = row["fold"], row["decision_session"]
         control_by_key.setdefault(key, []).append(row["net_returns"][primary])
-    excess = [
-        row["net_returns"][primary]
-        - sum(control_by_key[(row["fold"], row["decision_session"])])
-        / len(control_by_key[(row["fold"], row["decision_session"])])
-        for row in variants
-    ]
-    available_statistics = {
-        "mean_net_return": sum(row["net_returns"][primary] for row in variants) / len(variants),
-        "mean_excess_return": sum(excess) / len(excess),
-        "observation_count": float(len(variants)),
-    }
-    unknown = set(evaluation["statistics"]) - set(available_statistics)
-    if unknown:
-        raise StudyRunError(f"unsupported trusted statistics: {sorted(unknown)}")
-    statistics = {name: available_statistics[name] for name in evaluation["statistics"]}
+    variant_results = []
+    for declaration in evaluation["variants"]:
+        variants = [
+            row for row in rows
+            if row["kind"] == "variant" and row["name"] == declaration["name"]
+        ]
+        if not variants:
+            raise StudyRunError(f"variant has no observations: {declaration['name']}")
+        decision_keys = {row["decision_session"] for row in variants}
+        if len(decision_keys) != len(variants):
+            raise StudyRunError(
+                f"variant has duplicate decision keys: {declaration['name']}"
+            )
+        excess = [
+            row["net_returns"][primary]
+            - sum(control_by_key[(row["fold"], row["decision_session"])])
+            / len(control_by_key[(row["fold"], row["decision_session"])])
+            for row in variants
+        ]
+        available_statistics = {
+            "mean_net_return": (
+                sum(row["net_returns"][primary] for row in variants) / len(variants)
+            ),
+            "mean_excess_return": sum(excess) / len(excess),
+            "observation_count": float(len(decision_keys)),
+        }
+        unknown = set(evaluation["statistics"]) - set(available_statistics)
+        if unknown:
+            raise StudyRunError(f"unsupported trusted statistics: {sorted(unknown)}")
+        statistics = {
+            name: available_statistics[name] for name in evaluation["statistics"]
+        }
+        variant_results.append({
+            "name": declaration["name"],
+            "metrics": statistics,
+            "statistics": statistics,
+        })
     return {
-        "metrics": statistics,
-        "statistics": statistics,
+        "variants": variant_results,
         "controls": {
             name: sum(row["net_returns"][primary] for row in controls if row["name"] == name)
             / sum(row["name"] == name for row in controls)
@@ -451,11 +471,13 @@ class StudyRunner:
                     self.resolved.spec.as_dict()["strategy"]["capital"],
                 )
                 evaluation_contract = self.resolved.spec.as_dict()["evaluation"]
+                variant_verdicts = [{
+                    "name": variant["name"],
+                    "verdict": _verdict(variant, evaluation_contract),
+                } for variant in evaluation_result["variants"]]
                 result = {
                     "evaluation": evaluation_result,
-                    "verdict": _verdict(
-                        evaluation_result, evaluation_contract,
-                    ),
+                    "variant_verdicts": variant_verdicts,
                     "accounting": {
                         "benchmark_mode": self.resolved.spec.document["evaluation"]["benchmark_mode"],
                         "costs": self.resolved.spec.document["costs"],

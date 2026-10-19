@@ -437,6 +437,13 @@ def _evaluation(value: object) -> dict[str, Any]:
         })
     if len(folds) != len({item["name"] for item in folds}):
         raise ContractError(f"{path}.folds has duplicate names")
+    ordered_folds = sorted(folds, key=lambda item: (item["start"], item["end"]))
+    for index in range(1, len(ordered_folds)):
+        previous, current = ordered_folds[index - 1], ordered_folds[index]
+        if current["start"] < previous["end"]:
+            raise ContractError(
+                f"{path}.folds must use non-overlapping decision windows"
+            )
     census = _mapping(row["dsr_census"], f"{path}.dsr_census", (
         "path", "sha256", "selection_n",
     ))

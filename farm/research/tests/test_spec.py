@@ -16,7 +16,7 @@ def test_complete_contract_has_canonical_golden_bytes_and_derived_markdown(tmp_p
     second = StudySpec.from_dict(json.loads(first.canonical_bytes))
     assert first.canonical_bytes == second.canonical_bytes
     assert first.sha256 == second.sha256
-    assert first.sha256 == "87e253c5d72ea5e52c8d0bda20874b4d8e91ea5fd3b7c1ca4d0d908ba1ed16e9"
+    assert first.sha256 == "a522fc6fdde3e89b30dee1306082408a348776fa8a8af63b39337603b0513789"
     assert first.resolve(tmp_path).spec == first
     markdown = first.to_markdown()
     assert f"Contract SHA-256: `{first.sha256}`" in markdown
@@ -44,6 +44,16 @@ def test_contract_requires_availability_for_every_feature_input_field(tmp_path):
     contract = complete_contract(tmp_path)
     contract["inputs"]["availability"].remove("close")
     with pytest.raises(ContractError, match="every input schema field"):
+        StudySpec.from_dict(contract)
+
+
+def test_contract_refuses_overlapping_fold_decision_windows(tmp_path):
+    contract = complete_contract(tmp_path)
+    contract["evaluation"]["folds"] = [
+        {"name": "first", "start": "2024-01-01", "end": "2024-02-01"},
+        {"name": "overlap", "start": "2024-01-15", "end": "2024-03-01"},
+    ]
+    with pytest.raises(ContractError, match="non-overlapping decision windows"):
         StudySpec.from_dict(contract)
 
 
