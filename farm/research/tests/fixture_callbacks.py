@@ -72,31 +72,35 @@ def strategy(features, parameters, seed, mode):
 
 def evaluation_recipe(predictions, labels, evaluation):
     return {
-        "metrics": {"score": 1.0},
-        "statistics": {name: 1.0 for name in evaluation["statistics"]},
-        "controls": {name: 0.0 for name in evaluation["controls"]},
-        "cost_profile_hashes": {"fixture-zero": "2" * 64},
-        "labels": labels.read_json("labels.json"),
-        "job_count": len(predictions["jobs"]),
+        "job_results": [
+            {
+                "kind": job["kind"],
+                "name": job["name"],
+                "fold": job["fold"],
+                "decision_session": job["decision_session"],
+                "gross_return": 0.0 if job["kind"] == "control" else 1.0,
+                "missing": False,
+            }
+            for job in predictions["jobs"]
+        ],
+        "details": {"labels": labels.read_json("labels.json")},
     }
 
 
 def missing_control_evaluation(predictions, labels, evaluation):
-    return {
-        "metrics": {"score": 1.0},
-        "statistics": {name: 1.0 for name in evaluation["statistics"]},
-        "controls": {},
-        "cost_profile_hashes": {"fixture-zero": "2" * 64},
-    }
+    result = evaluation_recipe(predictions, labels, evaluation)
+    result["job_results"] = [
+        row for row in result["job_results"] if row["kind"] != "control"
+    ]
+    return result
 
 
 def strong_evaluation_recipe(predictions, labels, evaluation):
-    return {
-        "metrics": {"score": 2.0},
-        "statistics": {name: 1.0 for name in evaluation["statistics"]},
-        "controls": {name: 0.0 for name in evaluation["controls"]},
-        "cost_profile_hashes": {"fixture-zero": "2" * 64},
-    }
+    result = evaluation_recipe(predictions, labels, evaluation)
+    for row in result["job_results"]:
+        if row["kind"] == "variant":
+            row["gross_return"] = 2.0
+    return result
 
 
 def deterministic_strategy(features, parameters, seed, mode):

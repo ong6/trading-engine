@@ -29,6 +29,28 @@ class StudyCacheArtifacts:
     features: CacheObject
 
 
+_LABEL_CAPABILITY_SECRET = object()
+
+
+@dataclass(frozen=True)
+class _LabelBuildCapability:
+    secret: object
+    attempt_id: str
+    predictions_sha256: str
+    census_sha256: str
+    started_receipt_sha256: str
+
+
+def _new_label_capability(
+    *, attempt_id: str, predictions_sha256: str, census_sha256: str,
+    started_receipt_sha256: str,
+) -> _LabelBuildCapability:
+    return _LabelBuildCapability(
+        _LABEL_CAPABILITY_SECRET, attempt_id, predictions_sha256,
+        census_sha256, started_receipt_sha256,
+    )
+
+
 def _value_valid(value: object, dtype: str) -> bool:
     if dtype == "float64":
         return (not isinstance(value, bool) and isinstance(value, (int, float))
@@ -59,6 +81,7 @@ def validate_rows(
     *,
     availability: str | None = None,
     allow_input_availability: bool = False,
+    primary_key: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     if not isinstance(value, list) or not value:
         raise ArtifactValidationError("recipe must return a non-empty list of rows")
@@ -80,6 +103,10 @@ def validate_rows(
         if availability is not None and row.get(availability) is None:
             raise ArtifactValidationError(f"row {index} lacks declared availability")
         rows.append(row)
+    if primary_key:
+        keys = [tuple(row[name] for name in primary_key) for row in rows]
+        if len(keys) != len(set(keys)):
+            raise ArtifactValidationError("recipe emitted duplicate primary keys")
     return rows
 
 
@@ -156,6 +183,7 @@ def _input_mount(
             payload,
             resolved.spec.document["inputs"]["schema"],
             allow_input_availability=True,
+            primary_key=resolved.spec.document["inputs"]["primary_key"],
         )
         declared_rows.extend(validated)
         if as_of_session is not None and "session" in validated[0]:
@@ -225,13 +253,19 @@ def validate_study_object(resolved: ResolvedStudy, obj: CacheObject) -> None:
     if obj.kind == "feature":
         for node in resolved.spec.document["features"]:
             rows = obj.read_json(f"nodes/{node['name']}.json")
-            validate_rows(rows, node["output_schema"], availability=node["availability"])
+            validate_rows(
+                rows, node["output_schema"], availability=node["availability"],
+                primary_key=resolved.spec.document["inputs"]["primary_key"],
+            )
             if receipt["row_counts"].get(node["name"]) != len(rows):
                 raise ArtifactValidationError("feature receipt row count differs")
     elif obj.kind == "label":
         rows = obj.read_json("labels.json")
         outcomes = resolved.spec.document["outcomes"]
-        validate_rows(rows, outcomes["output_schema"], availability=outcomes["availability"])
+        validate_rows(
+            rows, outcomes["output_schema"], availability=outcomes["availability"],
+            primary_key=resolved.spec.document["inputs"]["primary_key"],
+        )
         if "session" not in {column["name"] for column in outcomes["output_schema"]}:
             raise ArtifactValidationError("folded label schemas require a session column")
         if any(datetime.fromisoformat(row[outcomes["availability"]]).date() >= latest_fold_end
@@ -291,7 +325,8 @@ def build_study_artifacts(
             finally:
                 shutil.rmtree(mount)
             candidate_rows = validate_rows(
-                response["payload"], node["output_schema"], availability=node["availability"]
+                response["payload"], node["output_schema"], availability=node["availability"],
+                primary_key=resolved.spec.document["inputs"]["primary_key"],
             )
             selected = (candidate_rows if decision_session is None else
                         [row for row in candidate_rows if row.get("session") == decision_session])
@@ -300,7 +335,8 @@ def build_study_artifacts(
                     f"feature recipe omitted decision session {decision_session}"
                 )
             rows.extend(selected)
-        if len({row.get("session", index) for index, row in enumerate(rows)}) != len(rows):
+        primary_key = resolved.spec.document["inputs"]["primary_key"]
+        if len({tuple(row[name] for name in primary_key) for row in rows}) != len(rows):
             raise ArtifactValidationError("feature recipe emitted duplicate decision rows")
         observed_coverage = len(rows) / evidence["membership"]["expected_rows"]
         if observed_coverage < resolved.spec.document["inputs"]["coverage"]["minimum"]:
@@ -334,11 +370,21 @@ def build_study_artifacts(
     return StudyCacheArtifacts(features)
 
 
-def build_label_artifact(
+def _build_label_artifact(
     cache: ResearchCache,
     resolved: ResolvedStudy,
     execution_root: str | Path,
+    capability: _LabelBuildCapability,
 ) -> CacheObject:
+    if (not isinstance(capability, _LabelBuildCapability)
+            or capability.secret is not _LABEL_CAPABILITY_SECRET
+            or not capability.attempt_id
+            or any(len(value) != 64 for value in (
+                capability.predictions_sha256,
+                capability.census_sha256,
+                capability.started_receipt_sha256,
+            ))):
+        raise ArtifactValidationError("label construction requires a runner-issued attempt capability")
     root = Path(execution_root).resolve()
     if repository_containing(root) is not None:
         raise ValueError("study artifact root must be outside every repository")
@@ -366,6 +412,7 @@ def build_label_artifact(
         label_rows = validate_rows(
             response["payload"], outcomes["output_schema"],
             availability=outcomes["availability"],
+            primary_key=resolved.spec.document["inputs"]["primary_key"],
         )
         folds = resolved.spec.document["evaluation"]["folds"]
         label_rows = [
@@ -383,6 +430,12 @@ def build_label_artifact(
             row_counts={"labels": len(label_rows)},
             evidence=evidence,
         )
+        label_receipt["attempt_capability"] = {
+            "attempt_id": capability.attempt_id,
+            "predictions_sha256": capability.predictions_sha256,
+            "census_sha256": capability.census_sha256,
+            "started_receipt_sha256": capability.started_receipt_sha256,
+        }
 
         def write_labels(data_root: Path) -> Mapping[str, Any]:
             write_text_atomic(
@@ -399,13 +452,14 @@ def build_label_artifact(
         shutil.rmtree(mount)
 
 
-def materialize_fold_features(
+def materialize_decision_features(
     resolved: ResolvedStudy,
     features: CacheObject,
     fold: Mapping[str, Any],
+    decision_session: str,
     root: str | Path,
 ) -> Path:
-    """Create a read-only feature view containing only the declared fold dates."""
+    """Create a read-only feature view for one decision inside one fold."""
     destination = Path(root).resolve()
     destination.mkdir(parents=True, exist_ok=False)
     nodes = destination / "nodes"
@@ -415,14 +469,14 @@ def materialize_fold_features(
         rows = features.read_json(f"nodes/{node['name']}.json")
         if "session" not in {column["name"] for column in node["output_schema"]}:
             raise ArtifactValidationError("folded feature schemas require a session column")
-        selected = [
-            row for row in rows
-            if start <= date.fromisoformat(row["session"]) < end
-        ]
-        if any(datetime.fromisoformat(row[node["availability"]]).date() >= end
+        decision = date.fromisoformat(decision_session)
+        if not start <= decision < end:
+            raise ArtifactValidationError("decision session is outside the declared fold")
+        selected = [row for row in rows if row["session"] == decision_session]
+        if any(datetime.fromisoformat(row[node["availability"]]).date() > decision
                for row in selected):
             raise ArtifactValidationError(
-                f"fold {fold['name']} contains features unavailable by its end"
+                f"decision {decision_session} contains unavailable features"
             )
         if not selected and "refuse" in resolved.spec.document["evaluation"]["missing_data_policy"]:
             raise ArtifactValidationError(f"fold {fold['name']} has no feature rows")
@@ -440,13 +494,19 @@ def validate_feature_label_alignment(
     labels: CacheObject,
 ) -> None:
     folds = resolved.spec.document["evaluation"]["folds"]
-    feature_sessions = set()
+    primary_key = resolved.spec.document["inputs"]["primary_key"]
+    label_keys = {
+        tuple(row[name] for name in primary_key)
+        for row in labels.read_json("labels.json")
+    }
     for node in resolved.spec.document["features"]:
+        node_keys = set()
         for row in features.read_json(f"nodes/{node['name']}.json"):
             session = date.fromisoformat(row["session"])
             if any(date.fromisoformat(fold["start"]) <= session < date.fromisoformat(fold["end"])
                    for fold in folds):
-                feature_sessions.add(row["session"])
-    label_sessions = {row["session"] for row in labels.read_json("labels.json")}
-    if feature_sessions != label_sessions:
-        raise ArtifactValidationError("feature and label row keys are not fold-aligned")
+                node_keys.add(tuple(row[name] for name in primary_key))
+        if node_keys != label_keys:
+            raise ArtifactValidationError(
+                f"feature node {node['name']} and label primary keys are not fold-aligned"
+            )

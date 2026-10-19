@@ -4,8 +4,10 @@ import json
 from engine.lib.resources import write_text_atomic
 from farm.research.artifacts import (
     ArtifactValidationError,
+    _build_label_artifact,
     build_study_artifacts,
-    materialize_fold_features,
+    materialize_decision_features,
+    validate_feature_label_alignment,
 )
 from farm.research.cache import CacheError, ResearchCache
 from farm.research.canonical import canonical_sha256, file_sha256
@@ -114,10 +116,54 @@ def test_trusted_builder_refuses_feature_published_after_fold_end(tmp_path):
     artifacts = build_study_artifacts(
         ResearchCache(tmp_path / "cache"), resolved, tmp_path / "execution",
     )
-    with pytest.raises(ArtifactValidationError, match="unavailable by its end"):
-        materialize_fold_features(
+    with pytest.raises(ArtifactValidationError, match="contains unavailable features"):
+        materialize_decision_features(
             resolved,
             artifacts.features,
             resolved.spec.document["evaluation"]["folds"][0],
+            "2024-01-02",
             tmp_path / "fold",
         )
+
+
+def test_label_builder_refuses_without_runner_attempt_capability(tmp_path):
+    base, contract = _resolved(tmp_path)
+    resolved = StudySpec.from_dict(contract).resolve(base)
+    with pytest.raises(ArtifactValidationError, match="runner-issued attempt capability"):
+        _build_label_artifact(
+            ResearchCache(tmp_path / "cache"),
+            resolved,
+            tmp_path / "labels",
+            None,
+        )
+
+
+def test_feature_label_alignment_uses_exact_declared_entity_key(tmp_path):
+    base, contract = _resolved(tmp_path)
+    contract["inputs"]["schema"].append({
+        "name": "ticker", "dtype": "string", "nullable": False,
+    })
+    contract["inputs"]["primary_key"] = ["session", "ticker"]
+    for section in (contract["features"][0], contract["outcomes"]):
+        section["output_schema"].insert(1, {
+            "name": "ticker", "dtype": "string", "nullable": False,
+        })
+    resolved = StudySpec.from_dict(contract).resolve(base)
+
+    class FixtureObject:
+        def __init__(self, values):
+            self.values = values
+
+        def read_json(self, path):
+            return self.values[path]
+
+    feature = FixtureObject({"nodes/fixture.json": [{
+        "session": "2024-01-02", "ticker": "AAA", "score": 1.0,
+        "available_at": "2024-01-02T21:00:00+00:00",
+    }]})
+    label = FixtureObject({"labels.json": [{
+        "session": "2024-01-02", "ticker": "BBB", "return_h1": 0.1,
+        "available_at": "2024-01-02T22:00:00+00:00",
+    }]})
+    with pytest.raises(ArtifactValidationError, match="primary keys are not fold-aligned"):
+        validate_feature_label_alignment(resolved, feature, label)

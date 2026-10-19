@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import importlib.metadata
 import json
 import re
-import site
 import sys
 from dataclasses import dataclass
 from datetime import date
@@ -15,7 +15,13 @@ from types import MappingProxyType
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
-from .canonical import canonical_bytes, canonical_sha256, file_sha256
+from .canonical import (
+    canonical_bytes,
+    canonical_sha256,
+    distribution_sha256,
+    file_sha256,
+    python_runtime_sha256,
+)
 
 SCHEMA_VERSION = 1
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
@@ -215,8 +221,8 @@ def _inputs(value: object) -> dict[str, Any]:
     path = "inputs"
     row = _mapping(value, path, (
         "generation_sha256", "feature_parts", "outcome_parts", "schema", "availability",
-        "price_basis", "timezone", "calendar", "membership", "coverage", "survivor_status",
-        "quality",
+        "primary_key", "price_basis", "timezone", "calendar", "membership", "coverage",
+        "survivor_status", "quality",
     ))
     feature_parts = [
         _file_ref(item, f"{path}.feature_parts[{index}]")
@@ -231,6 +237,8 @@ def _inputs(value: object) -> dict[str, Any]:
     part_paths = [item["path"] for item in (*feature_parts, *outcome_parts)]
     if len(part_paths) != len(set(part_paths)):
         raise ContractError(f"{path} feature/outcome parts have duplicate paths")
+    if any(item["format"] != "rows_json" for item in feature_parts):
+        raise ContractError("feature_parts must use the temporal rows_json adapter")
     availability = []
     for index, item in enumerate(_list(row["availability"], f"{path}.availability")):
         item_path = f"{path}.availability[{index}]"
@@ -260,12 +268,17 @@ def _inputs(value: object) -> dict[str, Any]:
     survivor = _string(row["survivor_status"], f"{path}.survivor_status")
     if survivor not in SURVIVOR_STATES:
         raise ContractError(f"{path}.survivor_status must be one of {sorted(SURVIVOR_STATES)}")
+    schema = _columns(row["schema"], f"{path}.schema")
+    primary_key = _unique_strings(row["primary_key"], f"{path}.primary_key")
+    if any(key not in {column["name"] for column in schema} for key in primary_key):
+        raise ContractError(f"{path}.primary_key must name declared input columns")
     return {
         "generation_sha256": _sha(row["generation_sha256"], f"{path}.generation_sha256"),
         "feature_parts": feature_parts,
         "outcome_parts": outcome_parts,
-        "schema": _columns(row["schema"], f"{path}.schema"),
+        "schema": schema,
         "availability": availability,
+        "primary_key": primary_key,
         "price_basis": _string(row["price_basis"], f"{path}.price_basis"),
         "timezone": timezone_name,
         "calendar": {
@@ -396,7 +409,7 @@ def _evaluation(value: object) -> dict[str, Any]:
     if len(folds) != len({item["name"] for item in folds}):
         raise ContractError(f"{path}.folds has duplicate names")
     census = _mapping(row["dsr_census"], f"{path}.dsr_census", (
-        "path", "sha256", "selection_n", "register_sha256", "row_sha256",
+        "path", "sha256", "selection_n",
     ))
     rules = _mapping(row["rules"], f"{path}.rules", ("pass", "admit", "kill"))
     normalized_rules = {}
@@ -412,6 +425,9 @@ def _evaluation(value: object) -> dict[str, Any]:
             "threshold": _number(item["threshold"], f"{item_path}.threshold"),
         }
     holdout = _mapping(row["holdout"], f"{path}.holdout", ("lease_id", "marker"))
+    missing_policy = _string(row["missing_data_policy"], f"{path}.missing_data_policy")
+    if missing_policy not in {"refuse", "drop"}:
+        raise ContractError(f"{path}.missing_data_policy must be refuse or drop")
     return {
         "callback": _callback(row["callback"], f"{path}.callback"),
         "variants": variants,
@@ -423,19 +439,13 @@ def _evaluation(value: object) -> dict[str, Any]:
             "path": _relative_path(census["path"], f"{path}.dsr_census.path"),
             "sha256": _sha(census["sha256"], f"{path}.dsr_census.sha256"),
             "selection_n": _integer(census["selection_n"], f"{path}.dsr_census.selection_n", minimum=1),
-            "register_sha256": _sha(
-                census["register_sha256"], f"{path}.dsr_census.register_sha256"
-            ),
-            "row_sha256": _sha(census["row_sha256"], f"{path}.dsr_census.row_sha256"),
         },
         "rules": normalized_rules,
         "holdout": {
             "lease_id": _string(holdout["lease_id"], f"{path}.holdout.lease_id"),
             "marker": _relative_path(holdout["marker"], f"{path}.holdout.marker"),
         },
-        "missing_data_policy": _string(
-            row["missing_data_policy"], f"{path}.missing_data_policy"
-        ),
+        "missing_data_policy": missing_policy,
     }
 
 
@@ -445,10 +455,14 @@ def _costs(value: object) -> dict[str, Any]:
     profiles = []
     for index, item in enumerate(_list(row["profiles"], f"{path}.profiles")):
         item_path = f"{path}.profiles[{index}]"
-        profile = _mapping(item, item_path, ("name", "sha256"))
+        profile = _mapping(item, item_path, ("name", "sha256", "rate_bps"))
+        rate = _number(profile["rate_bps"], f"{item_path}.rate_bps")
+        if rate < 0:
+            raise ContractError(f"{item_path}.rate_bps cannot be negative")
         profiles.append({
             "name": _string(profile["name"], f"{item_path}.name"),
             "sha256": _sha(profile["sha256"], f"{item_path}.sha256"),
+            "rate_bps": rate,
         })
     if len(profiles) != len({item["name"] for item in profiles}):
         raise ContractError(f"{path}.profiles has duplicate names")
@@ -472,6 +486,7 @@ def _execution(value: object) -> dict[str, Any]:
     path = "execution"
     row = _mapping(value, path, (
         "seed", "workers", "memory_mb", "expected_seconds", "output_subdir", "python_sha256",
+        "python_runtime_sha256",
     ))
     return {
         "seed": _integer(row["seed"], f"{path}.seed"),
@@ -482,16 +497,23 @@ def _execution(value: object) -> dict[str, Any]:
         ),
         "output_subdir": _relative_path(row["output_subdir"], f"{path}.output_subdir"),
         "python_sha256": _sha(row["python_sha256"], f"{path}.python_sha256"),
+        "python_runtime_sha256": _sha(
+            row["python_runtime_sha256"], f"{path}.python_runtime_sha256"
+        ),
     }
 
 
 def _module_path(base: Path, reference: Mapping[str, Any]) -> Path:
     if reference["kind"] == "runtime":
-        candidates = [Path(root).resolve() / reference["source"] for root in site.getsitepackages()]
+        if distribution_sha256(reference["source"]) != reference["sha256"]:
+            raise ContractError(f"runtime distribution identity differs: {reference['source']}")
+        distribution = importlib.metadata.distribution(reference["source"])
+        candidates = [Path(distribution.locate_file(""))]
     else:
         candidates = [(base / reference["source"]).resolve()]
-    paths = [path for path in candidates if path.is_file()]
-    if len(paths) != 1 or (reference["kind"] != "runtime" and not paths[0].is_relative_to(base)):
+    paths = [path.resolve() for path in candidates if path.exists()]
+    if len(paths) != 1 or (reference["kind"] != "runtime" and not paths[0].is_file()) \
+            or (reference["kind"] != "runtime" and not paths[0].is_relative_to(base)):
         raise ContractError(f"callback source cannot be resolved exactly: {reference['module']}")
     return paths[0]
 
@@ -540,6 +562,12 @@ class StudySpec:
             "costs": _costs(root["costs"]),
             "execution": _execution(root["execution"]),
         }
+        keys = set(normalized["inputs"]["primary_key"])
+        for index, node in enumerate(normalized["features"]):
+            if not keys <= {column["name"] for column in node["output_schema"]}:
+                raise ContractError(f"features[{index}].output_schema must include every primary key")
+        if not keys <= {column["name"] for column in normalized["outcomes"]["output_schema"]}:
+            raise ContractError("outcomes.output_schema must include every primary key")
         detached = json.loads(canonical_bytes(normalized))
         return cls(detached)
 
@@ -567,16 +595,14 @@ class StudySpec:
 
     @property
     def study_identity_sha256(self) -> str:
-        """Registration identity excluding the self-referential census seal bytes."""
-        document = self.as_dict()
-        census = document["evaluation"]["dsr_census"]
-        document["evaluation"]["dsr_census"] = {"selection_n": census["selection_n"]}
-        return canonical_sha256(document)
+        return self.sha256
 
     def resolve(self, base_dir: str | Path) -> ResolvedStudy:
         base = Path(base_dir).resolve()
         if file_sha256(Path(sys.executable).resolve()) != self.document["execution"]["python_sha256"]:
             raise ContractError("declared Python interpreter identity differs")
+        if python_runtime_sha256() != self.document["execution"]["python_runtime_sha256"]:
+            raise ContractError("declared Python runtime closure differs")
         evidence: dict[str, Path] = {}
         refs = [
             *self.document["inputs"]["feature_parts"],
@@ -609,7 +635,8 @@ class StudySpec:
             for reference in references:
                 module, expected = reference["module"], reference["sha256"]
                 path = _module_path(base, reference)
-                observed = file_sha256(path)
+                observed = (distribution_sha256(reference["source"])
+                            if reference["kind"] == "runtime" else file_sha256(path))
                 if observed != expected:
                     raise ContractError(f"callback module hash differs: {module}")
                 previous = resolved_callbacks.setdefault(module, path)

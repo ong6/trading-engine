@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import os
 import shutil
-import site
 import subprocess
 import sys
 import uuid
@@ -15,7 +15,13 @@ from typing import Any, Mapping
 
 from engine.lib.resources import write_text_atomic
 
-from .canonical import canonical_bytes, canonical_sha256, file_sha256, fsync_tree
+from .canonical import (
+    canonical_bytes,
+    canonical_sha256,
+    distribution_sha256,
+    file_sha256,
+    fsync_tree,
+)
 from .spec import ContractError, ResolvedStudy
 
 
@@ -65,7 +71,9 @@ def build_callback_package(
         for item in refs:
             path = (resolved.callback_paths[item["module"]] if item["kind"] == "runtime"
                     else _module_target(target / "src", item))
-            if file_sha256(path) != item["sha256"]:
+            observed = (distribution_sha256(item["source"])
+                        if item["kind"] == "runtime" else file_sha256(path))
+            if observed != item["sha256"]:
                 raise SandboxError("callback package bytes differ")
         return CallbackPackage(digest, target, reference)
     temporary = objects.parent / "builds" / f"{digest}.{uuid.uuid4().hex}"
@@ -74,10 +82,26 @@ def build_callback_package(
     try:
         for item in refs:
             source = resolved.callback_paths.get(item["module"])
+            if item["kind"] == "runtime":
+                if distribution_sha256(item["source"]) != item["sha256"]:
+                    raise ContractError(
+                        f"callback dependency changed after resolution: {item['module']}"
+                    )
+                distribution = importlib.metadata.distribution(item["source"])
+                distribution_root = Path(distribution.locate_file("")).resolve()
+                runtime_root = temporary / "runtime" / item["source"]
+                for entry in distribution.files or ():
+                    runtime_source = Path(distribution.locate_file(entry)).resolve()
+                    if (not runtime_source.is_file()
+                            or not runtime_source.is_relative_to(distribution_root)
+                            or "__pycache__" in runtime_source.parts):
+                        continue
+                    runtime_target = runtime_root / runtime_source.relative_to(distribution_root)
+                    runtime_target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(runtime_source, runtime_target)
+                continue
             if source is None or not source.is_file() or file_sha256(source) != item["sha256"]:
                 raise ContractError(f"callback dependency changed after resolution: {item['module']}")
-            if item["kind"] == "runtime":
-                continue
             destination = _module_target(source_root, item)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, destination)
@@ -151,7 +175,6 @@ def run_sandboxed(
         raise SandboxError("bubblewrap is required for outcome-isolated studies")
     harness = _build_harness(runtime_root)
     python_root = Path(sys.base_prefix).resolve()
-    site_roots = tuple(Path(path).resolve() for path in site.getsitepackages())
     command = [
         executable,
         "--die-with-parent", "--new-session", "--unshare-all", "--cap-drop", "ALL",
@@ -165,11 +188,12 @@ def run_sandboxed(
         if system.exists():
             _bind(command, system, system.as_posix())
     python_paths = ["/runtime/harness", "/study/package/src"]
-    for index, source in enumerate(site_roots):
-        destination = f"/runtime/site/{index}"
-        command.extend(("--dir", "/runtime/site")) if index == 0 else None
-        _bind(command, source, destination)
-        python_paths.append(destination)
+    packaged_runtime = package.path / "runtime"
+    if packaged_runtime.is_dir():
+        python_paths.extend(
+            f"/study/package/runtime/{path.name}"
+            for path in sorted(packaged_runtime.iterdir()) if path.is_dir()
+        )
     if feature_root is not None:
         _bind(command, feature_root, "/features")
     if label_root is not None:

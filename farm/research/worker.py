@@ -8,7 +8,6 @@ import ctypes
 import errno
 import importlib
 import importlib.abc
-import importlib.util
 import inspect
 import io
 import json
@@ -18,7 +17,7 @@ import sys
 import time
 from pathlib import Path
 
-from .canonical import canonical_bytes, canonical_sha256, file_sha256
+from .canonical import canonical_bytes, canonical_sha256, distribution_sha256, file_sha256
 from .mounts import ReadOnlyMount
 
 _DENIED_SYSCALLS = (
@@ -82,8 +81,13 @@ def _callback(reference: dict, package_sha256: str):
     source_root = Path("/study/package/src").resolve()
     for item in refs:
         if item["kind"] == "runtime":
-            found = importlib.util.find_spec(item["module"])
-            path = Path(found.origin or "").resolve() if found is not None else Path()
+            observed = distribution_sha256(item["source"])
+            if observed != item["sha256"]:
+                raise ValueError(
+                    f"callback dependency differs in sandbox: {item['module']} "
+                    f"{observed} != {item['sha256']}"
+                )
+            continue
         else:
             module_path = source_root.joinpath(*item["module"].split("."))
             path = ((module_path / "__init__.py") if item["kind"] == "package"

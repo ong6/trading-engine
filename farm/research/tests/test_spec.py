@@ -1,8 +1,9 @@
 import importlib
 import json
+from pathlib import Path
 
 from engine.lib.resources import write_text_atomic
-from farm.research.canonical import file_sha256
+from farm.research.canonical import distribution_sha256, file_sha256
 from farm.research.sandbox import build_callback_package, run_sandboxed
 from farm.research.spec import ContractError, StudySpec
 from farm.research.tests.support import complete_contract
@@ -16,7 +17,7 @@ def test_complete_contract_has_canonical_golden_bytes_and_derived_markdown(tmp_p
     second = StudySpec.from_dict(json.loads(first.canonical_bytes))
     assert first.canonical_bytes == second.canonical_bytes
     assert first.sha256 == second.sha256
-    assert first.sha256 == "9a2737ef790faa57bd75a6b0b52baf08b2aacba5b02fedb7e9d8944e2936564b"
+    assert first.sha256 == "c47527a6c5efda3c4370a506ba0bac74f29c3deb0666606bc2ff3c2e55c2c15b"
     assert first.resolve(tmp_path).spec == first
     markdown = first.to_markdown()
     assert f"Contract SHA-256: `{first.sha256}`" in markdown
@@ -171,3 +172,37 @@ def test_resolution_refuses_interpreter_identity_drift(tmp_path):
     contract["execution"]["python_sha256"] = "f" * 64
     with pytest.raises(ContractError, match="interpreter identity differs"):
         StudySpec.from_dict(contract).resolve(tmp_path)
+    contract = complete_contract(tmp_path)
+    contract["execution"]["python_runtime_sha256"] = "f" * 64
+    with pytest.raises(ContractError, match="runtime closure differs"):
+        StudySpec.from_dict(contract).resolve(tmp_path)
+
+
+def test_feature_parts_must_use_temporal_rows_adapter(tmp_path):
+    contract = complete_contract(tmp_path)
+    contract["inputs"]["feature_parts"][0]["format"] = "opaque"
+    with pytest.raises(ContractError, match="temporal rows_json adapter"):
+        StudySpec.from_dict(contract)
+
+
+def test_runtime_distribution_identity_moves_when_any_submodule_moves(tmp_path, monkeypatch):
+    import farm.research.canonical as canonical
+
+    package = tmp_path / "site" / "fixture_runtime"
+    package.mkdir(parents=True)
+    write_text_atomic(package / "__init__.py", "VALUE = 1\n")
+    write_text_atomic(package / "submodule.py", "VALUE = 2\n")
+
+    class Distribution:
+        files = (Path("fixture_runtime/__init__.py"), Path("fixture_runtime/submodule.py"))
+
+        def locate_file(self, item):
+            return tmp_path / "site" / item
+
+    monkeypatch.setattr(canonical.importlib.metadata, "distribution", lambda name: Distribution())
+    distribution_sha256.cache_clear()
+    before = distribution_sha256("fixture-runtime")
+    write_text_atomic(package / "submodule.py", "VALUE = 3\n")
+    distribution_sha256.cache_clear()
+    after = distribution_sha256("fixture-runtime")
+    assert before != after

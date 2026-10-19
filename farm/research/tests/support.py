@@ -8,7 +8,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from engine.lib.resources import write_text_atomic
-from farm.research.canonical import file_sha256
+from farm.research.canonical import file_sha256, python_runtime_sha256
 
 
 def complete_contract(root: Path) -> dict:
@@ -74,6 +74,7 @@ def complete_contract(root: Path) -> dict:
                 {"field": "session", "known_at": "session open"},
                 {"field": "close", "known_at": "session close"},
             ],
+            "primary_key": ["session"],
             "price_basis": "split-adjusted",
             "timezone": "America/New_York",
             "calendar": {"name": "XNYS", "version": "fixture-v1"},
@@ -128,24 +129,22 @@ def complete_contract(root: Path) -> dict:
             "controls": ["cash"],
             "folds": [{"name": "development-1", "start": "2024-01-01", "end": "2024-07-01"}],
             "benchmark_mode": "gross cash",
-            "statistics": ["calendar mean"],
+            "statistics": ["mean_net_return"],
             "dsr_census": {
                 "path": "census.jsonl",
                 "sha256": file_sha256(census_path),
                 "selection_n": 140,
-                "register_sha256": "4" * 64,
-                "row_sha256": "5" * 64,
             },
             "rules": {
-                "pass": {"metric": "score", "operator": ">=", "threshold": 2},
-                "admit": {"metric": "score", "operator": ">=", "threshold": 1},
-                "kill": {"metric": "score", "operator": "<", "threshold": 1},
+                "pass": {"metric": "mean_net_return", "operator": ">=", "threshold": 2},
+                "admit": {"metric": "mean_net_return", "operator": ">=", "threshold": 1},
+                "kill": {"metric": "mean_net_return", "operator": "<", "threshold": 1},
             },
             "holdout": {"lease_id": "fixture-holdout-v1", "marker": "holdout/opened.json"},
-            "missing_data_policy": "refuse incomplete rows",
+            "missing_data_policy": "refuse",
         },
         "costs": {
-            "profiles": [{"name": "fixture-zero", "sha256": "2" * 64}],
+            "profiles": [{"name": "fixture-zero", "sha256": "2" * 64, "rate_bps": 0.0}],
             "scope": {
                 name: {"status": "zero", "reason": "synthetic fixture", "sha256": "3" * 64}
                 for name in ("execution", "commission", "borrow_funding", "fx", "tax", "data")
@@ -158,6 +157,7 @@ def complete_contract(root: Path) -> dict:
             "expected_seconds": 5,
             "output_subdir": "synthetic-contract/v1",
             "python_sha256": file_sha256(Path(sys.executable).resolve()),
+            "python_runtime_sha256": python_runtime_sha256(),
         },
     }
     return deepcopy(contract)
