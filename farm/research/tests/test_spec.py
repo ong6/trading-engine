@@ -47,6 +47,29 @@ def test_contract_requires_availability_for_every_feature_input_field(tmp_path):
         StudySpec.from_dict(contract)
 
 
+@pytest.mark.parametrize("phase", ["development", "holdout"])
+@pytest.mark.parametrize(
+    ("point_in_time", "survivor_status", "message"),
+    [
+        (False, "point_in_time", "point-in-time membership"),
+        (True, "current_listings_only", "point-in-time survivor evidence"),
+        (True, "unknown", "point-in-time survivor evidence"),
+    ],
+)
+def test_verdict_capable_contracts_require_pit_survivor_evidence(
+    tmp_path, phase, point_in_time, survivor_status, message,
+):
+    contract = complete_contract(tmp_path)
+    contract["study"]["phase"] = phase
+    contract["inputs"]["membership"]["point_in_time"] = point_in_time
+    contract["inputs"]["survivor_status"] = survivor_status
+    with pytest.raises(ContractError, match=message):
+        StudySpec.from_dict(contract)
+
+    contract["study"]["phase"] = "pilot"
+    assert StudySpec.from_dict(contract).document["study"]["phase"] == "pilot"
+
+
 def test_resolution_refuses_source_recipe_and_evidence_hash_drift(tmp_path):
     contract = complete_contract(tmp_path)
     spec = StudySpec.from_dict(contract)
@@ -96,7 +119,10 @@ def test_contract_identity_moves_with_late_revision_quality_calendar_or_callback
         (lambda value: value["inputs"].__setitem__("timezone", "UTC"), "feature"),
         (lambda value: value["inputs"]["coverage"].__setitem__("minimum", 0.95), "feature"),
         (lambda value: value["inputs"]["coverage"].__setitem__("unit", "rows"), "feature"),
-        (lambda value: value["inputs"].__setitem__("survivor_status", "unknown"), "feature"),
+        (lambda value: (
+            value["study"].__setitem__("phase", "pilot"),
+            value["inputs"].__setitem__("survivor_status", "unknown"),
+        ), "feature"),
         (lambda value: value["inputs"].__setitem__("price_basis", "raw"), "panel"),
         (lambda value: value["inputs"]["calendar"].__setitem__("version", "fixture-v2"), "panel"),
         (lambda value: (
@@ -106,7 +132,10 @@ def test_contract_identity_moves_with_late_revision_quality_calendar_or_callback
             value["inputs"]["availability"].append("volume"),
         ), "feature"),
         (lambda value: value["inputs"]["schema"][0].__setitem__("nullable", True), "feature"),
-        (lambda value: value["inputs"]["membership"].__setitem__("point_in_time", False), "universe"),
+        (lambda value: (
+            value["study"].__setitem__("phase", "pilot"),
+            value["inputs"]["membership"].__setitem__("point_in_time", False),
+        ), "universe"),
         (lambda value: value["inputs"]["quality"].__setitem__("version", "fixture-v2"), "feature"),
         (lambda value: value["strategy"].__setitem__("universe_rule", "changed universe"), "feature"),
         (lambda value: value["strategy"].__setitem__("liquidity_rule", "changed liquidity"), "feature"),

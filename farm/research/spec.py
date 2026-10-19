@@ -597,6 +597,15 @@ class StudySpec:
             "costs": _costs(root["costs"]),
             "execution": _execution(root["execution"]),
         }
+        if normalized["study"]["phase"] in {"development", "holdout"}:
+            if not normalized["inputs"]["membership"]["point_in_time"]:
+                raise ContractError(
+                    "development and holdout require point-in-time membership"
+                )
+            if normalized["inputs"]["survivor_status"] != "point_in_time":
+                raise ContractError(
+                    "development and holdout require point-in-time survivor evidence"
+                )
         keys = set(normalized["inputs"]["primary_key"])
         for index, node in enumerate(normalized["features"]):
             if not keys <= {column["name"] for column in node["output_schema"]}:
