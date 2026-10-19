@@ -59,15 +59,23 @@ def test_runner_seals_start_and_predictions_before_issuing_label_capability(tmp_
 
     _, runner, features = _setup(tmp_path)
     original = runner_module._build_label_artifact
+    original_fsync_directory = runner_module._fsync_directory
+    synced = []
+
+    def recording_fsync(path):
+        original_fsync_directory(path)
+        synced.append(Path(path).resolve())
 
     def checked_builder(cache, resolved, root, capability):
         run = tmp_path / "work" / "synthetic-contract" / "v1" / "development-1"
         assert (run / "attempt-started.json").is_file()
         assert (run / "predictions.json").is_file()
+        assert synced.count(run.resolve()) >= 2
         assert capability.attempt_id == "development-1"
         assert capability.predictions_sha256 == file_sha256(run / "predictions.json")
         return original(cache, resolved, root, capability)
 
+    monkeypatch.setattr(runner_module, "_fsync_directory", recording_fsync)
     monkeypatch.setattr(runner_module, "_build_label_artifact", checked_builder)
     result = runner.run(attempt="development-1", features=features)
     assert result.outcome_accessed and result.result_path is not None

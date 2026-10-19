@@ -505,6 +505,7 @@ class StudyRunner:
             ]}
             predictions_path = run_directory / "predictions.json"
             predictions_sha = _seal_json(predictions, predictions_path)
+            _fsync_directory(run_directory)
             result_path, result_sha, outcome_accessed = None, None, False
             if phase != "pilot":
                 capability = _new_label_capability(

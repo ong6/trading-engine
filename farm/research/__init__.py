@@ -1,4 +1,4 @@
-"""Research-only study contracts, immutable caches, and attempt accounting."""
+"""Research-only study contracts, isolated execution, and immutable caches."""
 
 from .spec import ResolvedStudy, StudySpec
 
