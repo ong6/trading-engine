@@ -517,6 +517,14 @@ policy_templates:
     producer: [P3 research evidence release publisher]
     readers: [offline PIT restore]
     registration: [P3 fixed evidence checkpoints]
+  registered_evidence_file: &registered_evidence_file
+    <<: *evidence_file
+    schema_owner: [tools/release_manifest.py]
+    producer: [registered deterministic evidence renderer]
+    readers: [release verification, backup, operators]
+    backup: Required prospective-evidence member in the verified recovery bundle.
+    registration: [release manifest prospective evidence]
+    quality_gate: Exact path, bounded size, canonical identity, and recovery-bundle digest.
 
 datasets:
   # Operational daily prices, universe, actions, fundamentals, queue, and bitemporal data.
@@ -761,9 +769,52 @@ datasets:
   - {<<: *universe_csv_file, id: files.universe_csv, kind: file_set, location: "data/universe.csv"}
   - {<<: *eod_file, id: files.eod_reports, kind: file_set, location: "data/eod/**"}
   - {<<: *screen_file, id: files.screen_reports, kind: file_set, location: "data/screens/**"}
-  - {<<: *report_file, id: files.reports, kind: file_set, location: "data/reports/**"}
-  - {<<: *log_file, id: files.operational_logs, kind: file_set, location: "logs/**", semantics: derived}
+  - {<<: *registered_evidence_file, id: files.agent_evaluation_report, kind: file_set, location: "data/reports/agent-evaluation.json", schema_owner: [server/agent_evaluation_reporting.py, tools/release_manifest.py], producer: [server.agent_evaluation_reporting], registration: [P11 and P15 evaluation, release manifest prospective evidence]}
+  - {<<: *registered_evidence_file, id: files.p15_look_anchors, kind: file_set, location: "data/reports/agent-eval/p15-look-anchors.jsonl", schema_owner: [engine/p15_evaluation.py, tools/release_manifest.py], producer: [engine.p15_evaluation], registration: [P15 revision 15, release manifest prospective evidence]}
+  - {<<: *registered_evidence_file, id: files.p15_evaluation_report, kind: file_set, location: "data/reports/agent-eval/p15.md", schema_owner: [server/agent_evaluation_reporting.py, tools/release_manifest.py], producer: [server.agent_evaluation_reporting], registration: [P15 revision 15, release manifest prospective evidence]}
+  - {<<: *report_file, id: files.backtest_reports, kind: file_set, location: "data/reports/backtests/**"}
+  - {<<: *report_file, id: files.capital_sensitivity_reports, kind: file_set, location: "data/reports/capital-sensitivity/**"}
+  - {<<: *report_file, id: files.execution_drag_report, kind: file_set, location: "data/reports/execution-drag.md"}
+  - {<<: *report_file, id: files.experiment_markdown_reports, kind: file_set, location: "data/reports/experiments/*.md"}
+  - {<<: *registered_evidence_file, id: files.contamination_readme, kind: file_set, location: "data/reports/experiments/agent-2022-contamination-probes-v1/README.md", schema_owner: [farm/agent_2022_replay.py, tools/release_manifest.py], producer: [farm.agent_2022_replay], registration: [P10 contamination probes, release manifest prospective evidence]}
+  - {<<: *registered_evidence_file, id: files.contamination_decisions, kind: file_set, location: "data/reports/experiments/agent-2022-contamination-probes-v1/decisions.json", schema_owner: [farm/agent_2022_replay.py, tools/release_manifest.py], producer: [farm.agent_2022_replay], registration: [P10 contamination probes, release manifest prospective evidence]}
+  - {<<: *registered_evidence_file, id: files.contamination_result, kind: file_set, location: "data/reports/experiments/agent-2022-contamination-probes-v1/result.json", schema_owner: [farm/agent_2022_replay.py, tools/release_manifest.py], producer: [farm.agent_2022_replay], registration: [P10 contamination probes, release manifest prospective evidence]}
+  - {<<: *report_file, id: files.agent_replay_reports, kind: file_set, location: "data/reports/experiments/agent-2022-replay-v1/**"}
+  - {<<: *report_file, id: files.credit_confirmed_reports, kind: file_set, location: "data/reports/experiments/credit-confirmed-spy-v1/**"}
+  - {<<: *report_file, id: files.fixed_etf_reports, kind: file_set, location: "data/reports/experiments/fixed-etf-rebalancing-v1/**"}
+  - {<<: *report_file, id: files.gross_voltarget_reports, kind: file_set, location: "data/reports/experiments/gross-voltarget-matched-static/**"}
+  - {<<: *report_file, id: files.sell_in_may_reports, kind: file_set, location: "data/reports/experiments/sell-in-may-spy-v1/**"}
+  - {<<: *report_file, id: files.turn_of_month_reports, kind: file_set, location: "data/reports/experiments/turn-of-month-spy-v1/**"}
+  - {<<: *report_file, id: files.vix_term_reports, kind: file_set, location: "data/reports/experiments/vix-term-spy-v1/**"}
+  - {<<: *registered_evidence_file, id: files.e1_forward_json, kind: file_set, location: "data/reports/experiments/e1-spy-monday-forward.json", schema_owner: [engine/forward_review.py, tools/release_manifest.py], producer: [engine.forward_review], registration: [E1 v8, release manifest prospective evidence]}
+  - {<<: *registered_evidence_file, id: files.sector_forward_json, kind: file_set, location: "data/reports/forward/sector_momentum.json", schema_owner: [engine/forward_review.py, tools/release_manifest.py], producer: [engine.forward_review], registration: [sector v12, release manifest prospective evidence]}
+  - {<<: *registered_evidence_file, id: files.xs_forward_json, kind: file_set, location: "data/reports/forward/xs_momentum_12_1.json", schema_owner: [engine/xs_forward_review.py, tools/release_manifest.py], producer: [engine.xs_forward_review], registration: [XS v23, release manifest prospective evidence]}
+  - {<<: *report_file, id: files.league_reports, kind: file_set, location: "data/reports/league.*"}
+  - {<<: *report_file, id: files.metrics_reports, kind: file_set, location: "data/reports/metrics/**"}
+  - {<<: *report_file, id: files.research_reports, kind: file_set, location: "data/reports/research/**"}
+  - {<<: *report_file, id: files.sweep_reports, kind: file_set, location: "data/reports/sweeps/**"}
+  - {<<: *report_file, id: files.walkforward_reports, kind: file_set, location: "data/reports/walkforward/**"}
+  - {<<: *report_file, id: files.weekly_reports, kind: file_set, location: "data/reports/weekly/**"}
+  - {<<: *log_file, id: files.driver_logs, kind: file_set, location: "logs/*.log", semantics: derived}
+  - {<<: *log_file, id: files.hourly_observer_log, kind: file_set, location: "logs/hourly_market_watch_v5.jsonl", semantics: append_only_evidence, registration: [P9 hourly observer evidence]}
+  - {<<: *log_file, id: files.four_hour_observer_log, kind: file_set, location: "logs/four_hour_opportunity_review_v5.jsonl", semantics: append_only_evidence, registration: [P9 four-hour observer evidence]}
+  - {<<: *log_file, id: files.stage_timings_log, kind: file_set, location: "logs/stage-timings.jsonl", semantics: append_only_evidence, registration: [driver stage timing evidence]}
+  - {<<: *log_file, id: files.friday_postflight, kind: file_set, location: "logs/friday-postflight.json", semantics: append_only_evidence, registration: [Friday postflight evidence]}
+  - {<<: *log_file, id: files.driver_stage_state, kind: file_set, location: "logs/.last_stage*", semantics: current_state, registration: [driver restart state]}
+  - {<<: *log_file, id: files.driver_stage_flow, kind: file_set, location: "logs/.stage-flow.*", semantics: cache, registration: [driver in-progress state]}
   - {<<: *ops_database_file, id: files.ops_digest, kind: file_set, location: "logs/ops/ops.sqlite"}
-  - {<<: *scratch_file, id: files.research_scratch, kind: file_set, location: "scratch/**"}
+  - {<<: *ops_database_file, id: files.ops_sources, kind: file_set, location: "logs/ops/sources.txt", semantics: current_state}
+  - {<<: *ops_database_file, id: files.ops_hourly_reports, kind: file_set, location: "logs/ops/hourly/**"}
+  - {<<: *scratch_file, id: files.report_locks, kind: file_set, location: "scratch/.report-locks/**"}
+  - {<<: *scratch_file, id: files.backtest_scratch, kind: file_set, location: "scratch/<config_id>__<window>/**"}
+  - {<<: *scratch_file, id: files.walkforward_shared_scratch, kind: file_set, location: "scratch/wf__shared__<run>/**"}
+  - {<<: *scratch_file, id: files.walkforward_overlay_scratch, kind: file_set, location: "scratch/wf__<book>__p<pid>/**"}
+  - {<<: *scratch_file, id: files.capital_sensitivity_scratch, kind: file_set, location: "scratch/capital-sensitivity/**"}
+  - {<<: *scratch_file, id: files.credit_confirmed_scratch, kind: file_set, location: "scratch/credit-confirmed-spy-v1/**"}
+  - {<<: *scratch_file, id: files.fixed_etf_scratch, kind: file_set, location: "scratch/fixed-etf-rebalancing-v1/**"}
+  - {<<: *scratch_file, id: files.proof_scratch, kind: file_set, location: "scratch/proofs/**"}
+  - {<<: *scratch_file, id: files.sell_in_may_scratch, kind: file_set, location: "scratch/sell-in-may-spy-v1/**"}
+  - {<<: *scratch_file, id: files.turn_of_month_scratch, kind: file_set, location: "scratch/turn-of-month-spy-v1/**"}
+  - {<<: *scratch_file, id: files.vix_term_scratch, kind: file_set, location: "scratch/vix-term-spy-v1/**"}
   - {<<: *operational_backup, id: external.private_operational_backup, kind: external_backup, location: "private-backup/engine/**"}
   - {<<: *research_release, id: external.private_research_release, kind: external_backup, location: "private-research-release/**"}

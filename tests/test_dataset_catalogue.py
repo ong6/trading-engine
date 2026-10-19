@@ -1,6 +1,5 @@
 import ast
 import copy
-import fnmatch
 import json
 import re
 from pathlib import Path
@@ -71,7 +70,7 @@ DYNAMIC_DDL_RE = re.compile(
     re.IGNORECASE,
 )
 MANAGED_PATH_RE = re.compile(
-    r"(?:^|[\s`(])(?:trading-engine/)?"
+    r"(?:^|[\s`(:=])(?:%h/|~/)?(?:trading-engine/)?"
     r"((?:store|data|logs|scratch)/[A-Za-z0-9_.*{}<>/-]+"
     r"(?:\.[A-Za-z0-9_*{}<>-]+)?)"
 )
@@ -121,10 +120,16 @@ def _python_sources() -> list[Path]:
 
 def _non_python_sources() -> list[Path]:
     suffixes = {".sh", ".service", ".timer", ".toml"}
-    return sorted(
-        path for root in CODE_ROOTS for path in root.rglob("*")
+    roots = (*CODE_ROOTS, ROOT / "ui", ROOT / ".github")
+    nested = {
+        path for root in roots if root.exists() for path in root.rglob("*")
         if path.is_file() and path.suffix in suffixes
-    )
+    }
+    top_level = {
+        path for path in ROOT.iterdir()
+        if path.is_file() and path.suffix in suffixes
+    }
+    return sorted(nested | top_level)
 
 
 def _validate_catalogue(catalogue: dict) -> None:
@@ -195,6 +200,33 @@ def _catalogue_file_patterns(catalogue: dict) -> list[str]:
         for dataset in catalogue["datasets"]
         if dataset["kind"] in {"file_set", "generation"}
     ]
+
+
+def _pattern_matches(reference: str, pattern: str) -> bool:
+    normalized = re.sub(r"<[^>]+>", "*", pattern)
+    expression = re.escape(normalized)
+    expression = expression.replace(r"\*\*", ".*").replace(r"\*", "[^/]*")
+    expression = expression.replace(r"\?", "[^/]")
+    return (
+        re.fullmatch(expression, reference) is not None
+        or (normalized.endswith("/**") and reference == normalized[:-3])
+    )
+
+
+def _path_owner_records(reference: str, catalogue: dict) -> list[dict]:
+    matches = [
+        dataset for dataset in catalogue["datasets"]
+        if dataset["kind"] in {"file_set", "generation"}
+        and _pattern_matches(reference, dataset["location"])
+    ]
+    if not matches:
+        return []
+    specificity = {
+        dataset["id"]: len(re.sub(r"<[^>]+>|[*?]", "", dataset["location"]))
+        for dataset in matches
+    }
+    maximum = max(specificity.values())
+    return [dataset for dataset in matches if specificity[dataset["id"]] == maximum]
 
 
 def _literal_constants(tree: ast.AST) -> dict[str, object]:
@@ -327,26 +359,27 @@ def _path_references(python_sources: list[Path], other_sources: list[Path]) -> s
     for path in other_sources:
         references.update(MANAGED_PATH_RE.findall(path.read_text()))
     cleaned = {value.strip().rstrip("`'\".,:;)") for value in references}
+    path_roots = {
+        "store", "store/", "store/pit", "data", "data/", "data/reports",
+        "data/reports/agent-eval", "data/reports/experiments",
+        "data/reports/experiments/",
+        "data/reports/experiments/agent-2022-contamination-probes-v1",
+        "data/reports/forward/", "logs", "logs/",
+        "logs/ops", "logs/ops/", "scratch", "scratch/",
+    }
     return {
         value for value in cleaned
         if value not in IGNORED_MANAGED_PATHS
+        and value not in path_roots
         and value.split("/", 1)[-1]
         and not any(character.isspace() for character in value)
         and "{" not in value
+        and not value.endswith("-")
     }
 
 
 def _covered_path(reference: str, patterns: list[str]) -> bool:
-    if reference in {
-        "store", "store/", "store/pit", "data", "data/", "logs", "logs/",
-        "scratch", "scratch/",
-    }:
-        return True
-    return any(
-        fnmatch.fnmatchcase(reference, pattern)
-        or (pattern.endswith("/**") and reference == pattern[:-3])
-        for pattern in patterns
-    )
+    return any(_pattern_matches(reference, pattern) for pattern in patterns)
 
 
 def _connection_relations(con, database: str) -> set[Relation]:
@@ -491,7 +524,6 @@ def test_pinned_revision15_rehearsal_catalogue_is_covered():
 def test_account_source_and_backup_inventories_are_covered():
     catalogue = _load_catalogue()
     relations = _catalogue_relations(catalogue)
-    patterns = _catalogue_file_patterns(catalogue)
     source_databases = {
         "account_daily": "store/pit/free-sources.duckdb",
         "account_minute": "store/pit/massive-minute.duckdb",
@@ -500,7 +532,7 @@ def test_account_source_and_backup_inventories_are_covered():
     for source, (_environment_name, filename) in SOURCE_PATHS.items():
         database = source_databases[source]
         assert filename == Path(database).name
-        assert _covered_path(database, patterns)
+        assert len(_path_owner_records(database, catalogue)) == 1
         for name in SOURCE_TABLES[source]:
             kind = "view" if name == "free_daily_bars_adjusted" else "table"
             assert (database, "main", kind, name) in relations
@@ -512,7 +544,16 @@ def test_account_source_and_backup_inventories_are_covered():
         *backup_database.OPTIONAL_OPERATIONAL_CONTROL_FILES,
         *release_manifest.PROSPECTIVE_EVIDENCE_FILES,
     )
-    assert all(_covered_path(path, patterns) for path in backup_files)
+    assert all(len(_path_owner_records(path, catalogue)) == 1 for path in backup_files)
+
+
+def test_registered_evidence_files_have_dedicated_evidence_contracts():
+    catalogue = _load_catalogue()
+    for path in release_manifest.PROSPECTIVE_EVIDENCE_FILES:
+        owners = _path_owner_records(path, catalogue)
+        assert len(owners) == 1, {"path": path, "owners": [row["id"] for row in owners]}
+        assert owners[0]["semantics"] == "append_only_evidence"
+        assert "release manifest prospective evidence" in owners[0]["registration"]
 
 
 def test_retired_short_source_has_portable_exact_recovery_identity():
@@ -566,10 +607,29 @@ def test_every_rebuild_policy_is_an_explicit_action_or_refusal():
 
 
 def test_python_shell_and_service_managed_paths_are_catalogued():
-    patterns = _catalogue_file_patterns(_load_catalogue())
+    catalogue = _load_catalogue()
     references = _path_references(_python_sources(), _non_python_sources())
-    uncovered = sorted(path for path in references if not _covered_path(path, patterns))
+    owners = {path: _path_owner_records(path, catalogue) for path in references}
+    uncovered = sorted(path for path, rows in owners.items() if not rows)
+    ambiguous = {
+        path: [row["id"] for row in rows]
+        for path, rows in owners.items() if len(rows) > 1
+    }
     assert uncovered == []
+    assert ambiguous == {}
+    assert "logs/ui.log" in references
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "logs/new-live-fill-receipts.jsonl",
+        "data/reports/new-provider/raw.json",
+        "scratch/new-evidence/receipts.json",
+    ],
+)
+def test_unknown_family_beneath_managed_root_is_not_covered(path):
+    assert _path_owner_records(path, _load_catalogue()) == []
 
 
 def test_unknown_table_view_file_and_orphaned_deployed_table_are_detected(tmp_path):
@@ -594,7 +654,7 @@ def test_unknown_table_view_file_and_orphaned_deployed_table_are_detected(tmp_pa
     references = _path_references([source], [])
     assert "store/pit/new-provider/raw" in {
         path for path in references
-        if not _covered_path(path, _catalogue_file_patterns(_load_catalogue()))
+        if not _path_owner_records(path, _load_catalogue())
     }
 
 
