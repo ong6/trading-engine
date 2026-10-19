@@ -1,6 +1,6 @@
 # Walk-forward re-validation of league rules
 
-_18 book(s) re-validated · protocol **train 24mo → validate 12mo, step 12mo, 10 folds, anchored 2026-10-16** · generated 2026-10-18 08:48 UTC._
+_14 book(s) re-validated · protocol **train 24mo → validate 12mo, step 12mo, 10 folds, anchored 2026-10-16** · generated 2026-10-18 22:31 UTC._
 
 Every book below is replayed by its OWN live strategy code through the real `sim/league.py` day-step — real orders, real t+1-open fills with the league's slippage and liquidity guards, real dividend crediting. The config replayed is the JSON frozen in the live `portfolios` row (D-WF4), i.e. the rule the league is actually trading. Nothing is reimplemented for this report and no bar is ever invented.
 
@@ -98,19 +98,16 @@ Retained retired evidence is included in this cohort and labelled `RETIRED`; it 
 
 ## Summary — all books, all folds
 
-**8 of 16 judged book(s) are `INDISTINGUISHABLE` from their declared control** at 90% confidence on mean excess. Read every verdict in the next column with that column beside it.
+**7 of 13 judged book(s) are `INDISTINGUISHABLE` from their declared control** at 90% confidence on mean excess. Read every verdict in the next column with that column beside it.
 
 | Book | Evidence class | Control | Verdict | Distinguishable? | Folds | Validate win rate | Beats control | Mean validate | Mean excess | 90% CI on mean excess | Latest validate | Latest excess | Mean decay (CAGR) | Worst validate DD |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | [ew_trend_gated](ew_trend_gated.md) | `current_universe_survivor_biased` | ew_benchmark | REVIEW | **distinguishable −** | 10 | 60% | 40% | +20.68% | −3.67% | [−6.40%, −1.11%] | −30.49% | −13.96% | +0.28% | −37.08% |
-| [dual_momentum](dual_momentum.md) | `fixed_etf_history` | spy_benchmark | REVIEW | **distinguishable −** | 10 | 60% | 40% | +9.40% | −6.32% | [−12.73%, −0.37%] | +15.31% | −0.95% | +2.66% | −33.69% |
-| [dual_momentum_gated](dual_momentum_gated.md) | `fixed_etf_history` | spy_benchmark | REVIEW | **distinguishable −** | 10 | 70% | 30% | +8.97% | −6.75% | [−12.11%, −1.86%] | +11.06% | −5.20% | +1.42% | −17.47% |
 | [turtle_breakout](turtle_breakout.md) | `current_universe_survivor_biased` | ew_benchmark | REVIEW | **distinguishable −** | 10 | 50% | 20% | +5.20% | −19.15% | [−31.71%, −7.07%] | −21.16% | −4.64% | −2.25% | −33.39% |
 | [template_top10_banded_gated](template_top10_banded_gated.md) | `current_universe_survivor_biased` | ew_benchmark | WATCH | **INDISTINGUISHABLE** | 10 | 50% | 30% | +31.03% | +6.68% | [−13.75%, +31.36%] | −24.33% | −7.81% | +1.96% | −46.80% |
 | [template_top10_banded](template_top10_banded.md) | `current_universe_survivor_biased` | ew_benchmark | WATCH | **INDISTINGUISHABLE** | 10 | 50% | 30% | +28.73% | +4.38% | [−14.49%, +28.52%] | −19.26% | −2.73% | +4.72% | −49.62% |
 | [momo_stopped](momo_stopped.md) | `current_universe_survivor_biased` | ew_benchmark | WATCH | **INDISTINGUISHABLE** | 10 | 50% | 30% | +28.24% | +3.89% | [−13.42%, +24.06%] | −20.21% | −3.68% | +3.63% | −49.68% |
 | [ew_voltarget](ew_voltarget.md) | `current_universe_survivor_biased` | ew_benchmark | WATCH | **INDISTINGUISHABLE** | 10 | 70% | 50% | +21.52% | −2.83% | [−8.03%, +1.61%] | −16.76% | −0.24% | +2.19% | −36.63% |
-| [sector_momentum](sector_momentum.md) | `fixed_etf_history` | spy_benchmark | WATCH | **INDISTINGUISHABLE** | 10 | 100% | 30% | +13.96% | −1.76% | [−6.61%, +3.81%] | +30.14% | +13.88% | +2.87% | −31.86% |
 | [high_52wk](high_52wk.md) | `current_universe_survivor_biased` | ew_benchmark | WATCH | **INDISTINGUISHABLE** | 10 | 80% | 30% | +10.62% | −13.73% | [−29.77%, +0.50%] | +7.42% | +23.95% | +4.62% | −32.26% |
 | [mr_overlay_gated](mr_overlay_gated.md) | `current_universe_survivor_biased` | ew_benchmark | WATCH | **distinguishable −** | 10 | 50% | 30% | +3.62% | −20.73% | [−37.53%, −4.89%] | +7.02% | +23.54% | +1.53% | −13.64% |
 | [mr_overlay](mr_overlay.md) | `current_universe_survivor_biased` | ew_benchmark | WATCH | **distinguishable −** | 10 | 70% | 20% | +2.49% | −21.86% | [−37.61%, −7.44%] | +4.33% | +20.85% | +1.49% | −23.68% |
@@ -119,17 +116,12 @@ Retained retired evidence is included in this cohort and labelled `RETIRED`; it 
 | [xs_momentum_12_1](xs_momentum_12_1.md) | `current_universe_survivor_biased` | ew_benchmark | PASS | **distinguishable +** | 10 | 80% | 90% | +33.81% | +9.46% | [+0.71%, +16.80%] | −0.82% | +15.71% | +2.64% | −42.23% |
 | [low_vol](low_vol.md) | `static_fundamental_lookahead` | ew_benchmark | no-benchmark | _no interval_ | 10 | 90% | · | +10.81% | · | · | +4.40% | · | +0.31% | −34.13% |
 | [ew_benchmark](ew_benchmark.md) | `current_universe_survivor_biased` | — | reference | — | 10 | 60% | · | +24.35% | · | · | −16.52% | · | +2.65% | −38.78% |
-| [spy_benchmark](spy_benchmark.md) | `fixed_etf_history` | — | reference | — | 10 | 90% | · | +15.72% | · | · | +16.26% | · | +1.81% | −32.53% |
 
 ## Latest validate window (2025-10-16 → 2026-10-16)
 
 | Book | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| sector_momentum | 2023-10-16→2025-10-16 | +41.98% | +19.14% | 2025-10-16→2026-10-16 | **+30.14%** | +30.16% | +12.93% | +2.11 | −7.91% | · | +13.88% | 40 | 12,715 |
 | template_top5 | 2023-10-16→2025-10-16 | −23.10% | −12.30% | 2025-10-16→2026-10-16 | **+22.03%** | +22.04% | +72.40% | +0.64 | −45.89% | +38.55% | · | 344 | 12,715 |
-| spy_benchmark | 2023-10-16→2025-10-16 | +55.42% | +24.65% | 2025-10-16→2026-10-16 | **+16.26%** | +16.27% | +12.37% | +1.28 | −8.64% | · | +0.00% | 0 | 12,715 |
-| dual_momentum | 2023-10-16→2025-10-16 | +48.40% | +21.80% | 2025-10-16→2026-10-16 | **+15.31%** | +15.32% | +14.97% | +1.03 | −11.42% | · | −0.95% | 11 | 12,715 |
-| dual_momentum_gated | 2023-10-16→2025-10-16 | +30.97% | +14.43% | 2025-10-16→2026-10-16 | **+11.06%** | +11.07% | +13.85% | +0.83 | −11.42% | · | −5.20% | 11 | 12,715 |
 | high_52wk | 2023-10-16→2025-10-16 | +60.73% | +26.76% | 2025-10-16→2026-10-16 | **+7.42%** | +7.43% | +15.50% | +0.54 | −11.46% | +23.95% | · | 543 | 12,715 |
 | mr_overlay_gated | 2023-10-16→2025-10-16 | +25.72% | +12.12% | 2025-10-16→2026-10-16 | **+7.02%** | +7.02% | +17.12% | +0.48 | −9.98% | +23.54% | · | 435 | 12,715 |
 | template_top5_gated | 2023-10-16→2025-10-16 | +0.99% | +0.49% | 2025-10-16→2026-10-16 | **+4.79%** | +4.79% | +70.71% | +0.42 | −45.89% | +21.32% | · | 326 | 12,715 |
