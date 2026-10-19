@@ -27,28 +27,18 @@ REGISTERED_COLD_SECONDS = 133.41
 
 
 def _panel_identity(source, *, generation: dict) -> PanelCacheIdentity:
-    return PanelCacheIdentity(
-        generation_sha256=canonical_sha256(generation),
-        part_sha256s=(source.declaration.snapshot_sha256,),
-        columns=tuple(sorted(source.panel.fields)),
-        date_start=source.sessions[0].isoformat(),
-        date_end=source.sessions[-1].isoformat(),
+    return PanelCacheIdentity.from_source(
+        source,
         normalization_version="farm-study-panel-v1",
-        quality_version="declared-source-v1",
+        quality_version=f"declared-source-v1:{canonical_sha256(generation)}",
         calendar_version=f"{source.declaration.timezone}-sessions-v1",
         availability_version="price-source-declaration-v1",
     )
 
 
-def _universe_identity(panel_digest: str, universe) -> UniverseCacheIdentity:
-    membership = [{
-        "ticker": row.ticker,
-        "listed_from": row.listed_from.isoformat(),
-        "listed_through": row.listed_through.isoformat() if row.listed_through else None,
-    } for row in universe.listings]
-    return UniverseCacheIdentity(
-        panel_sha256=panel_digest,
-        membership_sha256=canonical_sha256(membership),
+def _universe_identity(universe) -> UniverseCacheIdentity:
+    return UniverseCacheIdentity.from_universe(
+        universe,
         recipe_sha256=canonical_sha256({
             "kind": "point-in-time-universe",
             "delisting_return": universe.delisting_return,
@@ -109,14 +99,15 @@ def synthetic_benchmark(cache_root: str | Path, output_root: str | Path) -> dict
     }
     primary_bars = len(market.data.primary.bars)
     secondary_bars = len(market.data.secondary.bars)
+    primary_source, secondary_source = market.data.primary, market.data.secondary
     del market, cold_primary, cold_secondary
     gc.collect()
     warm_started = time.perf_counter()
     warm_primary = cache.panel(
-        identities["primary"], lambda: (_ for _ in ()).throw(AssertionError("cache miss"))
+        identities["primary"], lambda: primary_source,
     )
     warm_secondary = cache.panel(
-        identities["secondary"], lambda: (_ for _ in ()).throw(AssertionError("cache miss"))
+        identities["secondary"], lambda: secondary_source,
     )
     warm_seconds = time.perf_counter() - warm_started
     reports["warm"] = _fixed_report(
@@ -205,9 +196,9 @@ def panel_benchmark(
     cold_started = time.perf_counter()
     cold = cache.panel(panel_identity, lambda source=data.primary: source)
     cold_seconds = time.perf_counter() - cold_started
-    universe_identity = _universe_identity(cold.object.digest, universe)
+    universe_identity = _universe_identity(universe)
     cached_universe = cache.universe(
-        universe_identity, cold.source, lambda value=universe: value,
+        universe_identity, cold, lambda value=universe: value,
     )
     candidate_identity = {
         "panel_sha256": cold.object.digest,
@@ -220,7 +211,8 @@ def panel_benchmark(
     )
     baseline = _benchmark_digest(data, universe, folds)
     bar_count = len(data.primary.bars)
-    del data, universe
+    panel_source, universe_source = data.primary, universe
+    del data
     gc.collect()
     cold_result = _benchmark_digest(
         MarketData(cold.source, derived_inputs=(_load_candidates(candidates),)),
@@ -231,12 +223,11 @@ def panel_benchmark(
     gc.collect()
     warm_started = time.perf_counter()
     warm = cache.panel(
-        panel_identity, lambda: (_ for _ in ()).throw(AssertionError("cache miss"))
+        panel_identity, lambda: panel_source,
     )
     warm_seconds = time.perf_counter() - warm_started
     warm_universe = cache.universe(
-        universe_identity, warm.source,
-        lambda: (_ for _ in ()).throw(AssertionError("cache miss")),
+        universe_identity, warm, lambda: universe_source,
     )
     warm_candidates = cache.get("feature", candidate_identity)
     assert warm_candidates is not None

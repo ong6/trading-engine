@@ -65,6 +65,25 @@ class PanelCacheIdentity:
     calendar_version: str
     availability_version: str
 
+    @classmethod
+    def from_source(
+        cls,
+        source: PriceSource,
+        *,
+        normalization_version: str,
+        quality_version: str,
+        calendar_version: str,
+        availability_version: str,
+    ) -> PanelCacheIdentity:
+        derived = _panel_content_identity(source)
+        return cls(
+            **derived,
+            normalization_version=normalization_version,
+            quality_version=quality_version,
+            calendar_version=calendar_version,
+            availability_version=availability_version,
+        )
+
     def as_dict(self) -> dict[str, Any]:
         _identity_sha(self.generation_sha256, "generation_sha256")
         if not self.part_sha256s or any(
@@ -84,17 +103,30 @@ class PanelCacheIdentity:
 
 @dataclass(frozen=True)
 class UniverseCacheIdentity:
-    panel_sha256: str
     membership_sha256: str
     recipe_sha256: str
     coverage_version: str
 
-    def as_dict(self) -> dict[str, Any]:
-        for field in ("panel_sha256", "membership_sha256", "recipe_sha256"):
-            _identity_sha(getattr(self, field), field)
+    @classmethod
+    def from_universe(
+        cls, universe: Universe, *, recipe_sha256: str, coverage_version: str,
+    ) -> UniverseCacheIdentity:
+        return cls(
+            membership_sha256=_universe_membership_sha256(universe),
+            recipe_sha256=recipe_sha256,
+            coverage_version=coverage_version,
+        )
+
+    def as_dict(self, panel_sha256: str) -> dict[str, Any]:
+        for field, value in (
+            ("panel_sha256", panel_sha256),
+            ("membership_sha256", self.membership_sha256),
+            ("recipe_sha256", self.recipe_sha256),
+        ):
+            _identity_sha(value, field)
         if not self.coverage_version:
             raise ValueError("universe identity needs a coverage version")
-        return asdict(self)
+        return {"panel_sha256": panel_sha256, **asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -106,6 +138,24 @@ class TableCacheIdentity:
     date_start: str
     date_end: str
     family: str
+
+    @classmethod
+    def from_frame(
+        cls,
+        frame: pd.DataFrame,
+        *,
+        recipe_sha256: str,
+        availability_version: str,
+        family: str,
+        date_column: str = "session",
+    ) -> TableCacheIdentity:
+        derived = _table_content_identity(frame, date_column=date_column)
+        return cls(
+            **derived,
+            recipe_sha256=recipe_sha256,
+            availability_version=availability_version,
+            family=family,
+        )
 
     def as_dict(self) -> dict[str, Any]:
         for field in ("source_sha256", "schema_sha256", "recipe_sha256"):
@@ -134,6 +184,75 @@ def _safe_name(value: str) -> str:
     if not value or any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for character in value):
         raise ValueError(f"unsafe cache partition name: {value!r}")
     return value
+
+
+def _panel_content_identity(source: PriceSource) -> dict[str, Any]:
+    if not isinstance(source, PriceSource):
+        raise TypeError("panel builder must return PriceSource")
+    sessions = source.panel.sessions
+    if not sessions:
+        raise CacheError("cached panel requires at least one session")
+    snapshot = source.declaration.snapshot_sha256
+    _identity_sha(snapshot, "source snapshot_sha256")
+    columns = (*FIELDS, *(f"bar_close@{clock}" for clock in sorted(source.panel.intraday)))
+    return {
+        "generation_sha256": snapshot,
+        "part_sha256s": (snapshot,),
+        "columns": tuple(columns),
+        "date_start": sessions[0].isoformat(),
+        "date_end": sessions[-1].isoformat(),
+    }
+
+
+def _universe_membership_rows(universe: Universe) -> list[dict[str, Any]]:
+    if not isinstance(universe, Universe) or universe.listings is None:
+        raise CacheError("cached universe requires point-in-time listing intervals")
+    return [{
+        "ticker": row.ticker,
+        "listed_from": row.listed_from.isoformat(),
+        "listed_through": row.listed_through.isoformat() if row.listed_through else None,
+    } for row in universe.listings]
+
+
+def _universe_membership_sha256(universe: Universe) -> str:
+    return canonical_sha256(_universe_membership_rows(universe))
+
+
+def _table_scalar(value: Any) -> Any:
+    if value is None or value is pd.NA:
+        return None
+    if isinstance(value, np.generic):
+        return _table_scalar(value.item())
+    if isinstance(value, (pd.Timestamp, datetime, date)):
+        return value.isoformat()
+    if isinstance(value, pd.Timedelta):
+        return value.isoformat()
+    if isinstance(value, float) and np.isnan(value):
+        return None
+    return value
+
+
+def _table_content_identity(
+    frame: pd.DataFrame, *, date_column: str,
+) -> dict[str, str]:
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        raise CacheError("table builder must return a non-empty DataFrame")
+    if date_column not in frame.columns:
+        raise CacheError(f"table is missing partition column {date_column!r}")
+    columns = [str(column) for column in frame.columns]
+    if len(columns) != len(set(columns)):
+        raise CacheError("table columns must be unique")
+    schema = [{"name": str(name), "dtype": str(dtype)}
+              for name, dtype in frame.dtypes.items()]
+    days = pd.to_datetime(frame[date_column], errors="raise").dt.date
+    rows = [[_table_scalar(value) for value in row]
+            for row in frame.itertuples(index=False, name=None)]
+    return {
+        "source_sha256": canonical_sha256({"columns": columns, "schema": schema, "rows": rows}),
+        "schema_sha256": canonical_sha256(schema),
+        "date_start": min(days).isoformat(),
+        "date_end": max(days).isoformat(),
+    }
 
 
 def _array(path: Path) -> np.ndarray:
@@ -431,15 +550,20 @@ class ResearchCache:
         if not isinstance(identity, PanelCacheIdentity):
             raise TypeError("panel cache identity must be PanelCacheIdentity")
         identity_row = identity.as_dict()
+        built = builder()
+        derived_identity = {
+            **_panel_content_identity(built),
+            "normalization_version": identity.normalization_version,
+            "quality_version": identity.quality_version,
+            "calendar_version": identity.calendar_version,
+            "availability_version": identity.availability_version,
+        }
+        derived_identity = json.loads(canonical_bytes(derived_identity))
+        if identity_row != derived_identity:
+            raise CacheError("panel cache identity differs from the built source")
         obj = self.get("panel", identity_row)
         if obj is None:
-            built: PriceSource | None = None
-
             def write(data_root: Path) -> Mapping[str, Any]:
-                nonlocal built
-                built = builder()
-                if not isinstance(built, PriceSource):
-                    raise TypeError("panel builder must return PriceSource")
                 return self._write_panel(data_root, built)
 
             obj = self.build("panel", identity_row, write)
@@ -516,29 +640,32 @@ class ResearchCache:
     def universe(
         self,
         identity: UniverseCacheIdentity,
-        source: PriceSource,
+        panel: CachedPanel,
         builder: Callable[[], Universe],
         *,
         exclusions: Mapping[str, Sequence[str]] | None = None,
     ) -> CachedUniverse:
         if not isinstance(identity, UniverseCacheIdentity):
             raise TypeError("universe cache identity must be UniverseCacheIdentity")
-        identity_row = identity.as_dict()
+        if not isinstance(panel, CachedPanel):
+            raise TypeError("universe cache requires a bound CachedPanel")
+        verified_panel_object = self._load("panel", panel.object.digest, hit=True)
+        source = self.load_panel(verified_panel_object)
+        universe = builder()
+        if (not isinstance(universe, Universe)
+                or universe.source.declaration.snapshot_sha256
+                != source.declaration.snapshot_sha256):
+            raise CacheError("universe source differs from the cached panel source")
+        identity_row = identity.as_dict(verified_panel_object.digest)
+        if identity.membership_sha256 != _universe_membership_sha256(universe):
+            raise CacheError("universe cache identity differs from built membership")
         obj = self.get("universe", identity_row)
         if obj is None:
             def write(data_root: Path) -> Mapping[str, Any]:
-                universe = builder()
-                if universe.source.declaration.snapshot_sha256 != source.declaration.snapshot_sha256:
-                    raise CacheError("universe source differs from cached panel source")
-                if universe.listings is None:
-                    raise CacheError("cached universe requires point-in-time listing intervals")
-                rows = [{
-                    "ticker": row.ticker,
-                    "listed_from": row.listed_from.isoformat(),
-                    "listed_through": row.listed_through.isoformat() if row.listed_through else None,
-                } for row in universe.listings]
+                rows = _universe_membership_rows(universe)
                 write_text_atomic(data_root / "universe.json", canonical_bytes({
                     "format": "study-universe-v1",
+                    "panel_sha256": verified_panel_object.digest,
                     "source_sha256": source.declaration.snapshot_sha256,
                     "delisting_return": universe.delisting_return,
                     "listings": rows,
@@ -550,9 +677,13 @@ class ResearchCache:
                 return {"format": "study-universe-v1", "listing_count": len(rows)}
             obj = self.build("universe", identity_row, write)
         metadata = obj.read_json("universe.json")
-        required = {"format", "source_sha256", "delisting_return", "listings", "exclusions"}
+        required = {
+            "format", "panel_sha256", "source_sha256", "delisting_return", "listings",
+            "exclusions",
+        }
         if (not isinstance(metadata, dict) or set(metadata) != required
                 or metadata["format"] != "study-universe-v1"
+                or metadata["panel_sha256"] != verified_panel_object.digest
                 or metadata["source_sha256"] != source.declaration.snapshot_sha256):
             raise CacheCorruption("universe metadata differs")
         listings = tuple(ListingInterval(
@@ -587,21 +718,23 @@ class ResearchCache:
         identity_row = identity.as_dict()
         if identity.family != family_name:
             raise ValueError("table identity family differs from the cache partition family")
+        frame = builder()
+        derived_identity = {
+            **_table_content_identity(frame, date_column=date_column),
+            "recipe_sha256": identity.recipe_sha256,
+            "availability_version": identity.availability_version,
+            "family": family_name,
+        }
+        if identity_row != derived_identity:
+            raise CacheError("table cache identity differs from the built frame")
+        columns = [str(column) for column in frame.columns]
+        if expected_columns is not None and columns != list(expected_columns):
+            raise CacheError("table schema differs from the declared output schema")
         obj = self.get(kind, identity_row)
         if obj is not None:
             return obj
 
         def write(data_root: Path) -> Mapping[str, Any]:
-            frame = builder()
-            if not isinstance(frame, pd.DataFrame) or frame.empty:
-                raise CacheError("table builder must return a non-empty DataFrame")
-            if date_column not in frame.columns:
-                raise CacheError(f"table is missing partition column {date_column!r}")
-            columns = [str(column) for column in frame.columns]
-            if expected_columns is not None and columns != list(expected_columns):
-                raise CacheError("table schema differs from the declared output schema")
-            if len(columns) != len(set(columns)):
-                raise CacheError("table columns must be unique")
             days = pd.to_datetime(frame[date_column], errors="raise").dt.date
             connection = db.connect(":memory:", wait_s=0)
             try:
