@@ -151,6 +151,38 @@ def test_namespaced_json_and_punctuated_credentials_are_redacted(tmp_path, capsy
     assert not any(candidate in output.out + output.err for candidate in candidates)
 
 
+def test_multifield_nested_list_json_inline_yaml_and_api_tokens_are_redacted(
+    tmp_path, capsys
+):
+    root, _remote = _repository(tmp_path)
+    base = _git(root, "rev-parse", "HEAD").stdout.strip()
+    candidates = [prefix * 32 for prefix in ("A", "B", "C", "D", "E")]
+    content = "\n".join(
+        (
+            "{" + f'\"api_key\":\"{candidates[0]}\",\"region\":\"us\"' + "}",
+            "{" + f'\"service\":{{\"api_key\":\"{candidates[1]}\"}}' + "}",
+            "[{" + f'\"api_key\":\"{candidates[2]}\"' + "}]",
+            f"service: {{api_token: {candidates[3]}, region: us}}",
+            f"TIINGO_API_TOKEN={candidates[4]}",
+        )
+    )
+    (root / "serialized-credentials.txt").write_text(content + "\n")
+    head = _commit(root)
+    scanner = public_hygiene.RepositoryScanner(root)
+
+    committed = scanner.scan_range(f"{base}..{head}")
+    worktree = scanner.scan_worktree()
+    result = public_hygiene.main(
+        ["--repo-root", str(root), "--range", f"{base}..{head}", "--worktree"]
+    )
+    output = capsys.readouterr()
+
+    assert len([item for item in committed if item.rule == "credential_assignment"]) == 5
+    assert len([item for item in worktree if item.rule == "credential_assignment"]) == 5
+    assert result == 1
+    assert not any(candidate in output.out + output.err for candidate in candidates)
+
+
 def test_checker_source_does_not_trigger_its_path_rules():
     source = Path(public_hygiene.__file__).read_text()
 

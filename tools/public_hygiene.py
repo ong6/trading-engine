@@ -73,12 +73,12 @@ _SECRET_RULES = (
     (
         "credential_assignment",
         re.compile(
-            r"(?im)^[ \t]*(?:\{[ \t]*)?(?:export[ \t]+)?[\"']?"
+            r"(?i)(?<![A-Za-z0-9_-])(?:export[ \t]+)?[\"']?"
             r"(?:[A-Za-z][A-Za-z0-9]{0,31}[_-]){0,3}"
-            r"(?:api[_-]?key|access[_-]?token|client[_-]?secret|password|"
+            r"(?:api[_-]?(?:key|token)|access[_-]?token|client[_-]?secret|password|"
             r"secret[_-]?access[_-]?key)[\"']?[ \t]*[:=][ \t]*"
             r"(?:\"([^\"\r\n]{20,})\"|'([^'\r\n]{20,})'|"
-            r"([^\s#\"'`,}{]{24,}))[ \t]*(?:[,}]|#.*)?$"
+            r"([^\s#\"'`,}\]]{24,}))"
         ),
         (1, 2, 3),
     ),
