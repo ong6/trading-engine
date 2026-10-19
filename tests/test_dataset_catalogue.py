@@ -49,6 +49,15 @@ ALLOWED_SEMANTICS = {
 }
 LIST_FIELDS = {"schema_owner", "producer", "readers", "registration"}
 TEXT_FIELDS = REQUIRED_FIELDS - LIST_FIELDS - {"kind", "semantics"}
+PLACEHOLDER_TERMS = {
+    "named operational producer",
+    "inactive plan-owned producer",
+    "owning operational service",
+    "owning engine component",
+    "owning evidence producer",
+    "owning operational writer",
+    "named evidence producer",
+}
 DDL_RE = re.compile(
     r"\bCREATE\s+(?:OR\s+REPLACE\s+)?"
     r"(?!(?:TEMP|TEMPORARY)\s)(TABLE|VIEW)\s+"
@@ -156,6 +165,16 @@ def _validate_catalogue(catalogue: dict) -> None:
         "#" not in dataset["location"]
         for dataset in datasets
         if dataset["kind"] in {"file_set", "generation", "external_backup"}
+    )
+    assert all(
+        not PLACEHOLDER_TERMS.intersection(
+            str(value).lower()
+            for field in REQUIRED_FIELDS
+            for value in (
+                dataset[field] if isinstance(dataset[field], list) else [dataset[field]]
+            )
+        )
+        for dataset in datasets
     )
 
 
@@ -504,6 +523,34 @@ def test_retired_short_source_has_portable_exact_recovery_identity():
     assert "f7d4f695396c6eb013a1238d612920748ba2d153c6cbf071da577f90ec755e06" in short["backup"]
     assert "59406972cdcd82f316a0034e699113be682768328fb8aeb4aadb54829f99fa66" in short["rebuild"]
     assert (ROOT / "docs/history/retired-pit-restore-2026-10-18.md").is_file()
+
+
+def test_safety_critical_policy_facts_are_not_inherited_from_unrelated_families():
+    datasets = {dataset["id"]: dataset for dataset in _load_catalogue()["datasets"]}
+
+    operational = datasets["external.private_operational_backup"]
+    assert operational["schema_owner"] == ["private trading-data backup repository"]
+    assert operational["producer"] == ["daily backup exporter"]
+    assert operational["readers"] == ["disaster restore"]
+    assert operational["semantics"] == "append_only_evidence"
+    assert "immutable Parquet delta generations" in operational["retention"]
+    assert operational["backup"] == "This dataset is the current off-host operational backup target."
+    assert operational["registration"] == ["operational recovery boundary"]
+    assert "research-evidence-20261005" not in str(operational)
+
+    primary = datasets["files.primary_database"]
+    assert primary["semantics"] == "authoritative"
+    assert primary["producer"] == ["operational engine writers through engine.lib.db.connect"]
+    assert "sole mutable operational database" in primary["retention"]
+
+    verifier = datasets["files.price_verifier_receipts"]
+    assert verifier["semantics"] == "append_only_evidence"
+    assert verifier["producer"] == ["independent price verifier"]
+    assert verifier["registration"] == ["price-verification evidence"]
+
+    short = datasets["files.short_data_database"]
+    assert short["producer"] == ["retired Reg SHO and FINRA short-interest collectors"]
+    assert short["readers"] == ["engine.accounts.sources", "sim.shorts", "account settlement"]
 
 
 def test_every_rebuild_policy_is_an_explicit_action_or_refusal():

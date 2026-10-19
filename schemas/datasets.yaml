@@ -169,67 +169,415 @@ policy_templates:
     rebuild: Restore through docs/history/retired-pit-restore-2026-10-18.md; never create an empty old path.
     registration: [P3 evidence archive]
     quality_gate: Independently fetched manifest and exact member verification.
+  prices_projection: &prices_projection
+    <<: *market_projection
+    schema_owner: [engine/lib/db.py]
+    producer: [engine.collect, engine.actions]
+    registration: [P15 revision 15, E1 v8, sector v12, XS v23]
+  prices_evidence: &prices_evidence
+    <<: *market_evidence
+    schema_owner: [engine/lib/db.py]
+    producer: [engine.intraday, engine.lib.db.admit_price_rows]
+    registration: [P15 revision 15, price-admission evidence]
+  price_quarantine_state: &price_quarantine_state
+    <<: *operational_state
+    schema_owner: [sim/schema.py]
+    producer: [engine.price_quarantine, engine.actions]
+    registration: [revision-15 price quarantine]
+  universe_state: &universe_state
+    <<: *operational_state
+    schema_owner: [engine/lib/db.py]
+    producer: [engine.universe]
+    registration: [P3 universe contract]
+  universe_evidence: &universe_evidence
+    <<: *market_evidence
+    schema_owner: [engine/lib/db.py]
+    producer: [engine.universe]
+    registration: [P3 point-in-time universe]
+  screen_rows: &screen_rows
+    <<: *derived_rows
+    schema_owner: [engine/lib/db.py]
+    producer: [engine.screen]
+    registration: [registered screens and forward cohorts]
+  actions_ledger: &actions_ledger
+    <<: *market_authoritative
+    schema_owner: [engine/lib/db.py]
+    producer: [engine.actions]
+    registration: [P22 account replay, P15 revision 15]
+  actions_evidence: &actions_evidence
+    <<: *market_evidence
+    schema_owner: [engine/lib/db.py]
+    producer: [engine.actions]
+    registration: [corporate-action reconciliation]
+  fundamentals_evidence: &fundamentals_evidence
+    <<: *market_evidence
+    schema_owner: [engine/lib/db.py]
+    producer: [engine.fundamentals, engine.earnings, engine.signals]
+    registration: [P3 point-in-time data]
+  pit_import_evidence: &pit_import_evidence
+    <<: *market_evidence
+    schema_owner: [engine/pit_import.py]
+    producer: [engine.pit_import]
+    registration: [P3 point-in-time imports]
+  queue_state: &queue_state
+    <<: *operational_state
+    schema_owner: [engine/lib/db.py]
+    producer: [engine.queue_runner]
+    registration: [nightly queue contract]
+  queue_evidence: &queue_evidence
+    <<: *market_evidence
+    schema_owner: [engine/job_resolutions.py]
+    producer: [engine.job_resolutions]
+    registration: [queue resolution evidence]
+  experiment_evidence: &experiment_evidence
+    <<: *market_evidence
+    schema_owner: [farm/experiment.py]
+    producer: [farm.experiment]
+    registration: [frozen experiment charters]
+  bitemporal_evidence: &bitemporal_evidence
+    <<: *market_evidence
+    schema_owner: [engine/bitemporal_facts.py]
+    producer: [engine.bitemporal_facts]
+    registration: [P15 source-response evidence]
+  tradingview_evidence: &tradingview_evidence
+    <<: *market_evidence
+    schema_owner: [engine/tradingview_history_archive.py]
+    producer: [engine.tradingview_history_archive]
+    registration: [P14 TradingView history]
+  agent_action_evidence: &agent_action_evidence
+    <<: *market_evidence
+    schema_owner: [server/agent_corporate_action_observations.py]
+    producer: [server.agent_corporate_action_observations]
+    registration: [P11 forward agent evaluation]
+  agent_price_evidence: &agent_price_evidence
+    <<: *market_evidence
+    schema_owner: [server/agent_price_observations.py]
+    producer: [server.agent_price_observations]
+    registration: [P11 forward agent evaluation]
+  agent_discrepancy_evidence: &agent_discrepancy_evidence
+    <<: *market_evidence
+    schema_owner: [server/agent_data_discrepancy_adjudication.py]
+    producer: [server.agent_data_discrepancy_adjudication]
+    registration: [agent data review evidence]
+  agent_evaluation_evidence: &agent_evaluation_evidence
+    <<: *market_evidence
+    schema_owner: [server/agent_evaluation.py]
+    producer: [server.agent_evaluation]
+    registration: [P11, P15 revision 15]
+  agent_fault_evidence: &agent_fault_evidence
+    <<: *market_evidence
+    schema_owner: [server/agent_fault_drills.py]
+    producer: [server.agent_fault_drills]
+    registration: [agent fault-drill evidence]
+  agent_independent_evidence: &agent_independent_evidence
+    <<: *market_evidence
+    schema_owner: [server/agent_independent_price_evidence.py]
+    producer: [server.agent_independent_price_evidence]
+    registration: [independent price evidence]
+  agent_paper_evidence: &agent_paper_evidence
+    <<: *inert_evidence
+    schema_owner: [server/agent_paper_attribution.py, server/agent_paper_decisions.py]
+    producer: [server.agent_paper_attribution, server.agent_paper_decisions]
+    readers: [agent paper preflight, attribution reports]
+    registration: [separate agent-paper activation required]
+  agent_proposal_evidence: &agent_proposal_evidence
+    <<: *market_evidence
+    schema_owner: [server/agent_store.py]
+    producer: [server.agent_store]
+    registration: [P8 proposal evidence]
+  agent_provider_evidence: &agent_provider_evidence
+    <<: *market_evidence
+    schema_owner: [server/agent_provider_responses.py]
+    producer: [server.agent_provider_responses]
+    registration: [P11 provider evidence]
+  agent_release_evidence: &agent_release_evidence
+    <<: *inert_evidence
+    schema_owner: [server/agent_release_review_store.py]
+    producer: [server.agent_release_review_store]
+    readers: [release-review validators]
+    registration: [separate release-review activation required]
+  agent_shadow_evidence: &agent_shadow_evidence
+    <<: *market_evidence
+    schema_owner: [server/agent_shadow_store.py]
+    producer: [server.agent_shadow_store]
+    registration: [P9 shadow observers]
+  daily_opportunity_evidence: &daily_opportunity_evidence
+    <<: *market_evidence
+    schema_owner: [server/daily_opportunity_store.py]
+    producer: [server.daily_opportunity_store]
+    registration: [P8 daily opportunity v1]
+  account_ledger: &account_ledger
+    <<: *market_authoritative
+    schema_owner: [sim/schema.py, sim/settle.py, engine/paper_accounts.py]
+    producer: [sim.ledger, sim.portfolio, sim.settle, engine.accounts.service]
+    registration: [P22 accounts, P15 revision 15]
+  account_state: &account_state
+    <<: *operational_state
+    schema_owner: [sim/schema.py, engine/paper_accounts.py, engine/account_watch.py]
+    producer: [sim.ledger, engine.accounts.service, engine.account_watch]
+    registration: [P22 account state]
+  account_evidence: &account_evidence
+    <<: *market_evidence
+    schema_owner: [sim/schema.py]
+    producer: [sim.ledger, sim.portfolio]
+    registration: [P22 reconciliation evidence]
+  account_view: &account_view
+    <<: *derived_rows
+    schema_owner: [sim/schema.py]
+    producer: [sim.schema]
+    readers: [account services, settlement, API]
+    registration: [P22 account routing]
+  p16_inert_evidence: &p16_inert_evidence
+    <<: *inert_evidence
+    schema_owner: [engine/p16_screen_inputs.py, server/p16_store.py, server/p16_trial_store.py, server/p16_challenger_store.py, server/p16_filing_store.py, server/p16_fill_store.py, server/p16_book_store.py]
+    producer: [P16 inactive evaluation, filing, fill, challenger, and book stores]
+    readers: [P16 offline validators and reports]
+    registration: [P16 W9b activation required]
+  broker_inert_evidence: &broker_inert_evidence
+    <<: *inert_evidence
+    schema_owner: [server/broker_ledger.py, server/broker_risk_control.py, server/broker_human_paper_approval_store.py, server/simulator_broker_adapter.py]
+    producer: [inactive broker-paper evidence stores]
+    readers: [broker-paper design validators]
+    registration: [future Stage-2 plan required]
+  free_sources_evidence: &free_sources_evidence
+    <<: *pit_active
+    schema_owner: [engine/free_sources.py, engine/free_sec.py]
+    producer: [Tiingo, Massive grouped-daily, and SEC free-source loaders]
+    registration: [P3 free-source research]
+  sec_bulk_evidence: &sec_bulk_evidence
+    <<: *pit_remote
+    schema_owner: [engine/free_sec_bulk.py]
+    producer: [retired SEC bulk loader]
+    registration: [P3 SEC bulk evidence archive]
+  minute_evidence: &minute_evidence
+    <<: *pit_active
+    schema_owner: [engine/free_massive_minute.py]
+    producer: [Massive minute capture]
+    registration: [frozen P3 minute manifest]
+  options_evidence: &options_evidence
+    <<: *pit_active
+    schema_owner: [engine/free_massive_options.py]
+    producer: [future Massive options capture]
+    registration: [P22 research-only options capture]
+  short_evidence: &short_evidence
+    <<: *pit_remote
+    schema_owner: [retired short-data loader, engine/accounts/sources.py]
+    producer: [retired Reg SHO and FINRA short-interest collectors]
+    readers: [engine.accounts.sources, sim.shorts, account settlement]
+    registration: [P22 paper-account short inputs]
+  replay_cache: &replay_cache
+    <<: *research_cache
+    schema_owner: [farm/replay]
+    producer: [P16 replay and lockbox runners]
+    registration: [P16 historical replay]
+  credit_cache: &credit_cache
+    <<: *research_cache
+    schema_owner: [farm/credit_confirmed_experiment.py]
+    producer: [credit-confirmed experiment runner]
+    registration: [CREDIT-CONFIRMED-SPY-2026-09-18-v1]
+  proof_cache: &proof_cache
+    <<: *research_cache
+    schema_owner: [farm/backtest/proofs.py]
+    producer: [backtest proof harness]
+    registration: [backtest proof only]
+  opportunity_cache: &opportunity_cache
+    <<: *research_cache
+    schema_owner: [engine/daily_opportunities.py]
+    producer: [daily opportunity ATR scratch calculation]
+    registration: [P8 calculation scratch]
+  primary_database_file: &primary_database_file
+    <<: *operational_file
+    schema_owner: [engine/lib/settings.py, engine/lib/db.py]
+    producer: [operational engine writers through engine.lib.db.connect]
+    readers: [operational writers, snapshot publisher, backup]
+    retention: Keep the sole mutable operational database and active WAL.
+    backup: Daily private logical export and complete verified recovery bundle.
+    registration: [P15 revision 15, P22 account runtime]
+  snapshot_file: &snapshot_file
+    <<: *operational_file
+    schema_owner: [tools/publish_snapshot.py, engine/lib/snapshots.py]
+    producer: [tools.publish_snapshot]
+    readers: [API, research, backup]
+    retention: Retain the two published generations required by the current reader contract.
+    backup: Rebuildable from a consistent primary; backup may consume a sufficiently fresh generation.
+    registration: [registered publisher and snapshot resolver]
+  nasdaq_file: &nasdaq_file
+    <<: *evidence_file
+    schema_owner: [engine/universe.py]
+    producer: [engine.universe]
+    registration: [P3 universe evidence]
+  shadow_control_file: &shadow_control_file
+    <<: *operational_file
+    schema_owner: [server/agent_shadow_schedule.py]
+    producer: [server.agent_shadow_schedule]
+    registration: [P9 shadow schedule]
+  free_database_file: &free_database_file
+    <<: *operational_file
+    schema_owner: [engine/free_sources.py, engine/free_sec.py]
+    producer: [Tiingo, Massive grouped-daily, and SEC free-source loaders]
+    readers: [P3 audit, account read-only attachment]
+    backup: Current research evidence checkpoint; excluded from primary daily backup.
+    registration: [P3 free-source research]
+  free_raw_file: &free_raw_file
+    <<: *evidence_file
+    schema_owner: [engine/free_sources.py, engine/free_sec.py, tools/free_sources.py, tools/free_sec.py]
+    producer: [Tiingo, Massive grouped-daily, and SEC raw capture]
+    registration: [P3 free-source evidence]
+  minute_database_file: &minute_database_file
+    <<: *operational_file
+    schema_owner: [engine/free_massive_minute.py]
+    producer: [Massive minute capture]
+    readers: [minute loader, account read-only attachment, offline research]
+    backup: Owner RPO decision pending; excluded from primary daily backup.
+    registration: [frozen P3 minute manifest]
+  minute_raw_file: &minute_raw_file
+    <<: *evidence_file
+    schema_owner: [engine/free_massive_minute.py, tools/free_massive_minute.py]
+    producer: [Massive minute capture]
+    registration: [frozen P3 minute manifest]
+  options_database_file: &options_database_file
+    <<: *operational_file
+    schema_owner: [engine/free_massive_options.py]
+    producer: [future Massive options capture]
+    readers: [P22 research-only options readers]
+    backup: Excluded until capture activation names an RPO.
+    registration: [P22 research-only options capture]
+  options_raw_file: &options_raw_file
+    <<: *evidence_file
+    schema_owner: [engine/free_massive_options.py]
+    producer: [future Massive options capture]
+    registration: [P22 research-only options capture]
+  verifier_file: &verifier_file
+    <<: *evidence_file
+    schema_owner: [engine/verify_prices.py]
+    producer: [independent price verifier]
+    readers: [meta projection, board, backup]
+    backup: Recovery bundle mirrors every completed member.
+    registration: [price-verification evidence]
+  meta_file: &meta_file
+    <<: *derived_file
+    schema_owner: [engine/lib/resources.py]
+    producer: [engine resource projections]
+    registration: [operational metadata projection]
+  universe_csv_file: &universe_csv_file
+    <<: *derived_file
+    schema_owner: [engine/universe.py]
+    producer: [engine.universe]
+    registration: [P3 universe report]
+  eod_file: &eod_file
+    <<: *derived_file
+    schema_owner: [engine/screen.py]
+    producer: [engine.screen]
+    registration: [screen watchlist output]
+  screen_file: &screen_file
+    <<: *derived_file
+    schema_owner: [engine/screen.py]
+    producer: [engine.screen]
+    registration: [registered screen reports]
+  report_file: &report_file
+    <<: *derived_file
+    schema_owner: [engine, farm, server, sim report renderers]
+    producer: [registered deterministic report renderers]
+    registration: [release manifests and trial registrations]
+  log_file: &log_file
+    <<: *derived_file
+    schema_owner: [engine/lib/driver.sh, tools/ops_digest.py, server systemd units]
+    producer: [engine drivers, services, observers, operations digest]
+    readers: [driver monitor, scheduler monitor, operations digest, operators]
+    retention: Rotate closed diagnostic segments with cursor preservation; retain metrics 180 days and reports 30 days.
+    backup: Excluded except named recovery artifacts such as friday-postflight.json.
+    registration: [operational diagnostics, selected postflight evidence]
+  ops_database_file: &ops_database_file
+    <<: *derived_file
+    schema_owner: [tools/ops_digest.py]
+    producer: [hourly operations digest]
+    readers: [operations digest report]
+    retention: Metrics 180 days, reports 30 days, and current cursor state.
+    backup: Accepted operational exclusion.
+    registration: [P23 operations digest]
+  scratch_file: &scratch_file
+    <<: *research_cache
+    schema_owner: [farm/backtest, farm/walkforward, farm/sweep, farm/experiment]
+    producer: [offline research and proof runners]
+    registration: [scratch has no strategy authority]
+  operational_backup: &operational_backup
+    schema_owner: [private trading-data backup repository]
+    producer: [daily backup exporter]
+    readers: [disaster restore]
+    semantics: append_only_evidence
+    clock_and_key: Backup commit, bundle manifest, schema, table segment, and evidence hashes.
+    retention: Retain immutable Parquet delta generations off-host under the private backup policy.
+    backup: This dataset is the current off-host operational backup target.
+    rebuild: Restore every manifest sequentially and verify the complete database and evidence tree.
+    registration: [operational recovery boundary]
+    quality_gate: Same-host restore on every run and periodic independently fetched remote restore.
+  research_release: &research_release
+    <<: *remote_file
+    schema_owner: [private research evidence archive]
+    producer: [P3 research evidence release publisher]
+    readers: [offline PIT restore]
+    registration: [P3 fixed evidence checkpoints]
 
 datasets:
   # Operational daily prices, universe, actions, fundamentals, queue, and bitemporal data.
-  - {<<: *market_projection, id: market.prices, kind: duckdb_table, location: "store/market.duckdb#main.prices", semantics: mutable_projection}
-  - {<<: *market_evidence, id: market.intraday_prices, kind: duckdb_table, location: "store/market.duckdb#main.intraday_prices"}
-  - {<<: *market_evidence, id: market.price_observation_rejects, kind: duckdb_table, location: "store/market.duckdb#main.price_observation_rejects"}
-  - {<<: *operational_state, id: market.price_quarantine, kind: duckdb_table, location: "store/market.duckdb#main.price_quarantine"}
-  - {<<: *operational_state, id: market.universe, kind: duckdb_table, location: "store/market.duckdb#main.universe"}
-  - {<<: *market_evidence, id: market.universe_snapshot, kind: duckdb_table, location: "store/market.duckdb#main.universe_snapshot"}
-  - {<<: *derived_rows, id: market.screen_results, kind: duckdb_table, location: "store/market.duckdb#main.screen_results"}
-  - {<<: *market_authoritative, id: market.corporate_actions, kind: duckdb_table, location: "store/market.duckdb#main.corporate_actions"}
-  - {<<: *market_evidence, id: market.split_adjustments, kind: duckdb_table, location: "store/market.duckdb#main.split_adjustments"}
-  - {<<: *market_evidence, id: market.actions_fetch_log, kind: duckdb_table, location: "store/market.duckdb#main.actions_fetch_log"}
-  - {<<: *market_evidence, id: market.fundamentals, kind: duckdb_table, location: "store/market.duckdb#main.fundamentals"}
-  - {<<: *market_evidence, id: market.fundamentals_fetch_log, kind: duckdb_table, location: "store/market.duckdb#main.fundamentals_fetch_log"}
-  - {<<: *market_evidence, id: market.earnings_calendar, kind: duckdb_table, location: "store/market.duckdb#main.earnings_calendar"}
-  - {<<: *market_evidence, id: market.earnings_fetch_log, kind: duckdb_table, location: "store/market.duckdb#main.earnings_fetch_log"}
-  - {<<: *market_evidence, id: market.macro_signals, kind: duckdb_table, location: "store/market.duckdb#main.macro_signals"}
-  - {<<: *market_evidence, id: market.pit_import_batches, kind: duckdb_table, location: "store/market.duckdb#main.pit_import_batches"}
-  - {<<: *market_evidence, id: market.pit_import_rows, kind: duckdb_table, location: "store/market.duckdb#main.pit_import_rows"}
-  - {<<: *operational_state, id: market.jobs, kind: duckdb_table, location: "store/market.duckdb#main.jobs"}
-  - {<<: *market_evidence, id: market.job_resolutions, kind: duckdb_table, location: "store/market.duckdb#main.job_resolutions"}
-  - {<<: *market_evidence, id: market.experiment_results, kind: duckdb_table, location: "store/market.duckdb#main.experiment_results"}
-  - {<<: *market_evidence, id: market.source_response_receipts, kind: duckdb_table, location: "store/market.duckdb#main.source_response_receipts"}
-  - {<<: *market_evidence, id: market.bitemporal_facts, kind: duckdb_table, location: "store/market.duckdb#main.bitemporal_facts"}
-  - {<<: *market_evidence, id: market.tradingview_history_cohorts, kind: duckdb_table, location: "store/market.duckdb#main.tradingview_history_cohorts"}
-  - {<<: *market_evidence, id: market.tradingview_history_symbols, kind: duckdb_table, location: "store/market.duckdb#main.tradingview_history_symbols"}
-  - {<<: *market_evidence, id: market.tradingview_history_attempts, kind: duckdb_table, location: "store/market.duckdb#main.tradingview_history_attempts"}
+  - {<<: *prices_projection, id: market.prices, kind: duckdb_table, location: "store/market.duckdb#main.prices", semantics: mutable_projection}
+  - {<<: *prices_evidence, id: market.intraday_prices, kind: duckdb_table, location: "store/market.duckdb#main.intraday_prices"}
+  - {<<: *prices_evidence, id: market.price_observation_rejects, kind: duckdb_table, location: "store/market.duckdb#main.price_observation_rejects"}
+  - {<<: *price_quarantine_state, id: market.price_quarantine, kind: duckdb_table, location: "store/market.duckdb#main.price_quarantine"}
+  - {<<: *universe_state, id: market.universe, kind: duckdb_table, location: "store/market.duckdb#main.universe"}
+  - {<<: *universe_evidence, id: market.universe_snapshot, kind: duckdb_table, location: "store/market.duckdb#main.universe_snapshot"}
+  - {<<: *screen_rows, id: market.screen_results, kind: duckdb_table, location: "store/market.duckdb#main.screen_results"}
+  - {<<: *actions_ledger, id: market.corporate_actions, kind: duckdb_table, location: "store/market.duckdb#main.corporate_actions"}
+  - {<<: *actions_evidence, id: market.split_adjustments, kind: duckdb_table, location: "store/market.duckdb#main.split_adjustments"}
+  - {<<: *actions_evidence, id: market.actions_fetch_log, kind: duckdb_table, location: "store/market.duckdb#main.actions_fetch_log"}
+  - {<<: *fundamentals_evidence, id: market.fundamentals, kind: duckdb_table, location: "store/market.duckdb#main.fundamentals"}
+  - {<<: *fundamentals_evidence, id: market.fundamentals_fetch_log, kind: duckdb_table, location: "store/market.duckdb#main.fundamentals_fetch_log"}
+  - {<<: *fundamentals_evidence, id: market.earnings_calendar, kind: duckdb_table, location: "store/market.duckdb#main.earnings_calendar"}
+  - {<<: *fundamentals_evidence, id: market.earnings_fetch_log, kind: duckdb_table, location: "store/market.duckdb#main.earnings_fetch_log"}
+  - {<<: *fundamentals_evidence, id: market.macro_signals, kind: duckdb_table, location: "store/market.duckdb#main.macro_signals"}
+  - {<<: *pit_import_evidence, id: market.pit_import_batches, kind: duckdb_table, location: "store/market.duckdb#main.pit_import_batches"}
+  - {<<: *pit_import_evidence, id: market.pit_import_rows, kind: duckdb_table, location: "store/market.duckdb#main.pit_import_rows"}
+  - {<<: *queue_state, id: market.jobs, kind: duckdb_table, location: "store/market.duckdb#main.jobs"}
+  - {<<: *queue_evidence, id: market.job_resolutions, kind: duckdb_table, location: "store/market.duckdb#main.job_resolutions"}
+  - {<<: *experiment_evidence, id: market.experiment_results, kind: duckdb_table, location: "store/market.duckdb#main.experiment_results"}
+  - {<<: *bitemporal_evidence, id: market.source_response_receipts, kind: duckdb_table, location: "store/market.duckdb#main.source_response_receipts"}
+  - {<<: *bitemporal_evidence, id: market.bitemporal_facts, kind: duckdb_table, location: "store/market.duckdb#main.bitemporal_facts"}
+  - {<<: *tradingview_evidence, id: market.tradingview_history_cohorts, kind: duckdb_table, location: "store/market.duckdb#main.tradingview_history_cohorts"}
+  - {<<: *tradingview_evidence, id: market.tradingview_history_symbols, kind: duckdb_table, location: "store/market.duckdb#main.tradingview_history_symbols"}
+  - {<<: *tradingview_evidence, id: market.tradingview_history_attempts, kind: duckdb_table, location: "store/market.duckdb#main.tradingview_history_attempts"}
 
   # Agent and daily-opportunity evidence.
-  - {<<: *market_evidence, id: market.agent_corporate_action_observations, kind: duckdb_table, location: "store/market.duckdb#main.agent_corporate_action_observations"}
-  - {<<: *market_evidence, id: market.agent_daily_price_observations, kind: duckdb_table, location: "store/market.duckdb#main.agent_daily_price_observations"}
-  - {<<: *market_evidence, id: market.agent_data_discrepancy_decisions, kind: duckdb_table, location: "store/market.duckdb#main.agent_data_discrepancy_decisions"}
-  - {<<: *market_evidence, id: market.agent_evaluation_decisions, kind: duckdb_table, location: "store/market.duckdb#main.agent_evaluation_decisions"}
-  - {<<: *market_evidence, id: market.agent_evaluation_execution_links, kind: duckdb_table, location: "store/market.duckdb#main.agent_evaluation_execution_links"}
-  - {<<: *market_evidence, id: market.agent_evaluation_labels, kind: duckdb_table, location: "store/market.duckdb#main.agent_evaluation_labels"}
-  - {<<: *market_evidence, id: market.agent_evaluation_labels_v2, kind: duckdb_table, location: "store/market.duckdb#main.agent_evaluation_labels_v2"}
-  - {<<: *market_evidence, id: market.agent_evaluation_traces, kind: duckdb_table, location: "store/market.duckdb#main.agent_evaluation_traces"}
-  - {<<: *market_evidence, id: market.agent_fault_drill_runs, kind: duckdb_table, location: "store/market.duckdb#main.agent_fault_drill_runs"}
-  - {<<: *market_evidence, id: market.agent_independent_price_observations, kind: duckdb_table, location: "store/market.duckdb#main.agent_independent_price_observations"}
-  - {<<: *market_evidence, id: market.agent_independent_price_responses, kind: duckdb_table, location: "store/market.duckdb#main.agent_independent_price_responses"}
-  - {<<: *inert_evidence, id: market.agent_paper_book_attribution, kind: duckdb_table, location: "store/market.duckdb#main.agent_paper_book_attribution"}
-  - {<<: *inert_evidence, id: market.agent_paper_decision_receipts, kind: duckdb_table, location: "store/market.duckdb#main.agent_paper_decision_receipts"}
-  - {<<: *inert_evidence, id: market.agent_paper_order_attribution, kind: duckdb_table, location: "store/market.duckdb#main.agent_paper_order_attribution"}
-  - {<<: *market_evidence, id: market.agent_proposals, kind: duckdb_table, location: "store/market.duckdb#main.agent_proposals"}
-  - {<<: *market_evidence, id: market.agent_provider_response_links, kind: duckdb_table, location: "store/market.duckdb#main.agent_provider_response_links"}
-  - {<<: *market_evidence, id: market.agent_provider_responses, kind: duckdb_table, location: "store/market.duckdb#main.agent_provider_responses"}
-  - {<<: *market_evidence, id: market.agent_provider_source_observations, kind: duckdb_table, location: "store/market.duckdb#main.agent_provider_source_observations"}
-  - {<<: *inert_evidence, id: market.agent_release_review_observations, kind: duckdb_table, location: "store/market.duckdb#main.agent_release_review_observations"}
-  - {<<: *market_evidence, id: market.agent_shadow_attempts, kind: duckdb_table, location: "store/market.duckdb#main.agent_shadow_attempts"}
-  - {<<: *market_evidence, id: market.agent_shadow_events, kind: duckdb_table, location: "store/market.duckdb#main.agent_shadow_events"}
-  - {<<: *market_evidence, id: market.daily_opportunity_runs, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_runs"}
-  - {<<: *market_evidence, id: market.daily_opportunity_assessments, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_assessments"}
-  - {<<: *market_evidence, id: market.daily_opportunity_alerts, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_alerts"}
-  - {<<: *market_evidence, id: market.daily_opportunity_alert_events, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_alert_events"}
-  - {<<: *market_evidence, id: market.daily_opportunity_news_responses, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_news_responses"}
-  - {<<: *market_evidence, id: market.daily_opportunity_order_attribution, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_order_attribution"}
-  - {<<: *market_evidence, id: market.daily_opportunity_tool_attempts, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_tool_attempts"}
-  - {<<: *market_evidence, id: market.daily_opportunity_exit_rules, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_exit_rules"}
-  - {<<: *market_evidence, id: market.daily_opportunity_exit_events, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_exit_events"}
-  - {<<: *market_evidence, id: market.daily_opportunity_execution_quality, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_execution_quality"}
+  - {<<: *agent_action_evidence, id: market.agent_corporate_action_observations, kind: duckdb_table, location: "store/market.duckdb#main.agent_corporate_action_observations"}
+  - {<<: *agent_price_evidence, id: market.agent_daily_price_observations, kind: duckdb_table, location: "store/market.duckdb#main.agent_daily_price_observations"}
+  - {<<: *agent_discrepancy_evidence, id: market.agent_data_discrepancy_decisions, kind: duckdb_table, location: "store/market.duckdb#main.agent_data_discrepancy_decisions"}
+  - {<<: *agent_evaluation_evidence, id: market.agent_evaluation_decisions, kind: duckdb_table, location: "store/market.duckdb#main.agent_evaluation_decisions"}
+  - {<<: *agent_evaluation_evidence, id: market.agent_evaluation_execution_links, kind: duckdb_table, location: "store/market.duckdb#main.agent_evaluation_execution_links"}
+  - {<<: *agent_evaluation_evidence, id: market.agent_evaluation_labels, kind: duckdb_table, location: "store/market.duckdb#main.agent_evaluation_labels"}
+  - {<<: *agent_evaluation_evidence, id: market.agent_evaluation_labels_v2, kind: duckdb_table, location: "store/market.duckdb#main.agent_evaluation_labels_v2"}
+  - {<<: *agent_evaluation_evidence, id: market.agent_evaluation_traces, kind: duckdb_table, location: "store/market.duckdb#main.agent_evaluation_traces"}
+  - {<<: *agent_fault_evidence, id: market.agent_fault_drill_runs, kind: duckdb_table, location: "store/market.duckdb#main.agent_fault_drill_runs"}
+  - {<<: *agent_independent_evidence, id: market.agent_independent_price_observations, kind: duckdb_table, location: "store/market.duckdb#main.agent_independent_price_observations"}
+  - {<<: *agent_independent_evidence, id: market.agent_independent_price_responses, kind: duckdb_table, location: "store/market.duckdb#main.agent_independent_price_responses"}
+  - {<<: *agent_paper_evidence, id: market.agent_paper_book_attribution, kind: duckdb_table, location: "store/market.duckdb#main.agent_paper_book_attribution"}
+  - {<<: *agent_paper_evidence, id: market.agent_paper_decision_receipts, kind: duckdb_table, location: "store/market.duckdb#main.agent_paper_decision_receipts"}
+  - {<<: *agent_paper_evidence, id: market.agent_paper_order_attribution, kind: duckdb_table, location: "store/market.duckdb#main.agent_paper_order_attribution"}
+  - {<<: *agent_proposal_evidence, id: market.agent_proposals, kind: duckdb_table, location: "store/market.duckdb#main.agent_proposals"}
+  - {<<: *agent_provider_evidence, id: market.agent_provider_response_links, kind: duckdb_table, location: "store/market.duckdb#main.agent_provider_response_links"}
+  - {<<: *agent_provider_evidence, id: market.agent_provider_responses, kind: duckdb_table, location: "store/market.duckdb#main.agent_provider_responses"}
+  - {<<: *agent_provider_evidence, id: market.agent_provider_source_observations, kind: duckdb_table, location: "store/market.duckdb#main.agent_provider_source_observations"}
+  - {<<: *agent_release_evidence, id: market.agent_release_review_observations, kind: duckdb_table, location: "store/market.duckdb#main.agent_release_review_observations"}
+  - {<<: *agent_shadow_evidence, id: market.agent_shadow_attempts, kind: duckdb_table, location: "store/market.duckdb#main.agent_shadow_attempts"}
+  - {<<: *agent_shadow_evidence, id: market.agent_shadow_events, kind: duckdb_table, location: "store/market.duckdb#main.agent_shadow_events"}
+  - {<<: *daily_opportunity_evidence, id: market.daily_opportunity_runs, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_runs"}
+  - {<<: *daily_opportunity_evidence, id: market.daily_opportunity_assessments, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_assessments"}
+  - {<<: *daily_opportunity_evidence, id: market.daily_opportunity_alerts, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_alerts"}
+  - {<<: *daily_opportunity_evidence, id: market.daily_opportunity_alert_events, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_alert_events"}
+  - {<<: *daily_opportunity_evidence, id: market.daily_opportunity_news_responses, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_news_responses"}
+  - {<<: *daily_opportunity_evidence, id: market.daily_opportunity_order_attribution, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_order_attribution"}
+  - {<<: *daily_opportunity_evidence, id: market.daily_opportunity_tool_attempts, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_tool_attempts"}
+  - {<<: *daily_opportunity_evidence, id: market.daily_opportunity_exit_rules, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_exit_rules"}
+  - {<<: *daily_opportunity_evidence, id: market.daily_opportunity_exit_events, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_exit_events"}
+  - {<<: *daily_opportunity_evidence, id: market.daily_opportunity_execution_quality, kind: duckdb_table, location: "store/market.duckdb#main.daily_opportunity_execution_quality"}
 
   # P15 evidence and state.
   - {<<: *p15_evidence, id: market.p15_book_contracts, kind: duckdb_table, location: "store/market.duckdb#main.p15_book_contracts"}
@@ -263,159 +611,159 @@ datasets:
   - {<<: *p15_evidence, id: market.price_fetch_attempts, kind: duckdb_table, location: "store/market.duckdb#main.price_fetch_attempts"}
 
   # Account and simulator ledgers versus rebuildable/current projections.
-  - {<<: *market_authoritative, id: market.account_events, kind: duckdb_table, location: "store/market.duckdb#main.account_events"}
-  - {<<: *market_evidence, id: market.account_reconciliations, kind: duckdb_table, location: "store/market.duckdb#main.account_reconciliations"}
-  - {<<: *operational_state, id: market.account_state, kind: duckdb_table, location: "store/market.duckdb#main.account_state"}
-  - {<<: *operational_state, id: market.account_watch, kind: duckdb_table, location: "store/market.duckdb#main.account_watch"}
-  - {<<: *market_authoritative, id: market.audit_log, kind: duckdb_table, location: "store/market.duckdb#main.audit_log"}
-  - {<<: *market_authoritative, id: market.disc_tickets, kind: duckdb_table, location: "store/market.duckdb#main.disc_tickets"}
-  - {<<: *operational_state, id: market.instruments, kind: duckdb_table, location: "store/market.duckdb#main.instruments"}
-  - {<<: *market_authoritative, id: market.paper_account_intakes, kind: duckdb_table, location: "store/market.duckdb#main.paper_account_intakes"}
-  - {<<: *operational_state, id: market.paper_account_specs, kind: duckdb_table, location: "store/market.duckdb#main.paper_account_specs"}
-  - {<<: *operational_state, id: market.portfolio_accounts, kind: duckdb_table, location: "store/market.duckdb#main.portfolio_accounts"}
-  - {<<: *operational_state, id: market.portfolios, kind: duckdb_table, location: "store/market.duckdb#main.portfolios"}
-  - {<<: *market_evidence, id: market.review_markers, kind: duckdb_table, location: "store/market.duckdb#main.review_markers"}
-  - {<<: *market_authoritative, id: market.sim_book_breaks, kind: duckdb_table, location: "store/market.duckdb#main.sim_book_breaks"}
-  - {<<: *market_authoritative, id: market.sim_cash_events, kind: duckdb_table, location: "store/market.duckdb#main.sim_cash_events"}
-  - {<<: *market_authoritative, id: market.sim_day_trades, kind: duckdb_table, location: "store/market.duckdb#main.sim_day_trades"}
-  - {<<: *market_authoritative, id: market.sim_dividends, kind: duckdb_table, location: "store/market.duckdb#main.sim_dividends"}
-  - {<<: *market_evidence, id: market.sim_equity, kind: duckdb_table, location: "store/market.duckdb#main.sim_equity"}
-  - {<<: *market_authoritative, id: market.sim_execution_attempts, kind: duckdb_table, location: "store/market.duckdb#main.sim_execution_attempts"}
-  - {<<: *market_authoritative, id: market.sim_fill_costs, kind: duckdb_table, location: "store/market.duckdb#main.sim_fill_costs"}
-  - {<<: *market_authoritative, id: market.sim_fill_details, kind: duckdb_table, location: "store/market.duckdb#main.sim_fill_details"}
-  - {<<: *market_authoritative, id: market.sim_fill_fees, kind: duckdb_table, location: "store/market.duckdb#main.sim_fill_fees"}
-  - {<<: *market_authoritative, id: market.sim_fills, kind: duckdb_table, location: "store/market.duckdb#main.sim_fills"}
-  - {<<: *market_authoritative, id: market.sim_order_details, kind: duckdb_table, location: "store/market.duckdb#main.sim_order_details"}
-  - {<<: *market_authoritative, id: market.sim_orders, kind: duckdb_table, location: "store/market.duckdb#main.sim_orders"}
-  - {<<: *operational_state, id: market.sim_position_lots, kind: duckdb_table, location: "store/market.duckdb#main.sim_position_lots", semantics: mutable_projection}
-  - {<<: *operational_state, id: market.sim_positions, kind: duckdb_table, location: "store/market.duckdb#main.sim_positions", semantics: mutable_projection}
-  - {<<: *market_authoritative, id: market.sim_settlements, kind: duckdb_table, location: "store/market.duckdb#main.sim_settlements"}
-  - {<<: *operational_state, id: market.portfolio_accounts_v, kind: duckdb_view, location: "store/market.duckdb#main.portfolio_accounts_v", semantics: derived}
+  - {<<: *account_ledger, id: market.account_events, kind: duckdb_table, location: "store/market.duckdb#main.account_events"}
+  - {<<: *account_evidence, id: market.account_reconciliations, kind: duckdb_table, location: "store/market.duckdb#main.account_reconciliations"}
+  - {<<: *account_state, id: market.account_state, kind: duckdb_table, location: "store/market.duckdb#main.account_state"}
+  - {<<: *account_state, id: market.account_watch, kind: duckdb_table, location: "store/market.duckdb#main.account_watch"}
+  - {<<: *account_ledger, id: market.audit_log, kind: duckdb_table, location: "store/market.duckdb#main.audit_log"}
+  - {<<: *account_ledger, id: market.disc_tickets, kind: duckdb_table, location: "store/market.duckdb#main.disc_tickets"}
+  - {<<: *account_state, id: market.instruments, kind: duckdb_table, location: "store/market.duckdb#main.instruments"}
+  - {<<: *account_ledger, id: market.paper_account_intakes, kind: duckdb_table, location: "store/market.duckdb#main.paper_account_intakes"}
+  - {<<: *account_state, id: market.paper_account_specs, kind: duckdb_table, location: "store/market.duckdb#main.paper_account_specs"}
+  - {<<: *account_state, id: market.portfolio_accounts, kind: duckdb_table, location: "store/market.duckdb#main.portfolio_accounts"}
+  - {<<: *account_state, id: market.portfolios, kind: duckdb_table, location: "store/market.duckdb#main.portfolios"}
+  - {<<: *account_evidence, id: market.review_markers, kind: duckdb_table, location: "store/market.duckdb#main.review_markers"}
+  - {<<: *account_ledger, id: market.sim_book_breaks, kind: duckdb_table, location: "store/market.duckdb#main.sim_book_breaks"}
+  - {<<: *account_ledger, id: market.sim_cash_events, kind: duckdb_table, location: "store/market.duckdb#main.sim_cash_events"}
+  - {<<: *account_ledger, id: market.sim_day_trades, kind: duckdb_table, location: "store/market.duckdb#main.sim_day_trades"}
+  - {<<: *account_ledger, id: market.sim_dividends, kind: duckdb_table, location: "store/market.duckdb#main.sim_dividends"}
+  - {<<: *account_evidence, id: market.sim_equity, kind: duckdb_table, location: "store/market.duckdb#main.sim_equity"}
+  - {<<: *account_ledger, id: market.sim_execution_attempts, kind: duckdb_table, location: "store/market.duckdb#main.sim_execution_attempts"}
+  - {<<: *account_ledger, id: market.sim_fill_costs, kind: duckdb_table, location: "store/market.duckdb#main.sim_fill_costs"}
+  - {<<: *account_ledger, id: market.sim_fill_details, kind: duckdb_table, location: "store/market.duckdb#main.sim_fill_details"}
+  - {<<: *account_ledger, id: market.sim_fill_fees, kind: duckdb_table, location: "store/market.duckdb#main.sim_fill_fees"}
+  - {<<: *account_ledger, id: market.sim_fills, kind: duckdb_table, location: "store/market.duckdb#main.sim_fills"}
+  - {<<: *account_ledger, id: market.sim_order_details, kind: duckdb_table, location: "store/market.duckdb#main.sim_order_details"}
+  - {<<: *account_ledger, id: market.sim_orders, kind: duckdb_table, location: "store/market.duckdb#main.sim_orders"}
+  - {<<: *account_state, id: market.sim_position_lots, kind: duckdb_table, location: "store/market.duckdb#main.sim_position_lots", semantics: mutable_projection}
+  - {<<: *account_state, id: market.sim_positions, kind: duckdb_table, location: "store/market.duckdb#main.sim_positions", semantics: mutable_projection}
+  - {<<: *account_ledger, id: market.sim_settlements, kind: duckdb_table, location: "store/market.duckdb#main.sim_settlements"}
+  - {<<: *account_view, id: market.portfolio_accounts_v, kind: duckdb_view, location: "store/market.duckdb#main.portfolio_accounts_v", semantics: derived}
 
   # Built-inert P16 and broker-paper records.
-  - {<<: *inert_evidence, id: market.p16_book_contracts, kind: duckdb_table, location: "store/market.duckdb#main.p16_book_contracts"}
-  - {<<: *inert_evidence, id: market.p16_book_fills, kind: duckdb_table, location: "store/market.duckdb#main.p16_book_fills"}
-  - {<<: *inert_evidence, id: market.p16_book_state, kind: duckdb_table, location: "store/market.duckdb#main.p16_book_state", semantics: current_state}
-  - {<<: *inert_evidence, id: market.p16_book_windows, kind: duckdb_table, location: "store/market.duckdb#main.p16_book_windows"}
-  - {<<: *inert_evidence, id: market.p16_calibrations, kind: duckdb_table, location: "store/market.duckdb#main.p16_calibrations"}
-  - {<<: *inert_evidence, id: market.p16_challenger_attempts, kind: duckdb_table, location: "store/market.duckdb#main.p16_challenger_attempts"}
-  - {<<: *inert_evidence, id: market.p16_challenger_outputs, kind: duckdb_table, location: "store/market.duckdb#main.p16_challenger_outputs"}
-  - {<<: *inert_evidence, id: market.p16_challenger_receipts, kind: duckdb_table, location: "store/market.duckdb#main.p16_challenger_receipts"}
-  - {<<: *inert_evidence, id: market.p16_challenger_runs, kind: duckdb_table, location: "store/market.duckdb#main.p16_challenger_runs"}
-  - {<<: *inert_evidence, id: market.p16_construct_targets, kind: duckdb_table, location: "store/market.duckdb#main.p16_construct_targets"}
-  - {<<: *inert_evidence, id: market.p16_evaluation_artifacts, kind: duckdb_table, location: "store/market.duckdb#main.p16_evaluation_artifacts"}
-  - {<<: *inert_evidence, id: market.p16_filing_acceptance, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_acceptance"}
-  - {<<: *inert_evidence, id: market.p16_filing_accessions, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_accessions"}
-  - {<<: *inert_evidence, id: market.p16_filing_bundles, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_bundles"}
-  - {<<: *inert_evidence, id: market.p16_filing_cik_responses, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_cik_responses"}
-  - {<<: *inert_evidence, id: market.p16_filing_decisions, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_decisions"}
-  - {<<: *inert_evidence, id: market.p16_filing_labels, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_labels"}
-  - {<<: *inert_evidence, id: market.p16_filing_scans, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_scans"}
-  - {<<: *inert_evidence, id: market.p16_filing_score_attempts, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_score_attempts"}
-  - {<<: *inert_evidence, id: market.p16_filing_work_events, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_work_events"}
-  - {<<: *inert_evidence, id: market.p16_fill_manifests, kind: duckdb_table, location: "store/market.duckdb#main.p16_fill_manifests"}
-  - {<<: *inert_evidence, id: market.p16_fill_measurements, kind: duckdb_table, location: "store/market.duckdb#main.p16_fill_measurements"}
-  - {<<: *inert_evidence, id: market.p16_fill_source_captures, kind: duckdb_table, location: "store/market.duckdb#main.p16_fill_source_captures"}
-  - {<<: *inert_evidence, id: market.p16_limit_attempts, kind: duckdb_table, location: "store/market.duckdb#main.p16_limit_attempts"}
-  - {<<: *inert_evidence, id: market.p16_limit_labels, kind: duckdb_table, location: "store/market.duckdb#main.p16_limit_labels"}
-  - {<<: *inert_evidence, id: market.p16_order_intents, kind: duckdb_table, location: "store/market.duckdb#main.p16_order_intents"}
-  - {<<: *inert_evidence, id: market.p16_position_rules, kind: duckdb_table, location: "store/market.duckdb#main.p16_position_rules"}
-  - {<<: *inert_evidence, id: market.p16_screen_versions, kind: duckdb_table, location: "store/market.duckdb#main.p16_screen_versions"}
-  - {<<: *inert_evidence, id: market.p16_sec_request_events, kind: duckdb_table, location: "store/market.duckdb#main.p16_sec_request_events"}
-  - {<<: *inert_evidence, id: market.p16_sequential_origin_events, kind: duckdb_table, location: "store/market.duckdb#main.p16_sequential_origin_events"}
-  - {<<: *inert_evidence, id: market.p16_trial_register_v4, kind: duckdb_table, location: "store/market.duckdb#main.p16_trial_register_v4"}
-  - {<<: *inert_evidence, id: market.broker_cancellation_events, kind: duckdb_table, location: "store/market.duckdb#main.broker_cancellation_events"}
-  - {<<: *inert_evidence, id: market.broker_emergency_stop_events, kind: duckdb_table, location: "store/market.duckdb#main.broker_emergency_stop_events"}
-  - {<<: *inert_evidence, id: market.broker_executions, kind: duckdb_table, location: "store/market.duckdb#main.broker_executions"}
-  - {<<: *inert_evidence, id: market.broker_human_paper_approval_observations, kind: duckdb_table, location: "store/market.duckdb#main.broker_human_paper_approval_observations"}
-  - {<<: *inert_evidence, id: market.broker_intents, kind: duckdb_table, location: "store/market.duckdb#main.broker_intents"}
-  - {<<: *inert_evidence, id: market.broker_order_observations, kind: duckdb_table, location: "store/market.duckdb#main.broker_order_observations"}
-  - {<<: *inert_evidence, id: market.broker_paper_authority_retained_events, kind: duckdb_table, location: "store/market.duckdb#main.broker_paper_authority_retained_events"}
-  - {<<: *inert_evidence, id: market.broker_paper_authority_risk_evaluations, kind: duckdb_table, location: "store/market.duckdb#main.broker_paper_authority_risk_evaluations"}
-  - {<<: *inert_evidence, id: market.broker_reconciliations, kind: duckdb_table, location: "store/market.duckdb#main.broker_reconciliations"}
-  - {<<: *inert_evidence, id: market.broker_reconciliation_differences, kind: duckdb_table, location: "store/market.duckdb#main.broker_reconciliation_differences"}
-  - {<<: *inert_evidence, id: market.broker_risk_control_events, kind: duckdb_table, location: "store/market.duckdb#main.broker_risk_control_events"}
-  - {<<: *inert_evidence, id: market.broker_risk_decisions, kind: duckdb_table, location: "store/market.duckdb#main.broker_risk_decisions"}
-  - {<<: *inert_evidence, id: market.broker_snapshots, kind: duckdb_table, location: "store/market.duckdb#main.broker_snapshots"}
-  - {<<: *inert_evidence, id: market.broker_submission_events, kind: duckdb_table, location: "store/market.duckdb#main.broker_submission_events"}
-  - {<<: *inert_evidence, id: market.broker_submission_resolutions, kind: duckdb_table, location: "store/market.duckdb#main.broker_submission_resolutions"}
-  - {<<: *inert_evidence, id: market.simulator_broker_order_keys, kind: duckdb_table, location: "store/market.duckdb#main.simulator_broker_order_keys"}
+  - {<<: *p16_inert_evidence, id: market.p16_book_contracts, kind: duckdb_table, location: "store/market.duckdb#main.p16_book_contracts"}
+  - {<<: *p16_inert_evidence, id: market.p16_book_fills, kind: duckdb_table, location: "store/market.duckdb#main.p16_book_fills"}
+  - {<<: *p16_inert_evidence, id: market.p16_book_state, kind: duckdb_table, location: "store/market.duckdb#main.p16_book_state", semantics: current_state}
+  - {<<: *p16_inert_evidence, id: market.p16_book_windows, kind: duckdb_table, location: "store/market.duckdb#main.p16_book_windows"}
+  - {<<: *p16_inert_evidence, id: market.p16_calibrations, kind: duckdb_table, location: "store/market.duckdb#main.p16_calibrations"}
+  - {<<: *p16_inert_evidence, id: market.p16_challenger_attempts, kind: duckdb_table, location: "store/market.duckdb#main.p16_challenger_attempts"}
+  - {<<: *p16_inert_evidence, id: market.p16_challenger_outputs, kind: duckdb_table, location: "store/market.duckdb#main.p16_challenger_outputs"}
+  - {<<: *p16_inert_evidence, id: market.p16_challenger_receipts, kind: duckdb_table, location: "store/market.duckdb#main.p16_challenger_receipts"}
+  - {<<: *p16_inert_evidence, id: market.p16_challenger_runs, kind: duckdb_table, location: "store/market.duckdb#main.p16_challenger_runs"}
+  - {<<: *p16_inert_evidence, id: market.p16_construct_targets, kind: duckdb_table, location: "store/market.duckdb#main.p16_construct_targets"}
+  - {<<: *p16_inert_evidence, id: market.p16_evaluation_artifacts, kind: duckdb_table, location: "store/market.duckdb#main.p16_evaluation_artifacts"}
+  - {<<: *p16_inert_evidence, id: market.p16_filing_acceptance, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_acceptance"}
+  - {<<: *p16_inert_evidence, id: market.p16_filing_accessions, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_accessions"}
+  - {<<: *p16_inert_evidence, id: market.p16_filing_bundles, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_bundles"}
+  - {<<: *p16_inert_evidence, id: market.p16_filing_cik_responses, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_cik_responses"}
+  - {<<: *p16_inert_evidence, id: market.p16_filing_decisions, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_decisions"}
+  - {<<: *p16_inert_evidence, id: market.p16_filing_labels, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_labels"}
+  - {<<: *p16_inert_evidence, id: market.p16_filing_scans, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_scans"}
+  - {<<: *p16_inert_evidence, id: market.p16_filing_score_attempts, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_score_attempts"}
+  - {<<: *p16_inert_evidence, id: market.p16_filing_work_events, kind: duckdb_table, location: "store/market.duckdb#main.p16_filing_work_events"}
+  - {<<: *p16_inert_evidence, id: market.p16_fill_manifests, kind: duckdb_table, location: "store/market.duckdb#main.p16_fill_manifests"}
+  - {<<: *p16_inert_evidence, id: market.p16_fill_measurements, kind: duckdb_table, location: "store/market.duckdb#main.p16_fill_measurements"}
+  - {<<: *p16_inert_evidence, id: market.p16_fill_source_captures, kind: duckdb_table, location: "store/market.duckdb#main.p16_fill_source_captures"}
+  - {<<: *p16_inert_evidence, id: market.p16_limit_attempts, kind: duckdb_table, location: "store/market.duckdb#main.p16_limit_attempts"}
+  - {<<: *p16_inert_evidence, id: market.p16_limit_labels, kind: duckdb_table, location: "store/market.duckdb#main.p16_limit_labels"}
+  - {<<: *p16_inert_evidence, id: market.p16_order_intents, kind: duckdb_table, location: "store/market.duckdb#main.p16_order_intents"}
+  - {<<: *p16_inert_evidence, id: market.p16_position_rules, kind: duckdb_table, location: "store/market.duckdb#main.p16_position_rules"}
+  - {<<: *p16_inert_evidence, id: market.p16_screen_versions, kind: duckdb_table, location: "store/market.duckdb#main.p16_screen_versions"}
+  - {<<: *p16_inert_evidence, id: market.p16_sec_request_events, kind: duckdb_table, location: "store/market.duckdb#main.p16_sec_request_events"}
+  - {<<: *p16_inert_evidence, id: market.p16_sequential_origin_events, kind: duckdb_table, location: "store/market.duckdb#main.p16_sequential_origin_events"}
+  - {<<: *p16_inert_evidence, id: market.p16_trial_register_v4, kind: duckdb_table, location: "store/market.duckdb#main.p16_trial_register_v4"}
+  - {<<: *broker_inert_evidence, id: market.broker_cancellation_events, kind: duckdb_table, location: "store/market.duckdb#main.broker_cancellation_events"}
+  - {<<: *broker_inert_evidence, id: market.broker_emergency_stop_events, kind: duckdb_table, location: "store/market.duckdb#main.broker_emergency_stop_events"}
+  - {<<: *broker_inert_evidence, id: market.broker_executions, kind: duckdb_table, location: "store/market.duckdb#main.broker_executions"}
+  - {<<: *broker_inert_evidence, id: market.broker_human_paper_approval_observations, kind: duckdb_table, location: "store/market.duckdb#main.broker_human_paper_approval_observations"}
+  - {<<: *broker_inert_evidence, id: market.broker_intents, kind: duckdb_table, location: "store/market.duckdb#main.broker_intents"}
+  - {<<: *broker_inert_evidence, id: market.broker_order_observations, kind: duckdb_table, location: "store/market.duckdb#main.broker_order_observations"}
+  - {<<: *broker_inert_evidence, id: market.broker_paper_authority_retained_events, kind: duckdb_table, location: "store/market.duckdb#main.broker_paper_authority_retained_events"}
+  - {<<: *broker_inert_evidence, id: market.broker_paper_authority_risk_evaluations, kind: duckdb_table, location: "store/market.duckdb#main.broker_paper_authority_risk_evaluations"}
+  - {<<: *broker_inert_evidence, id: market.broker_reconciliations, kind: duckdb_table, location: "store/market.duckdb#main.broker_reconciliations"}
+  - {<<: *broker_inert_evidence, id: market.broker_reconciliation_differences, kind: duckdb_table, location: "store/market.duckdb#main.broker_reconciliation_differences"}
+  - {<<: *broker_inert_evidence, id: market.broker_risk_control_events, kind: duckdb_table, location: "store/market.duckdb#main.broker_risk_control_events"}
+  - {<<: *broker_inert_evidence, id: market.broker_risk_decisions, kind: duckdb_table, location: "store/market.duckdb#main.broker_risk_decisions"}
+  - {<<: *broker_inert_evidence, id: market.broker_snapshots, kind: duckdb_table, location: "store/market.duckdb#main.broker_snapshots"}
+  - {<<: *broker_inert_evidence, id: market.broker_submission_events, kind: duckdb_table, location: "store/market.duckdb#main.broker_submission_events"}
+  - {<<: *broker_inert_evidence, id: market.broker_submission_resolutions, kind: duckdb_table, location: "store/market.duckdb#main.broker_submission_resolutions"}
+  - {<<: *broker_inert_evidence, id: market.simulator_broker_order_keys, kind: duckdb_table, location: "store/market.duckdb#main.simulator_broker_order_keys"}
 
   # Isolated active, future, and retired PIT tables/views.
-  - {<<: *pit_active, id: free_sources.free_company_tickers, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_company_tickers"}
-  - {<<: *pit_active, id: free_sources.free_daily_bars, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_daily_bars"}
-  - {<<: *pit_active, id: free_sources.free_daily_bars_rejected, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_daily_bars_rejected"}
-  - {<<: *pit_active, id: free_sources.free_delisting_notice_details, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_delisting_notice_details"}
-  - {<<: *pit_active, id: free_sources.free_delisting_notices, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_delisting_notices"}
-  - {<<: *pit_active, id: free_sources.free_insider_nonderiv_trans, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_insider_nonderiv_trans"}
-  - {<<: *pit_active, id: free_sources.free_insider_owners, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_insider_owners"}
-  - {<<: *pit_active, id: free_sources.free_insider_submissions, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_insider_submissions"}
-  - {<<: *pit_active, id: free_sources.free_security_master, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_security_master"}
-  - {<<: *pit_active, id: free_sources.free_splits, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_splits"}
-  - {<<: *pit_active, id: free_sources.free_cik_ticker_history, kind: duckdb_view, location: "store/pit/free-sources.duckdb#main.free_cik_ticker_history", semantics: derived}
-  - {<<: *pit_active, id: free_sources.free_daily_bars_adjusted, kind: duckdb_view, location: "store/pit/free-sources.duckdb#main.free_daily_bars_adjusted", semantics: derived}
-  - {<<: *pit_remote, id: sec_bulk.sec_archive_loads, kind: duckdb_table, location: "store/pit/sec-bulk.duckdb#main.sec_archive_loads"}
-  - {<<: *pit_remote, id: sec_bulk.sec_cik_ticker_history, kind: duckdb_table, location: "store/pit/sec-bulk.duckdb#main.sec_cik_ticker_history"}
-  - {<<: *pit_remote, id: sec_bulk.sec_earnings_events, kind: duckdb_table, location: "store/pit/sec-bulk.duckdb#main.sec_earnings_events"}
-  - {<<: *pit_remote, id: sec_bulk.sec_facts, kind: duckdb_table, location: "store/pit/sec-bulk.duckdb#main.sec_facts"}
-  - {<<: *pit_remote, id: sec_bulk.sec_submission_index, kind: duckdb_table, location: "store/pit/sec-bulk.duckdb#main.sec_submission_index"}
-  - {<<: *pit_remote, id: sec_bulk.sec_submission_pages, kind: duckdb_table, location: "store/pit/sec-bulk.duckdb#main.sec_submission_pages"}
-  - {<<: *pit_remote, id: sec_bulk.sec_earnings_events_with_ticker, kind: duckdb_view, location: "store/pit/sec-bulk.duckdb#main.sec_earnings_events_with_ticker", semantics: derived}
-  - {<<: *pit_remote, id: sec_bulk.sec_facts_available, kind: duckdb_view, location: "store/pit/sec-bulk.duckdb#main.sec_facts_available", semantics: derived}
-  - {<<: *pit_remote, id: sec_bulk.sec_facts_with_ticker, kind: duckdb_view, location: "store/pit/sec-bulk.duckdb#main.sec_facts_with_ticker", semantics: derived}
-  - {<<: *pit_active, id: massive_minute.massive_minute_bars, kind: duckdb_table, location: "store/pit/massive-minute.duckdb#main.massive_minute_bars"}
-  - {<<: *pit_active, id: massive_minute.massive_minute_chunks, kind: duckdb_table, location: "store/pit/massive-minute.duckdb#main.massive_minute_chunks", semantics: current_state}
-  - {<<: *pit_active, id: options.option_contracts, kind: duckdb_table, location: "store/pit/options.duckdb#main.option_contracts"}
-  - {<<: *pit_active, id: options.option_daily_bars, kind: duckdb_table, location: "store/pit/options.duckdb#main.option_daily_bars"}
-  - {<<: *pit_active, id: options.option_capture_receipts, kind: duckdb_table, location: "store/pit/options.duckdb#main.option_capture_receipts"}
-  - {<<: *pit_remote, id: short_data.regsho_threshold, kind: duckdb_table, location: "store/pit/short-data.duckdb#main.regsho_threshold"}
-  - {<<: *pit_remote, id: short_data.finra_short_interest, kind: duckdb_table, location: "store/pit/short-data.duckdb#main.finra_short_interest"}
+  - {<<: *free_sources_evidence, id: free_sources.free_company_tickers, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_company_tickers"}
+  - {<<: *free_sources_evidence, id: free_sources.free_daily_bars, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_daily_bars"}
+  - {<<: *free_sources_evidence, id: free_sources.free_daily_bars_rejected, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_daily_bars_rejected"}
+  - {<<: *free_sources_evidence, id: free_sources.free_delisting_notice_details, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_delisting_notice_details"}
+  - {<<: *free_sources_evidence, id: free_sources.free_delisting_notices, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_delisting_notices"}
+  - {<<: *free_sources_evidence, id: free_sources.free_insider_nonderiv_trans, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_insider_nonderiv_trans"}
+  - {<<: *free_sources_evidence, id: free_sources.free_insider_owners, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_insider_owners"}
+  - {<<: *free_sources_evidence, id: free_sources.free_insider_submissions, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_insider_submissions"}
+  - {<<: *free_sources_evidence, id: free_sources.free_security_master, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_security_master"}
+  - {<<: *free_sources_evidence, id: free_sources.free_splits, kind: duckdb_table, location: "store/pit/free-sources.duckdb#main.free_splits"}
+  - {<<: *free_sources_evidence, id: free_sources.free_cik_ticker_history, kind: duckdb_view, location: "store/pit/free-sources.duckdb#main.free_cik_ticker_history", semantics: derived}
+  - {<<: *free_sources_evidence, id: free_sources.free_daily_bars_adjusted, kind: duckdb_view, location: "store/pit/free-sources.duckdb#main.free_daily_bars_adjusted", semantics: derived}
+  - {<<: *sec_bulk_evidence, id: sec_bulk.sec_archive_loads, kind: duckdb_table, location: "store/pit/sec-bulk.duckdb#main.sec_archive_loads"}
+  - {<<: *sec_bulk_evidence, id: sec_bulk.sec_cik_ticker_history, kind: duckdb_table, location: "store/pit/sec-bulk.duckdb#main.sec_cik_ticker_history"}
+  - {<<: *sec_bulk_evidence, id: sec_bulk.sec_earnings_events, kind: duckdb_table, location: "store/pit/sec-bulk.duckdb#main.sec_earnings_events"}
+  - {<<: *sec_bulk_evidence, id: sec_bulk.sec_facts, kind: duckdb_table, location: "store/pit/sec-bulk.duckdb#main.sec_facts"}
+  - {<<: *sec_bulk_evidence, id: sec_bulk.sec_submission_index, kind: duckdb_table, location: "store/pit/sec-bulk.duckdb#main.sec_submission_index"}
+  - {<<: *sec_bulk_evidence, id: sec_bulk.sec_submission_pages, kind: duckdb_table, location: "store/pit/sec-bulk.duckdb#main.sec_submission_pages"}
+  - {<<: *sec_bulk_evidence, id: sec_bulk.sec_earnings_events_with_ticker, kind: duckdb_view, location: "store/pit/sec-bulk.duckdb#main.sec_earnings_events_with_ticker", semantics: derived}
+  - {<<: *sec_bulk_evidence, id: sec_bulk.sec_facts_available, kind: duckdb_view, location: "store/pit/sec-bulk.duckdb#main.sec_facts_available", semantics: derived}
+  - {<<: *sec_bulk_evidence, id: sec_bulk.sec_facts_with_ticker, kind: duckdb_view, location: "store/pit/sec-bulk.duckdb#main.sec_facts_with_ticker", semantics: derived}
+  - {<<: *minute_evidence, id: massive_minute.massive_minute_bars, kind: duckdb_table, location: "store/pit/massive-minute.duckdb#main.massive_minute_bars"}
+  - {<<: *minute_evidence, id: massive_minute.massive_minute_chunks, kind: duckdb_table, location: "store/pit/massive-minute.duckdb#main.massive_minute_chunks", semantics: current_state}
+  - {<<: *options_evidence, id: options.option_contracts, kind: duckdb_table, location: "store/pit/options.duckdb#main.option_contracts"}
+  - {<<: *options_evidence, id: options.option_daily_bars, kind: duckdb_table, location: "store/pit/options.duckdb#main.option_daily_bars"}
+  - {<<: *options_evidence, id: options.option_capture_receipts, kind: duckdb_table, location: "store/pit/options.duckdb#main.option_capture_receipts"}
+  - {<<: *short_evidence, id: short_data.regsho_threshold, kind: duckdb_table, location: "store/pit/short-data.duckdb#main.regsho_threshold"}
+  - {<<: *short_evidence, id: short_data.finra_short_interest, kind: duckdb_table, location: "store/pit/short-data.duckdb#main.finra_short_interest"}
 
   # Research-only DuckDB relations.
-  - {<<: *research_cache, id: replay.replay_clock, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_clock", semantics: current_state}
-  - {<<: *research_cache, id: replay.replay_decisions, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_decisions", semantics: append_only_evidence}
-  - {<<: *research_cache, id: replay.replay_labels, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_labels", semantics: append_only_evidence}
-  - {<<: *research_cache, id: replay.replay_notes, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_notes", semantics: append_only_evidence}
-  - {<<: *research_cache, id: replay.replay_postmortems, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_postmortems", semantics: append_only_evidence}
-  - {<<: *research_cache, id: replay.replay_price_scale_state, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_price_scale_state", semantics: current_state}
-  - {<<: *research_cache, id: replay.replay_price_watermark, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_price_watermark", semantics: current_state}
-  - {<<: *research_cache, id: replay.w4_evidence_records, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.w4_evidence_records", semantics: append_only_evidence}
-  - {<<: *research_cache, id: replay.w4_lockbox_arms, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.w4_lockbox_arms", semantics: append_only_evidence}
-  - {<<: *research_cache, id: replay.w4_lockbox_events, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.w4_lockbox_events", semantics: append_only_evidence}
-  - {<<: *research_cache, id: replay.w4_lockbox_markers, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.w4_lockbox_markers", semantics: append_only_evidence}
-  - {<<: *research_cache, id: replay.w4_lockbox_sessions, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.w4_lockbox_sessions", semantics: append_only_evidence}
-  - {<<: *research_cache, id: replay.w4_store_identity, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.w4_store_identity", semantics: append_only_evidence}
-  - {<<: *research_cache, id: scratch.credit_confirmed_action_coverage, kind: duckdb_table, location: "scratch/credit-confirmed-spy-v1/**.duckdb#main.credit_confirmed_action_coverage"}
-  - {<<: *research_cache, id: scratch.credit_confirmed_fold_controls, kind: duckdb_table, location: "scratch/credit-confirmed-spy-v1/**.duckdb#main.credit_confirmed_fold_controls"}
-  - {<<: *research_cache, id: scratch.proof_hs, kind: duckdb_table, location: "scratch/proofs/equiv.duckdb#main.hs"}
-  - {<<: *research_cache, id: scratch.proof_sr_stored, kind: duckdb_table, location: "scratch/proofs/equiv.duckdb#main.sr_stored"}
-  - {<<: *research_cache, id: scratch.daily_opportunity_prices, kind: duckdb_table, location: "memory://engine.daily_opportunities#main.prices"}
+  - {<<: *replay_cache, id: replay.replay_clock, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_clock", semantics: current_state}
+  - {<<: *replay_cache, id: replay.replay_decisions, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_decisions", semantics: append_only_evidence}
+  - {<<: *replay_cache, id: replay.replay_labels, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_labels", semantics: append_only_evidence}
+  - {<<: *replay_cache, id: replay.replay_notes, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_notes", semantics: append_only_evidence}
+  - {<<: *replay_cache, id: replay.replay_postmortems, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_postmortems", semantics: append_only_evidence}
+  - {<<: *replay_cache, id: replay.replay_price_scale_state, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_price_scale_state", semantics: current_state}
+  - {<<: *replay_cache, id: replay.replay_price_watermark, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.replay_price_watermark", semantics: current_state}
+  - {<<: *replay_cache, id: replay.w4_evidence_records, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.w4_evidence_records", semantics: append_only_evidence}
+  - {<<: *replay_cache, id: replay.w4_lockbox_arms, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.w4_lockbox_arms", semantics: append_only_evidence}
+  - {<<: *replay_cache, id: replay.w4_lockbox_events, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.w4_lockbox_events", semantics: append_only_evidence}
+  - {<<: *replay_cache, id: replay.w4_lockbox_markers, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.w4_lockbox_markers", semantics: append_only_evidence}
+  - {<<: *replay_cache, id: replay.w4_lockbox_sessions, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.w4_lockbox_sessions", semantics: append_only_evidence}
+  - {<<: *replay_cache, id: replay.w4_store_identity, kind: duckdb_table, location: "scratch/replay/**/replay.duckdb#main.w4_store_identity", semantics: append_only_evidence}
+  - {<<: *credit_cache, id: scratch.credit_confirmed_action_coverage, kind: duckdb_table, location: "scratch/credit-confirmed-spy-v1/**.duckdb#main.credit_confirmed_action_coverage"}
+  - {<<: *credit_cache, id: scratch.credit_confirmed_fold_controls, kind: duckdb_table, location: "scratch/credit-confirmed-spy-v1/**.duckdb#main.credit_confirmed_fold_controls"}
+  - {<<: *proof_cache, id: scratch.proof_hs, kind: duckdb_table, location: "scratch/proofs/equiv.duckdb#main.hs"}
+  - {<<: *proof_cache, id: scratch.proof_sr_stored, kind: duckdb_table, location: "scratch/proofs/equiv.duckdb#main.sr_stored"}
+  - {<<: *opportunity_cache, id: scratch.daily_opportunity_prices, kind: duckdb_table, location: "memory://engine.daily_opportunities#main.prices"}
 
   # Managed database and file families.
-  - {<<: *operational_file, id: files.primary_database, kind: file_set, location: "store/market.duckdb", semantics: authoritative}
-  - {<<: *operational_file, id: files.published_snapshots, kind: generation, location: "store/snapshots/market-*.duckdb"}
-  - {<<: *operational_file, id: files.snapshot_manifests, kind: generation, location: "store/snapshots/market-*.json", semantics: append_only_evidence}
-  - {<<: *evidence_file, id: files.nasdaq_universe_source, kind: file_set, location: "store/nasdaqtraded-*.txt"}
-  - {<<: *operational_file, id: files.agent_shadow_control, kind: file_set, location: "store/agent-shadow-control.json"}
-  - {<<: *operational_file, id: files.free_sources_database, kind: file_set, location: "store/pit/free-sources.duckdb", semantics: authoritative}
-  - {<<: *evidence_file, id: files.free_source_raw, kind: file_set, location: "store/pit/free-sources/**"}
-  - {<<: *operational_file, id: files.massive_minute_database, kind: file_set, location: "store/pit/massive-minute.duckdb", semantics: authoritative}
-  - {<<: *evidence_file, id: files.massive_minute_raw, kind: file_set, location: "store/pit/massive-minute/**"}
-  - {<<: *operational_file, id: files.options_database, kind: file_set, location: "store/pit/options.duckdb", semantics: authoritative}
-  - {<<: *evidence_file, id: files.options_raw, kind: file_set, location: "store/pit/options/**"}
-  - {<<: *remote_file, id: files.sec_bulk_database, kind: file_set, location: "store/pit/sec-bulk.duckdb"}
-  - {<<: *remote_file, id: files.sec_bulk_raw, kind: file_set, location: "store/pit/sec-bulk/**"}
-  - {<<: *remote_file, id: files.short_data_database, kind: file_set, location: "store/pit/short-data.duckdb", rebuild: "Restore M4 through docs/history/retired-pit-restore-2026-10-18.md and require SHA-256 59406972cdcd82f316a0034e699113be682768328fb8aeb4aadb54829f99fa66."}
-  - {<<: *remote_file, id: files.short_data_raw, kind: file_set, location: "store/pit/short-data/**"}
-  - {<<: *remote_file, id: files.frozen_archive, kind: file_set, location: "store/pit/frozen-archive/**"}
-  - {<<: *evidence_file, id: files.price_verifier_receipts, kind: file_set, location: "data/price-verify/**"}
-  - {<<: *derived_file, id: files.meta, kind: file_set, location: "data/_meta.json"}
-  - {<<: *derived_file, id: files.universe_csv, kind: file_set, location: "data/universe.csv"}
-  - {<<: *derived_file, id: files.eod_reports, kind: file_set, location: "data/eod/**"}
-  - {<<: *derived_file, id: files.screen_reports, kind: file_set, location: "data/screens/**"}
-  - {<<: *derived_file, id: files.reports, kind: file_set, location: "data/reports/**"}
-  - {<<: *operational_file, id: files.operational_logs, kind: file_set, location: "logs/**", semantics: derived}
-  - {<<: *derived_file, id: files.ops_digest, kind: file_set, location: "logs/ops/ops.sqlite"}
-  - {<<: *research_cache, id: files.research_scratch, kind: file_set, location: "scratch/**"}
-  - {<<: *remote_file, id: external.private_operational_backup, kind: external_backup, location: "private-backup/engine/**", semantics: append_only_evidence, rebuild: "Restore every manifest sequentially and verify the complete database and evidence tree."}
-  - {<<: *remote_file, id: external.private_research_release, kind: external_backup, location: "private-research-release/**"}
+  - {<<: *primary_database_file, id: files.primary_database, kind: file_set, location: "store/market.duckdb", semantics: authoritative}
+  - {<<: *snapshot_file, id: files.published_snapshots, kind: generation, location: "store/snapshots/market-*.duckdb"}
+  - {<<: *snapshot_file, id: files.snapshot_manifests, kind: generation, location: "store/snapshots/market-*.json", semantics: append_only_evidence}
+  - {<<: *nasdaq_file, id: files.nasdaq_universe_source, kind: file_set, location: "store/nasdaqtraded-*.txt"}
+  - {<<: *shadow_control_file, id: files.agent_shadow_control, kind: file_set, location: "store/agent-shadow-control.json"}
+  - {<<: *free_database_file, id: files.free_sources_database, kind: file_set, location: "store/pit/free-sources.duckdb", semantics: authoritative}
+  - {<<: *free_raw_file, id: files.free_source_raw, kind: file_set, location: "store/pit/free-sources/**"}
+  - {<<: *minute_database_file, id: files.massive_minute_database, kind: file_set, location: "store/pit/massive-minute.duckdb", semantics: authoritative}
+  - {<<: *minute_raw_file, id: files.massive_minute_raw, kind: file_set, location: "store/pit/massive-minute/**"}
+  - {<<: *options_database_file, id: files.options_database, kind: file_set, location: "store/pit/options.duckdb", semantics: authoritative}
+  - {<<: *options_raw_file, id: files.options_raw, kind: file_set, location: "store/pit/options/**"}
+  - {<<: *remote_file, id: files.sec_bulk_database, kind: file_set, location: "store/pit/sec-bulk.duckdb", schema_owner: [engine/free_sec_bulk.py], producer: [retired SEC bulk loader], registration: [P3 SEC bulk evidence archive]}
+  - {<<: *remote_file, id: files.sec_bulk_raw, kind: file_set, location: "store/pit/sec-bulk/**", schema_owner: [engine/free_sec_bulk.py, tools/free_sec_bulk.py], producer: [retired SEC bulk raw capture], registration: [P3 SEC bulk evidence archive]}
+  - {<<: *remote_file, id: files.short_data_database, kind: file_set, location: "store/pit/short-data.duckdb", schema_owner: [retired short-data loader, engine/accounts/sources.py], producer: [retired Reg SHO and FINRA short-interest collectors], readers: [engine.accounts.sources, sim.shorts, account settlement], registration: [P22 paper-account short inputs], rebuild: "Restore M4 through docs/history/retired-pit-restore-2026-10-18.md and require SHA-256 59406972cdcd82f316a0034e699113be682768328fb8aeb4aadb54829f99fa66."}
+  - {<<: *remote_file, id: files.short_data_raw, kind: file_set, location: "store/pit/short-data/**", schema_owner: [retired short-data loader], producer: [retired Reg SHO and FINRA raw collectors], registration: [P3 short-data evidence archive]}
+  - {<<: *remote_file, id: files.frozen_archive, kind: file_set, location: "store/pit/frozen-archive/**", schema_owner: [tools/free_frozen_archive.py], producer: [retired frozen-archive collector], registration: [P3 frozen archive evidence]}
+  - {<<: *verifier_file, id: files.price_verifier_receipts, kind: file_set, location: "data/price-verify/**"}
+  - {<<: *meta_file, id: files.meta, kind: file_set, location: "data/_meta.json"}
+  - {<<: *universe_csv_file, id: files.universe_csv, kind: file_set, location: "data/universe.csv"}
+  - {<<: *eod_file, id: files.eod_reports, kind: file_set, location: "data/eod/**"}
+  - {<<: *screen_file, id: files.screen_reports, kind: file_set, location: "data/screens/**"}
+  - {<<: *report_file, id: files.reports, kind: file_set, location: "data/reports/**"}
+  - {<<: *log_file, id: files.operational_logs, kind: file_set, location: "logs/**", semantics: derived}
+  - {<<: *ops_database_file, id: files.ops_digest, kind: file_set, location: "logs/ops/ops.sqlite"}
+  - {<<: *scratch_file, id: files.research_scratch, kind: file_set, location: "scratch/**"}
+  - {<<: *operational_backup, id: external.private_operational_backup, kind: external_backup, location: "private-backup/engine/**"}
+  - {<<: *research_release, id: external.private_research_release, kind: external_backup, location: "private-research-release/**"}
