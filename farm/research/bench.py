@@ -41,7 +41,11 @@ def _panel_identity(source, *, generation: dict) -> PanelCacheIdentity:
 
 
 def _universe_identity(panel_digest: str, universe) -> UniverseCacheIdentity:
-    membership = [row.canonical() for row in universe.listings]
+    membership = [{
+        "ticker": row.ticker,
+        "listed_from": row.listed_from.isoformat(),
+        "listed_through": row.listed_through.isoformat() if row.listed_through else None,
+    } for row in universe.listings]
     return UniverseCacheIdentity(
         panel_sha256=panel_digest,
         membership_sha256=canonical_sha256(membership),
