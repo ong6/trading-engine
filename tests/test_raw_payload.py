@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -15,6 +16,10 @@ from engine import raw_payload
 from engine.free_sources import FreeSourceError
 from tools import convert_raw_payloads
 from tools import free_sources as free_capture
+
+
+def _producer_lock(base: Path) -> Path:
+    return base / ".producer.lock"
 
 
 def _plain(tmp_path: Path, body: bytes = b'{"fixture":true}\n') -> Path:
@@ -90,7 +95,7 @@ def test_converter_dry_run_apply_manifest_and_verified_removal(tmp_path: Path):
 
     applied = convert_raw_payloads.convert(
         [path.parent], base=tmp_path, apply=True, remove_originals=True,
-        manifest_path=manifest_path,
+        manifest_path=manifest_path, producer_lock=_producer_lock(tmp_path),
     )
     assert not path.exists()
     assert raw_payload.read(path, expected_sha256=path.stem) == body
@@ -100,7 +105,7 @@ def test_converter_dry_run_apply_manifest_and_verified_removal(tmp_path: Path):
 
     repeated = convert_raw_payloads.convert(
         [path.parent], base=tmp_path, apply=True, remove_originals=True,
-        manifest_path=manifest_path,
+        manifest_path=manifest_path, producer_lock=_producer_lock(tmp_path),
     )
     assert repeated == applied
     assert json.loads(manifest_path.read_text()) == applied
@@ -118,7 +123,7 @@ def test_converter_does_not_remove_original_when_manifest_write_fails(
     with pytest.raises(OSError, match="injected"):
         convert_raw_payloads.convert(
             [path], base=tmp_path, apply=True, remove_originals=True,
-            manifest_path=tmp_path / "manifest.json",
+            manifest_path=tmp_path / "manifest.json", producer_lock=_producer_lock(tmp_path),
         )
     assert path.exists()
     assert raw_payload.read_compressed(path, expected_sha256=path.stem) == path.read_bytes()
@@ -130,30 +135,30 @@ def test_converter_resumes_after_crash_during_original_removal(
     first = _plain(tmp_path, b"first")
     second = _plain(tmp_path, b"second")
     manifest_path = tmp_path / "manifest.json"
-    original_remove = convert_raw_payloads._remove_original
+    original_remove = convert_raw_payloads._remove_original_at
     calls = 0
 
-    def interrupt_second(entry, base):
+    def interrupt_second(entry, base_descriptor):
         nonlocal calls
         calls += 1
         if calls == 2:
             raise OSError("injected unlink interruption")
-        original_remove(entry, base)
+        original_remove(entry, base_descriptor)
 
-    monkeypatch.setattr(convert_raw_payloads, "_remove_original", interrupt_second)
+    monkeypatch.setattr(convert_raw_payloads, "_remove_original_at", interrupt_second)
     with pytest.raises(OSError, match="injected unlink"):
         convert_raw_payloads.convert(
             [first.parent], base=tmp_path, apply=True, remove_originals=True,
-            manifest_path=manifest_path,
+            manifest_path=manifest_path, producer_lock=_producer_lock(tmp_path),
         )
     persisted = json.loads(manifest_path.read_text())
     assert len(persisted["entries"]) == 2
     assert sum(path.exists() for path in (first, second)) == 1
 
-    monkeypatch.setattr(convert_raw_payloads, "_remove_original", original_remove)
+    monkeypatch.setattr(convert_raw_payloads, "_remove_original_at", original_remove)
     resumed = convert_raw_payloads.convert(
         [first.parent], base=tmp_path, apply=True, remove_originals=True,
-        manifest_path=manifest_path,
+        manifest_path=manifest_path, producer_lock=_producer_lock(tmp_path),
     )
     assert resumed == persisted
     assert not first.exists() and not second.exists()
@@ -164,6 +169,7 @@ def test_converter_refuses_validly_hashed_manifest_that_differs_from_payload(tmp
     manifest_path = tmp_path / "manifest.json"
     convert_raw_payloads.convert(
         [path], base=tmp_path, apply=True, manifest_path=manifest_path,
+        producer_lock=_producer_lock(tmp_path),
     )
     manifest = json.loads(manifest_path.read_text())
     manifest["entries"][0]["compressed_size"] += 1
@@ -173,6 +179,7 @@ def test_converter_refuses_validly_hashed_manifest_that_differs_from_payload(tmp
     with pytest.raises(FreeSourceError, match="differs from conversion manifest"):
         convert_raw_payloads.convert(
             [path], base=tmp_path, apply=True, manifest_path=manifest_path,
+            producer_lock=_producer_lock(tmp_path),
         )
 
 
@@ -186,7 +193,7 @@ def test_converter_repairs_existing_compressed_mode_before_removing_original(tmp
 
     manifest = convert_raw_payloads.convert(
         [path], base=tmp_path, apply=True, remove_originals=True,
-        manifest_path=manifest_path,
+        manifest_path=manifest_path, producer_lock=_producer_lock(tmp_path),
     )
     assert not path.exists()
     assert target.stat().st_mode & 0o777 == 0o600
@@ -235,6 +242,7 @@ def test_manifest_parent_symlink_cannot_verify_or_remove_outside_base(tmp_path: 
     manifest_path = base / "manifest.json"
     convert_raw_payloads.convert(
         [member], base=base, apply=True, manifest_path=manifest_path,
+        producer_lock=_producer_lock(base),
     )
     manifest = json.loads(manifest_path.read_text())
     manifest["remove_originals"] = True
@@ -249,13 +257,13 @@ def test_manifest_parent_symlink_cannot_verify_or_remove_outside_base(tmp_path: 
     with pytest.raises(FreeSourceError, match="parent is unsafe"):
         convert_raw_payloads.convert(
             [empty], base=base, apply=True, remove_originals=True,
-            manifest_path=manifest_path,
+            manifest_path=manifest_path, producer_lock=_producer_lock(base),
         )
     assert (outside / logical.name).read_bytes() == body
     assert raw_payload.compressed_path(outside / logical.name).exists()
 
 
-def test_parent_swap_between_compressed_proof_and_unlink_retains_original(
+def test_parent_swap_cannot_redirect_unlink_from_opened_parent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ):
     base = tmp_path / "checkpoint"
@@ -269,6 +277,7 @@ def test_parent_swap_between_compressed_proof_and_unlink_retains_original(
     manifest_path = base / "manifest.json"
     convert_raw_payloads.convert(
         [member], base=base, apply=True, manifest_path=manifest_path,
+        producer_lock=_producer_lock(base),
     )
     manifest = json.loads(manifest_path.read_text())
     manifest["remove_originals"] = True
@@ -297,11 +306,10 @@ def test_parent_swap_between_compressed_proof_and_unlink_retains_original(
     monkeypatch.setattr(raw_payload, "read_compressed_descriptor", swap_after_removal_proof)
     empty = base / "empty"
     empty.mkdir()
-    with pytest.raises(FreeSourceError, match="parent changed before removal"):
-        convert_raw_payloads.convert(
-            [empty], base=base, apply=True, remove_originals=True,
-            manifest_path=manifest_path,
-        )
+    convert_raw_payloads.convert(
+        [empty], base=base, apply=True, remove_originals=True,
+        manifest_path=manifest_path, producer_lock=_producer_lock(base),
+    )
     assert (member / logical.name).read_bytes() == body
     assert raw_payload.compressed_path(verified_outside / logical.name).exists()
 
@@ -320,6 +328,7 @@ def test_compressed_leaf_removal_between_proof_and_unlink_retains_original(
     manifest_path = base / "manifest.json"
     convert_raw_payloads.convert(
         [member], base=base, apply=True, manifest_path=manifest_path,
+        producer_lock=_producer_lock(base),
     )
     manifest = json.loads(manifest_path.read_text())
     manifest["remove_originals"] = True
@@ -339,9 +348,85 @@ def test_compressed_leaf_removal_between_proof_and_unlink_retains_original(
     with pytest.raises(FreeSourceError, match="compressed payload changed"):
         convert_raw_payloads.convert(
             [empty], base=base, apply=True, remove_originals=True,
-            manifest_path=manifest_path,
+            manifest_path=manifest_path, producer_lock=_producer_lock(base),
         )
     assert logical.read_bytes() == body
+
+
+def test_apply_refuses_held_producer_lock(tmp_path: Path):
+    logical = _plain(tmp_path)
+    lock_path = _producer_lock(tmp_path)
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        with pytest.raises(FreeSourceError, match="producer lock is held"):
+            convert_raw_payloads.convert(
+                [logical], base=tmp_path, apply=True,
+                manifest_path=tmp_path / "manifest.json", producer_lock=lock_path,
+            )
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+    assert logical.exists()
+
+
+def test_apply_refuses_symlinked_producer_lock(tmp_path: Path):
+    logical = _plain(tmp_path)
+    real_lock = tmp_path / "real.lock"
+    real_lock.touch(mode=0o600)
+    symlink = _producer_lock(tmp_path)
+    symlink.symlink_to(real_lock)
+    with pytest.raises(FreeSourceError, match="producer lock is unsafe"):
+        convert_raw_payloads.convert(
+            [logical], base=tmp_path, apply=True,
+            manifest_path=tmp_path / "manifest.json", producer_lock=symlink,
+        )
+    assert logical.exists()
+
+
+def test_apply_refuses_symlinked_base_component(tmp_path: Path):
+    real_base = tmp_path / "real"
+    real_base.mkdir()
+    logical = _plain(real_base)
+    linked_base = tmp_path / "linked"
+    linked_base.symlink_to(real_base, target_is_directory=True)
+    with pytest.raises(FreeSourceError, match="conversion base is unsafe"):
+        convert_raw_payloads.convert(
+            [logical], base=linked_base, apply=True,
+            manifest_path=real_base / "manifest.json",
+            producer_lock=real_base / ".producer.lock",
+        )
+    assert logical.exists()
+
+
+def test_apply_refuses_other_process_holding_raw_store(tmp_path: Path):
+    logical = _plain(tmp_path)
+    root = Path(__file__).resolve().parents[1]
+    process = subprocess.Popen(
+        [sys.executable, "-c", (
+            "import sys; handle=open(sys.argv[1], 'rb'); "
+            "print('ready', flush=True); sys.stdin.readline()"
+        ), str(logical)],
+        cwd=root,
+        env={**os.environ, "PYTHONPATH": str(root)},
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert process.stdout is not None and process.stdout.readline().strip() == "ready"
+        with pytest.raises(FreeSourceError, match="raw store is held by another process"):
+            convert_raw_payloads.convert(
+                [logical], base=tmp_path, apply=True,
+                manifest_path=tmp_path / "manifest.json",
+                producer_lock=_producer_lock(tmp_path),
+            )
+    finally:
+        if process.stdin is not None:
+            process.stdin.write("\n")
+            process.stdin.flush()
+        process.communicate(timeout=5)
+    assert process.returncode == 0
+    assert logical.exists()
 
 
 def test_codec_works_in_scheduler_minimal_path():
@@ -534,7 +619,7 @@ def test_manifest_durability_failure_retains_original(
     with pytest.raises(OSError, match="manifest .* crash"):
         convert_raw_payloads.convert(
             [logical], base=tmp_path, apply=True, remove_originals=True,
-            manifest_path=manifest_path,
+            manifest_path=manifest_path, producer_lock=_producer_lock(tmp_path),
         )
     assert logical.read_bytes() == body
     monkeypatch.setattr(Path, "chmod", original_chmod)
@@ -566,7 +651,7 @@ def test_fetched_checkpoint_restores_through_manifest_and_real_loader(tmp_path: 
     manifest_path = checkpoint / "raw-conversion-manifest.json"
     converted = convert_raw_payloads.convert(
         [checkpoint / "massive"], base=checkpoint, apply=True, remove_originals=True,
-        manifest_path=manifest_path,
+        manifest_path=manifest_path, producer_lock=_producer_lock(checkpoint),
     )
     assert len(converted["entries"]) == 1 and not logical.exists()
 

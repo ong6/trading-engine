@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Convert hash-named JSON/raw payloads to zstd; dry-run unless --apply is given."""
+"""Convert hash-named JSON/raw payloads to zstd; dry-run unless --apply is given.
+
+Applying is an orchestrator-run one-off on a quiesced raw store. The converter
+holds the producer lock, checks other same-user process descriptors/maps, and
+uses one no-follow parent descriptor for proof and unlink. Residual races from
+an uncooperative hostile writer that ignores the producer lock are out of scope.
+"""
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -141,21 +148,30 @@ def _load_manifest(path: Path) -> dict | None:
 
 @contextmanager
 def _opened_base(base: Path):
-    descriptor = None
+    absolute = base.absolute()
+    descriptor = os.open(
+        "/", os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_DIRECTORY", 0)
+    )
     try:
-        descriptor = os.open(
-            base,
-            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-        )
-        if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
-            raise FreeSourceError("conversion base is unsafe")
-        yield descriptor
-    except OSError as exc:
-        raise FreeSourceError("conversion base is unsafe or unreadable") from exc
-    finally:
-        if descriptor is not None:
+        for component in absolute.parts[1:]:
+            child = os.open(
+                component,
+                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=descriptor,
+            )
             os.close(descriptor)
+            descriptor = child
+    except OSError as exc:
+        os.close(descriptor)
+        raise FreeSourceError("conversion base is unsafe or unreadable") from exc
+    if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+        os.close(descriptor)
+        raise FreeSourceError("conversion base is unsafe")
+    try:
+        yield descriptor
+    finally:
+        os.close(descriptor)
 
 
 @contextmanager
@@ -175,11 +191,94 @@ def _opened_member_parent(base_descriptor: int, relative: str):
                 raise FreeSourceError("conversion member parent is unsafe")
             os.close(descriptor)
             descriptor = child
-        yield descriptor, path.name
     except OSError as exc:
+        os.close(descriptor)
         raise FreeSourceError("conversion member parent is unsafe or unreadable") from exc
+    try:
+        yield descriptor, path.name
     finally:
         os.close(descriptor)
+
+
+def _target_is_within(target: str, base: Path, producer_lock: Path) -> bool:
+    suffix = " (deleted)"
+    if target.endswith(suffix):
+        target = target[:-len(suffix)]
+    candidate = Path(target)
+    if not candidate.is_absolute():
+        return False
+    resolved = candidate.resolve(strict=False)
+    if resolved == producer_lock:
+        return True
+    try:
+        resolved.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+def _other_process_holds_store(base: Path, producer_lock: Path) -> bool:
+    current_pid = os.getpid()
+    current_uid = os.getuid()
+    for process in Path("/proc").iterdir():
+        if not process.name.isdigit() or int(process.name) == current_pid:
+            continue
+        try:
+            if process.stat().st_uid != current_uid:
+                continue
+            links = [process / "cwd", *(process / "fd").iterdir()]
+        except (FileNotFoundError, PermissionError, ProcessLookupError):
+            continue
+        for link in links:
+            try:
+                target = os.readlink(link)
+            except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+                continue
+            if _target_is_within(target, base, producer_lock):
+                return True
+        try:
+            mappings = (process / "maps").read_text(errors="replace").splitlines()
+        except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+            continue
+        for line in mappings:
+            fields = line.split(maxsplit=5)
+            if len(fields) == 6 and _target_is_within(fields[5], base, producer_lock):
+                return True
+    return False
+
+
+@contextmanager
+def _quiesced_store(base: Path, producer_lock: Path):
+    base = base.absolute()
+    producer_lock = producer_lock.absolute()
+    lock_descriptor = None
+    try:
+        lock_descriptor = os.open(
+            producer_lock,
+            os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+    except OSError as exc:
+        raise FreeSourceError("producer lock is unsafe or unreadable") from exc
+    if not stat.S_ISREG(os.fstat(lock_descriptor).st_mode):
+        os.close(lock_descriptor)
+        raise FreeSourceError("producer lock is unsafe")
+    try:
+        fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        os.close(lock_descriptor)
+        raise FreeSourceError("producer lock is held") from exc
+    try:
+        with _opened_base(base) as base_descriptor:
+            if _other_process_holds_store(base, producer_lock):
+                raise FreeSourceError("raw store is held by another process")
+            yield base_descriptor
+    finally:
+        try:
+            fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(lock_descriptor)
 
 
 def _open_verified_compressed(entry: dict, parent: int, leaf: str) -> tuple[int, os.stat_result]:
@@ -217,16 +316,6 @@ def _verify_manifest_entry_at(entry: dict, base_descriptor: int) -> None:
     with _opened_member_parent(base_descriptor, entry["path"]) as (parent, leaf):
         descriptor, _info = _open_verified_compressed(entry, parent, leaf)
         os.close(descriptor)
-
-
-def _require_current_parent(
-    base_descriptor: int, relative: str, verified_parent: int,
-) -> None:
-    with _opened_member_parent(base_descriptor, relative) as (current_parent, _leaf):
-        verified = os.fstat(verified_parent)
-        current = os.fstat(current_parent)
-        if (verified.st_dev, verified.st_ino) != (current.st_dev, current.st_ino):
-            raise FreeSourceError("conversion member parent changed before removal")
 
 
 def _require_current_compressed(
@@ -268,7 +357,6 @@ def _remove_original_at(entry: dict, base_descriptor: int) -> None:
                     dir_fd=parent,
                 )
             except FileNotFoundError:
-                _require_current_parent(base_descriptor, entry["path"], parent)
                 _require_current_compressed(entry, parent, leaf, compressed)
                 return
             except OSError as exc:
@@ -278,7 +366,6 @@ def _remove_original_at(entry: dict, base_descriptor: int) -> None:
                 original, expected_sha256=entry["source_sha256"],
                 expected_size=entry["source_size"],
             )
-            _require_current_parent(base_descriptor, entry["path"], parent)
             _require_current_compressed(entry, parent, leaf, compressed)
             current = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
             if ((info.st_dev, info.st_ino, info.st_size)
@@ -313,15 +400,20 @@ def verify_manifest(manifest_path: Path, *, base: Path) -> dict:
 def convert(
     roots: list[Path], *, base: Path, apply: bool = False,
     remove_originals: bool = False, manifest_path: Path | None = None,
+    producer_lock: Path | None = None,
 ) -> dict:
     if remove_originals and not apply:
         raise FreeSourceError("--remove-originals requires --apply")
     if apply and manifest_path is None:
         raise FreeSourceError("--apply requires --manifest")
+    if apply and producer_lock is None:
+        raise FreeSourceError("--apply requires --producer-lock")
     existing = _load_manifest(manifest_path) if apply and manifest_path is not None else None
     if existing is not None and existing["remove_originals"] != remove_originals:
         raise FreeSourceError("existing conversion manifest removal policy differs")
-    with _opened_base(base) as base_descriptor:
+    context = (_quiesced_store(base, producer_lock) if apply
+               else _opened_base(base))
+    with context as base_descriptor:
         entries_by_path = {
             entry["path"]: entry for entry in ([] if existing is None else existing["entries"])
         }
@@ -334,29 +426,30 @@ def convert(
                 raise FreeSourceError("converted payload differs from existing manifest")
             entries_by_path[entry["path"]] = entry
         entries = [entries_by_path[key] for key in sorted(entries_by_path)]
-    manifest = {
-        "schema_version": 1,
-        "zstd_level": raw_payload.ZSTD_LEVEL,
-        "remove_originals": remove_originals,
-        "entries": entries,
-    }
-    manifest["manifest_sha256"] = _manifest_identity(manifest)
-    if apply:
-        assert manifest_path is not None
-        write_text_atomic(
-            manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-        )
-        manifest_path.chmod(0o600)
-        with manifest_path.open("rb") as manifest_file:
-            os.fsync(manifest_file.fileno())
-        raw_payload.fsync_directory(manifest_path.parent)
-        persisted = json.loads(manifest_path.read_text())
-        if persisted != manifest or _manifest_identity(persisted) != manifest["manifest_sha256"]:
-            raise FreeSourceError("conversion manifest verification failed")
-        if remove_originals:
-            for entry in entries:
-                _remove_original(entry, base)
-    return manifest
+        manifest = {
+            "schema_version": 1,
+            "zstd_level": raw_payload.ZSTD_LEVEL,
+            "remove_originals": remove_originals,
+            "entries": entries,
+        }
+        manifest["manifest_sha256"] = _manifest_identity(manifest)
+        if apply:
+            assert manifest_path is not None
+            write_text_atomic(
+                manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            )
+            manifest_path.chmod(0o600)
+            with manifest_path.open("rb") as manifest_file:
+                os.fsync(manifest_file.fileno())
+            raw_payload.fsync_directory(manifest_path.parent)
+            persisted = json.loads(manifest_path.read_text())
+            if (persisted != manifest
+                    or _manifest_identity(persisted) != manifest["manifest_sha256"]):
+                raise FreeSourceError("conversion manifest verification failed")
+            if remove_originals:
+                for entry in entries:
+                    _remove_original_at(entry, base_descriptor)
+        return manifest
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -366,11 +459,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--remove-originals", action="store_true")
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--producer-lock", type=Path)
     args = parser.parse_args(argv)
     try:
         manifest = convert(
             args.paths, base=args.base, apply=args.apply,
             remove_originals=args.remove_originals, manifest_path=args.manifest,
+            producer_lock=args.producer_lock,
         )
     except (OSError, FreeSourceError, json.JSONDecodeError) as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))
