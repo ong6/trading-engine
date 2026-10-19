@@ -7,7 +7,13 @@ from engine.lib.resources import write_text_atomic
 from farm.research.artifacts import build_study_artifacts
 from farm.research.cache import ResearchCache
 from farm.research.canonical import file_sha256
-from farm.research.runner import StudyRunError, StudyRunner, _verdict, main
+from farm.research.runner import (
+    StudyRunError,
+    StudyRunner,
+    _reduce_evaluation,
+    _verdict,
+    main,
+)
 from farm.research.sandbox import SandboxError, build_callback_package, run_sandboxed
 from farm.research.spec import StudySpec
 from farm.research.tests.support import complete_contract
@@ -310,6 +316,60 @@ def test_strategy_cannot_supply_or_override_gross_returns(tmp_path):
     _, runner, features = _setup(tmp_path, callback="invented_return_strategy")
     with pytest.raises(StudyRunError, match="return only a positions list"):
         runner.run(attempt="invented-return", features=features)
+
+
+def test_position_primary_key_uses_exact_input_dtype_before_label_join():
+    predictions = {"jobs": [
+        {
+            "kind": "variant", "name": "base", "fold": "fold-1",
+            "decision_session": "2024-01-02",
+            "prediction": {"positions": [{
+                "session": "2024-01-02", "asset_id": True, "weight": 1.0,
+            }]},
+        },
+        {
+            "kind": "control", "name": "cash", "fold": "fold-1",
+            "decision_session": "2024-01-02", "prediction": {"positions": []},
+        },
+    ]}
+    labels = [{
+        "session": "2024-01-02", "asset_id": 1,
+        "entry_at": "2024-01-03T09:30:00-05:00", "entry_price": 100.0,
+        "exit_at": "2024-01-03T16:00:00-05:00", "exit_price": 110.0,
+    }]
+    evaluation = {
+        "variants": [{"name": "base", "parameters": {}}],
+        "controls": ["cash"],
+        "statistics": ["mean_net_return", "observation_count"],
+        "missing_data_policy": "refuse",
+    }
+    inputs = {
+        "primary_key": ["session", "asset_id"],
+        "timezone": "America/New_York",
+        "calendar": {"name": "XNYS"},
+        "schema": [
+            {"name": "session", "dtype": "date", "nullable": False},
+            {"name": "asset_id", "dtype": "int64", "nullable": False},
+        ],
+    }
+    strategy = {
+        "decision": {"time": "16:00", "timezone": "America/New_York"},
+        "fill_rule": {
+            "entry_price_field": "entry_price", "exit_price_field": "exit_price",
+            "horizon_sessions": 1,
+        },
+        "capital": 10_000,
+    }
+
+    with pytest.raises(StudyRunError, match="position primary key violates"):
+        _reduce_evaluation(
+            predictions,
+            labels,
+            evaluation,
+            {"profiles": [{"name": "ibkr_tiered_auction_v1", "sha256": "0" * 64}]},
+            inputs,
+            strategy,
+        )
 
 
 @pytest.mark.parametrize("attempt", ["../escape", "a/b", ".", "..", ""])

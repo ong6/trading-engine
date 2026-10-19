@@ -25,6 +25,7 @@ from sim.order_types import MARKET_OPEN
 from .artifacts import (
     _build_label_artifact,
     _new_label_capability,
+    _value_valid,
     build_study_artifacts,
     label_cache_identity,
     materialize_decision_features,
@@ -179,6 +180,7 @@ def _aware_instant(value: object, field: str) -> datetime:
 def _reduce_evaluation(predictions: dict, labels: list[dict], evaluation: dict,
                        costs: dict, inputs: dict, strategy: dict) -> dict:
     primary_key = inputs["primary_key"]
+    input_schema = {column["name"]: column for column in inputs["schema"]}
     fill_rule = strategy["fill_rule"]
     capital = strategy["capital"]
     label_map = {}
@@ -211,6 +213,12 @@ def _reduce_evaluation(predictions: dict, labels: list[dict], evaluation: dict,
             fields = {*primary_key, "weight"}
             if not isinstance(position, dict) or set(position) != fields:
                 raise StudyRunError("position schema differs")
+            if any(
+                position[name] is None
+                or not _value_valid(position[name], input_schema[name]["dtype"])
+                for name in primary_key
+            ):
+                raise StudyRunError("position primary key violates the input schema")
             key = tuple(position[name] for name in primary_key)
             weight = position["weight"]
             if (key in positions or isinstance(weight, bool)
