@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pytest
 
 from engine import p15_evaluation, schema_migrations
@@ -265,7 +266,7 @@ def test_create_uses_fresh_latest_snapshot_instead_of_live_store(tmp_path, monke
     assert manifest["generation"]["manifest_sha256"] == published["manifest_sha256"]
 
 
-def test_generation_backup_avoids_primary_and_restores_cold_rows(
+def test_generation_backup_checks_primary_schema_and_restores_cold_rows(
     tmp_path, monkeypatch,
 ):
     root, source = _repo(tmp_path, generation=True)
@@ -278,25 +279,15 @@ def test_generation_backup_avoids_primary_and_restores_cold_rows(
     connection.close()
     _stamp_schema(source)
     published = publish_snapshot.publish_snapshot(root, source)
-    monkeypatch.setattr(
-        backup_database,
-        "_exclusive_backup_window",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("generation backup acquired producer locks")
-        ),
-    )
     destination = tmp_path / "outside" / "generation-backup"
-    held_writer = duckdb.connect(str(source))
-    try:
-        created = backup_database.create_backup(root, source, destination)
-        primary_rows = held_writer.execute(
+    with duckdb.connect(str(source), read_only=True) as primary:
+        primary_rows = primary.execute(
             "SELECT * FROM intraday_prices ORDER BY ticker, ts, interval"
         ).fetchall()
         primary_snapshot = backup_database.database_snapshot(
-            held_writer, held_writer.execute("SELECT current_database()").fetchone()[0]
+            primary, primary.execute("SELECT current_database()").fetchone()[0]
         )
-    finally:
-        held_writer.close()
+    created = backup_database.create_backup(root, source, destination)
 
     restored = duckdb.connect(
         str(destination / backup_database.DATABASE_FILENAME), read_only=True
@@ -338,11 +329,47 @@ def test_generation_backup_refuses_commit_retained_in_held_writer_wal(
     try:
         writer.execute("UPDATE prices SET volume=999 WHERE ticker='SPY'")
         assert source.with_name(f"{source.name}.wal").is_file()
-        with pytest.raises(backup_database.BackupError, match="stale for evidence"):
+        with pytest.raises(backup_database.BackupError, match="live primary schema"):
             backup_database.create_backup(root, source, destination)
     finally:
         writer.close()
 
+    assert not destination.exists()
+
+
+def _alternate_relation(con, factory, tmp_path):
+    if factory == "from_df":
+        return con.from_df(pd.DataFrame({"id": [1]}))
+    if factory == "values":
+        return con.values([1])
+    path = tmp_path / "relation.csv"
+    path.write_text("id\n1\n")
+    return con.read_csv(str(path))
+
+
+@pytest.mark.parametrize("factory", ["from_df", "values", "read_csv"])
+def test_backup_refuses_live_catalog_drift_from_alternate_relation_factory(
+    tmp_path, monkeypatch, capsys, factory,
+):
+    root, source = _repo(tmp_path, generation=True)
+    monkeypatch.setattr(backup_database, "MIN_FREE_BYTES", 0)
+    _stamp_schema(source)
+    publish_snapshot.publish_snapshot(root, source)
+    writer = engine_db.connect(source)
+    try:
+        _alternate_relation(writer, factory, tmp_path).create(f"bypass_{factory}")
+    finally:
+        writer.close()
+    destination = tmp_path / "outside" / f"catalog-drift-{factory}"
+
+    status = backup_database.main([
+        "--repo-root", str(root), "create", str(destination), "--source", str(source),
+    ])
+
+    output = json.loads(capsys.readouterr().out)
+    assert status == 1
+    assert output["status"] == "failed"
+    assert "catalog changed outside" in output["reason"]
     assert not destination.exists()
 
 

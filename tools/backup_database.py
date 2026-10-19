@@ -1382,19 +1382,22 @@ def _generation_schema_identity(connection: duckdb.DuckDBPyConnection) -> dict:
         raise BackupError(str(exc)) from exc
 
 
-def _legacy_unversioned_source(source: Path) -> bool:
-    """Allow old-format recovery tests/stores only until schema ID 0 is installed."""
+def _require_live_source_schema(source: Path) -> bool:
+    """Verify a versioned primary's live catalog before trusting its generation."""
     try:
         connection = duckdb.connect(str(source), read_only=True)
         try:
-            return connection.execute(
+            versioned = connection.execute(
                 "SELECT 1 FROM information_schema.tables "
                 "WHERE table_schema='main' AND table_name='schema_migrations'"
-            ).fetchone() is None
+            ).fetchone() is not None
+            if versioned:
+                require_compatible_schema(connection)
+            return versioned
         finally:
             connection.close()
-    except (duckdb.Error, OSError):
-        return False
+    except (duckdb.Error, OSError, SchemaIdentityError) as exc:
+        raise BackupError(f"live primary schema is incompatible or unavailable: {exc}") from exc
 
 
 def _source_location(repo_root: Path, source: Path) -> dict:
@@ -1507,12 +1510,16 @@ def create_backup(
         published = False
         try:
             temporary = _descriptor_path(temporary_fd)
-            try:
-                generation_pin = pin_latest_generation(source, newer_than_database=True)
-            except GenerationError as exc:
-                generation_pin = None
-                if not _legacy_unversioned_source(source):
-                    raise BackupError(str(exc)) from exc
+            with _exclusive_backup_window(repo_root):
+                versioned = _require_live_source_schema(source)
+                try:
+                    generation_pin = pin_latest_generation(
+                        source, newer_than_database=True,
+                    )
+                except GenerationError as exc:
+                    generation_pin = None
+                    if versioned:
+                        raise BackupError(str(exc)) from exc
             if generation_pin is not None:
                 with generation_pin as generation:
                     _require_generation_restore_space(destination.parent, generation)

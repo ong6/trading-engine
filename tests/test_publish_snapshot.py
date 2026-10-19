@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pytest
 
 from engine import schema_migrations
@@ -91,6 +92,16 @@ def _repo(tmp_path: Path, *, cold: bool = False) -> tuple[Path, Path]:
     return root, source
 
 
+def _alternate_relation(con, factory, tmp_path):
+    if factory == "from_df":
+        return con.from_df(pd.DataFrame({"id": [1]}))
+    if factory == "values":
+        return con.values([1])
+    path = tmp_path / "relation.csv"
+    path.write_text("id\n1\n")
+    return con.read_csv(str(path))
+
+
 def test_publish_is_atomic_retains_two_and_records_manifest(tmp_path):
     root, source = _repo(tmp_path)
     manifests = [
@@ -130,6 +141,51 @@ def test_publish_never_copies_the_whole_primary(tmp_path, monkeypatch, wal):
     manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
 
     assert manifest["row_counts"]["main.prices"] == 1
+
+
+@pytest.mark.parametrize("factory", ["from_df", "values", "read_csv"])
+def test_publish_refuses_catalog_drift_from_alternate_relation_factory(
+    tmp_path, capsys, factory,
+):
+    root, source = _repo(tmp_path, cold=True)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    latest = source.parent / "snapshots" / snapshots.LATEST_NAME
+    writer = engine_db.connect(source)
+    try:
+        _alternate_relation(writer, factory, tmp_path).create(f"bypass_{factory}")
+    finally:
+        writer.close()
+
+    status = publish_snapshot.main([
+        "--repo-root", str(root), "--source", str(source),
+    ])
+
+    output = json.loads(capsys.readouterr().out)
+    assert status == 1
+    assert output["status"] == "failed"
+    assert "catalog changed outside" in output["reason"]
+    assert os.readlink(latest) == first["snapshot"]
+
+
+def test_publish_refuses_cold_truncate_through_alternate_relation_factory(tmp_path):
+    root, source = _repo(tmp_path, cold=True)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    latest = source.parent / "snapshots" / snapshots.LATEST_NAME
+    writer = engine_db.connect(source)
+    try:
+        writer.from_df(pd.DataFrame({"id": [1]})).query(
+            "input_rows", "TRUNCATE TABLE bitemporal_facts",
+        )
+    finally:
+        writer.close()
+
+    with pytest.raises(
+        publish_snapshot.SnapshotError,
+        match="cardinality regressed below published frontier",
+    ):
+        publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=1))
+
+    assert os.readlink(latest) == first["snapshot"]
 
 
 def test_semantic_mismatch_discards_generation(tmp_path, monkeypatch):

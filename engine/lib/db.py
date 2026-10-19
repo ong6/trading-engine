@@ -198,7 +198,7 @@ class SchemaMigrationRequired(RuntimeError):
 
 
 class GuardedRelation:
-    """Keep relation-producing connection methods inside the schema boundary."""
+    """Best-effort guard for relation methods; publication/backup are authoritative."""
 
     def __init__(self, relation, *, versioned: bool, preflight):
         self._relation = relation
@@ -247,7 +247,7 @@ def schema_change_authority():
 
 
 class GuardedConnection:
-    """Proxy that turns runtime initializer DDL into catalog assertions."""
+    """Best-effort runtime guard; publication and backup enforce exact catalog state."""
 
     def __init__(
         self,
@@ -507,6 +507,9 @@ class GuardedConnection:
         self.close()
 
     def __getattr__(self, name: str):
+        # DuckDB adds relation factories over time. This proxy is ergonomic
+        # defense only; publish/backup revalidate the live catalog, and publish
+        # separately proves the append-only cold prefix.
         return getattr(self._connection, name)
 
 
