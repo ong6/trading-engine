@@ -262,6 +262,29 @@ def test_reenabled_policy_restores_tradingview_timer_to_autostart(tmp_path):
     assert paused == frozenset()
 
 
+@pytest.mark.parametrize(
+    ("enabled_state", "active_state"),
+    (("enabled-runtime", "activating"), ("static", "failed"), ("masked", "deactivating")),
+)
+def test_paused_timer_treats_every_non_disabled_non_inactive_state_as_drift(
+    tmp_path, monkeypatch, enabled_state, active_state,
+):
+    root, home = _repo(tmp_path)
+    timer = install_automation.TRADINGVIEW_HISTORY_TIMER
+    current = install_automation.render_crontab("", root)
+
+    def state(action, unit):
+        if unit == timer:
+            return enabled_state if action == "is-enabled" else active_state
+        return "enabled" if action == "is-enabled" else "active"
+
+    monkeypatch.setattr(install_automation, "_service_state", state)
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: current)
+    summary, _desired = install_automation.plan(root, home)
+    assert summary["changes"]["disable_units"] == [timer]
+    assert summary["changes"]["stop_units"] == [timer]
+
+
 def test_plan_reports_disabled_and_inactive_units_as_drift(tmp_path, monkeypatch):
     root, home = _repo(tmp_path)
     unit_dir = home / ".config" / "systemd" / "user"

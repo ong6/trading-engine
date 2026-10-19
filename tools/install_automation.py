@@ -748,11 +748,11 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
         ),
         "disable_units": sorted(
             unit for unit, state in units.items()
-            if unit in paused_units and state["enabled"] == "enabled"
+            if unit in paused_units and state["enabled"] != "disabled"
         ),
         "stop_units": sorted(
             unit for unit, state in units.items()
-            if unit in paused_units and state["active"] == "active"
+            if unit in paused_units and state["active"] != "inactive"
         ),
         "enable_linger": linger != "yes",
     }
@@ -807,10 +807,10 @@ def _verify_applied(
     if inactive:
         raise RuntimeError(f"installed service units are not active: {', '.join(inactive)}")
     incorrectly_enabled = sorted(
-        unit for unit in paused_units if installed[unit]["enabled"] == "enabled"
+        unit for unit in paused_units if installed[unit]["enabled"] != "disabled"
     )
     incorrectly_active = sorted(
-        unit for unit in paused_units if installed[unit]["active"] == "active"
+        unit for unit in paused_units if installed[unit]["active"] != "inactive"
     )
     if incorrectly_enabled:
         raise RuntimeError(f"paused service units remain enabled: {', '.join(incorrectly_enabled)}")
@@ -910,8 +910,8 @@ def _current_paused_changes(units: list[str]) -> tuple[list[str], list[str]]:
     enabled = {unit: _service_state("is-enabled", unit) for unit in units}
     active = {unit: _service_state("is-active", unit) for unit in units}
     return (
-        sorted(unit for unit, state in enabled.items() if state == "enabled"),
-        sorted(unit for unit, state in active.items() if state == "active"),
+        sorted(unit for unit, state in enabled.items() if state != "disabled"),
+        sorted(unit for unit, state in active.items() if state != "inactive"),
     )
 
 
