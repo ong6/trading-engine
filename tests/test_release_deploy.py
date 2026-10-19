@@ -6,6 +6,7 @@ import os
 import shutil
 import stat
 import subprocess
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,6 +33,25 @@ class FakeOperations:
         self.optional_failures: list[str] = []
         self.reconciled_migrations: set[str] = set()
         self.fail_quiesce = False
+        self.fail_install_after_start = False
+        self.writers_active = False
+        self.transaction_mutex = threading.Lock()
+        self.transaction_lock_held = False
+        self.semantic_entered: threading.Event | None = None
+        self.semantic_continue: threading.Event | None = None
+
+    @contextmanager
+    def transaction_lock(self, _repo_root, _transaction_id):
+        if not self.transaction_mutex.acquire(blocking=False):
+            raise release_deploy.DeployError(
+                "another release phase holds the repository transaction lock"
+            )
+        self.transaction_lock_held = True
+        try:
+            yield
+        finally:
+            self.transaction_lock_held = False
+            self.transaction_mutex.release()
 
     def preflight_prepare(self, **kwargs):
         self.calls.append("preflight")
@@ -134,6 +154,7 @@ class FakeOperations:
 
     def quiesce(self, _state):
         self.calls.append("quiesce")
+        self.writers_active = False
         if self.fail_quiesce:
             raise release_deploy.DeployError("failed after cron removal")
         return {"held": True}
@@ -200,6 +221,9 @@ class FakeOperations:
 
     def install_automation(self, _state):
         self.calls.append("install-automation")
+        if self.fail_install_after_start:
+            self.writers_active = True
+            raise release_deploy.DeployError("required automation did not converge")
         return {
             "status": "optional-failures" if self.optional_failures else "ok",
             "installed_unit_files": [],
@@ -219,9 +243,14 @@ class FakeOperations:
 
     def semantic_verify(self, _state, *, rolled_back):
         self.calls.append("rollback-semantic-verify" if rolled_back else "semantic-verify")
+        if not rolled_back and self.semantic_entered is not None:
+            self.semantic_entered.set()
+            assert self.semantic_continue is not None
+            assert self.semantic_continue.wait(timeout=10)
         return {"status": "ok", "rolled_back": rolled_back}
 
     def release_producers(self, _state, *, include_autopush):
+        assert self.transaction_lock_held
         self.calls.append(f"release:{include_autopush}")
         self.releases.append(include_autopush)
         return {"autopush": include_autopush}
@@ -391,6 +420,61 @@ def test_apply_and_verify_are_idempotent_after_receipted_fault(transaction):
     assert deployment.verify(execute=True)["status"] == "verified"
     assert operations.calls.count("semantic-verify") == 1
     assert operations.releases == [True]
+
+
+def test_transaction_lock_prevents_rollback_from_racing_verify(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    deployment.apply(execute=True, approve_plan=None)
+    operations.semantic_entered = threading.Event()
+    operations.semantic_continue = threading.Event()
+    outcome = {}
+
+    def verify():
+        try:
+            outcome["result"] = deployment.verify(execute=True)
+        except BaseException as exc:  # pragma: no cover - asserted through outcome
+            outcome["error"] = exc
+
+    thread = threading.Thread(target=verify)
+    thread.start()
+    assert operations.semantic_entered.wait(timeout=10)
+    competing = release_deploy.ReleaseDeployment(deployment.store, operations)
+    with pytest.raises(release_deploy.DeployError, match="transaction lock"):
+        competing.rollback(execute=True)
+    operations.semantic_continue.set()
+    thread.join(timeout=10)
+    assert not thread.is_alive()
+    assert "error" not in outcome
+    assert outcome["result"]["status"] == "verified"
+    assert deployment.store.load().phase == "verified"
+    assert operations.releases == [True]
+
+
+def test_repository_transaction_lock_rejects_competing_state_directories(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", repo], check=True)
+    first = release_deploy.ReleaseOperations(
+        release_deploy.StateStore(tmp_path / "state-a"),
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    second = release_deploy.ReleaseOperations(
+        release_deploy.StateStore(tmp_path / "state-b"),
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    with first.transaction_lock(repo, "first"):
+        with pytest.raises(release_deploy.DeployError, match="transaction lock"):
+            with second.transaction_lock(repo, "second"):
+                pass
 
 
 def test_revision_15_requires_exact_cleanup_plan_before_continuing(transaction):
@@ -943,6 +1027,11 @@ def test_release_restores_exact_activation_and_crontab_with_autopush_held(tmp_pa
             "crontab": {"present": True, "content": "exact fixture cron\n"},
         },
     )
+    with pytest.raises(
+        release_deploy.DeployError, match="requires the repository transaction lock"
+    ):
+        operations.release_producers(state, include_autopush=False)
+    operations.transaction_lock_held = True
     result = operations.release_producers(state, include_autopush=False)
     assert result["autopush_held"] is True
     observed = json.loads(host_state.read_text())["units"]
@@ -950,6 +1039,78 @@ def test_release_restores_exact_activation_and_crontab_with_autopush_held(tmp_pa
     assert observed["trading-engine-ui.service"]["ActiveState"] == "active"
     assert observed["te-autopush.timer"]["ActiveState"] == "inactive"
     assert cron.read_text() == "exact fixture cron\n"
+
+
+def test_activation_verification_failure_requiesces_units_cron_and_autopush(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_host(bin_dir)
+    names = (
+        "store-sync.service",
+        "te-autopush.service",
+        "trading-engine-api.service",
+    )
+    host_state = tmp_path / "host.json"
+    host_state.write_text(
+        json.dumps(
+            {
+                "units": {
+                    name: {
+                        "LoadState": "loaded",
+                        "ActiveState": "inactive",
+                        "UnitFileState": "enabled",
+                        "MainPID": "0",
+                    }
+                    for name in names
+                }
+            }
+        )
+    )
+    cron = tmp_path / "cron"
+    monkeypatch.setenv("FAKE_HOST_STATE", str(host_state))
+    monkeypatch.setenv("FAKE_CRONTAB", str(cron))
+    monkeypatch.setenv("FAKE_PS_OUTPUT", "")
+    store = release_deploy.StateStore(tmp_path / "state")
+    os.mkdir(store.directory, 0o700)
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(bin_dir),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    state = release_deploy.ReleaseState(
+        schema_version=1,
+        transaction_id="fixture",
+        created_at="now",
+        updated_at="now",
+        phase="verifying",
+        repo_root=str(tmp_path / "repo"),
+        database=str(tmp_path / "db"),
+        approved_sha=NEW_SHA,
+        original_sha=OLD_SHA,
+        adapter_set="none",
+        d0=None,
+        inventory={
+            "units": {
+                name: {
+                    "LoadState": "loaded",
+                    "ActiveState": "active",
+                    "UnitFileState": "enabled",
+                }
+                for name in names
+            },
+            "crontab": {"present": True, "content": "writer cron\n"},
+        },
+        automation={"installed_unit_files": []},
+    )
+    operations.transaction_lock_held = True
+    with pytest.raises(release_deploy.DeployError, match="activation state"):
+        operations.release_producers(state, include_autopush=True)
+    observed = json.loads(host_state.read_text())["units"]
+    assert all(observed[name]["ActiveState"] == "inactive" for name in names)
+    assert not cron.exists()
 
 
 def test_runtime_directory_and_absence_restore_idempotently(tmp_path):
@@ -1399,10 +1560,15 @@ def test_prepare_resolves_ui_toolchain_without_a_shell_path(tmp_path, monkeypatc
     with pytest.raises(release_deploy.DeployError, match="required release executable.*node"):
         operations._resolve_release_tools()
     deployment = release_deploy.ReleaseDeployment(store, operations)
+    repo = tmp_path / "not-reached"
+    repo.mkdir()
+    subprocess.run([str(git), "init", "-q", repo], check=True)
+    database = tmp_path / "not-reached.duckdb"
+    database.write_bytes(b"fixture")
     with pytest.raises(release_deploy.DeployError, match="required release executable.*node"):
         deployment.prepare(
-            repo_root=tmp_path / "not-reached",
-            database=tmp_path / "not-reached.duckdb",
+            repo_root=repo,
+            database=database,
             approved_sha=NEW_SHA,
             adapter_set="none",
             d0=None,
@@ -1429,6 +1595,17 @@ def test_optional_unit_failure_pauses_after_requiesce_and_can_be_accepted(transa
     assert result["status"] == "applied"
     assert operations.calls.count("install-automation") == 1
     assert operations.calls.count("publish-snapshot") == 1
+
+
+def test_required_installer_failure_compensates_to_quiesced_state(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    operations.fail_install_after_start = True
+    with pytest.raises(release_deploy.DeployError, match="required automation"):
+        deployment.apply(execute=True, approve_plan=None)
+    assert operations.writers_active is False
+    assert operations.calls.count("quiesce") == 2
+    assert "publish-snapshot" not in operations.calls
 
 
 def test_quiesce_refuses_new_unit_without_touching_it(tmp_path, monkeypatch):
@@ -1925,6 +2102,59 @@ def test_route_verification_rejects_http_200_error_shell(tmp_path, monkeypatch):
     )
     with pytest.raises(release_deploy.DeployError, match="not semantically readable"):
         operations.request_route("http://fixture/positions", marker="position")
+
+
+def test_reader_processes_are_bound_to_selected_source_and_runtime(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    (repo / "ui").mkdir(parents=True)
+    python = tmp_path / "prepared/python/bin/python"
+    node = tmp_path / "tools/node"
+    python.parent.mkdir(parents=True)
+    node.parent.mkdir(parents=True)
+    python.write_text("python")
+    node.write_text("node")
+    process_root = tmp_path / "proc"
+    for pid, cwd, executable in (
+        (101, repo, python),
+        (102, repo / "ui", node),
+    ):
+        process = process_root / str(pid)
+        process.mkdir(parents=True)
+        (process / "cwd").symlink_to(cwd)
+        (process / "exe").symlink_to(executable)
+    properties = {
+        "trading-engine-api.service": {"ActiveState": "active", "MainPID": "101"},
+        "trading-engine-ui.service": {"ActiveState": "active", "MainPID": "102"},
+    }
+    operations = release_deploy.ReleaseOperations(
+        release_deploy.StateStore(tmp_path / "state"),
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+        process_root=process_root,
+    )
+    monkeypatch.setattr(operations, "_unit_properties", lambda name: properties[name])
+    state = SimpleNamespace(
+        repo_root=str(repo),
+        prepared={
+            "python_environment": str(tmp_path / "prepared/python"),
+            "tools": {"node": {"resolved_path": str(node)}},
+        },
+        inventory={
+            "units": {
+                "trading-engine-api.service": {"MainPID": "11"},
+                "trading-engine-ui.service": {"MainPID": "12"},
+            }
+        },
+    )
+    result = operations._verify_reader_processes(state, rolled_back=False)
+    assert result["trading-engine-api.service"]["pid"] == 101
+    (process_root / "101/cwd").unlink()
+    (process_root / "101/cwd").symlink_to(tmp_path)
+    with pytest.raises(release_deploy.DeployError, match="selected release"):
+        operations._verify_reader_processes(state, rolled_back=False)
 
 
 def test_actual_unit_mutations_are_derived_from_saved_inventory(tmp_path, monkeypatch):

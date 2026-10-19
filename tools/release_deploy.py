@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import functools
 import hashlib
 import json
 import os
@@ -481,6 +482,7 @@ class ReleaseOperations:
         ui_url: str,
         minimum_free_bytes: int,
         tool_paths: dict[str, Path | None] | None = None,
+        process_root: Path = Path("/proc"),
     ):
         self.store = store
         self.home = home.resolve()
@@ -490,6 +492,8 @@ class ReleaseOperations:
         self.minimum_free_bytes = minimum_free_bytes
         self.tool_paths = tool_paths or {}
         self.selected_tools: dict[str, dict[str, Any]] = {}
+        self.transaction_lock_held = False
+        self.process_root = process_root
 
     def _executable_identity(self, path: Path) -> dict[str, Any]:
         requested = path.absolute()
@@ -534,6 +538,40 @@ class ReleaseOperations:
         if name not in self.selected_tools:
             self.selected_tools[name] = self._resolve_tool(name)
         return self.selected_tools[name]["path"]
+
+    @contextmanager
+    def transaction_lock(self, repo_root: Path, transaction_id: str) -> Iterator[None]:
+        common = Path(self._git(repo_root, "rev-parse", "--git-common-dir"))
+        if not common.is_absolute():
+            common = repo_root / common
+        common = common.resolve(strict=True)
+        path = common / "release-deploy.lock"
+        if path.is_symlink():
+            raise DeployError("release transaction lock is a symlink")
+        descriptor = os.open(
+            path,
+            os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        try:
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode) or opened.st_uid != os.getuid():
+                raise DeployError("release transaction lock is not an owner-owned regular file")
+            os.fchmod(descriptor, 0o600)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise DeployError(
+                    "another release phase holds the repository transaction lock"
+                ) from exc
+            os.ftruncate(descriptor, 0)
+            os.write(descriptor, f"{transaction_id}\n".encode())
+            os.fsync(descriptor)
+            self.transaction_lock_held = True
+            yield
+        finally:
+            self.transaction_lock_held = False
+            os.close(descriptor)
 
     def _git(self, root: Path, *args: str, check: bool = True) -> str:
         result = self.runner.run([self._tool("git"), *args], cwd=root, check=check, timeout=60)
@@ -1768,6 +1806,41 @@ print(json.dumps(applied, sort_keys=True))
             "trading-engine-ui.service",
         )
 
+    def _verify_reader_processes(self, state: ReleaseState, *, rolled_back: bool) -> dict[str, Any]:
+        root = Path(state.repo_root).resolve()
+        expected = {
+            "trading-engine-api.service": (
+                root,
+                (root / ".venv/bin/python").resolve()
+                if rolled_back
+                else (Path(state.prepared["python_environment"]) / "bin/python").resolve(),
+            ),
+            "trading-engine-ui.service": (
+                root / "ui",
+                Path(state.prepared["tools"]["node"]["resolved_path"]),
+            ),
+        }
+        result = {}
+        for name, (expected_cwd, expected_exe) in expected.items():
+            properties = self._unit_properties(name)
+            try:
+                pid = int(properties["MainPID"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise DeployError(f"reader unit has no valid MainPID: {name}") from exc
+            prior_pid = int(state.inventory["units"].get(name, {}).get("MainPID", "0"))
+            if properties.get("ActiveState") not in ACTIVE_STATES or pid <= 0 or pid == prior_pid:
+                raise DeployError(f"reader unit did not start a new process: {name}")
+            process = self.process_root / str(pid)
+            try:
+                cwd = (process / "cwd").resolve(strict=True)
+                executable = (process / "exe").resolve(strict=True)
+            except OSError as exc:
+                raise DeployError(f"reader process identity is unavailable: {name}") from exc
+            if cwd != expected_cwd or executable != expected_exe:
+                raise DeployError(f"reader process does not match the selected release: {name}")
+            result[name] = {"pid": pid, "cwd": str(cwd), "executable": str(executable)}
+        return result
+
     def _wait_health(self) -> tuple[dict[str, Any], dict[str, str]]:
         last_error = "unavailable"
         for _attempt in range(60):
@@ -1916,6 +1989,7 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
 
     def semantic_verify(self, state: ReleaseState, *, rolled_back: bool) -> dict[str, Any]:
         self._start_readers()
+        readers = self._verify_reader_processes(state, rolled_back=rolled_back)
         health, _health_headers = self._wait_health()
         meta, _headers = self.request_json(f"{self.api_url}/meta")
         routes = {
@@ -1935,6 +2009,7 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
             "meta_sha256": _digest(meta),
             "routes": routes,
             "runtime": runtime,
+            "reader_processes": readers,
             "common": common,
             "adapter": adapter,
             "forced_snapshot": forced,
@@ -1949,6 +2024,8 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
             self.runner.run([self.runner.host("crontab"), "-r"], check=False, timeout=30)
 
     def release_producers(self, state: ReleaseState, *, include_autopush: bool) -> dict[str, Any]:
+        if not self.transaction_lock_held:
+            raise DeployError("producer activation requires the repository transaction lock")
         units = state.inventory["units"]
         if not isinstance(units, dict) or any(UNIT_NAME.fullmatch(name) is None for name in units):
             raise DeployError("saved unit inventory is invalid")
@@ -1976,7 +2053,6 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
             for name in loaded - desired
             if self._unit_properties(name).get("ActiveState") in ACTIVE_STATES
         }
-        self._stop_units(unexpected_active)
         services = [
             name
             for name, values in units.items()
@@ -1992,17 +2068,27 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
             and values.get("ActiveState") in ACTIVE_STATES
             and (include_autopush or name not in AUTOPUSH_UNITS)
         ]
-        if services:
-            self._systemctl("start", "--no-block", *sorted(services))
-        if timers:
-            self._systemctl("start", *sorted(timers))
-        self._restore_crontab(state.inventory["crontab"])
-        for name in sorted(loaded):
-            active = self._unit_properties(name).get("ActiveState") in ACTIVE_STATES
-            if active != (name in desired):
-                raise DeployError(f"saved activation state was not restored: {name}")
-        if self._read_crontab() != state.inventory["crontab"]:
-            raise DeployError("saved crontab was not restored exactly")
+        try:
+            self._stop_units(unexpected_active)
+            if services:
+                self._systemctl("start", "--no-block", *sorted(services))
+            if timers:
+                self._systemctl("start", *sorted(timers))
+            self._restore_crontab(state.inventory["crontab"])
+            for name in sorted(loaded):
+                active = self._unit_properties(name).get("ActiveState") in ACTIVE_STATES
+                if active != (name in desired):
+                    raise DeployError(f"saved activation state was not restored: {name}")
+            if self._read_crontab() != state.inventory["crontab"]:
+                raise DeployError("saved crontab was not restored exactly")
+        except BaseException as activation_error:
+            try:
+                self.quiesce(state)
+            except BaseException as quiesce_error:
+                raise DeployError(
+                    f"activation failed and compensating quiescence failed: {quiesce_error}"
+                ) from activation_error
+            raise
         return {
             "services_started": sorted(services),
             "timers_started": sorted(timers),
@@ -2247,6 +2333,26 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
         return {"restored": sorted(installed), "enablement_restored": sorted(enablement)}
 
 
+def serialized_phase(method):
+    """Hold the checkout-wide transaction lock for one mutating phase invocation."""
+
+    @functools.wraps(method)
+    def wrapped(self, *args, **kwargs):
+        if kwargs.get("execute") is not True:
+            return method(self, *args, **kwargs)
+        if method.__name__ == "prepare":
+            repo_root = Path(kwargs["repo_root"]).resolve()
+            transaction_id = f"prepare:{self.store.directory}"
+        else:
+            saved = self.store.load()
+            repo_root = Path(saved.repo_root)
+            transaction_id = saved.transaction_id
+        with self.operations.transaction_lock(repo_root, transaction_id):
+            return method(self, *args, **kwargs)
+
+    return wrapped
+
+
 class ReleaseDeployment:
     def __init__(
         self,
@@ -2267,6 +2373,16 @@ class ReleaseDeployment:
     def _save_failure(self, state: ReleaseState, exc: BaseException) -> None:
         state.last_failure = {"at": _utc_now(), "phase": state.phase, "reason": str(exc)}
         self.store.save(state)
+
+    def _requiesce_after_activation(self, state: ReleaseState) -> None:
+        if self.journal.completed("requiesce") is None:
+            self.journal.run(
+                "requiesce",
+                {"approved_sha": state.approved_sha},
+                lambda: self.operations.quiesce(state),
+            )
+        else:
+            self.operations.quiesce(state)
 
     def _load_prepared(self, *, recovery: bool = False) -> ReleaseState:
         state = self.store.load()
@@ -2349,6 +2465,7 @@ class ReleaseDeployment:
         self.operations.validate_prepared(state)
         return state
 
+    @serialized_phase
     def prepare(
         self,
         *,
@@ -2410,6 +2527,7 @@ class ReleaseDeployment:
             "migration_approval": state.migration_approval,
         }
 
+    @serialized_phase
     def apply(
         self,
         *,
@@ -2542,19 +2660,25 @@ class ReleaseDeployment:
                         ),
                     )
                     self._fault(step)
-                state.automation = self.journal.run(
-                    "install-automation",
-                    {"approved_sha": state.approved_sha},
-                    lambda: self.operations.install_automation(state),
-                    reconcile=lambda: self.operations.reconcile_automation(state),
-                )
-                self.store.save(state)
-                self._fault("install-automation")
-                self.journal.run(
-                    "requiesce",
-                    {"approved_sha": state.approved_sha},
-                    lambda: self.operations.quiesce(state),
-                )
+                try:
+                    state.automation = self.journal.run(
+                        "install-automation",
+                        {"approved_sha": state.approved_sha},
+                        lambda: self.operations.install_automation(state),
+                        reconcile=lambda: self.operations.reconcile_automation(state),
+                    )
+                    self.store.save(state)
+                    self._fault("install-automation")
+                except BaseException as activation_error:
+                    try:
+                        self._requiesce_after_activation(state)
+                    except BaseException as quiesce_error:
+                        raise DeployError(
+                            "automation activation failed and compensating quiescence failed: "
+                            f"{quiesce_error}"
+                        ) from activation_error
+                    raise
+                self._requiesce_after_activation(state)
                 optional_failures = state.automation.get("optional_failures", [])
                 if optional_failures:
                     digest = _digest(
@@ -2591,6 +2715,7 @@ class ReleaseDeployment:
             self._save_failure(state, exc)
             raise
 
+    @serialized_phase
     def verify(self, *, execute: bool) -> dict[str, Any]:
         state = self._load_prepared()
         actions = ["semantic-verify", "release-producers"]
@@ -2608,6 +2733,10 @@ class ReleaseDeployment:
                 lambda: self.operations.semantic_verify(state, rolled_back=False),
             )
             self._fault("semantic-verify")
+            fresh = self.store.load()
+            if fresh.transaction_id != state.transaction_id or fresh.phase != "verifying":
+                raise DeployError("release state changed before producer activation")
+            self.operations.validate_state_source(fresh, fresh.approved_sha)
             self.journal.run(
                 "release-producers",
                 {"inventory": _digest(state.inventory), "include_autopush": True},
@@ -2622,6 +2751,7 @@ class ReleaseDeployment:
             self._save_failure(state, exc)
             raise
 
+    @serialized_phase
     def abort(self, *, execute: bool) -> dict[str, Any]:
         state = self._load_prepared(recovery=True)
         actions = ["restore-captured-activation"]
@@ -2645,6 +2775,7 @@ class ReleaseDeployment:
         state.phase = "aborting"
         self.store.save(state)
         try:
+            self.operations.validate_state_source(state, state.original_sha)
             self.journal.run(
                 "abort-release-producers",
                 {"inventory": _digest(state.inventory)},
@@ -2658,6 +2789,7 @@ class ReleaseDeployment:
             self._save_failure(state, exc)
             raise
 
+    @serialized_phase
     def rollback(self, *, execute: bool) -> dict[str, Any]:
         state = self._load_prepared(recovery=True)
         actions = [
@@ -2743,6 +2875,10 @@ class ReleaseDeployment:
                 {"original_sha": state.original_sha, "backup": _digest(state.backup)},
                 lambda: self.operations.semantic_verify(state, rolled_back=True),
             )
+            fresh = self.store.load()
+            if fresh.transaction_id != state.transaction_id or fresh.phase != "rolling-back":
+                raise DeployError("release state changed before rollback activation")
+            self.operations.validate_state_source(fresh, fresh.original_sha)
             self.journal.run(
                 "rollback-release-producers",
                 {"inventory": _digest(state.inventory), "include_autopush": False},
@@ -2756,6 +2892,7 @@ class ReleaseDeployment:
             self._save_failure(state, exc)
             raise
 
+    @serialized_phase
     def resume(self, *, reconciled_sha: str, execute: bool) -> dict[str, Any]:
         state = self._load_prepared(recovery=True)
         if FULL_SHA.fullmatch(reconciled_sha) is None:
@@ -2769,6 +2906,10 @@ class ReleaseDeployment:
         state.phase = "resuming"
         self.store.save(state)
         try:
+            fresh = self.store.load()
+            if fresh.transaction_id != state.transaction_id or fresh.phase != "resuming":
+                raise DeployError("release state changed before resume activation")
+            self.operations.validate_reconciled_source(fresh, reconciled_sha)
             self.journal.run(
                 "resume-autopush",
                 {"reconciled_sha": reconciled_sha, "inventory": _digest(state.inventory)},
