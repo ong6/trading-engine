@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Create, audit, and release exact-base engine worktrees safely."""
+"""Create, audit, and release exact-base engine worktrees safely.
+
+Threat model: one host with cooperative agents.  Every lane operation honors
+the locked CLAIMS.md protocol; a hostile process that directly changes Git or
+worktree files while another agent holds that lock is out of scope.  Release
+holds the CLAIMS lock across repeated audit, snapshot comparison, and the
+atomic claim transition, and refuses every change it detects.  It does not
+chmod, seal, detach, or otherwise mutate the released worktree or STATUS.
+"""
 
 from __future__ import annotations
 
@@ -570,113 +578,6 @@ def _claims_lock(root: Path):
         os.close(descriptor)
 
 
-@contextmanager
-def _release_lease(target: Path):
-    path = _admin_dir(target) / "lane-release.lock"
-    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags, 0o600)
-    except OSError as exc:
-        raise LaneError(f"cannot open release lease: {exc}") from exc
-    try:
-        details = os.fstat(descriptor)
-        if not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid():
-            raise LaneError("release lease is not a user-owned regular file")
-        os.fchmod(descriptor, 0o600)
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-        yield
-    finally:
-        os.close(descriptor)
-
-
-def _remove_write_bits(path: Path, modes: dict[Path, int]) -> None:
-    if path in modes:
-        return
-    details = path.lstat()
-    if stat.S_ISLNK(details.st_mode):
-        return
-    if not (stat.S_ISDIR(details.st_mode) or stat.S_ISREG(details.st_mode)):
-        raise LaneError("release seal encountered a special file")
-    mode = stat.S_IMODE(details.st_mode)
-    modes[path] = mode
-    path.chmod(mode & ~0o222)
-
-
-def _restore_modes(modes: dict[Path, int]) -> None:
-    for path, mode in sorted(modes.items(), key=lambda item: len(item[0].parts)):
-        try:
-            path.chmod(mode)
-        except FileNotFoundError:
-            pass
-
-
-@contextmanager
-def _release_mutation_barrier(target: Path, branch: str, head: str, status_path: Path):
-    admin = _admin_dir(target)
-    common = Path(_git_value(target, "rev-parse", "--git-common-dir"))
-    if not common.is_absolute():
-        common = (target / common).resolve()
-    branch_ref = common / "refs" / "heads" / branch.removeprefix("refs/heads/")
-    branch_ref.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
-    lock_paths = (
-        admin / "index.lock",
-        admin / "config.worktree.lock",
-        branch_ref.with_name(f"{branch_ref.name}.lock"),
-    )
-    descriptors = []
-    modes: dict[Path, int] = {}
-    original_head = (admin / "HEAD").read_text(encoding="utf-8")
-    state = {"detached": False, "sealed": False}
-    try:
-        if _git_value(target, "rev-parse", f"refs/heads/{branch}") != head:
-            raise LaneError("branch moved before release barrier")
-        for path in lock_paths:
-            descriptor = os.open(
-                path,
-                os.O_WRONLY
-                | os.O_CREAT
-                | os.O_EXCL
-                | getattr(os, "O_CLOEXEC", 0)
-                | getattr(os, "O_NOFOLLOW", 0),
-                0o600,
-            )
-            descriptors.append((descriptor, path))
-        for path in [target, *target.rglob("*")]:
-            _remove_write_bits(path, modes)
-        for path in admin.rglob("*"):
-            _remove_write_bits(path, modes)
-        _remove_write_bits(status_path, modes)
-        _remove_write_bits(status_path.parent, modes)
-
-        def detach_and_seal() -> None:
-            _atomic_text(admin / "HEAD", f"{head}\n", 0o444)
-            state["detached"] = True
-            _remove_write_bits(admin, modes)
-
-        state["detach_and_seal"] = detach_and_seal
-        yield state
-    except OSError as exc:
-        raise LaneError(f"cannot establish release mutation barrier: {exc}") from exc
-    finally:
-        for descriptor, _path in descriptors:
-            os.close(descriptor)
-        created_paths = [path for _descriptor, path in descriptors]
-        if lock_paths[-1] in created_paths:
-            try:
-                lock_paths[-1].unlink()
-            except FileNotFoundError:
-                pass
-        if not state["sealed"]:
-            _restore_modes(modes)
-            if state["detached"]:
-                _atomic_text(admin / "HEAD", original_head)
-            for path in created_paths:
-                if path == lock_paths[-1]:
-                    continue
-                try:
-                    path.unlink()
-                except FileNotFoundError:
-                    pass
 
 
 def _claims(root: Path) -> tuple[Path, str, list[dict], dict | None]:
@@ -1513,6 +1414,32 @@ def _status_fields(path: Path) -> tuple[bool, dict[str, str]]:
     return bool(lines and lines[0].strip() == "done"), fields
 
 
+def _canonical_release_status(
+    home: Path, lane: str, status_path: Path | None
+) -> Path:
+    lane_root = home / ".tae" / "out" / lane
+    expected = lane_root / "STATUS"
+    selected = status_path or expected
+    if not selected.is_absolute():
+        selected = Path.cwd() / selected
+    try:
+        selected_details = selected.lstat()
+        root_details = lane_root.lstat()
+        selected_resolved = selected.resolve(strict=True)
+        expected_resolved = expected.resolve(strict=True)
+    except OSError as exc:
+        raise LaneError(f"cannot inspect canonical lane STATUS: {exc}") from exc
+    if stat.S_ISLNK(selected_details.st_mode) or not stat.S_ISREG(selected_details.st_mode):
+        raise LaneError("lane STATUS must be a regular non-symlink file")
+    if stat.S_ISLNK(root_details.st_mode) or not stat.S_ISDIR(root_details.st_mode):
+        raise LaneError("lane STATUS directory must be a real directory")
+    if selected_details.st_uid != os.getuid() or root_details.st_uid != os.getuid():
+        raise LaneError("lane STATUS and its directory must be user-owned")
+    if selected_resolved != expected_resolved or selected_resolved.parent != lane_root.resolve():
+        raise LaneError("release STATUS must be the canonical lane handoff path")
+    return selected
+
+
 def _read_environment(target: Path) -> dict | None:
     try:
         payload = json.loads(_environment_record(target).read_text(encoding="utf-8"))
@@ -1713,32 +1640,29 @@ def release_lane(
     clock: Callable[[], datetime] = _now,
 ) -> dict:
     root = _validated_root(lanes_root, home)
-    status = status_path or home / ".tae" / "out" / lane / "STATUS"
+    status = _canonical_release_status(home, lane, status_path)
     with _claims_lock(root):
         path, content, rows, migration = _claims(root)
         row = next(item for item in rows if item["lane"] == lane)
         target = _target(root, lane, home)
-        with _release_lease(target):
-            barrier_head = _git_value(target, "rev-parse", "HEAD")
-            with _release_mutation_barrier(
-                target, row["branch"], barrier_head, status
-            ) as barrier:
-                for _attempt in range(2):
-                    report = _audit_unlocked(root, home, lane, status, rows)
-                    if not report["ok"]:
-                        failed = sorted(
-                            key for key, passed in report["checks"].items() if not passed
-                        )
-                        raise LaneError(f"handoff audit failed: {', '.join(failed)}")
-                before = _release_snapshot(target, status, row)
-                if not _snapshot_matches_audit(before, report, row, status):
-                    raise LaneError("handoff state changed before release transition")
-                barrier["detach_and_seal"]()
-                row["head_sha"] = report["head_sha"]
-                row["released_at"] = _timestamp(clock)
-                row["state"] = "released"
-                _write_claim_rows(path, content, rows, migration)
-                barrier["sealed"] = True
+        snapshots = []
+        for _attempt in range(2):
+            report = _audit_unlocked(root, home, lane, status, rows)
+            if not report["ok"]:
+                failed = sorted(
+                    key for key, passed in report["checks"].items() if not passed
+                )
+                raise LaneError(f"handoff audit failed: {', '.join(failed)}")
+            snapshot = _release_snapshot(target, status, row)
+            if not _snapshot_matches_audit(snapshot, report, row, status):
+                raise LaneError("handoff state changed before release transition")
+            snapshots.append(snapshot)
+        if snapshots[0] != snapshots[1]:
+            raise LaneError("handoff state changed between release audits")
+        row["head_sha"] = report["head_sha"]
+        row["released_at"] = _timestamp(clock)
+        row["state"] = "released"
+        _write_claim_rows(path, content, rows, migration)
     return report
 
 

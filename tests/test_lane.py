@@ -561,6 +561,9 @@ def test_release_refuses_unpushed_work_then_accepts_remote_handoff(tmp_path):
         )
 
     _git(target, "push", "-u", "origin", "HEAD")
+    status.parent.chmod(0o700)
+    status.chmod(0o600)
+    status_modes = (status.parent.stat().st_mode & 0o777, status.stat().st_mode & 0o777)
     audit = lane.audit_lane(
         lanes_root=fixture["root"],
         home=fixture["home"],
@@ -583,6 +586,65 @@ def test_release_refuses_unpushed_work_then_accepts_remote_handoff(tmp_path):
     row = _claims(fixture)[0]
     assert row["state"] == "released"
     assert row["released_at"] == "2026-10-18T18:05:00Z"
+    assert (status.parent.stat().st_mode & 0o777, status.stat().st_mode & 0o777) == (
+        status_modes
+    )
+    assert _git(target, "symbolic-ref", "--short", "HEAD").stdout.strip() == (
+        "build/lane-one"
+    )
+
+
+def test_release_rejects_noncanonical_status_and_preserves_external_modes(tmp_path):
+    fixture = _fixture(tmp_path)
+    _create(fixture)
+    target = fixture["root"] / "lane-one"
+    head = _commit(target)
+    canonical = _status(fixture, "lane-one", head)
+    _git(target, "push", "-u", "origin", "HEAD")
+    outside = tmp_path / "unrelated-evidence"
+    outside.mkdir(mode=0o700)
+    external_status = outside / "STATUS"
+    external_status.write_bytes(canonical.read_bytes())
+    external_status.chmod(0o600)
+    before = (outside.stat().st_mode & 0o777, external_status.stat().st_mode & 0o777)
+
+    with pytest.raises(lane.LaneError, match="canonical lane handoff path"):
+        lane.release_lane(
+            lanes_root=fixture["root"],
+            home=fixture["home"],
+            lane="lane-one",
+            status_path=external_status,
+        )
+
+    assert (outside.stat().st_mode & 0o777, external_status.stat().st_mode & 0o777) == before
+    assert _claims(fixture)[0]["state"] == "active"
+
+
+def test_release_rejects_symlink_and_non_owned_canonical_status(tmp_path, monkeypatch):
+    fixture = _fixture(tmp_path)
+    _create(fixture)
+    target = fixture["root"] / "lane-one"
+    head = _commit(target)
+    status = _status(fixture, "lane-one", head)
+    receipt = status.parent / "real-status"
+    receipt.write_bytes(status.read_bytes())
+    status.unlink()
+    status.symlink_to(receipt)
+
+    with pytest.raises(lane.LaneError, match="regular non-symlink"):
+        lane.release_lane(
+            lanes_root=fixture["root"],
+            home=fixture["home"],
+            lane="lane-one",
+            status_path=status,
+        )
+
+    status.unlink()
+    status.write_bytes(receipt.read_bytes())
+    current_uid = os.getuid()
+    monkeypatch.setattr(lane.os, "getuid", lambda: current_uid + 1)
+    with pytest.raises(lane.LaneError, match="user-owned"):
+        lane._canonical_release_status(fixture["home"], "lane-one", status)
 
 
 def test_release_rejects_stale_origin_and_unrelated_remote_advertisement(tmp_path):
@@ -648,7 +710,7 @@ def test_release_reaudits_commit_injected_during_live_handoff(tmp_path, monkeypa
 
     monkeypatch.setattr(lane, "_advertised_handoff_sha", commit_during_handoff)
 
-    with pytest.raises(lane.LaneError, match="release mutation barrier"):
+    with pytest.raises(lane.LaneError, match="handoff state changed"):
         lane.release_lane(
             lanes_root=fixture["root"],
             home=fixture["home"],
@@ -657,12 +719,12 @@ def test_release_reaudits_commit_injected_during_live_handoff(tmp_path, monkeypa
         )
 
     assert injected is True
-    assert _git(target, "rev-parse", "HEAD").stdout.strip() == head
-    assert not (target / "concurrent.txt").exists()
+    assert _git(target, "rev-parse", "HEAD").stdout.strip() != head
+    assert (target / "concurrent.txt").exists()
     assert _claims(fixture)[0]["state"] == "active"
 
 
-def test_release_refuses_commit_attempt_after_final_snapshot(
+def test_release_refuses_detected_commit_between_reaudit_and_transition(
     tmp_path, monkeypatch
 ):
     fixture = _fixture(tmp_path)
@@ -684,7 +746,7 @@ def test_release_refuses_commit_attempt_after_final_snapshot(
 
     monkeypatch.setattr(lane, "_release_snapshot", snapshot_then_commit)
 
-    with pytest.raises(lane.LaneError, match="release mutation barrier"):
+    with pytest.raises(lane.LaneError, match="handoff audit failed"):
         lane.release_lane(
             lanes_root=fixture["root"],
             home=fixture["home"],
@@ -742,7 +804,7 @@ def test_release_barrier_refuses_invalid_state_after_second_audit(
 
     monkeypatch.setattr(lane, "_audit_unlocked", audit_then_mutate)
 
-    with pytest.raises((lane.LaneError, OSError, subprocess.CalledProcessError)):
+    with pytest.raises(lane.LaneError, match="handoff state changed"):
         lane.release_lane(
             lanes_root=fixture["root"],
             home=fixture["home"],
