@@ -1,6 +1,6 @@
 # XS momentum 12-1 — prospective paper review
 
-_Status **ACCUMULATING** · through 2026-10-16 · paper only · no automatic action._
+_Status **ACCUMULATING** · through 2026-10-19 · paper only · no automatic action._
 
 The first shared close after the frozen 2026-09-30 signal and next-open execution is the baseline. This excludes legacy EW performance and the initial transition; later monthly rebalances retain their realized costs.
 
