@@ -182,34 +182,67 @@ def _opened_member_parent(base_descriptor: int, relative: str):
         os.close(descriptor)
 
 
+def _open_verified_compressed(entry: dict, parent: int, leaf: str) -> tuple[int, os.stat_result]:
+    descriptor = None
+    try:
+        descriptor = os.open(
+            f"{leaf}.zst",
+            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=parent,
+        )
+        info = os.fstat(descriptor)
+        body = raw_payload.read_compressed_descriptor(
+            descriptor, expected_sha256=entry["source_sha256"],
+            expected_size=entry["source_size"],
+        )
+        compressed_sha = raw_payload.descriptor_sha256(
+            descriptor, expected_size=entry["compressed_size"],
+        )
+        if (len(body) != entry["source_size"]
+                or compressed_sha != entry["compressed_sha256"]
+                or stat.S_IMODE(info.st_mode) != int(entry["mode"], 8)):
+            raise FreeSourceError("compressed payload differs from conversion manifest")
+        return descriptor, info
+    except FreeSourceError as exc:
+        if descriptor is not None:
+            os.close(descriptor)
+        raise FreeSourceError("compressed payload differs from conversion manifest") from exc
+    except OSError as exc:
+        if descriptor is not None:
+            os.close(descriptor)
+        raise FreeSourceError("manifest compressed payload is unsafe or unreadable") from exc
+
+
 def _verify_manifest_entry_at(entry: dict, base_descriptor: int) -> None:
     with _opened_member_parent(base_descriptor, entry["path"]) as (parent, leaf):
-        descriptor = None
-        try:
-            descriptor = os.open(
-                f"{leaf}.zst",
-                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
-                dir_fd=parent,
-            )
-            info = os.fstat(descriptor)
-            body = raw_payload.read_compressed_descriptor(
-                descriptor, expected_sha256=entry["source_sha256"],
-                expected_size=entry["source_size"],
-            )
-            compressed_sha = raw_payload.descriptor_sha256(
-                descriptor, expected_size=entry["compressed_size"],
-            )
-            if (len(body) != entry["source_size"]
-                    or compressed_sha != entry["compressed_sha256"]
-                    or stat.S_IMODE(info.st_mode) != int(entry["mode"], 8)):
-                raise FreeSourceError("compressed payload differs from conversion manifest")
-        except FreeSourceError as exc:
-            raise FreeSourceError("compressed payload differs from conversion manifest") from exc
-        except OSError as exc:
-            raise FreeSourceError("manifest compressed payload is unsafe or unreadable") from exc
-        finally:
-            if descriptor is not None:
-                os.close(descriptor)
+        descriptor, _info = _open_verified_compressed(entry, parent, leaf)
+        os.close(descriptor)
+
+
+def _require_current_parent(
+    base_descriptor: int, relative: str, verified_parent: int,
+) -> None:
+    with _opened_member_parent(base_descriptor, relative) as (current_parent, _leaf):
+        verified = os.fstat(verified_parent)
+        current = os.fstat(current_parent)
+        if (verified.st_dev, verified.st_ino) != (current.st_dev, current.st_ino):
+            raise FreeSourceError("conversion member parent changed before removal")
+
+
+def _require_current_compressed(
+    entry: dict, parent: int, leaf: str, descriptor: int,
+) -> None:
+    verified = os.fstat(descriptor)
+    try:
+        current = os.stat(f"{leaf}.zst", dir_fd=parent, follow_symlinks=False)
+    except OSError as exc:
+        raise FreeSourceError("compressed payload changed before original removal") from exc
+    if ((verified.st_dev, verified.st_ino, verified.st_size)
+            != (current.st_dev, current.st_ino, current.st_size)
+            or not stat.S_ISREG(current.st_mode) or current.st_nlink < 1
+            or verified.st_nlink < 1
+            or stat.S_IMODE(current.st_mode) != int(entry["mode"], 8)):
+        raise FreeSourceError("compressed payload changed before original removal")
 
 
 def _verify_manifest_entry(
@@ -223,25 +256,30 @@ def _verify_manifest_entry(
 
 
 def _remove_original_at(entry: dict, base_descriptor: int) -> None:
-    _verify_manifest_entry_at(entry, base_descriptor)
     with _opened_member_parent(base_descriptor, entry["path"]) as (parent, leaf):
+        compressed, _compressed_info = _open_verified_compressed(entry, parent, leaf)
         original = None
         try:
-            original = os.open(
-                leaf,
-                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
-                dir_fd=parent,
-            )
-        except FileNotFoundError:
-            return
-        except OSError as exc:
-            raise FreeSourceError("conversion original is unsafe or unreadable") from exc
-        try:
+            try:
+                original = os.open(
+                    leaf,
+                    os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                    dir_fd=parent,
+                )
+            except FileNotFoundError:
+                _require_current_parent(base_descriptor, entry["path"], parent)
+                _require_current_compressed(entry, parent, leaf, compressed)
+                return
+            except OSError as exc:
+                raise FreeSourceError("conversion original is unsafe or unreadable") from exc
             info = os.fstat(original)
             raw_payload.read_plain_descriptor(
                 original, expected_sha256=entry["source_sha256"],
                 expected_size=entry["source_size"],
             )
+            _require_current_parent(base_descriptor, entry["path"], parent)
+            _require_current_compressed(entry, parent, leaf, compressed)
             current = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
             if ((info.st_dev, info.st_ino, info.st_size)
                     != (current.st_dev, current.st_ino, current.st_size)
@@ -251,7 +289,9 @@ def _remove_original_at(entry: dict, base_descriptor: int) -> None:
             os.unlink(leaf, dir_fd=parent)
             os.fsync(parent)
         finally:
-            os.close(original)
+            if original is not None:
+                os.close(original)
+            os.close(compressed)
 
 
 def _remove_original(entry: dict, base: Path) -> None:

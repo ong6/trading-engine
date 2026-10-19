@@ -255,6 +255,95 @@ def test_manifest_parent_symlink_cannot_verify_or_remove_outside_base(tmp_path: 
     assert raw_payload.compressed_path(outside / logical.name).exists()
 
 
+def test_parent_swap_between_compressed_proof_and_unlink_retains_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    base = tmp_path / "checkpoint"
+    member = base / "member"
+    member.mkdir(parents=True)
+    body = b"parent-swap"
+    digest = hashlib.sha256(body).hexdigest()
+    logical = member / f"{digest}.raw"
+    logical.write_bytes(body)
+    logical.chmod(0o600)
+    manifest_path = base / "manifest.json"
+    convert_raw_payloads.convert(
+        [member], base=base, apply=True, manifest_path=manifest_path,
+    )
+    manifest = json.loads(manifest_path.read_text())
+    manifest["remove_originals"] = True
+    manifest["manifest_sha256"] = convert_raw_payloads._manifest_identity(manifest)
+    manifest_path.write_text(json.dumps(manifest))
+    logical.unlink()
+
+    replacement = tmp_path / "replacement-member"
+    replacement.mkdir()
+    replacement_original = replacement / logical.name
+    replacement_original.write_bytes(body)
+    replacement_original.chmod(0o600)
+    verified_outside = tmp_path / "verified-outside"
+    original_read = raw_payload.read_compressed_descriptor
+    calls = 0
+
+    def swap_after_removal_proof(*args, **kwargs):
+        nonlocal calls
+        result = original_read(*args, **kwargs)
+        calls += 1
+        if calls == 2:
+            member.rename(verified_outside)
+            replacement.rename(member)
+        return result
+
+    monkeypatch.setattr(raw_payload, "read_compressed_descriptor", swap_after_removal_proof)
+    empty = base / "empty"
+    empty.mkdir()
+    with pytest.raises(FreeSourceError, match="parent changed before removal"):
+        convert_raw_payloads.convert(
+            [empty], base=base, apply=True, remove_originals=True,
+            manifest_path=manifest_path,
+        )
+    assert (member / logical.name).read_bytes() == body
+    assert raw_payload.compressed_path(verified_outside / logical.name).exists()
+
+
+def test_compressed_leaf_removal_between_proof_and_unlink_retains_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    base = tmp_path / "checkpoint"
+    member = base / "member"
+    member.mkdir(parents=True)
+    body = b"compressed-removal"
+    digest = hashlib.sha256(body).hexdigest()
+    logical = member / f"{digest}.raw"
+    logical.write_bytes(body)
+    logical.chmod(0o600)
+    manifest_path = base / "manifest.json"
+    convert_raw_payloads.convert(
+        [member], base=base, apply=True, manifest_path=manifest_path,
+    )
+    manifest = json.loads(manifest_path.read_text())
+    manifest["remove_originals"] = True
+    manifest["manifest_sha256"] = convert_raw_payloads._manifest_identity(manifest)
+    manifest_path.write_text(json.dumps(manifest))
+    target = raw_payload.compressed_path(logical)
+    original_read = raw_payload.read_plain_descriptor
+
+    def remove_compressed_after_original_proof(*args, **kwargs):
+        result = original_read(*args, **kwargs)
+        target.unlink()
+        return result
+
+    monkeypatch.setattr(raw_payload, "read_plain_descriptor", remove_compressed_after_original_proof)
+    empty = base / "empty"
+    empty.mkdir()
+    with pytest.raises(FreeSourceError, match="compressed payload changed"):
+        convert_raw_payloads.convert(
+            [empty], base=base, apply=True, remove_originals=True,
+            manifest_path=manifest_path,
+        )
+    assert logical.read_bytes() == body
+
+
 def test_codec_works_in_scheduler_minimal_path():
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
