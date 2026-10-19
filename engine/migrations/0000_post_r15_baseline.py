@@ -81,6 +81,9 @@ BOOTSTRAP_CALLS = (
     ("server.p15_price_fetch_attempts", "init_schema"),
     ("server.p15_scoring_store", "init_schema"),
 )
+DEPENDENCIES = tuple(
+    sorted({module_name.replace(".", "/") + ".py" for module_name, _name in BOOTSTRAP_CALLS})
+)
 
 
 def _objects(con: duckdb.DuckDBPyConnection) -> tuple[set[str], set[str], set[str]]:

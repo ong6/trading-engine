@@ -183,6 +183,9 @@ _MUTATING_TABLE = re.compile(
     r'^(UPDATE|DELETE\s+FROM|INSERT\s+OR\s+REPLACE\s+INTO)\s+'
     r'(?:(?:"?main"?)\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?',
 )
+_RELATION_MUTATIONS = frozenset({
+    "create", "create_view", "insert", "insert_into", "to_table", "to_view", "update",
+})
 
 
 class DBBusyError(RuntimeError):
@@ -196,6 +199,38 @@ class DBBusyError(RuntimeError):
 
 class SchemaMigrationRequired(RuntimeError):
     """An existing table has a legacy shape that runtime may not upgrade."""
+
+
+class GuardedRelation:
+    """Keep relation-producing connection methods inside the schema boundary."""
+
+    def __init__(self, relation, *, versioned: bool):
+        self._relation = relation
+        self._versioned = versioned
+
+    def __getattr__(self, name: str):
+        attribute = getattr(self._relation, name)
+        if (
+            name in _RELATION_MUTATIONS
+            and self._versioned
+            and not _SCHEMA_CHANGE_AUTHORITY.get()
+        ):
+            def reject(*_args, **_kwargs):
+                raise SchemaMigrationRequired(
+                    "relation persistence requires an explicit migration"
+                )
+
+            return reject
+        if not callable(attribute):
+            return attribute
+
+        def guarded(*args, **kwargs):
+            result = attribute(*args, **kwargs)
+            if isinstance(result, duckdb.DuckDBPyRelation):
+                return GuardedRelation(result, versioned=self._versioned)
+            return result
+
+        return guarded
 
 
 @contextmanager
@@ -310,14 +345,23 @@ class GuardedConnection:
             raise SchemaMigrationRequired(
                 f"{table} requires an explicit schema migration backfill: {column}"
             )
-        if upper.startswith(("ALTER TABLE", "DROP TABLE", "DROP VIEW", "CREATE TABLE",
-                             "CREATE VIEW", "CREATE INDEX", "CREATE SEQUENCE",
-                             "CREATE OR REPLACE SEQUENCE", "DROP SEQUENCE")):
+        if re.match(r"^(?:CREATE|ALTER|DROP|COMMENT)\b", upper):
             raise SchemaMigrationRequired("runtime schema DDL requires an explicit migration")
+        if upper.startswith(("COPY FROM DATABASE", "IMPORT DATABASE")):
+            raise SchemaMigrationRequired("runtime schema copy requires an explicit migration")
         return False
 
+    def _preflight_schema_sql(self, statement: str) -> bool:
+        statements = self._connection.extract_statements(statement)
+        assertions = [self._assert_schema_statement(item.query) for item in statements]
+        if len(statements) > 1 and any(assertions):
+            raise SchemaMigrationRequired(
+                "multi-statement runtime schema SQL requires an explicit migration"
+            )
+        return bool(assertions and assertions[0])
+
     def execute(self, statement: str, parameters=None):
-        if self._assert_schema_statement(statement):
+        if self._preflight_schema_sql(statement):
             self._connection.execute("SELECT NULL WHERE FALSE")
         elif parameters is None:
             self._connection.execute(statement)
@@ -326,8 +370,53 @@ class GuardedConnection:
         return self
 
     def executemany(self, statement: str, parameters):
-        self._connection.executemany(statement, parameters)
+        if self._preflight_schema_sql(statement):
+            self._connection.execute("SELECT NULL WHERE FALSE")
+        else:
+            self._connection.executemany(statement, parameters)
         return self
+
+    def sql(self, query: str, *args, **kwargs):
+        if self._preflight_schema_sql(query):
+            relation = self._connection.sql("SELECT NULL WHERE FALSE")
+        else:
+            relation = self._connection.sql(query, *args, **kwargs)
+        return GuardedRelation(relation, versioned=self._versioned)
+
+    def query(self, query: str, *args, **kwargs):
+        if self._preflight_schema_sql(query):
+            relation = self._connection.query("SELECT NULL WHERE FALSE")
+        else:
+            relation = self._connection.query(query, *args, **kwargs)
+        return GuardedRelation(relation, versioned=self._versioned)
+
+    def from_query(self, query: str, *args, **kwargs):
+        return self.sql(query, *args, **kwargs)
+
+    def table(self, table_name: str):
+        return GuardedRelation(
+            self._connection.table(table_name), versioned=self._versioned,
+        )
+
+    def view(self, view_name: str):
+        return GuardedRelation(
+            self._connection.view(view_name), versioned=self._versioned,
+        )
+
+    def duplicate(self):
+        return GuardedConnection(
+            self._connection.duplicate(), versioned=self._versioned,
+        )
+
+    def cursor(self):
+        return GuardedConnection(self._connection.cursor(), versioned=self._versioned)
+
+    def append(self, table_name: str, *args, **kwargs):
+        if self._versioned and table_name.rsplit(".", 1)[-1] in _COLD_TABLE_NAMES:
+            raise SchemaMigrationRequired(
+                f"cold table is append-only through registered writers: {table_name}"
+            )
+        return self._connection.append(table_name, *args, **kwargs)
 
     def close(self) -> None:
         try:
@@ -402,6 +491,12 @@ def connect(path: str | Path | None = None, *,
                 "SELECT 1 FROM information_schema.tables "
                 "WHERE table_schema='main' AND table_name=?", [MIGRATION_TABLE],
             ).fetchone() is not None
+            if versioned and not read_only and not _SCHEMA_CHANGE_AUTHORITY.get():
+                try:
+                    schema_registry.require_compatible_schema(connection)
+                except schema_registry.SchemaIdentityError:
+                    connection.close()
+                    raise
             return GuardedConnection(
                 connection, versioned=versioned, generation_pin=generation_pin,
             )
@@ -409,6 +504,8 @@ def connect(path: str | Path | None = None, *,
             if generation_pin is not None:
                 generation_pin.close()
                 raise
+            if isinstance(exc, schema_registry.SchemaIdentityError):
+                raise SchemaMigrationRequired(str(exc)) from exc
             if not is_lock_error(exc) or attempt >= tries:
                 raise
             log.info(f"[db] store locked (attempt {attempt}/{tries}) — "

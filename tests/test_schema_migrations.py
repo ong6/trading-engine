@@ -372,7 +372,8 @@ def test_versioned_connection_rejects_unledgered_sequence_ddl(tmp_path):
     )
     con.close()
 
-    guarded = engine_db.connect(database)
+    raw = duckdb.connect(str(database))
+    guarded = engine_db.GuardedConnection(raw, versioned=True)
     try:
         with pytest.raises(engine_db.SchemaMigrationRequired, match="explicit migration"):
             guarded.execute("CREATE SEQUENCE runtime_probe START 1")
@@ -390,13 +391,57 @@ def test_versioned_connection_rejects_changed_view_definition(tmp_path):
     con.execute("CREATE VIEW runtime_view AS SELECT 1 AS value")
     con.close()
 
-    guarded = engine_db.connect(database)
+    raw = duckdb.connect(str(database))
+    guarded = engine_db.GuardedConnection(raw, versioned=True)
     try:
         with pytest.raises(engine_db.SchemaMigrationRequired, match="view definition"):
             guarded.execute("CREATE OR REPLACE VIEW runtime_view AS SELECT 2 AS value")
         assert guarded.execute("SELECT value FROM runtime_view").fetchone() == (1,)
     finally:
         guarded.close()
+
+
+@pytest.mark.parametrize(
+    "attempt",
+    [
+        lambda con: con.executemany("CREATE TABLE bypass_many (id INTEGER)", [()]),
+        lambda con: con.sql("CREATE TABLE bypass_sql (id INTEGER)"),
+        lambda con: con.from_query("CREATE TABLE bypass_query (id INTEGER)"),
+        lambda con: con.execute("SELECT 1; CREATE TABLE bypass_multi (id INTEGER)"),
+        lambda con: con.cursor().execute("CREATE TABLE bypass_cursor (id INTEGER)"),
+        lambda con: con.duplicate().execute("CREATE TABLE bypass_duplicate (id INTEGER)"),
+        lambda con: con.sql("SELECT 1").create("bypass_relation"),
+        lambda con: con.execute("CREATE SCHEMA bypass_schema"),
+    ],
+)
+def test_versioned_connection_blocks_every_persistent_ddl_surface(tmp_path, attempt):
+    database = tmp_path / "versioned.duckdb"
+    raw = duckdb.connect(str(database))
+    raw.execute("CREATE TABLE schema_migrations (migration_id INTEGER)")
+    guarded = engine_db.GuardedConnection(raw, versioned=True)
+    try:
+        with pytest.raises(engine_db.SchemaMigrationRequired, match="explicit migration"):
+            attempt(guarded)
+        assert guarded.execute(
+            "SELECT COUNT(*) FROM duckdb_tables() WHERE table_name LIKE 'bypass_%'"
+        ).fetchone() == (0,)
+    finally:
+        guarded.close()
+
+
+def test_baseline_hash_binds_runtime_initializer_source(monkeypatch):
+    before = schema_migrations.migrations()[0].sha256
+    original = Path.read_bytes
+
+    def changed_dependency(path):
+        content = original(path)
+        if path.name == "bitemporal_facts.py":
+            return content + b"\n# changed dependency\n"
+        return content
+
+    monkeypatch.setattr(Path, "read_bytes", changed_dependency)
+
+    assert schema_migrations.migrations()[0].sha256 != before
 
 
 @pytest.mark.parametrize(

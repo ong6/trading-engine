@@ -60,7 +60,7 @@ class Migration:
 
 def _module_migration(name: str) -> Migration:
     module = importlib.import_module(name)
-    source = Path(module.__file__ or "").read_bytes()
+    module_path = Path(module.__file__ or "")
     migration_id = getattr(module, "MIGRATION_ID", None)
     description = getattr(module, "DESCRIPTION", None)
     statements = getattr(module, "STATEMENTS", None)
@@ -72,9 +72,27 @@ def _module_migration(name: str) -> Migration:
         or any(not isinstance(statement, str) or not statement.strip() for statement in statements)
     ):
         raise SchemaIdentityError(f"invalid migration module: {name}")
+    dependencies = getattr(module, "DEPENDENCIES", ())
+    if not isinstance(dependencies, tuple) or any(
+        not isinstance(relative, str) or Path(relative).is_absolute() or ".." in Path(relative).parts
+        for relative in dependencies
+    ):
+        raise SchemaIdentityError(f"invalid migration dependency list: {name}")
+    root = module_path.resolve().parents[2]
+    digest = hashlib.sha256()
+    for path in (module_path, *(root / relative for relative in dependencies)):
+        try:
+            relative = path.resolve(strict=True).relative_to(root).as_posix()
+            content = path.read_bytes()
+        except (OSError, ValueError) as exc:
+            raise SchemaIdentityError(f"migration dependency is unavailable: {path}") from exc
+        digest.update(len(relative).to_bytes(4, "big"))
+        digest.update(relative.encode())
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
     return Migration(
         migration_id=migration_id, description=description,
-        sha256=hashlib.sha256(source).hexdigest(), statements=statements, module=module,
+        sha256=digest.hexdigest(), statements=statements, module=module,
     )
 
 
