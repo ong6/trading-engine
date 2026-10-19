@@ -1057,15 +1057,24 @@ def _running_pids(target: Path) -> list[int]:
 
 
 def _worktree_state(target: Path) -> dict:
-    status = _git_value(target, "status", "--porcelain=v1", "--untracked-files=all")
+    status = _git(target, "status", "--porcelain=v1", "--untracked-files=all").stdout
     branch = _git_value(target, "symbolic-ref", "--quiet", "--short", "HEAD")
-    stash_lines = _git(target, "stash", "list", "--format=%gs").stdout.splitlines()
-    stashes = [line for line in stash_lines if f" {branch}:" in line or line.startswith(f"On {branch}:")]
+    stash = _git(
+        target,
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "refs/stash",
+        allowed=(0, 1),
+    )
+    stash_sha = stash.stdout.strip() if stash.returncode == 0 else None
     unpushed_raw = _git_value(target, "rev-list", "--count", "HEAD", "--not", "--remotes")
     return {
         "branch": branch,
         "dirty": bool(status),
-        "stash_count": len(stashes),
+        "stash_count": int(stash_sha is not None),
+        "stash_sha": stash_sha,
+        "status_porcelain": status,
         "unpushed_commit_count": int(unpushed_raw or "0"),
     }
 

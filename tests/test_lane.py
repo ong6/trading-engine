@@ -628,6 +628,66 @@ def test_release_rejects_stale_origin_and_unrelated_remote_advertisement(tmp_pat
         )
 
 
+def test_audit_and_release_reject_opaque_stash_subject(tmp_path):
+    fixture = _fixture(tmp_path)
+    _create(fixture)
+    target = fixture["root"] / "lane-one"
+    head = _commit(target)
+    status = _status(fixture, "lane-one", head)
+    _git(target, "push", "-u", "origin", "HEAD")
+    (target / "README.md").write_text("hidden unpublished fixture\n")
+    _git(target, "stash", "push", "-m", "temporary fixture")
+    stash_commit = _git(target, "rev-parse", "refs/stash").stdout.strip()
+    _git(target, "stash", "clear")
+    _git(target, "stash", "store", "-m", "opaque receipt", stash_commit)
+
+    report = lane.audit_lane(
+        lanes_root=fixture["root"],
+        home=fixture["home"],
+        lane="lane-one",
+        status_path=status,
+    )
+
+    assert report["checks"]["stash_free"] is False
+    assert report["ok"] is False
+    with pytest.raises(lane.LaneError, match="stash_free"):
+        lane.release_lane(
+            lanes_root=fixture["root"],
+            home=fixture["home"],
+            lane="lane-one",
+            status_path=status,
+        )
+
+
+def test_abort_rejects_stash_from_prior_branch_with_opaque_subject(tmp_path):
+    fixture = _fixture(tmp_path)
+    source = fixture["source"]
+    (source / "README.md").write_text("prior branch hidden fixture\n")
+    _git(source, "stash", "push", "-m", "prior branch fixture")
+    stash_commit = _git(source, "rev-parse", "refs/stash").stdout.strip()
+    _git(source, "stash", "clear")
+    _git(source, "stash", "store", "-m", "opaque prior receipt", stash_commit)
+
+    class AbruptStop(BaseException):
+        pass
+
+    def stop_after_worktree(phase):
+        if phase == "worktree":
+            raise AbruptStop
+
+    with pytest.raises(AbruptStop):
+        _create(fixture, phase_hook=stop_after_worktree)
+
+    with pytest.raises(lane.LaneError, match="not safe to abandon"):
+        lane.abort_lane(
+            lanes_root=fixture["root"],
+            home=fixture["home"],
+            lane="lane-one",
+            reason="fixture abort must refuse hidden work",
+        )
+    assert _claims(fixture)[0]["state"] == "creating"
+
+
 def test_release_refuses_dirty_tree_wrong_status_stash_store_and_process(tmp_path):
     fixture = _fixture(tmp_path)
     _create(fixture)
