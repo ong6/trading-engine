@@ -16,7 +16,7 @@ def test_complete_contract_has_canonical_golden_bytes_and_derived_markdown(tmp_p
     second = StudySpec.from_dict(json.loads(first.canonical_bytes))
     assert first.canonical_bytes == second.canonical_bytes
     assert first.sha256 == second.sha256
-    assert first.sha256 == "3a22384d310493af4e602f572a805034f695006769fdc98d201c7bd81335f8f4"
+    assert first.sha256 == "87e253c5d72ea5e52c8d0bda20874b4d8e91ea5fd3b7c1ca4d0d908ba1ed16e9"
     assert first.resolve(tmp_path).spec == first
     markdown = first.to_markdown()
     assert f"Contract SHA-256: `{first.sha256}`" in markdown
@@ -37,6 +37,13 @@ def test_contract_refuses_missing_unknown_and_noncanonical_fields(tmp_path, muta
     contract = complete_contract(tmp_path)
     mutation(contract)
     with pytest.raises(ContractError, match=message):
+        StudySpec.from_dict(contract)
+
+
+def test_contract_requires_availability_for_every_feature_input_field(tmp_path):
+    contract = complete_contract(tmp_path)
+    contract["inputs"]["availability"].remove("close")
+    with pytest.raises(ContractError, match="every input schema field"):
         StudySpec.from_dict(contract)
 
 
@@ -92,7 +99,12 @@ def test_contract_identity_moves_with_late_revision_quality_calendar_or_callback
         (lambda value: value["inputs"].__setitem__("survivor_status", "unknown"), "feature"),
         (lambda value: value["inputs"].__setitem__("price_basis", "raw"), "panel"),
         (lambda value: value["inputs"]["calendar"].__setitem__("version", "fixture-v2"), "panel"),
-        (lambda value: value["inputs"]["availability"].__setitem__(0, "volume"), "feature"),
+        (lambda value: (
+            value["inputs"]["schema"].append({
+                "name": "volume", "dtype": "float64", "nullable": False,
+            }),
+            value["inputs"]["availability"].append("volume"),
+        ), "feature"),
         (lambda value: value["inputs"]["schema"][0].__setitem__("nullable", True), "feature"),
         (lambda value: value["inputs"]["membership"].__setitem__("point_in_time", False), "universe"),
         (lambda value: value["inputs"]["quality"].__setitem__("version", "fixture-v2"), "feature"),

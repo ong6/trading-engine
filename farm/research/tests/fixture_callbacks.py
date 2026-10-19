@@ -50,6 +50,14 @@ def same_day_late_feature_recipe(inputs, parameters):
     } for row in inputs.read_json("parts/0.json")]
 
 
+def date_only_feature_recipe(inputs, parameters):
+    return [{
+        "session": row["session"],
+        "score": float(row["close"]) / 100.0,
+        "available_at": row["session"],
+    } for row in inputs.read_json("parts/0.json")]
+
+
 def ticker_feature_recipe(inputs, parameters):
     return [{
         "session": row["session"],

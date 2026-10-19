@@ -156,6 +156,59 @@ def test_input_without_timestamp_is_available_only_after_session_close(tmp_path)
         )
 
 
+def test_date_only_input_availability_is_exchange_session_close(tmp_path):
+    base, contract = _resolved(tmp_path)
+    path = base / "input.json"
+    rows = json.loads(path.read_text())
+    for row in rows:
+        row["_availability"]["close"] = row["session"]
+    write_text_atomic(path, json.dumps(rows) + "\n")
+    contract["inputs"]["feature_parts"][0]["sha256"] = file_sha256(path)
+    artifacts = build_study_artifacts(
+        ResearchCache(tmp_path / "cache"), StudySpec.from_dict(contract).resolve(base),
+        tmp_path / "execution",
+    )
+    assert len(artifacts.features.read_json("nodes/fixture.json")) == 2
+
+
+def test_date_only_feature_availability_is_not_visible_before_exchange_close(tmp_path):
+    base, contract = _resolved(tmp_path, feature_function="date_only_feature_recipe")
+    contract["features"][0]["output_schema"][-1]["dtype"] = "date"
+    contract["strategy"]["decision"]["time"] = "15:59"
+    input_path = base / "input.json"
+    rows = json.loads(input_path.read_text())
+    for row in rows:
+        row["_availability"]["close"] = f"{row['session']}T15:00:00-05:00"
+    write_text_atomic(input_path, json.dumps(rows) + "\n")
+    contract["inputs"]["feature_parts"][0]["sha256"] = file_sha256(input_path)
+    resolved = StudySpec.from_dict(contract).resolve(base)
+    artifacts = build_study_artifacts(
+        ResearchCache(tmp_path / "cache"), resolved, tmp_path / "execution",
+    )
+    with pytest.raises(ArtifactValidationError, match="contains unavailable features"):
+        materialize_decision_features(
+            resolved, artifacts.features,
+            resolved.spec.document["evaluation"]["folds"][0],
+            "2024-01-02", tmp_path / "decision-view",
+        )
+
+
+def test_duplicate_primary_keys_across_input_parts_are_refused(tmp_path):
+    base, contract = _resolved(tmp_path)
+    duplicate_path = base / "input-overlap.json"
+    write_text_atomic(duplicate_path, (base / "input.json").read_text())
+    contract["inputs"]["feature_parts"].append({
+        "path": duplicate_path.name,
+        "sha256": file_sha256(duplicate_path),
+        "format": "rows_json",
+    })
+    resolved = StudySpec.from_dict(contract).resolve(base)
+    with pytest.raises(ArtifactValidationError, match="duplicate primary keys across parts"):
+        build_study_artifacts(
+            ResearchCache(tmp_path / "cache"), resolved, tmp_path / "execution",
+        )
+
+
 def test_membership_table_is_applied_per_decision_session(tmp_path):
     base, contract = _resolved(tmp_path, feature_function="ticker_feature_recipe")
     input_path = base / "input.json"
@@ -167,6 +220,7 @@ def test_membership_table_is_applied_per_decision_session(tmp_path):
     contract["inputs"]["schema"].append({
         "name": "ticker", "dtype": "string", "nullable": False,
     })
+    contract["inputs"]["availability"].append("ticker")
     contract["inputs"]["primary_key"] = ["session", "ticker"]
     contract["features"][0]["output_schema"].insert(1, {
         "name": "ticker", "dtype": "string", "nullable": False,
@@ -209,6 +263,7 @@ def test_feature_label_alignment_uses_exact_declared_entity_key(tmp_path):
     contract["inputs"]["schema"].append({
         "name": "ticker", "dtype": "string", "nullable": False,
     })
+    contract["inputs"]["availability"].append("ticker")
     contract["inputs"]["primary_key"] = ["session", "ticker"]
     for section in (contract["features"][0], contract["outcomes"]):
         section["output_schema"].insert(1, {

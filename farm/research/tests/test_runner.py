@@ -75,6 +75,29 @@ def test_runner_seals_start_and_predictions_before_issuing_label_capability(tmp_
     assert result.predictions_path.stat().st_mode & 0o222 == 0
 
 
+def test_label_cache_receipt_is_bound_to_the_current_attempt(tmp_path):
+    _, runner, features = _setup(tmp_path)
+    first = runner.run(attempt="attempt-one", features=features)
+    second = runner.run(attempt="attempt-two", features=features)
+    cache_root = features.path.parents[3]
+    receipts = []
+    label_digests = []
+    for result, attempt in ((first, "attempt-one"), (second, "attempt-two")):
+        run_receipt = json.loads((result.run_directory / "receipt.json").read_text())
+        label_digest = run_receipt["label_sha256"]
+        label_digests.append(label_digest)
+        manifest = json.loads((
+            cache_root / "outcomes" / "objects" / "sha256" / label_digest / "manifest.json"
+        ).read_text())
+        capability = manifest["metadata"]["validated_study_receipt"]["attempt_capability"]
+        assert capability["attempt_id"] == attempt
+        assert capability["predictions_sha256"] == result.predictions_sha256
+        assert manifest["identity"]["attempt_capability"] == capability
+        receipts.append(capability)
+    assert label_digests[0] != label_digests[1]
+    assert receipts[0] != receipts[1]
+
+
 def test_pilot_never_builds_label_object(tmp_path):
     spec, runner, features = _setup(tmp_path, phase="pilot")
     result = runner.run(attempt="pilot-1", features=features)

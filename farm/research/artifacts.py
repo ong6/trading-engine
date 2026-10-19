@@ -52,6 +52,27 @@ def _new_label_capability(
     )
 
 
+def _capability_payload(capability: _LabelBuildCapability) -> dict[str, str]:
+    return {
+        "attempt_id": capability.attempt_id,
+        "predictions_sha256": capability.predictions_sha256,
+        "census_sha256": capability.census_sha256,
+        "started_receipt_sha256": capability.started_receipt_sha256,
+    }
+
+
+def label_cache_identity(
+    resolved: ResolvedStudy, capability: _LabelBuildCapability,
+) -> dict[str, Any]:
+    base = resolved.spec.cache_identity("label")
+    identity = {
+        key: value for key, value in base.items() if key != "identity_sha256"
+    }
+    identity["attempt_capability"] = _capability_payload(capability)
+    identity["identity_sha256"] = canonical_sha256(identity)
+    return identity
+
+
 def _value_valid(value: object, dtype: str) -> bool:
     if dtype == "float64":
         return (not isinstance(value, bool) and isinstance(value, (int, float))
@@ -138,6 +159,17 @@ def _available_at(resolved: ResolvedStudy, row: Mapping[str, Any], field: str) -
     raw = row.get("_availability", {}).get(field)
     if raw is None:
         return _fallback_available_at(resolved, row["session"])
+    if isinstance(raw, str):
+        try:
+            declared_date = date.fromisoformat(raw)
+        except ValueError:
+            declared_date = None
+        if declared_date is not None and declared_date.isoformat() == raw:
+            inputs = resolved.spec.document["inputs"]
+            hour, minute = map(int, inputs["calendar"]["session_close"].split(":"))
+            return datetime.combine(
+                declared_date, time(hour, minute), ZoneInfo(inputs["timezone"])
+            )
     try:
         value = datetime.fromisoformat(raw)
     except (TypeError, ValueError) as exc:
@@ -145,6 +177,29 @@ def _available_at(resolved: ResolvedStudy, row: Mapping[str, Any], field: str) -
     if value.tzinfo is None:
         raise ArtifactValidationError(f"{field} availability needs an explicit timezone")
     return value.astimezone(ZoneInfo(resolved.spec.document["inputs"]["timezone"]))
+
+
+def _declared_available_at(
+    resolved: ResolvedStudy, raw: object, field: str,
+) -> datetime:
+    timezone = ZoneInfo(resolved.spec.document["inputs"]["timezone"])
+    if isinstance(raw, str):
+        try:
+            declared_date = date.fromisoformat(raw)
+        except ValueError:
+            declared_date = None
+        if declared_date is not None and declared_date.isoformat() == raw:
+            hour, minute = map(
+                int, resolved.spec.document["inputs"]["calendar"]["session_close"].split(":")
+            )
+            return datetime.combine(declared_date, time(hour, minute), timezone)
+    try:
+        value = datetime.fromisoformat(raw)
+    except (TypeError, ValueError) as exc:
+        raise ArtifactValidationError(f"{field} availability is not an ISO date/timestamp") from exc
+    if value.tzinfo is None:
+        raise ArtifactValidationError(f"{field} availability needs an explicit timezone")
+    return value.astimezone(timezone)
 
 
 def _evidence(resolved: ResolvedStudy) -> dict[str, Any]:
@@ -259,6 +314,10 @@ def _input_mount(
                         for name in availability_fields)
             ]
             write_text_atomic(target, canonical_bytes(bounded, newline=True).decode())
+    primary_key = resolved.spec.document["inputs"]["primary_key"]
+    combined_keys = [tuple(row[name] for name in primary_key) for row in declared_rows]
+    if len(combined_keys) != len(set(combined_keys)):
+        raise ArtifactValidationError("input parts contain duplicate primary keys across parts")
     if not outcome and not declared_rows:
         raise ArtifactValidationError("StudySpec requires at least one declared rows_json input")
     write_text_atomic(mount / "manifest.json", canonical_bytes(manifest, newline=True).decode())
@@ -280,12 +339,14 @@ def _validated_receipt(
     schemas: Mapping[str, Any],
     row_counts: Mapping[str, int],
     evidence: Mapping[str, Any],
+    cache_identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    selected_identity = cache_identity or resolved.spec.cache_identity(kind)
     payload = {
         "schema_version": 1,
         "study_identity_sha256": resolved.spec.study_identity_sha256,
         "kind": kind,
-        "cache_identity_sha256": resolved.spec.cache_identity(kind)["identity_sha256"],
+        "cache_identity_sha256": selected_identity["identity_sha256"],
         "recipes": recipes,
         "schemas": dict(schemas),
         "row_counts": dict(row_counts),
@@ -294,14 +355,22 @@ def _validated_receipt(
     return {**payload, "receipt_sha256": canonical_sha256(payload)}
 
 
-def validate_study_object(resolved: ResolvedStudy, obj: CacheObject) -> None:
+def validate_study_object(
+    resolved: ResolvedStudy,
+    obj: CacheObject,
+    *,
+    cache_identity: Mapping[str, Any] | None = None,
+    capability: _LabelBuildCapability | None = None,
+) -> None:
+    expected_identity = cache_identity or resolved.spec.cache_identity(obj.kind)
     metadata = obj.manifest.get("metadata")
     receipt = metadata.get("validated_study_receipt") if isinstance(metadata, dict) else None
     if (not isinstance(receipt, dict)
             or receipt.get("study_identity_sha256") != resolved.spec.study_identity_sha256
             or receipt.get("kind") != obj.kind
             or receipt.get("cache_identity_sha256")
-            != resolved.spec.cache_identity(obj.kind)["identity_sha256"]):
+            != expected_identity["identity_sha256"]
+            or obj.manifest.get("identity") != expected_identity):
         raise ArtifactValidationError(f"{obj.kind} object lacks a validated StudySpec receipt")
     unsigned = {key: value for key, value in receipt.items() if key != "receipt_sha256"}
     if (receipt.get("receipt_sha256") != canonical_sha256(unsigned)
@@ -322,6 +391,8 @@ def validate_study_object(resolved: ResolvedStudy, obj: CacheObject) -> None:
             if receipt["row_counts"].get(node["name"]) != len(rows):
                 raise ArtifactValidationError("feature receipt row count differs")
     elif obj.kind == "label":
+        if capability is None or receipt.get("attempt_capability") != _capability_payload(capability):
+            raise ArtifactValidationError("label receipt differs from the current attempt capability")
         rows = obj.read_json("labels.json")
         outcomes = resolved.spec.document["outcomes"]
         validate_rows(
@@ -497,6 +568,7 @@ def _build_label_artifact(
         ]
         if not label_rows:
             raise ArtifactValidationError("no labels fall inside declared folds")
+        identity = label_cache_identity(resolved, capability)
         label_receipt = _validated_receipt(
             resolved,
             kind="label",
@@ -504,13 +576,9 @@ def _build_label_artifact(
             schemas={"labels": outcomes["output_schema"]},
             row_counts={"labels": len(label_rows)},
             evidence=evidence,
+            cache_identity=identity,
         )
-        label_receipt["attempt_capability"] = {
-            "attempt_id": capability.attempt_id,
-            "predictions_sha256": capability.predictions_sha256,
-            "census_sha256": capability.census_sha256,
-            "started_receipt_sha256": capability.started_receipt_sha256,
-        }
+        label_receipt["attempt_capability"] = _capability_payload(capability)
 
         def write_labels(data_root: Path) -> Mapping[str, Any]:
             write_text_atomic(
@@ -519,9 +587,11 @@ def _build_label_artifact(
             return {"validated_study_receipt": label_receipt}
 
         labels = cache.build_validated(
-            "label", resolved.spec.cache_identity("label"), write_labels,
+            "label", identity, write_labels,
         )
-        validate_study_object(resolved, labels)
+        validate_study_object(
+            resolved, labels, cache_identity=identity, capability=capability,
+        )
         return labels
     finally:
         shutil.rmtree(mount)
@@ -549,9 +619,8 @@ def materialize_decision_features(
             raise ArtifactValidationError("decision session is outside the declared fold")
         selected = [row for row in rows if row["session"] == decision_session]
         decision_at = _decision_at(resolved, decision_session)
-        decision_zone = ZoneInfo(resolved.spec.document["strategy"]["decision"]["timezone"])
         if any(
-            datetime.fromisoformat(row[node["availability"]]).astimezone(decision_zone)
+            _declared_available_at(resolved, row[node["availability"]], node["availability"])
             > decision_at for row in selected
         ):
             raise ArtifactValidationError(

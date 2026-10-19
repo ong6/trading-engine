@@ -270,8 +270,13 @@ def _inputs(value: object) -> dict[str, Any]:
     if survivor not in SURVIVOR_STATES:
         raise ContractError(f"{path}.survivor_status must be one of {sorted(SURVIVOR_STATES)}")
     schema = _columns(row["schema"], f"{path}.schema")
+    schema_names = {column["name"] for column in schema}
+    if set(availability) != schema_names:
+        raise ContractError(
+            f"{path}.availability must declare every input schema field exactly once"
+        )
     primary_key = _unique_strings(row["primary_key"], f"{path}.primary_key")
-    if any(key not in {column["name"] for column in schema} for key in primary_key):
+    if any(key not in schema_names for key in primary_key):
         raise ContractError(f"{path}.primary_key must name declared input columns")
     if "session" not in primary_key:
         raise ContractError(f"{path}.primary_key must include session for PIT membership")

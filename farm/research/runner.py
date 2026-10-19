@@ -21,6 +21,7 @@ from farm.study.costs import calculate
 from .artifacts import (
     _build_label_artifact,
     _new_label_capability,
+    label_cache_identity,
     build_study_artifacts,
     materialize_decision_features,
     validate_feature_label_alignment,
@@ -254,12 +255,18 @@ class StudyRunner:
         if repository_containing(self.work_root) is not None:
             raise ValueError("study output root must be outside the repository")
 
-    def _cache_object(self, obj: CacheObject, kind: str) -> None:
-        expected_identity = self.resolved.spec.cache_identity(kind)
+    def _cache_object(self, obj: CacheObject, kind: str, *, capability=None) -> None:
+        expected_identity = (
+            label_cache_identity(self.resolved, capability)
+            if kind == "label" and capability is not None
+            else self.resolved.spec.cache_identity(kind)
+        )
         expected = ResearchCache.digest(kind, expected_identity)
         if obj.kind != kind or obj.digest != expected or obj.manifest["identity"] != expected_identity:
             raise StudyRunError(f"{kind} cache identity differs from the study contract")
-        validate_study_object(self.resolved, obj)
+        validate_study_object(
+            self.resolved, obj, cache_identity=expected_identity, capability=capability,
+        )
 
     def _open_holdout(self, attempt: str, run_directory: Path) -> None:
         holdout = self.resolved.spec.document["evaluation"]["holdout"]
@@ -422,7 +429,7 @@ class StudyRunner:
                 outcomes = _build_label_artifact(
                     cache, self.resolved, run_directory / "outcome-build", capability,
                 )
-                self._cache_object(outcomes, "label")
+                self._cache_object(outcomes, "label", capability=capability)
                 validate_feature_label_alignment(self.resolved, features, outcomes)
                 evaluation_result = _reduce_evaluation(
                     predictions,
