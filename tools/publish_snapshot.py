@@ -304,11 +304,82 @@ def _frontier_reusable_partitions(
     return current_partitions & previous_partitions - changed
 
 
+def _verify_append_only_prefix(
+    connection: duckdb.DuckDBPyConnection,
+    previous_info,
+    row_counts: dict[str, int],
+    cold_specs: dict[str, dict],
+) -> None:
+    """Refuse removal, replacement, or insertion behind a published cold frontier."""
+    if previous_info is None:
+        return
+    alias = "previous_generation"
+    connection.execute(
+        f"ATTACH {backup_database._sql_string(str(previous_info.path))} "
+        f"AS {alias} (READ_ONLY)"
+    )
+    try:
+        for qualified_name, spec in sorted(cold_specs.items()):
+            previous_count = previous_info.row_counts.get(qualified_name)
+            current_count = row_counts.get(qualified_name)
+            if (
+                type(previous_count) is not int
+                or type(current_count) is not int
+                or current_count < previous_count
+            ):
+                raise SnapshotError(
+                    f"cold table cardinality regressed below published frontier: {qualified_name}"
+                )
+            schema, table = qualified_name.split(".", 1)
+            previous = _qualified(schema, table, database=alias)
+            current = _qualified(schema, table)
+            append_key = spec["append_key"]
+            frontier = previous_info.cold_tables.get(qualified_name, {}).get(
+                "append_frontier"
+            )
+            if append_key is None:
+                missing = connection.execute(
+                    f"SELECT COUNT(*) FROM ((SELECT * FROM {previous}) EXCEPT ALL "
+                    f"(SELECT * FROM {current}))"
+                ).fetchone()[0]
+                extra = 0
+            elif type(frontier) is int:
+                key = _identifier(append_key)
+                missing = connection.execute(
+                    f"SELECT COUNT(*) FROM ((SELECT * FROM {previous} WHERE {key}<=?) "
+                    f"EXCEPT ALL (SELECT * FROM {current} WHERE {key}<=?))",
+                    [frontier, frontier],
+                ).fetchone()[0]
+                extra = connection.execute(
+                    f"SELECT COUNT(*) FROM ((SELECT * FROM {current} WHERE {key}<=?) "
+                    f"EXCEPT ALL (SELECT * FROM {previous} WHERE {key}<=?))",
+                    [frontier, frontier],
+                ).fetchone()[0]
+            else:
+                if previous_count:
+                    raise SnapshotError(
+                        f"cold table append frontier is unavailable: {qualified_name}"
+                    )
+                missing = extra = 0
+            if missing or extra:
+                raise SnapshotError(
+                    f"cold table changed at or below published frontier: {qualified_name}"
+                )
+    except duckdb.Error as exc:
+        raise SnapshotError(f"cold append-only verification failed: {exc}") from exc
+    finally:
+        try:
+            connection.execute(f"DETACH {alias}")
+        except duckdb.Error:
+            pass
+
+
 def _install_cold_parts(
     connection: duckdb.DuckDBPyConnection,
     directory: Path,
     previous_parts: tuple[dict, ...],
     previous_cold_tables: dict[str, dict],
+    specs: dict[str, dict],
 ) -> tuple[list[dict], dict[str, dict], dict[str, int]]:
     installed: list[dict] = []
     metrics = {
@@ -319,7 +390,6 @@ def _install_cold_parts(
         (record["table"], record["partition"]): record for record in previous_parts
         if "fingerprint_sha256" in record
     }
-    specs = _cold_specs(connection)
     for qualified_name, spec in specs.items():
         table = _qualified(spec["schema"], spec["table"])
         order = ", ".join(_identifier(name) for name in spec["key_columns"])
@@ -798,8 +868,16 @@ def _publish_locked(
                 previous_cold_tables = (
                     {} if previous_pin is None else previous_pin.info.cold_tables
                 )
+                cold_specs = _cold_specs(source_connection)
+                _verify_append_only_prefix(
+                    source_connection,
+                    None if previous_pin is None else previous_pin.info,
+                    snapshot["row_counts"],
+                    cold_specs,
+                )
                 parts, cold_specs, cold_metrics = _install_cold_parts(
                     source_connection, directory, previous_parts, previous_cold_tables,
+                    cold_specs,
                 )
                 snapshot["table_sha256"] = _generation_table_hashes(
                     source_connection, source_database, snapshot["row_counts"],

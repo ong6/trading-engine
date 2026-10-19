@@ -331,7 +331,10 @@ def test_same_count_cold_correction_never_publishes_stale_parts(tmp_path, mutati
     finally:
         writer.close()
 
-    with pytest.raises(publish_snapshot.SnapshotError, match="differs from source table"):
+    with pytest.raises(
+        publish_snapshot.SnapshotError,
+        match="changed at or below published frontier",
+    ):
         publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=1))
 
     with snapshots.pin_latest_generation(source) as info:
@@ -342,23 +345,62 @@ def test_same_count_cold_correction_never_publishes_stale_parts(tmp_path, mutati
             ).fetchone() == (1, "{}")
 
 
-def test_non_frontier_cold_partition_is_rebuilt_after_same_count_update(tmp_path):
+def test_non_frontier_cold_update_fails_closed(tmp_path):
     root, source = _repo(tmp_path, cold=True)
-    publish_snapshot.publish_snapshot(root, source, now=NOW)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
     writer = duckdb.connect(str(source))
     writer.execute("UPDATE intraday_prices SET volume=999 WHERE ticker='SPY'")
     writer.close()
 
-    second = publish_snapshot.publish_snapshot(
-        root, source, now=NOW + timedelta(seconds=1),
-    )
+    with pytest.raises(
+        publish_snapshot.SnapshotError,
+        match="changed at or below published frontier",
+    ):
+        publish_snapshot.publish_snapshot(
+            root, source, now=NOW + timedelta(seconds=1),
+        )
 
-    assert second["metrics"]["cold_copy_operations"] >= 1
     with snapshots.pin_latest_generation(source) as info:
+        assert info.generation_id == first["generation_id"]
         with duckdb.connect(str(info.path), read_only=True) as con:
             assert con.execute(
                 "SELECT volume FROM intraday_prices WHERE ticker='SPY'"
-            ).fetchone() == (999,)
+            ).fetchone() == (10,)
+
+
+@pytest.mark.parametrize(
+    "statement", [
+        "TRUNCATE TABLE bitemporal_facts",
+        "DELETE FROM bitemporal_facts WHERE id=1",
+    ],
+)
+def test_publication_refuses_cold_cardinality_regression_and_keeps_pointer(
+    tmp_path, statement,
+):
+    root, source = _repo(tmp_path, cold=True)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    latest = source.parent / "snapshots" / snapshots.LATEST_NAME
+    writer = duckdb.connect(str(source))
+    writer.execute(statement)
+    writer.close()
+
+    with pytest.raises(
+        publish_snapshot.SnapshotError,
+        match="cardinality regressed below published frontier",
+    ):
+        publish_snapshot.publish_snapshot(
+            root, source, now=NOW + timedelta(seconds=1),
+        )
+
+    assert os.readlink(latest) == first["snapshot"]
+    with duckdb.connect(str(source), read_only=True) as primary:
+        assert primary.execute(
+            "SELECT COUNT(*) FROM bitemporal_facts"
+        ).fetchone() == (0,)
+    with snapshots.pin_latest_generation(source) as info:
+        assert info.generation_id == first["generation_id"]
+        with duckdb.connect(str(info.path), read_only=True) as con:
+            assert con.execute("SELECT COUNT(*) FROM bitemporal_facts").fetchone() == (1,)
 
 
 def test_generation_pin_refuses_a_corrupt_cold_part(tmp_path):
