@@ -895,3 +895,22 @@ def test_environment_receipt_is_bound_to_current_lock(tmp_path):
     )
 
     assert report["checks"]["environment_matches"] is False
+
+
+def test_non_object_environment_record_is_a_failed_audit(tmp_path):
+    fixture = _fixture(tmp_path)
+    _create(fixture)
+    target = fixture["root"] / "lane-one"
+    head = _git(target, "rev-parse", "HEAD").stdout.strip()
+    status = _status(fixture, "lane-one", head)
+    lane._environment_record(target).write_text("[1]\n")
+
+    report = lane.audit_lane(
+        lanes_root=fixture["root"],
+        home=fixture["home"],
+        lane="lane-one",
+        status_path=status,
+    )
+
+    assert report["checks"]["environment_matches"] is False
+    assert report["ok"] is False

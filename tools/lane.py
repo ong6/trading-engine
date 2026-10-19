@@ -1425,9 +1425,10 @@ def _status_fields(path: Path) -> tuple[bool, dict[str, str]]:
 
 def _read_environment(target: Path) -> dict | None:
     try:
-        return json.loads(_environment_record(target).read_text(encoding="utf-8"))
+        payload = json.loads(_environment_record(target).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _regular_digest(path: Path) -> str | None:
