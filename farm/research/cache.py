@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import os
 import shutil
@@ -195,9 +196,38 @@ def _panel_content_identity(source: PriceSource) -> dict[str, Any]:
     snapshot = source.declaration.snapshot_sha256
     _identity_sha(snapshot, "source snapshot_sha256")
     columns = (*FIELDS, *(f"bar_close@{clock}" for clock in sorted(source.panel.intraday)))
+    content = hashlib.sha256()
+    content.update(canonical_bytes({
+        "declaration": {
+            "source": source.declaration.source,
+            "point_in_time": source.declaration.point_in_time,
+            "survivor_status": source.declaration.survivor_status,
+            "timezone": source.declaration.timezone,
+            "session_open": source.declaration.session_open,
+            "session_close": source.declaration.session_close,
+            "daily_bar_lag_seconds": source.declaration.daily_bar_lag.total_seconds(),
+        },
+        "tickers": list(source.panel.tickers),
+        "sessions": [session.isoformat() for session in sessions],
+        "dividends": [row.canonical() for row in source.dividends],
+    }))
+    arrays = {
+        **{f"field:{name}": value for name, value in source.panel.fields.items()},
+        **{f"intraday:{clock}": value for clock, value in source.panel.intraday.items()},
+        "present": source.panel.present,
+        "funding_at": source.panel.funding_at,
+        "open_available_at": source.panel.open_available_at,
+        "daily_available_at": source.panel.daily_available_at,
+    }
+    for name, array in sorted(arrays.items()):
+        contiguous = np.ascontiguousarray(array)
+        content.update(canonical_bytes({
+            "name": name, "dtype": contiguous.dtype.str, "shape": contiguous.shape,
+        }))
+        content.update(memoryview(contiguous).cast("B"))
     return {
         "generation_sha256": snapshot,
-        "part_sha256s": (snapshot,),
+        "part_sha256s": (content.hexdigest(),),
         "columns": tuple(columns),
         "date_start": sessions[0].isoformat(),
         "date_end": sessions[-1].isoformat(),

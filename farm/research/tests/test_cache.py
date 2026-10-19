@@ -218,6 +218,8 @@ def test_typed_cache_identities_are_derived_and_stale_hits_refuse_actual_source_
     first = generate_market(seed=11, session_count=60).data.primary
     second = generate_market(seed=12, session_count=60).data.primary
     identity = _panel_identity(first)
+    assert identity.generation_sha256 == first.declaration.snapshot_sha256
+    assert identity.part_sha256s != (identity.generation_sha256,)
     cached = cache.panel(identity, lambda: first)
 
     with pytest.raises(CacheError, match="identity differs from the built source"):
