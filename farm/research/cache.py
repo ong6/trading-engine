@@ -256,6 +256,7 @@ class ResearchCache:
         digest = canonical_sha256({
             "reference_id": reference_id,
             "reconciliation_row_sha256": reconciliation["row_sha256"],
+            "objects": rows,
         })
         target = self.root / "references" / "active" / f"{digest}.json"
         if target.exists():
@@ -266,12 +267,9 @@ class ResearchCache:
         target.chmod(0o444)
         return target
 
-    def release(self, reference_id: str, terminal: Mapping[str, Any]) -> Path:
-        if (set(terminal) != {"kind", "row_sha256"}
-                or terminal["kind"] not in {"retired", "confirmed"}
-                or not isinstance(terminal["row_sha256"], str)
-                or len(terminal["row_sha256"]) != 64):
-            raise CacheError("cache release requires a terminal ledger event")
+    def release(self, reference_id: str, ledger, trial_id: str) -> Path:
+        if reference_id != f"study:{trial_id}":
+            raise CacheError("cache reference and trial identity differ")
         active_root = self.root / "references" / "active"
         active = [
             path for path in sorted(active_root.glob("*.json"))
@@ -279,11 +277,18 @@ class ResearchCache:
         ] if active_root.exists() else []
         if not active:
             raise CacheError("cache reference is unavailable")
+        try:
+            terminal = ledger.terminal_receipt(trial_id)
+        except ValueError as exc:
+            raise CacheError("cache release requires a verified terminal ledger event") from exc
+        active_sha256s = [file_sha256(path) for path in active]
+        if terminal["evidence_sha256"] != canonical_sha256(active_sha256s):
+            raise CacheError("terminal evidence does not bind every active cache reference")
         payload = {
             "schema_version": 1,
             "reference_id": reference_id,
-            "active_sha256s": [file_sha256(path) for path in active],
-            "terminal": dict(terminal),
+            "active_sha256s": active_sha256s,
+            "terminal": terminal,
         }
         reference = canonical_sha256({"reference_id": reference_id})
         target = self.root / "references" / "released" / f"{reference}.json"
@@ -308,9 +313,29 @@ class ResearchCache:
                 result.update(row["digest"] for row in payload["objects"])
         return frozenset(result)
 
-    def delete_unreferenced(self, obj: CacheObject) -> None:
-        if obj.digest in self.pinned_digests():
-            raise CachePinned(f"cache object is pinned: {obj.digest}")
+    def delete_unreferenced(self, obj: CacheObject, *, ledger=None) -> None:
+        active_root = self.root / "references" / "active"
+        references = [
+            (path, json.loads(path.read_text()))
+            for path in sorted(active_root.glob("*.json"))
+            if any(row["digest"] == obj.digest for row in json.loads(path.read_text())["objects"])
+        ] if active_root.exists() else []
+        for _path, reference in references:
+            release_name = canonical_sha256({"reference_id": reference["reference_id"]}) + ".json"
+            release_path = self.root / "references" / "released" / release_name
+            if not release_path.is_file() or ledger is None:
+                raise CachePinned(f"cache object is pinned: {obj.digest}")
+            release = json.loads(release_path.read_text())
+            trial_id = reference["reference_id"].removeprefix("study:")
+            terminal = ledger.terminal_receipt(trial_id)
+            active_for_id = [
+                item for item in sorted(active_root.glob("*.json"))
+                if json.loads(item.read_text()).get("reference_id") == reference["reference_id"]
+            ]
+            hashes = [file_sha256(item) for item in active_for_id]
+            if (release.get("active_sha256s") != hashes or release.get("terminal") != terminal
+                    or terminal["evidence_sha256"] != canonical_sha256(hashes)):
+                raise CachePinned("cache release receipt no longer verifies")
         expected = self._object_path(obj.kind, obj.digest)
         if obj.path.resolve() != expected.resolve() or not expected.is_dir():
             raise CacheError("cache deletion target differs")
@@ -321,6 +346,24 @@ class ResearchCache:
         kind: str,
         identity: Mapping[str, Any],
         writer: Callable[[Path], Mapping[str, Any]],
+    ) -> CacheObject:
+        return self._build(kind, identity, writer, allow_validated_receipt=False)
+
+    def build_validated(
+        self,
+        kind: str,
+        identity: Mapping[str, Any],
+        writer: Callable[[Path], Mapping[str, Any]],
+    ) -> CacheObject:
+        return self._build(kind, identity, writer, allow_validated_receipt=True)
+
+    def _build(
+        self,
+        kind: str,
+        identity: Mapping[str, Any],
+        writer: Callable[[Path], Mapping[str, Any]],
+        *,
+        allow_validated_receipt: bool,
     ) -> CacheObject:
         digest = self.digest(kind, identity)
         target = self._object_path(kind, digest)
@@ -333,6 +376,16 @@ class ResearchCache:
             metadata = dict(writer(data_root))
             json.loads(canonical_bytes(metadata))
             files = self._inventory(data_root)
+            receipt = metadata.get("validated_study_receipt")
+            if receipt is not None:
+                if not allow_validated_receipt or not isinstance(receipt, dict):
+                    raise CacheError("generic cache publication cannot claim StudySpec validation")
+                unsigned = {key: value for key, value in receipt.items()
+                            if key not in {"receipt_sha256", "content_sha256"}}
+                unsigned["content_sha256"] = canonical_sha256(files)
+                metadata["validated_study_receipt"] = {
+                    **unsigned, "receipt_sha256": canonical_sha256(unsigned),
+                }
             manifest = {
                 "cache_schema_version": CACHE_SCHEMA_VERSION,
                 "kind": kind,

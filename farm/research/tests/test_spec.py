@@ -2,6 +2,8 @@ import importlib
 import json
 
 from engine.lib.resources import write_text_atomic
+from farm.research.canonical import file_sha256
+from farm.research.sandbox import build_callback_package, run_sandboxed
 from farm.research.spec import ContractError, StudySpec
 from farm.research.tests.support import complete_contract
 
@@ -14,7 +16,7 @@ def test_complete_contract_has_canonical_golden_bytes_and_derived_markdown(tmp_p
     second = StudySpec.from_dict(json.loads(first.canonical_bytes))
     assert first.canonical_bytes == second.canonical_bytes
     assert first.sha256 == second.sha256
-    assert first.sha256 == "49ead884635ce6ffa8b6cf786ee94f6c4f8d20e462e82a902c42866d171724bb"
+    assert first.sha256 == "9a2737ef790faa57bd75a6b0b52baf08b2aacba5b02fedb7e9d8944e2936564b"
     assert first.resolve(tmp_path).spec == first
     markdown = first.to_markdown()
     assert f"Contract SHA-256: `{first.sha256}`" in markdown
@@ -105,3 +107,67 @@ def test_every_semantic_input_and_universe_declaration_moves_cache_identity(
     baseline = StudySpec.from_dict(baseline_document).cache_identity(kind)
     changed = StudySpec.from_dict(changed_document).cache_identity(kind)
     assert changed["identity_sha256"] != baseline["identity_sha256"]
+
+
+def test_resolve_and_package_never_execute_parent_initializer_on_host(tmp_path):
+    base = tmp_path / "contract"
+    base.mkdir()
+    contract = complete_contract(base)
+    marker = tmp_path / "host-initializer-executed"
+    package = base / "callbacks" / "import_probe"
+    package.mkdir()
+    initializer = package / "__init__.py"
+    callback = package / "callback.py"
+    write_text_atomic(
+        initializer,
+        "from pathlib import Path\n"
+        "try:\n"
+        f"    Path({str(marker)!r}).write_text('executed')\n"
+        "except Exception:\n"
+        "    pass\n",
+    )
+    write_text_atomic(callback, "def strategy(features, parameters, seed, mode):\n    return {}\n")
+    reference = {
+        "module": "import_probe.callback",
+        "function": "strategy",
+        "source": "callbacks/import_probe/callback.py",
+        "kind": "module",
+        "sha256": file_sha256(callback),
+        "dependencies": [{
+            "module": "import_probe",
+            "source": "callbacks/import_probe/__init__.py",
+            "kind": "package",
+            "sha256": file_sha256(initializer),
+        }],
+    }
+    contract["strategy"]["callback"] = reference
+    resolved = StudySpec.from_dict(contract).resolve(base)
+    packaged = build_callback_package(resolved, reference, tmp_path / "execution")
+    assert not marker.exists()
+    features = tmp_path / "features"
+    features.mkdir()
+    response = run_sandboxed(
+        packaged,
+        {
+            "callback": reference,
+            "package_sha256": packaged.digest,
+            "parameters": {},
+            "seed": 1,
+            "phase": "pilot",
+            "mode": "strategy",
+            "memory_mb": 256,
+        },
+        feature_root=features,
+        label_root=None,
+        runtime_root=tmp_path / "execution",
+        timeout=5,
+    )
+    assert response["payload"] == {}
+    assert not marker.exists()
+
+
+def test_resolution_refuses_interpreter_identity_drift(tmp_path):
+    contract = complete_contract(tmp_path)
+    contract["execution"]["python_sha256"] = "f" * 64
+    with pytest.raises(ContractError, match="interpreter identity differs"):
+        StudySpec.from_dict(contract).resolve(tmp_path)

@@ -19,17 +19,43 @@ def malformed_feature_recipe(inputs, parameters):
     return [{"scores": [1, 2, 3], "future_return": 9.0}]
 
 
+def probing_feature_recipe(inputs, parameters):
+    try:
+        inputs.read_bytes("parts/1.json")
+    except Exception:
+        blocked = True
+    else:
+        blocked = False
+    return [{
+        "session": row["session"],
+        "score": float(row["close"]) / 100.0,
+        "outcome_probe_blocked": blocked,
+        "available_at": f"{row['session']}T21:00:00+00:00",
+    } for row in inputs.read_json("parts/0.json")]
+
+
+def future_feature_recipe(inputs, parameters):
+    return [{
+        "session": row["session"],
+        "score": 999.0,
+        "available_at": "2099-01-01T00:00:00+00:00",
+    } for row in inputs.read_json("parts/0.json")]
+
+
 def label_recipe(inputs, parameters):
     rows = inputs.read_json("parts/0.json")
     return [
         {
             "session": row["session"],
-            "return_h1": (float(rows[min(index + 1, len(rows) - 1)]["close"])
-                          / float(row["close"]) - 1),
+            "return_h1": float(row["return_h1"]),
             "available_at": f"{row['session']}T22:00:00+00:00",
         }
-        for index, row in enumerate(rows)
+        for row in rows
     ]
+
+
+def misaligned_label_recipe(inputs, parameters):
+    return label_recipe(inputs, parameters)[:1]
 
 
 def strategy(features, parameters, seed, mode):
@@ -47,8 +73,29 @@ def strategy(features, parameters, seed, mode):
 def evaluation_recipe(predictions, labels, evaluation):
     return {
         "metrics": {"score": 1.0},
+        "statistics": {name: 1.0 for name in evaluation["statistics"]},
+        "controls": {name: 0.0 for name in evaluation["controls"]},
+        "cost_profile_hashes": {"fixture-zero": "2" * 64},
         "labels": labels.read_json("labels.json"),
         "job_count": len(predictions["jobs"]),
+    }
+
+
+def missing_control_evaluation(predictions, labels, evaluation):
+    return {
+        "metrics": {"score": 1.0},
+        "statistics": {name: 1.0 for name in evaluation["statistics"]},
+        "controls": {},
+        "cost_profile_hashes": {"fixture-zero": "2" * 64},
+    }
+
+
+def strong_evaluation_recipe(predictions, labels, evaluation):
+    return {
+        "metrics": {"score": 2.0},
+        "statistics": {name: 1.0 for name in evaluation["statistics"]},
+        "controls": {name: 0.0 for name in evaluation["controls"]},
+        "cost_profile_hashes": {"fixture-zero": "2" * 64},
     }
 
 

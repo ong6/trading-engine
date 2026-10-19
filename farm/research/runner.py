@@ -13,9 +13,15 @@ from pathlib import Path
 
 from engine.lib.resources import write_text_atomic
 
-from .artifacts import build_study_artifacts, validate_study_object
+from .artifacts import (
+    build_label_artifact,
+    build_study_artifacts,
+    materialize_fold_features,
+    validate_feature_label_alignment,
+    validate_study_object,
+)
 from .cache import CacheObject, ResearchCache, repository_containing
-from .canonical import canonical_bytes, file_sha256, fsync_tree
+from .canonical import canonical_bytes, canonical_sha256, file_sha256, fsync_tree
 from .sandbox import build_callback_package, prepare_sandbox_runtime, run_sandboxed
 from .spec import ResolvedStudy, StudySpec
 from .trials import JsonlTrialLedger, TrialLedgerError
@@ -65,24 +71,39 @@ def _max_concurrency(executions: list[dict]) -> int:
     return peak
 
 
-def _verdict(result: object, rules: dict) -> str:
+def _verdict(result: object, evaluation: dict) -> str:
     if not isinstance(result, dict) or not isinstance(result.get("metrics"), dict):
         raise StudyRunError("evaluation callback must return a metrics object")
+    statistics = result.get("statistics")
+    controls = result.get("controls")
+    costs = result.get("cost_profile_hashes")
+    if (not isinstance(statistics, dict)
+            or set(statistics) != set(evaluation["statistics"])
+            or any(isinstance(value, bool) or not isinstance(value, (int, float))
+                   or not math.isfinite(float(value)) for value in statistics.values())):
+        raise StudyRunError("evaluation callback did not account for every declared statistic")
+    if (not isinstance(controls, dict) or set(controls) != set(evaluation["controls"])):
+        raise StudyRunError("evaluation callback did not account for every declared control")
+    expected_costs = {
+        item["name"]: item["sha256"] for item in evaluation["_declared_cost_profiles"]
+    }
+    if costs != expected_costs:
+        raise StudyRunError("evaluation callback did not bind every declared cost profile")
     operations = {
         ">": operator.gt, ">=": operator.ge, "<": operator.lt,
         "<=": operator.le, "==": operator.eq, "!=": operator.ne,
     }
     matched = []
     for name in ("pass", "admit", "kill"):
-        rule = rules[name]
+        rule = evaluation["rules"][name]
         value = result["metrics"].get(rule["metric"])
         if (isinstance(value, bool) or not isinstance(value, (int, float))
                 or not math.isfinite(float(value))):
             raise StudyRunError(f"evaluation metric is unavailable or non-finite: {rule['metric']}")
         if operations[rule["operator"]](float(value), rule["threshold"]):
             matched.append(name)
-    if len(matched) != 1:
-        raise StudyRunError(f"evaluation rules must derive exactly one verdict, got {matched}")
+    if not matched:
+        raise StudyRunError("evaluation rules did not derive a verdict")
     return matched[0]
 
 
@@ -179,21 +200,15 @@ class StudyRunner:
         trial: str,
         attempt: str,
         features: CacheObject,
-        outcomes: CacheObject | None = None,
     ) -> StudyRun:
         self._registered(trial)
         reconciliation = self._reconciliation()
         self._cache_object(features, "feature")
         phase = self.resolved.spec.document["study"]["phase"]
-        if phase == "pilot" and outcomes is not None:
-            raise StudyRunError("pilot runs cannot receive an outcome object")
-        if phase != "pilot" and outcomes is None:
-            raise StudyRunError("result-bearing runs require a separate label object")
-        pin_objects = [features, *([outcomes] if outcomes is not None else [])]
+        pin_objects = [features]
         cache_root = features.path.parents[3]
-        if any(obj.path.parents[3] != cache_root for obj in pin_objects):
-            raise StudyRunError("study cache objects must share one private root")
-        ResearchCache(cache_root).pin(
+        cache = ResearchCache(cache_root)
+        cache.pin(
             f"study:{trial}",
             pin_objects,
             {key: reconciliation[key] for key in (
@@ -231,21 +246,38 @@ class StudyRunner:
                 self.resolved, strategy["callback"], run_directory,
             )
             prepare_sandbox_runtime(run_directory)
+            arms = [
+                {"kind": "variant", "name": variant["name"], "parameters": variant["parameters"]}
+                for variant in self.resolved.spec.document["evaluation"]["variants"]
+            ] + [
+                {"kind": "control", "name": control, "parameters": {}}
+                for control in self.resolved.spec.document["evaluation"]["controls"]
+            ]
             jobs = [
                 {
-                    "variant": variant["name"],
+                    "kind": arm["kind"],
+                    "name": arm["name"],
                     "fold": fold["name"],
                     "parameters": {
                         **strategy["parameters"],
-                        **variant["parameters"],
+                        **arm["parameters"],
                         "_study_job": {
-                            "variant": variant["name"],
+                            "kind": arm["kind"],
+                            "name": arm["name"],
                             "fold": dict(fold),
                         },
                     },
-                    "seed": _seed(execution["seed"], variant["name"], fold["name"]),
+                    "seed": _seed(execution["seed"], f"{arm['kind']}:{arm['name']}", fold["name"]),
+                    "feature_root": materialize_fold_features(
+                        self.resolved,
+                        features,
+                        fold,
+                        run_directory / "fold-features" / canonical_sha256({
+                            "kind": arm["kind"], "name": arm["name"], "fold": fold["name"],
+                        })[:16],
+                    ),
                 }
-                for variant in self.resolved.spec.document["evaluation"]["variants"]
+                for arm in arms
                 for fold in self.resolved.spec.document["evaluation"]["folds"]
             ]
 
@@ -261,7 +293,7 @@ class StudyRunner:
                         "mode": "strategy",
                         "memory_mb": execution["memory_mb"],
                     },
-                    feature_root=features.data_path,
+                    feature_root=job["feature_root"],
                     label_root=None,
                     runtime_root=run_directory,
                     timeout=execution["expected_seconds"],
@@ -274,7 +306,8 @@ class StudyRunner:
             executions = [response for _, response in evaluated]
             predictions = {"jobs": [
                 {
-                    "variant": job["variant"],
+                    "kind": job["kind"],
+                    "name": job["name"],
                     "fold": job["fold"],
                     "seed": job["seed"],
                     "prediction": response["payload"],
@@ -285,11 +318,21 @@ class StudyRunner:
             predictions_sha = _seal_json(predictions, predictions_path)
             result_path, result_sha, outcome_accessed = None, None, False
             if phase != "pilot":
-                assert outcomes is not None
                 self._reconciliation_still_bounds_attempt(
                     reconciliation, trial=trial, attempt=attempt,
                 )
+                outcomes = build_label_artifact(
+                    cache, self.resolved, run_directory / "outcome-build",
+                )
                 self._cache_object(outcomes, "label")
+                validate_feature_label_alignment(self.resolved, features, outcomes)
+                cache.pin(
+                    f"study:{trial}",
+                    [features, outcomes],
+                    {key: reconciliation[key] for key in (
+                        "status", "row_sha256", "register_sha256", "selection_n"
+                    )},
+                )
                 outcome_reference = self.resolved.spec.document["evaluation"]["callback"]
                 outcome_package = build_callback_package(
                     self.resolved, outcome_reference, run_directory,
@@ -310,12 +353,21 @@ class StudyRunner:
                     timeout=execution["expected_seconds"],
                 )
                 evaluation_result = outcome_response["payload"]
+                evaluation_contract = self.resolved.spec.as_dict()["evaluation"]
+                evaluation_contract["_declared_cost_profiles"] = self.resolved.spec.as_dict()[
+                    "costs"]["profiles"]
                 result = {
                     "evaluation": evaluation_result,
                     "verdict": _verdict(
-                        evaluation_result,
-                        self.resolved.spec.document["evaluation"]["rules"],
+                        evaluation_result, evaluation_contract,
                     ),
+                    "accounting": {
+                        "benchmark_mode": self.resolved.spec.document["evaluation"]["benchmark_mode"],
+                        "costs": self.resolved.spec.document["costs"],
+                        "job_count": len(jobs),
+                        "missing_data_policy": self.resolved.spec.document[
+                            "evaluation"]["missing_data_policy"],
+                    },
                 }
                 result_path = run_directory / "result.json"
                 write_text_atomic(result_path, canonical_bytes(result, newline=True).decode())
@@ -325,7 +377,7 @@ class StudyRunner:
             receipt = {
                 "attempt_id": attempt,
                 "feature_sha256": features.digest,
-                "label_sha256": outcomes.digest if outcome_accessed and outcomes else None,
+                "label_sha256": outcomes.digest if outcome_accessed else None,
                 "outcome_accessed": outcome_accessed,
                 "phase": phase,
                 "predictions_sha256": predictions_sha,
@@ -348,13 +400,22 @@ class StudyRunner:
             write_text_atomic(receipt_path, canonical_bytes(receipt, newline=True).decode())
             receipt_path.chmod(0o444)
             fsync_tree(run_directory)
-            self.ledger.append(
-                kind="evaluated",
-                event_id=f"evaluated:{attempt}",
+            valid_terminal = self.ledger.append_terminal_cas(
+                reconciliation,
                 trial=trial,
                 attempt=attempt,
                 payload={"source_ref": receipt},
+                invalid_payload={"source_ref": {
+                    "error": "CensusChanged",
+                    "message": "trial census changed before terminal append",
+                    "study_sha256": self.resolved.spec.sha256,
+                }},
             )
+            if not valid_terminal:
+                quarantine = run_directory / "result.quarantined.json"
+                if result_path is not None:
+                    os.replace(result_path, quarantine)
+                raise TrialLedgerError("trial census changed; computed result was quarantined")
             return StudyRun(
                 run_directory, predictions_path, predictions_sha,
                 result_path, result_sha, outcome_accessed,
@@ -391,19 +452,18 @@ def main(argv: list[str] | None = None) -> int:
     spec = StudySpec.from_path(args.spec)
     resolved = spec.resolve(args.base_dir)
     cache = ResearchCache(args.cache_root)
+    runner = StudyRunner(
+        resolved, ledger=JsonlTrialLedger(args.ledger), work_root=args.work_root,
+    )
     artifacts = build_study_artifacts(
         cache,
         resolved,
         args.work_root / "artifact-build",
-        include_labels=spec.document["study"]["phase"] != "pilot",
     )
-    StudyRunner(
-        resolved, ledger=JsonlTrialLedger(args.ledger), work_root=args.work_root,
-    ).run(
+    runner.run(
         trial=args.trial,
         attempt=args.attempt,
         features=artifacts.features,
-        outcomes=artifacts.labels,
     )
     return 0
 

@@ -7,6 +7,8 @@ import pandas as pd
 
 from engine.lib.resources import write_text_atomic
 from farm.research.cache import CacheCorruption, CacheError, CachePinned, ResearchCache
+from farm.research.canonical import canonical_sha256, file_sha256
+from farm.research.trials import JsonlTrialLedger
 from farm.study.bench import build_market
 
 pytest = importlib.import_module("pytest")
@@ -183,19 +185,39 @@ def test_reconciled_reference_pins_object_until_terminal_release(tmp_path):
         "feature", _identity("feature", "pinned"),
         lambda path: _write_fixture(path, "features.json", "{}\n"),
     )
-    reconciliation = {
-        "status": "complete",
-        "row_sha256": "a" * 64,
-        "register_sha256": "b" * 64,
-        "selection_n": 140,
-    }
+    trial = "trial-a"
+    ledger = JsonlTrialLedger(tmp_path / "events.jsonl")
+    ledger.register(
+        trial=trial,
+        study_sha256="a" * 64,
+        source_ref={"path": "fixture.json", "sha256": "b" * 64},
+        selection_start=140,
+    )
+    ledger.reconcile({"fixture": "c" * 64}, event_id="reconciliation")
+    full_receipt = ledger.reconciliation_receipt()
+    reconciliation = {key: full_receipt[key] for key in (
+        "status", "row_sha256", "register_sha256", "selection_n"
+    )}
     with pytest.raises(CacheError, match="complete"):
         cache.pin("trial-a", [obj], reconciliation | {"status": "stale"})
-    cache.pin("trial-a", [obj], reconciliation)
+    active = cache.pin(f"study:{trial}", [obj], reconciliation)
     with pytest.raises(CachePinned, match="pinned"):
         cache.delete_unreferenced(obj)
-    cache.release("trial-a", {"kind": "retired", "row_sha256": "c" * 64})
-    cache.delete_unreferenced(obj)
+    with pytest.raises(CacheError, match="terminal"):
+        cache.release(f"study:{trial}", ledger, trial)
+    evidence = canonical_sha256([file_sha256(active)])
+    ledger.append(
+        kind="retired", event_id="retired", trial=trial,
+        payload={"source_ref": {
+            "evidence_sha256": evidence,
+            "result_sha256": "d" * 64,
+            "reason": "fixture terminal",
+        }},
+    )
+    cache.release(f"study:{trial}", ledger, trial)
+    with pytest.raises(CachePinned, match="pinned"):
+        cache.delete_unreferenced(obj)
+    cache.delete_unreferenced(obj, ledger=ledger)
     assert cache.get("feature", _identity("feature", "pinned")) is None
 
 

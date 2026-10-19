@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import importlib.util
 import json
 import re
+import site
+import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -134,15 +135,22 @@ def _evidence_ref(value: object, path: str) -> dict[str, str]:
 
 
 def _module_ref(value: object, path: str) -> dict[str, str]:
-    row = _mapping(value, path, ("module", "sha256"))
+    row = _mapping(value, path, ("module", "source", "kind", "sha256"))
+    kind = _string(row["kind"], f"{path}.kind")
+    if kind not in {"module", "package", "runtime"}:
+        raise ContractError(f"{path}.kind must be module, package, or runtime")
     return {
         "module": _string(row["module"], f"{path}.module"),
+        "source": _relative_path(row["source"], f"{path}.source"),
+        "kind": kind,
         "sha256": _sha(row["sha256"], f"{path}.sha256"),
     }
 
 
 def _callback(value: object, path: str) -> dict[str, Any]:
-    row = _mapping(value, path, ("module", "function", "sha256", "dependencies"))
+    row = _mapping(
+        value, path, ("module", "function", "source", "kind", "sha256", "dependencies")
+    )
     dependencies = [
         _module_ref(item, f"{path}.dependencies[{index}]")
         for index, item in enumerate(_list(row["dependencies"], f"{path}.dependencies", nonempty=False))
@@ -150,10 +158,15 @@ def _callback(value: object, path: str) -> dict[str, Any]:
     modules = [item["module"] for item in dependencies]
     if len(modules) != len(set(modules)):
         raise ContractError(f"{path}.dependencies must not contain duplicate modules")
+    primary = _module_ref({key: row[key] for key in ("module", "source", "kind", "sha256")}, path)
+    parents = [".".join(primary["module"].split(".")[:index])
+               for index in range(1, len(primary["module"].split(".")))]
+    declared_packages = {item["module"] for item in dependencies if item["kind"] == "package"}
+    if any(parent not in declared_packages for parent in parents):
+        raise ContractError(f"{path} must declare every parent package initializer")
     return {
-        "module": _string(row["module"], f"{path}.module"),
+        **primary,
         "function": _string(row["function"], f"{path}.function"),
-        "sha256": _sha(row["sha256"], f"{path}.sha256"),
         "dependencies": dependencies,
     }
 
@@ -201,14 +214,23 @@ def _study(value: object) -> dict[str, Any]:
 def _inputs(value: object) -> dict[str, Any]:
     path = "inputs"
     row = _mapping(value, path, (
-        "generation_sha256", "parts", "schema", "availability", "price_basis", "timezone",
-        "calendar", "membership", "coverage", "survivor_status", "quality",
+        "generation_sha256", "feature_parts", "outcome_parts", "schema", "availability",
+        "price_basis", "timezone", "calendar", "membership", "coverage", "survivor_status",
+        "quality",
     ))
-    parts = [_file_ref(item, f"{path}.parts[{index}]")
-             for index, item in enumerate(_list(row["parts"], f"{path}.parts"))]
-    part_paths = [item["path"] for item in parts]
+    feature_parts = [
+        _file_ref(item, f"{path}.feature_parts[{index}]")
+        for index, item in enumerate(_list(row["feature_parts"], f"{path}.feature_parts"))
+    ]
+    outcome_parts = [
+        _file_ref(item, f"{path}.outcome_parts[{index}]")
+        for index, item in enumerate(_list(
+            row["outcome_parts"], f"{path}.outcome_parts", nonempty=False,
+        ))
+    ]
+    part_paths = [item["path"] for item in (*feature_parts, *outcome_parts)]
     if len(part_paths) != len(set(part_paths)):
-        raise ContractError(f"{path}.parts has duplicate paths")
+        raise ContractError(f"{path} feature/outcome parts have duplicate paths")
     availability = []
     for index, item in enumerate(_list(row["availability"], f"{path}.availability")):
         item_path = f"{path}.availability[{index}]"
@@ -240,7 +262,8 @@ def _inputs(value: object) -> dict[str, Any]:
         raise ContractError(f"{path}.survivor_status must be one of {sorted(SURVIVOR_STATES)}")
     return {
         "generation_sha256": _sha(row["generation_sha256"], f"{path}.generation_sha256"),
-        "parts": parts,
+        "feature_parts": feature_parts,
+        "outcome_parts": outcome_parts,
         "schema": _columns(row["schema"], f"{path}.schema"),
         "availability": availability,
         "price_basis": _string(row["price_basis"], f"{path}.price_basis"),
@@ -448,7 +471,7 @@ def _costs(value: object) -> dict[str, Any]:
 def _execution(value: object) -> dict[str, Any]:
     path = "execution"
     row = _mapping(value, path, (
-        "seed", "workers", "memory_mb", "expected_seconds", "output_subdir",
+        "seed", "workers", "memory_mb", "expected_seconds", "output_subdir", "python_sha256",
     ))
     return {
         "seed": _integer(row["seed"], f"{path}.seed"),
@@ -458,20 +481,19 @@ def _execution(value: object) -> dict[str, Any]:
             row["expected_seconds"], f"{path}.expected_seconds", positive=True
         ),
         "output_subdir": _relative_path(row["output_subdir"], f"{path}.output_subdir"),
+        "python_sha256": _sha(row["python_sha256"], f"{path}.python_sha256"),
     }
 
 
-def _module_path(module: str) -> Path:
-    try:
-        found = importlib.util.find_spec(module)
-    except (ImportError, ModuleNotFoundError, AttributeError) as exc:
-        raise ContractError(f"callback module {module!r} cannot be resolved") from exc
-    if found is None or found.origin is None or found.origin in {"built-in", "frozen"}:
-        raise ContractError(f"callback module {module!r} must resolve to a source file")
-    path = Path(found.origin).resolve()
-    if not path.is_file():
-        raise ContractError(f"callback module {module!r} has no regular source file")
-    return path
+def _module_path(base: Path, reference: Mapping[str, Any]) -> Path:
+    if reference["kind"] == "runtime":
+        candidates = [Path(root).resolve() / reference["source"] for root in site.getsitepackages()]
+    else:
+        candidates = [(base / reference["source"]).resolve()]
+    paths = [path for path in candidates if path.is_file()]
+    if len(paths) != 1 or (reference["kind"] != "runtime" and not paths[0].is_relative_to(base)):
+        raise ContractError(f"callback source cannot be resolved exactly: {reference['module']}")
+    return paths[0]
 
 
 def _function_defined(path: Path, function: str) -> bool:
@@ -553,8 +575,13 @@ class StudySpec:
 
     def resolve(self, base_dir: str | Path) -> ResolvedStudy:
         base = Path(base_dir).resolve()
+        if file_sha256(Path(sys.executable).resolve()) != self.document["execution"]["python_sha256"]:
+            raise ContractError("declared Python interpreter identity differs")
         evidence: dict[str, Path] = {}
-        refs = [*self.document["inputs"]["parts"]]
+        refs = [
+            *self.document["inputs"]["feature_parts"],
+            *self.document["inputs"]["outcome_parts"],
+        ]
         refs.extend((
             self.document["inputs"]["membership"]["evidence"],
             self.document["inputs"]["quality"]["evidence"],
@@ -577,11 +604,11 @@ class StudySpec:
         ))
         resolved_callbacks: dict[str, Path] = {}
         for callback in callbacks:
-            references = [{"module": callback["module"], "sha256": callback["sha256"]},
+            references = [{key: callback[key] for key in ("module", "source", "kind", "sha256")},
                           *callback["dependencies"]]
             for reference in references:
                 module, expected = reference["module"], reference["sha256"]
-                path = _module_path(module)
+                path = _module_path(base, reference)
                 observed = file_sha256(path)
                 if observed != expected:
                     raise ContractError(f"callback module hash differs: {module}")

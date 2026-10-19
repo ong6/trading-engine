@@ -13,6 +13,37 @@ pytest = importlib.import_module("pytest")
 NOW = datetime(2026, 10, 18, 18, tzinfo=timezone.utc)
 
 
+def _started():
+    return {"source_ref": {
+        "study_sha256": "a" * 64,
+        "feature_sha256": "b" * 64,
+        "phase": "development",
+    }}
+
+
+def _terminal(kind, *, attempt, trial):
+    if kind == "failed":
+        return {"source_ref": {
+            "error": "SyntheticFailure", "message": "fixture", "study_sha256": "a" * 64,
+        }}
+    if kind == "abandoned":
+        return {"source_ref": {"reason": "fixture", "evidence_sha256": "c" * 64}}
+    return {"source_ref": {
+        "attempt_id": attempt,
+        "feature_sha256": "b" * 64,
+        "label_sha256": "c" * 64,
+        "outcome_accessed": True,
+        "phase": "development",
+        "predictions_sha256": "d" * 64,
+        "result_sha256": "e" * 64,
+        "study_sha256": "a" * 64,
+        "trial_id": trial,
+        "census_reconciliation": {},
+        "strategy_workers": {},
+        "worker_pids": [],
+    }}
+
+
 def _register(ledger, name="trial-a", selection=140, parameters=None):
     identity = trial_id("a" * 64, parameters or {"variant": name})
     return identity, ledger.register(
@@ -31,12 +62,12 @@ def test_unevaluable_failed_and_abandoned_attempts_remain_counted(tmp_path):
         attempt = f"try-{index}"
         ledger.append(
             kind="evaluation_started", event_id=f"start-{index}", trial=first,
-            attempt=attempt, payload={"source_ref": {"run": index}},
+                attempt=attempt, payload=_started(),
             event_at=NOW + timedelta(minutes=index),
         )
         ledger.append(
             kind=terminal, event_id=f"terminal-{index}", trial=first,
-            attempt=attempt, payload={"source_ref": {"status": terminal}},
+                attempt=attempt, payload=_terminal(terminal, attempt=attempt, trial=first),
             event_at=NOW + timedelta(minutes=index, seconds=1),
         )
     summary = ledger.summary()
@@ -51,18 +82,21 @@ def test_retry_is_idempotent_but_parameter_change_has_new_trial_and_count(tmp_pa
     first, _ = _register(ledger)
     row = ledger.append(
         kind="evaluation_started", event_id="attempt-a-started", trial=first,
-        attempt="attempt-a", payload={"source_ref": {"spec": "a"}}, event_at=NOW,
+        attempt="attempt-a", payload=_started(), event_at=NOW,
     )
     retried = ledger.append(
         kind="evaluation_started", event_id="attempt-a-started", trial=first,
-        attempt="attempt-a", payload={"source_ref": {"spec": "a"}},
+        attempt="attempt-a", payload=_started(),
         event_at=NOW + timedelta(hours=1),
     )
     assert retried == row and len(ledger.read()) == 2
     with pytest.raises(TrialLedgerError, match="reused"):
         ledger.append(
             kind="evaluation_started", event_id="attempt-a-started", trial=first,
-            attempt="attempt-a", payload={"source_ref": {"spec": "changed"}}, event_at=NOW,
+            attempt="attempt-a", payload={"source_ref": {
+                "study_sha256": "a" * 64, "feature_sha256": "f" * 64,
+                "phase": "development",
+            }}, event_at=NOW,
         )
 
     second, _ = _register(ledger, "trial-b", 141, {"threshold": 2})
@@ -93,7 +127,7 @@ def test_reconciliation_seals_census_and_later_event_makes_it_stale(tmp_path):
     assert ledger.selection_n() == 140
     ledger.append(
         kind="evaluation_started", event_id="later", trial=first, attempt="later",
-        payload={"source_ref": {"run": 1}}, event_at=NOW + timedelta(minutes=1),
+        payload=_started(), event_at=NOW + timedelta(minutes=1),
     )
     assert ledger.summary().status == "stale"
     with pytest.raises(TrialLedgerError, match="stale"):
@@ -107,7 +141,7 @@ def test_concurrent_writers_serialize_and_tampering_is_refused(tmp_path):
     def append(index):
         return ledger.append(
             kind="evaluation_started", event_id=f"start-{index}", trial=first,
-            attempt=f"attempt-{index}", payload={"source_ref": {"run": index}},
+            attempt=f"attempt-{index}", payload=_started(),
             event_at=NOW + timedelta(seconds=index),
         )
 
@@ -142,3 +176,66 @@ def test_genesis_is_derived_from_exact_accepted_public_census_and_refuses_drift(
     write_text_atomic(changed, json.dumps(rows))
     with pytest.raises(TrialLedgerError, match="public census hash differs"):
         CensusGenesis.from_public_census(changed)
+
+
+def test_runtime_terminals_require_evidence_monotonic_time_and_live_trial(tmp_path):
+    ledger = JsonlTrialLedger(tmp_path / "events.jsonl")
+    trial, _ = _register(ledger)
+    ledger.append(
+        kind="evaluation_started", event_id="start", trial=trial, attempt="attempt",
+        payload=_started(), event_at=NOW + timedelta(hours=1),
+    )
+    with pytest.raises(TrialLedgerError, match="payload fields differ"):
+        ledger.append(
+            kind="evaluated", event_id="empty", trial=trial, attempt="attempt",
+            payload={}, event_at=NOW + timedelta(hours=2),
+        )
+    with pytest.raises(TrialLedgerError, match="predates"):
+        ledger.append(
+            kind="evaluated", event_id="inverted", trial=trial, attempt="attempt",
+            payload=_terminal("evaluated", attempt="attempt", trial=trial), event_at=NOW,
+        )
+
+    retired_ledger = JsonlTrialLedger(tmp_path / "retired.jsonl")
+    retired, _ = _register(retired_ledger)
+    retired_ledger.append(
+        kind="retired", event_id="retired", trial=retired,
+        payload={"source_ref": {
+            "evidence_sha256": "a" * 64,
+            "result_sha256": "b" * 64,
+            "reason": "fixture",
+        }},
+        event_at=NOW,
+    )
+    with pytest.raises(TrialLedgerError, match="already started"):
+        retired_ledger.append(
+            kind="evaluation_started", event_id="after-retired", trial=retired,
+            attempt="later", payload=_started(), event_at=NOW + timedelta(minutes=1),
+        )
+
+
+def test_duplicate_confirmation_is_refused(tmp_path):
+    ledger = JsonlTrialLedger(tmp_path / "events.jsonl")
+    trial, _ = _register(ledger)
+    ledger.append(
+        kind="evaluation_started", event_id="start", trial=trial, attempt="attempt",
+        payload=_started(), event_at=NOW,
+    )
+    ledger.append(
+        kind="holdout_opened", event_id="holdout", trial=trial,
+        payload={"source_ref": {"marker": "fixture"}}, event_at=NOW + timedelta(seconds=1),
+    )
+    payload = {"source_ref": {
+        "evidence_sha256": "a" * 64,
+        "result_sha256": "b" * 64,
+        "reason": "fixture",
+    }}
+    ledger.append(
+        kind="confirmed", event_id="confirmed", trial=trial, payload=payload,
+        event_at=NOW + timedelta(seconds=2),
+    )
+    with pytest.raises(TrialLedgerError, match="already been confirmed"):
+        ledger.append(
+            kind="confirmed", event_id="confirmed-again", trial=trial, payload=payload,
+            event_at=NOW + timedelta(seconds=3),
+        )

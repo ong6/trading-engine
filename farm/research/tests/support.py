@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import sys
 from copy import deepcopy
 from pathlib import Path
 
@@ -11,6 +13,7 @@ from farm.research.canonical import file_sha256
 
 def complete_contract(root: Path) -> dict:
     input_path = root / "input.json"
+    outcome_path = root / "outcome.json"
     membership_path = root / "membership.json"
     quality_path = root / "quality.json"
     census_path = root / "census.jsonl"
@@ -20,18 +23,27 @@ def complete_contract(root: Path) -> dict:
         '{"_availability":{"close":"session close","session":"session open"},'
         '"close":101.0,"session":"2024-01-03"}]\n'
     ))
+    write_text_atomic(outcome_path, (
+        '[{"return_h1":0.01,"session":"2024-01-02"},'
+        '{"return_h1":0.0,"session":"2024-01-03"}]\n'
+    ))
     write_text_atomic(membership_path, (
-        '{"coverage":1.0,"point_in_time":true,"survivor_status":"point_in_time"}\n'
+        '{"coverage":1.0,"expected_rows":2,"point_in_time":true,'
+        '"survivor_status":"point_in_time"}\n'
     ))
     write_text_atomic(quality_path, (
         '{"invalid_rows":0,"policy":"reject invalid OHLC geometry",'
         '"status":"accepted","version":"fixture-v1"}\n'
     ))
     write_text_atomic(census_path, '{"selection_n":140}\n')
-    callback_path = Path(__file__).with_name("fixture_callbacks.py")
+    callback_path = root / "callbacks" / "study_fixture_callbacks.py"
+    callback_path.parent.mkdir(exist_ok=True)
+    shutil.copyfile(Path(__file__).with_name("fixture_callbacks.py"), callback_path)
     callback = {
-        "module": "farm.research.tests.fixture_callbacks",
+        "module": "study_fixture_callbacks",
         "function": "feature_recipe",
+        "source": "callbacks/study_fixture_callbacks.py",
+        "kind": "module",
         "sha256": file_sha256(callback_path),
         "dependencies": [],
     }
@@ -48,8 +60,11 @@ def complete_contract(root: Path) -> dict:
         },
         "inputs": {
             "generation_sha256": "1" * 64,
-            "parts": [{
+            "feature_parts": [{
                 "path": "input.json", "sha256": file_sha256(input_path), "format": "rows_json",
+            }],
+            "outcome_parts": [{
+                "path": "outcome.json", "sha256": file_sha256(outcome_path), "format": "opaque",
             }],
             "schema": [
                 {"name": "session", "dtype": "date", "nullable": False},
@@ -142,6 +157,7 @@ def complete_contract(root: Path) -> dict:
             "memory_mb": 256,
             "expected_seconds": 5,
             "output_subdir": "synthetic-contract/v1",
+            "python_sha256": file_sha256(Path(sys.executable).resolve()),
         },
     }
     return deepcopy(contract)

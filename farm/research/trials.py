@@ -102,6 +102,56 @@ def _registration_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     return json.loads(canonical_bytes(payload))
 
 
+def _sha_valid(value: object) -> bool:
+    if not isinstance(value, str) or len(value) != 64:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
+
+
+def _runtime_payload(kind: str, payload: Mapping[str, Any]) -> None:
+    if set(payload) != {"source_ref"} or not isinstance(payload["source_ref"], Mapping):
+        raise TrialLedgerError(f"{kind} payload fields differ")
+    source = payload["source_ref"]
+    if kind == "evaluation_started":
+        required = {"study_sha256", "feature_sha256", "phase"}
+        if (set(source) != required
+                or not _sha_valid(source["study_sha256"])
+                or not _sha_valid(source["feature_sha256"])
+                or source["phase"] not in {"pilot", "development", "holdout"}):
+            raise TrialLedgerError("evaluation_started evidence differs")
+    elif kind == "evaluated":
+        required = {
+            "attempt_id", "feature_sha256", "label_sha256", "outcome_accessed", "phase",
+            "predictions_sha256", "result_sha256", "study_sha256", "trial_id",
+            "census_reconciliation", "strategy_workers", "worker_pids",
+        }
+        if (set(source) != required
+                or not all(_sha_valid(source[name]) for name in (
+                    "feature_sha256", "predictions_sha256", "study_sha256"
+                ))
+                or (source["result_sha256"] is None and not (
+                    source["phase"] == "pilot" and source["outcome_accessed"] is False))
+                or (source["result_sha256"] is not None
+                    and not _sha_valid(source["result_sha256"]))
+                or (source["label_sha256"] is not None
+                    and not _sha_valid(source["label_sha256"]))
+                or not isinstance(source["census_reconciliation"], Mapping)):
+            raise TrialLedgerError("evaluated evidence differs")
+    elif kind == "failed":
+        required = {"error", "message", "study_sha256"}
+        if (set(source) != required or not source["error"] or not source["message"]
+                or not _sha_valid(source["study_sha256"])):
+            raise TrialLedgerError("failed evidence differs")
+    elif kind == "abandoned":
+        if (set(source) != {"reason", "evidence_sha256"} or not source["reason"]
+                or not _sha_valid(source["evidence_sha256"])):
+            raise TrialLedgerError("abandoned evidence differs")
+
+
 @dataclass(frozen=True)
 class CensusGenesis:
     source: str
@@ -156,7 +206,7 @@ class CensusGenesis:
 def _validate_records(records: Sequence[Mapping[str, Any]], genesis: CensusGenesis) -> None:
     previous, event_ids, registrations = None, {}, {}
     attempts: dict[tuple[str, str], list[str]] = {}
-    holdouts, retired = set(), set()
+    holdouts, retired, withdrawn, confirmed = set(), set(), set(), set()
     selection_n = genesis.n_contribution
     required = {
         "schema_version", "sequence", "kind", "event_id", "trial_id", "attempt_id",
@@ -234,12 +284,21 @@ def _validate_records(records: Sequence[Mapping[str, Any]], genesis: CensusGenes
                 key = current_trial, attempt
                 history = attempts.setdefault(key, [])
                 if kind == "evaluation_started":
-                    if history:
+                    if history or current_trial in retired | withdrawn | confirmed:
                         raise TrialLedgerError("attempt has already started")
                 elif not history or history[0] != "evaluation_started":
                     raise TrialLedgerError("attempt terminal event has no start")
                 elif any(item in TERMINAL_ATTEMPT_KINDS for item in history):
                     raise TrialLedgerError("attempt already has a terminal event")
+                _runtime_payload(kind, row["payload"])
+                if history and event_at is not None:
+                    start = datetime.fromisoformat(
+                        next(item for item in records if item["trial_id"] == current_trial
+                             and item["attempt_id"] == attempt
+                             and item["kind"] == "evaluation_started")["event_at"].replace(
+                                 "Z", "+00:00"))
+                    if event_at < start:
+                        raise TrialLedgerError("attempt terminal predates evaluation_started")
                 history.append(kind)
             elif attempt is not None:
                 raise TrialLedgerError(f"{kind} cannot name an attempt")
@@ -251,9 +310,25 @@ def _validate_records(records: Sequence[Mapping[str, Any]], genesis: CensusGenes
                 holdouts.add(current_trial)
             elif kind == "confirmed" and current_trial not in holdouts:
                 raise TrialLedgerError("confirmation requires an opened holdout")
+            elif kind == "confirmed":
+                if current_trial in confirmed:
+                    raise TrialLedgerError("trial has already been confirmed")
+                source = row["payload"].get("source_ref", {})
+                if (set(row["payload"]) != {"source_ref"}
+                        or set(source) != {"evidence_sha256", "result_sha256", "reason"}
+                        or not _sha_valid(source["evidence_sha256"])
+                        or not _sha_valid(source["result_sha256"]) or not source["reason"]):
+                    raise TrialLedgerError("confirmation evidence differs")
+                confirmed.add(current_trial)
             elif kind == "retired":
                 if current_trial in retired:
                     raise TrialLedgerError("trial has already been retired")
+                source = row["payload"].get("source_ref", {})
+                if (set(row["payload"]) != {"source_ref"}
+                        or set(source) != {"evidence_sha256", "result_sha256", "reason"}
+                        or not _sha_valid(source["evidence_sha256"])
+                        or not _sha_valid(source["result_sha256"]) or not source["reason"]):
+                    raise TrialLedgerError("retirement evidence differs")
                 retired.add(current_trial)
             elif kind == "alias":
                 target = row["payload"].get("canonical_trial_id")
@@ -265,6 +340,8 @@ def _validate_records(records: Sequence[Mapping[str, Any]], genesis: CensusGenes
                         or provenance.get("kind") != "unknown_after_registration"
                         or not isinstance(row["payload"].get("source_row"), dict)):
                     raise TrialLedgerError("legacy lifecycle provenance differs")
+                if kind == "withdrawn":
+                    withdrawn.add(current_trial)
         previous = row["row_sha256"]
 
 
@@ -368,6 +445,61 @@ class JsonlTrialLedger:
             finally:
                 fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
+    def append_terminal_cas(
+        self,
+        reconciliation: Mapping[str, Any],
+        *,
+        trial: str,
+        attempt: str,
+        payload: Mapping[str, Any],
+        invalid_payload: Mapping[str, Any],
+        event_at: datetime | None = None,
+    ) -> bool:
+        """Append evaluated only if the reconciled snapshot still bounds this attempt."""
+        descriptor = os.open(self.path, os.O_RDWR)
+        with os.fdopen(descriptor, "r+", encoding="utf-8") as stream:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            try:
+                records = self._read_stream(stream)
+                sequence = reconciliation.get("reconciliation_sequence")
+                sealed = next((row for row in records if row["sequence"] == sequence), None)
+                tail = records[sequence:] if type(sequence) is int else records
+                valid = (
+                    sealed is not None
+                    and sealed["kind"] == "inventory_reconciliation"
+                    and sealed["row_sha256"] == reconciliation.get("row_sha256")
+                    and all(
+                        row["trial_id"] == trial
+                        and (row["kind"] == "evaluation_started" and row["attempt_id"] == attempt
+                             or row["kind"] == "holdout_opened" and row["attempt_id"] is None)
+                        for row in tail
+                    )
+                )
+                kind = "evaluated" if valid else "failed"
+                selected_payload = payload if valid else invalid_payload
+                core = _event_core(
+                    kind=kind,
+                    event_id=f"{kind}:{attempt}",
+                    trial=trial,
+                    attempt=attempt,
+                    event_at=_timestamp(event_at or _now()),
+                    payload=selected_payload,
+                )
+                row = _record(
+                    core,
+                    sequence=len(records) + 1,
+                    recorded_at=_timestamp(_now()),
+                    previous=records[-1]["row_sha256"],
+                )
+                _validate_records([*records, row], self.genesis)
+                stream.seek(0, os.SEEK_END)
+                stream.write(canonical_bytes(row, newline=True).decode())
+                stream.flush()
+                os.fsync(stream.fileno())
+                return valid
+            finally:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
     def register(
         self,
         *,
@@ -441,6 +573,23 @@ class JsonlTrialLedger:
             "selection_n": latest["payload"]["selection_n"],
             "sealed_through_sequence": latest["payload"]["sealed_through_sequence"],
             "reconciliation_sequence": latest["sequence"],
+        }
+
+    def terminal_receipt(self, trial: str) -> dict[str, Any]:
+        rows = self.read()
+        terminal = [
+            row for row in rows
+            if row["trial_id"] == trial and row["kind"] in {"confirmed", "retired"}
+        ]
+        if len(terminal) != 1:
+            raise TrialLedgerError("trial does not have exactly one evidence terminal")
+        row = terminal[0]
+        return {
+            "kind": row["kind"],
+            "row_sha256": row["row_sha256"],
+            "trial_id": trial,
+            "evidence_sha256": row["payload"]["source_ref"]["evidence_sha256"],
+            "result_sha256": row["payload"]["source_ref"]["result_sha256"],
         }
 
 

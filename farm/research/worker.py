@@ -7,6 +7,7 @@ import contextlib
 import ctypes
 import errno
 import importlib
+import importlib.abc
 import importlib.util
 import inspect
 import io
@@ -66,7 +67,7 @@ def _install_seccomp() -> None:
 
 def _callback(reference: dict, package_sha256: str):
     refs = [
-        {"module": reference["module"], "sha256": reference["sha256"]},
+        {key: reference[key] for key in ("module", "source", "kind", "sha256")},
         *reference["dependencies"],
     ]
     identity = {
@@ -80,10 +81,14 @@ def _callback(reference: dict, package_sha256: str):
         raise ValueError("callback package identity differs")
     source_root = Path("/study/package/src").resolve()
     for item in refs:
-        found = importlib.util.find_spec(item["module"])
-        path = Path(found.origin or "").resolve() if found is not None else Path()
-        if (not path.is_file() or not path.is_relative_to(source_root)
-                or file_sha256(path) != item["sha256"]):
+        if item["kind"] == "runtime":
+            found = importlib.util.find_spec(item["module"])
+            path = Path(found.origin or "").resolve() if found is not None else Path()
+        else:
+            module_path = source_root.joinpath(*item["module"].split("."))
+            path = ((module_path / "__init__.py") if item["kind"] == "package"
+                    else module_path.with_suffix(".py"))
+        if not path.is_file() or file_sha256(path) != item["sha256"]:
             raise ValueError(f"callback dependency differs in sandbox: {item['module']}")
     module = importlib.import_module(reference["module"])
     function = getattr(module, reference["function"], None)
@@ -91,6 +96,24 @@ def _callback(reference: dict, package_sha256: str):
             or "<locals>" in function.__qualname__):
         raise ValueError("callback must be an importable function without a closure")
     return function
+
+
+class _DeclaredImportGuard(importlib.abc.MetaPathFinder):
+    def __init__(self, reference: dict):
+        modules = [reference["module"], *(item["module"] for item in reference["dependencies"])]
+        self.allowed = {
+            ".".join(module.split(".")[:index])
+            for module in modules
+            for index in range(1, len(module.split(".")) + 1)
+        }
+        self.allowed.add("farm.research")
+
+    def find_spec(self, fullname, path=None, target=None):
+        if (fullname in sys.stdlib_module_names or fullname in sys.modules
+                or any(fullname == name or fullname.startswith(name + ".")
+                       for name in self.allowed)):
+            return None
+        raise ImportError(f"undeclared callback import: {fullname}")
 
 
 def execute(request: dict) -> dict:
@@ -105,6 +128,7 @@ def execute(request: dict) -> dict:
         raise ValueError("sandbox worker request fields differ")
     _limit(request["memory_mb"])
     _install_seccomp()
+    sys.meta_path.insert(0, _DeclaredImportGuard(request["callback"]))
     callback = _callback(request["callback"], request["package_sha256"])
     started_ns = time.monotonic_ns()
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):

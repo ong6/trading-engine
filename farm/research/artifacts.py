@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 
 from engine.lib.resources import write_text_atomic
 
-from .cache import CacheObject, ResearchCache
+from .cache import CacheObject, ResearchCache, repository_containing
 from .canonical import canonical_bytes, canonical_sha256, file_sha256
 from .sandbox import build_callback_package, prepare_sandbox_runtime, run_sandboxed
 from .spec import ResolvedStudy
@@ -27,7 +27,6 @@ class ArtifactValidationError(ValueError):
 @dataclass(frozen=True)
 class StudyCacheArtifacts:
     features: CacheObject
-    labels: CacheObject | None
 
 
 def _value_valid(value: object, dtype: str) -> bool:
@@ -88,6 +87,12 @@ def _evidence(resolved: ResolvedStudy) -> dict[str, Any]:
     inputs = resolved.spec.document["inputs"]
     membership_ref = inputs["membership"]["evidence"]
     quality_ref = inputs["quality"]["evidence"]
+    for reference in (
+        *inputs["feature_parts"], *inputs["outcome_parts"], membership_ref, quality_ref,
+    ):
+        path = resolved.evidence_paths[reference["path"]]
+        if not path.is_file() or file_sha256(path) != reference["sha256"]:
+            raise ArtifactValidationError(f"declared evidence changed: {reference['path']}")
     try:
         membership = json.loads(resolved.evidence_paths[membership_ref["path"]].read_text())
         quality = json.loads(resolved.evidence_paths[quality_ref["path"]].read_text())
@@ -99,7 +104,9 @@ def _evidence(resolved: ResolvedStudy) -> dict[str, Any]:
             or isinstance(membership.get("coverage"), bool)
             or not isinstance(membership.get("coverage"), (int, float))
             or not math.isfinite(float(membership["coverage"]))
-            or float(membership["coverage"]) < inputs["coverage"]["minimum"]):
+            or float(membership["coverage"]) < inputs["coverage"]["minimum"]
+            or type(membership.get("expected_rows")) is not int
+            or membership["expected_rows"] < 1):
         raise ArtifactValidationError("membership PIT, survivor, or coverage evidence differs")
     if (not isinstance(quality, dict) or quality.get("status") != "accepted"
             or quality.get("version") != inputs["quality"]["version"]
@@ -109,13 +116,21 @@ def _evidence(resolved: ResolvedStudy) -> dict[str, Any]:
     return {"membership": membership, "quality": quality}
 
 
-def _input_mount(resolved: ResolvedStudy, execution_root: Path) -> tuple[Path, list[dict]]:
+def _input_mount(
+    resolved: ResolvedStudy,
+    execution_root: Path,
+    *,
+    outcome: bool,
+    as_of_session: str | None = None,
+    prior_nodes: Mapping[str, list[dict[str, Any]]] | None = None,
+) -> tuple[Path, list[dict]]:
     mount = Path(tempfile.mkdtemp(prefix="study-inputs-", dir=execution_root))
     parts_root = mount / "parts"
     parts_root.mkdir()
     declared_rows = []
     manifest = []
-    for index, reference in enumerate(resolved.spec.document["inputs"]["parts"]):
+    field = "outcome_parts" if outcome else "feature_parts"
+    for index, reference in enumerate(resolved.spec.document["inputs"][field]):
         source = resolved.evidence_paths[reference["path"]]
         target = parts_root / f"{index}{source.suffix.lower()}"
         try:
@@ -137,21 +152,33 @@ def _input_mount(resolved: ResolvedStudy, execution_root: Path) -> tuple[Path, l
             payload = json.loads(target.read_text())
         except json.JSONDecodeError as exc:
             raise ArtifactValidationError("input part is not valid JSON") from exc
-        declared_rows.extend(validate_rows(
+        validated = validate_rows(
             payload,
             resolved.spec.document["inputs"]["schema"],
             allow_input_availability=True,
-        ))
-    if not declared_rows:
+        )
+        declared_rows.extend(validated)
+        if as_of_session is not None and "session" in validated[0]:
+            bounded = [row for row in validated if row["session"] <= as_of_session]
+            write_text_atomic(target, canonical_bytes(bounded, newline=True).decode())
+    if not outcome and not declared_rows:
         raise ArtifactValidationError("StudySpec requires at least one declared rows_json input")
     availability = {
         item["field"]: item["known_at"]
         for item in resolved.spec.document["inputs"]["availability"]
     }
-    for index, row in enumerate(declared_rows):
-        if row["_availability"] != availability:
-            raise ArtifactValidationError(f"input row {index} field availability differs")
+    if not outcome:
+        for index, row in enumerate(declared_rows):
+            if row["_availability"] != availability:
+                raise ArtifactValidationError(f"input row {index} field availability differs")
     write_text_atomic(mount / "manifest.json", canonical_bytes(manifest, newline=True).decode())
+    if prior_nodes:
+        nodes = mount / "nodes"
+        nodes.mkdir()
+        for name, rows in prior_nodes.items():
+            selected = (rows if as_of_session is None else
+                        [row for row in rows if row.get("session", as_of_session) <= as_of_session])
+            write_text_atomic(nodes / f"{name}.json", canonical_bytes(selected, newline=True).decode())
     return mount, declared_rows
 
 
@@ -187,8 +214,14 @@ def validate_study_object(resolved: ResolvedStudy, obj: CacheObject) -> None:
             != resolved.spec.cache_identity(obj.kind)["identity_sha256"]):
         raise ArtifactValidationError(f"{obj.kind} object lacks a validated StudySpec receipt")
     unsigned = {key: value for key, value in receipt.items() if key != "receipt_sha256"}
-    if receipt.get("receipt_sha256") != canonical_sha256(unsigned):
+    if (receipt.get("receipt_sha256") != canonical_sha256(unsigned)
+            or receipt.get("content_sha256") != obj.manifest.get("content_sha256")
+            or receipt.get("edge_evidence_sha256") != canonical_sha256(_evidence(resolved))):
         raise ArtifactValidationError("StudySpec cache receipt differs")
+    latest_fold_end = max(
+        date.fromisoformat(fold["end"])
+        for fold in resolved.spec.document["evaluation"]["folds"]
+    )
     if obj.kind == "feature":
         for node in resolved.spec.document["features"]:
             rows = obj.read_json(f"nodes/{node['name']}.json")
@@ -199,6 +232,11 @@ def validate_study_object(resolved: ResolvedStudy, obj: CacheObject) -> None:
         rows = obj.read_json("labels.json")
         outcomes = resolved.spec.document["outcomes"]
         validate_rows(rows, outcomes["output_schema"], availability=outcomes["availability"])
+        if "session" not in {column["name"] for column in outcomes["output_schema"]}:
+            raise ArtifactValidationError("folded label schemas require a session column")
+        if any(datetime.fromisoformat(row[outcomes["availability"]]).date() >= latest_fold_end
+               for row in rows):
+            raise ArtifactValidationError("label availability exceeds declared fold bounds")
         if receipt["row_counts"].get("labels") != len(rows):
             raise ArtifactValidationError("label receipt row count differs")
     else:
@@ -209,99 +247,206 @@ def build_study_artifacts(
     cache: ResearchCache,
     resolved: ResolvedStudy,
     execution_root: str | Path,
-    *,
-    include_labels: bool = True,
 ) -> StudyCacheArtifacts:
     root = Path(execution_root).resolve()
+    if repository_containing(root) is not None:
+        raise ValueError("study artifact root must be outside every repository")
     root.mkdir(parents=True, exist_ok=True)
     evidence = _evidence(resolved)
-    mount, _ = _input_mount(resolved, root)
+    initial_mount, declared_inputs = _input_mount(resolved, root, outcome=False)
+    shutil.rmtree(initial_mount)
+    decision_sessions = sorted({row["session"] for row in declared_inputs if "session" in row})
+    if not decision_sessions:
+        decision_sessions = [None]
     prepare_sandbox_runtime(root)
-    try:
-        feature_rows, feature_recipes, feature_schemas, feature_counts = {}, [], {}, {}
-        for node in resolved.spec.document["features"]:
-            package = build_callback_package(resolved, node["callback"], root)
-            response = run_sandboxed(
-                package,
-                {
-                    "callback": node["callback"],
-                    "package_sha256": package.digest,
-                    "parameters": node["parameters"],
-                    "mode": "recipe",
-                    "memory_mb": resolved.spec.document["execution"]["memory_mb"],
-                },
-                feature_root=mount,
-                label_root=None,
-                runtime_root=root,
-                timeout=resolved.spec.document["execution"]["expected_seconds"],
+    feature_rows, feature_recipes, feature_schemas, feature_counts = {}, [], {}, {}
+    for node in resolved.spec.document["features"]:
+        package = build_callback_package(resolved, node["callback"], root)
+        rows = []
+        for decision_session in decision_sessions:
+            mount, _ = _input_mount(
+                resolved,
+                root,
+                outcome=False,
+                as_of_session=decision_session,
+                prior_nodes=feature_rows,
             )
-            rows = validate_rows(
+            try:
+                response = run_sandboxed(
+                    package,
+                    {
+                        "callback": node["callback"],
+                        "package_sha256": package.digest,
+                        "parameters": {
+                            **node["parameters"], "_decision_session": decision_session,
+                        },
+                        "mode": "recipe",
+                        "memory_mb": resolved.spec.document["execution"]["memory_mb"],
+                    },
+                    feature_root=mount,
+                    label_root=None,
+                    runtime_root=root,
+                    timeout=resolved.spec.document["execution"]["expected_seconds"],
+                )
+            finally:
+                shutil.rmtree(mount)
+            candidate_rows = validate_rows(
                 response["payload"], node["output_schema"], availability=node["availability"]
             )
-            feature_rows[node["name"]] = rows
-            feature_recipes.append({"name": node["name"], "package_sha256": package.digest})
-            feature_schemas[node["name"]] = node["output_schema"]
-            feature_counts[node["name"]] = len(rows)
-            nodes = mount / "nodes"
-            nodes.mkdir(exist_ok=True)
+            selected = (candidate_rows if decision_session is None else
+                        [row for row in candidate_rows if row.get("session") == decision_session])
+            if not selected:
+                raise ArtifactValidationError(
+                    f"feature recipe omitted decision session {decision_session}"
+                )
+            rows.extend(selected)
+        if len({row.get("session", index) for index, row in enumerate(rows)}) != len(rows):
+            raise ArtifactValidationError("feature recipe emitted duplicate decision rows")
+        observed_coverage = len(rows) / evidence["membership"]["expected_rows"]
+        if observed_coverage < resolved.spec.document["inputs"]["coverage"]["minimum"]:
+            raise ArtifactValidationError("actual feature row coverage misses the declared gate")
+        if "ticker" in {column["name"] for column in node["output_schema"]}:
+            members = evidence["membership"].get("members")
+            if not isinstance(members, list) or any(row["ticker"] not in members for row in rows):
+                raise ArtifactValidationError("feature row is outside PIT membership evidence")
+        feature_rows[node["name"]] = rows
+        feature_recipes.append({"name": node["name"], "package_sha256": package.digest})
+        feature_schemas[node["name"]] = node["output_schema"]
+        feature_counts[node["name"]] = len(rows)
+    feature_receipt = _validated_receipt(
+        resolved, kind="feature", recipes=feature_recipes, schemas=feature_schemas,
+        row_counts=feature_counts, evidence=evidence,
+    )
+
+    def write_features(data_root: Path) -> Mapping[str, Any]:
+        nodes = data_root / "nodes"
+        nodes.mkdir()
+        for name, rows in feature_rows.items():
             write_text_atomic(
-                nodes / f"{node['name']}.json", canonical_bytes(rows, newline=True).decode()
+                nodes / f"{name}.json", canonical_bytes(rows, newline=True).decode()
             )
-        feature_receipt = _validated_receipt(
-            resolved, kind="feature", recipes=feature_recipes, schemas=feature_schemas,
-            row_counts=feature_counts, evidence=evidence,
+        return {"validated_study_receipt": feature_receipt}
+
+    features = cache.build_validated(
+        "feature", resolved.spec.cache_identity("feature"), write_features,
+    )
+    validate_study_object(resolved, features)
+    return StudyCacheArtifacts(features)
+
+
+def build_label_artifact(
+    cache: ResearchCache,
+    resolved: ResolvedStudy,
+    execution_root: str | Path,
+) -> CacheObject:
+    root = Path(execution_root).resolve()
+    if repository_containing(root) is not None:
+        raise ValueError("study artifact root must be outside every repository")
+    root.mkdir(parents=True, exist_ok=True)
+    evidence = _evidence(resolved)
+    mount, _ = _input_mount(resolved, root, outcome=True)
+    prepare_sandbox_runtime(root)
+    try:
+        outcomes = resolved.spec.document["outcomes"]
+        package = build_callback_package(resolved, outcomes["callback"], root)
+        response = run_sandboxed(
+            package,
+            {
+                "callback": outcomes["callback"],
+                "package_sha256": package.digest,
+                "parameters": outcomes["parameters"],
+                "mode": "recipe",
+                "memory_mb": resolved.spec.document["execution"]["memory_mb"],
+            },
+            feature_root=mount,
+            label_root=None,
+            runtime_root=root,
+            timeout=resolved.spec.document["execution"]["expected_seconds"],
+        )
+        label_rows = validate_rows(
+            response["payload"], outcomes["output_schema"],
+            availability=outcomes["availability"],
+        )
+        folds = resolved.spec.document["evaluation"]["folds"]
+        label_rows = [
+            row for row in label_rows
+            if any(date.fromisoformat(fold["start"]) <= date.fromisoformat(row["session"])
+                   < date.fromisoformat(fold["end"]) for fold in folds)
+        ]
+        if not label_rows:
+            raise ArtifactValidationError("no labels fall inside declared folds")
+        label_receipt = _validated_receipt(
+            resolved,
+            kind="label",
+            recipes=[{"name": "labels", "package_sha256": package.digest}],
+            schemas={"labels": outcomes["output_schema"]},
+            row_counts={"labels": len(label_rows)},
+            evidence=evidence,
         )
 
-        def write_features(data_root: Path) -> Mapping[str, Any]:
-            nodes = data_root / "nodes"
-            nodes.mkdir()
-            for name, rows in feature_rows.items():
-                write_text_atomic(
-                    nodes / f"{name}.json", canonical_bytes(rows, newline=True).decode()
-                )
-            return {"validated_study_receipt": feature_receipt}
-
-        features = cache.build("feature", resolved.spec.cache_identity("feature"), write_features)
-        validate_study_object(resolved, features)
-        labels = None
-        if include_labels:
-            outcomes = resolved.spec.document["outcomes"]
-            package = build_callback_package(resolved, outcomes["callback"], root)
-            response = run_sandboxed(
-                package,
-                {
-                    "callback": outcomes["callback"],
-                    "package_sha256": package.digest,
-                    "parameters": outcomes["parameters"],
-                    "mode": "recipe",
-                    "memory_mb": resolved.spec.document["execution"]["memory_mb"],
-                },
-                feature_root=mount,
-                label_root=None,
-                runtime_root=root,
-                timeout=resolved.spec.document["execution"]["expected_seconds"],
+        def write_labels(data_root: Path) -> Mapping[str, Any]:
+            write_text_atomic(
+                data_root / "labels.json", canonical_bytes(label_rows, newline=True).decode()
             )
-            label_rows = validate_rows(
-                response["payload"], outcomes["output_schema"],
-                availability=outcomes["availability"],
-            )
-            label_receipt = _validated_receipt(
-                resolved,
-                kind="label",
-                recipes=[{"name": "labels", "package_sha256": package.digest}],
-                schemas={"labels": outcomes["output_schema"]},
-                row_counts={"labels": len(label_rows)},
-                evidence=evidence,
-            )
+            return {"validated_study_receipt": label_receipt}
 
-            def write_labels(data_root: Path) -> Mapping[str, Any]:
-                write_text_atomic(
-                    data_root / "labels.json", canonical_bytes(label_rows, newline=True).decode()
-                )
-                return {"validated_study_receipt": label_receipt}
-
-            labels = cache.build("label", resolved.spec.cache_identity("label"), write_labels)
-            validate_study_object(resolved, labels)
-        return StudyCacheArtifacts(features, labels)
+        labels = cache.build_validated(
+            "label", resolved.spec.cache_identity("label"), write_labels,
+        )
+        validate_study_object(resolved, labels)
+        return labels
     finally:
         shutil.rmtree(mount)
+
+
+def materialize_fold_features(
+    resolved: ResolvedStudy,
+    features: CacheObject,
+    fold: Mapping[str, Any],
+    root: str | Path,
+) -> Path:
+    """Create a read-only feature view containing only the declared fold dates."""
+    destination = Path(root).resolve()
+    destination.mkdir(parents=True, exist_ok=False)
+    nodes = destination / "nodes"
+    nodes.mkdir()
+    start, end = date.fromisoformat(fold["start"]), date.fromisoformat(fold["end"])
+    for node in resolved.spec.document["features"]:
+        rows = features.read_json(f"nodes/{node['name']}.json")
+        if "session" not in {column["name"] for column in node["output_schema"]}:
+            raise ArtifactValidationError("folded feature schemas require a session column")
+        selected = [
+            row for row in rows
+            if start <= date.fromisoformat(row["session"]) < end
+        ]
+        if any(datetime.fromisoformat(row[node["availability"]]).date() >= end
+               for row in selected):
+            raise ArtifactValidationError(
+                f"fold {fold['name']} contains features unavailable by its end"
+            )
+        if not selected and "refuse" in resolved.spec.document["evaluation"]["missing_data_policy"]:
+            raise ArtifactValidationError(f"fold {fold['name']} has no feature rows")
+        write_text_atomic(
+            nodes / f"{node['name']}.json", canonical_bytes(selected, newline=True).decode()
+        )
+    for path in destination.rglob("*"):
+        path.chmod(0o555 if path.is_dir() else 0o444)
+    return destination
+
+
+def validate_feature_label_alignment(
+    resolved: ResolvedStudy,
+    features: CacheObject,
+    labels: CacheObject,
+) -> None:
+    folds = resolved.spec.document["evaluation"]["folds"]
+    feature_sessions = set()
+    for node in resolved.spec.document["features"]:
+        for row in features.read_json(f"nodes/{node['name']}.json"):
+            session = date.fromisoformat(row["session"])
+            if any(date.fromisoformat(fold["start"]) <= session < date.fromisoformat(fold["end"])
+                   for fold in folds):
+                feature_sessions.add(row["session"])
+    label_sessions = {row["session"] for row in labels.read_json("labels.json")}
+    if feature_sessions != label_sessions:
+        raise ArtifactValidationError("feature and label row keys are not fold-aligned")

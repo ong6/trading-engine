@@ -30,11 +30,12 @@ class CallbackPackage:
     reference: Mapping[str, Any]
 
 
-def _module_target(root: Path, module: str) -> Path:
-    parts = module.split(".")
+def _module_target(root: Path, reference: Mapping[str, Any]) -> Path:
+    parts = reference["module"].split(".")
     if not parts or any(not part.isidentifier() for part in parts):
-        raise ContractError(f"callback module name is invalid: {module!r}")
-    return root.joinpath(*parts).with_suffix(".py")
+        raise ContractError(f"callback module name is invalid: {reference['module']!r}")
+    path = root.joinpath(*parts)
+    return path / "__init__.py" if reference["kind"] == "package" else path.with_suffix(".py")
 
 
 def build_callback_package(
@@ -44,7 +45,7 @@ def build_callback_package(
 ) -> CallbackPackage:
     """Rehash and copy the declared callback closure into an immutable object."""
     refs = [
-        {"module": reference["module"], "sha256": reference["sha256"]},
+        {key: reference[key] for key in ("module", "source", "kind", "sha256")},
         *reference["dependencies"],
     ]
     if len({item["module"] for item in refs}) != len(refs):
@@ -62,7 +63,9 @@ def build_callback_package(
         if manifest != identity:
             raise SandboxError("callback package manifest differs")
         for item in refs:
-            if file_sha256(_module_target(target / "src", item["module"])) != item["sha256"]:
+            path = (resolved.callback_paths[item["module"]] if item["kind"] == "runtime"
+                    else _module_target(target / "src", item))
+            if file_sha256(path) != item["sha256"]:
                 raise SandboxError("callback package bytes differ")
         return CallbackPackage(digest, target, reference)
     temporary = objects.parent / "builds" / f"{digest}.{uuid.uuid4().hex}"
@@ -73,7 +76,9 @@ def build_callback_package(
             source = resolved.callback_paths.get(item["module"])
             if source is None or not source.is_file() or file_sha256(source) != item["sha256"]:
                 raise ContractError(f"callback dependency changed after resolution: {item['module']}")
-            destination = _module_target(source_root, item["module"])
+            if item["kind"] == "runtime":
+                continue
+            destination = _module_target(source_root, item)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, destination)
             if file_sha256(destination) != item["sha256"]:
