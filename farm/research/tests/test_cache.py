@@ -16,7 +16,9 @@ from farm.research.cache import (
     UniverseCacheIdentity,
 )
 from farm.study.bench import build_market
+from farm.study.data import Bar, PriceSource
 from farm.study.synthetic import generate_market
+from farm.study.universe import Universe
 
 pytest = importlib.import_module("pytest")
 
@@ -46,9 +48,10 @@ def _panel_identity(source, revision="v1"):
     )
 
 
-def _universe_identity(universe):
+def _universe_identity(universe, exclusions=None):
     return UniverseCacheIdentity.from_universe(
         universe,
+        exclusions=exclusions,
         recipe_sha256="4" * 64,
         coverage_version="pit-v1",
     )
@@ -84,9 +87,10 @@ def test_panel_and_universe_cold_warm_are_read_only_and_byte_equivalent(tmp_path
     with pytest.raises(ValueError):
         warm.source.panel.fields["close"][0, 0] = 0
 
+    exclusions = {"T0001": ["coverage"]}
     cached_universe = cache.universe(
-        _universe_identity(universe), warm, lambda: universe,
-        exclusions={"T0001": ["coverage"]},
+        _universe_identity(universe, exclusions), warm, lambda: universe,
+        exclusions=exclusions,
     )
     assert cached_universe.universe.listings == universe.listings
     assert cached_universe.coverage.shape == (48, 45)
@@ -237,6 +241,55 @@ def test_typed_cache_identities_are_derived_and_stale_hits_refuse_actual_source_
     changed = frame.assign(score=[10.0, 20.0])
     with pytest.raises(CacheError, match="identity differs from the built frame"):
         cache.table("feature", table_identity, lambda: changed, family="fixture")
+
+
+def test_universe_refuses_builder_source_with_different_actual_panel_content(tmp_path):
+    cache = ResearchCache(tmp_path / "cache")
+    market, original_universe = build_market(ticker_count=32, session_count=40)
+    source = market.primary
+    cached_panel = cache.panel(_panel_identity(source), lambda: source)
+    drifted_source = PriceSource(source.declaration, [
+        Bar(
+            f"X-{bar.ticker}", bar.session, bar.open, bar.high, bar.low, bar.close,
+            bar.volume, bar.auction_volume, bar.funding, bar.funding_at,
+            bar.intraday_closes,
+        )
+        for bar in source.bars
+    ], source.dividends)
+    drifted_universe = Universe(
+        drifted_source,
+        original_universe.listings,
+        delisting_return=original_universe.delisting_return,
+    )
+    identity = _universe_identity(drifted_universe)
+
+    with pytest.raises(CacheError, match="source content differs"):
+        cache.universe(identity, cached_panel, lambda: drifted_universe)
+
+
+def test_universe_hit_refuses_changed_exclusions_and_delisting_treatment(tmp_path):
+    cache = ResearchCache(tmp_path / "cache")
+    market, universe = build_market(ticker_count=32, session_count=40)
+    source = market.primary
+    cached_panel = cache.panel(_panel_identity(source), lambda: source)
+    cold_exclusions = {source.tickers[0]: ["cold-rule"]}
+    identity = _universe_identity(universe, cold_exclusions)
+    cold = cache.universe(
+        identity, cached_panel, lambda: universe, exclusions=cold_exclusions,
+    )
+    same = cache.universe(
+        identity, cached_panel, lambda: universe, exclusions=cold_exclusions,
+    )
+    changed = Universe(source, universe.listings, delisting_return=-0.75)
+
+    assert not cold.object.hit and same.object.hit
+    with pytest.raises(CacheError, match="identity differs from built content"):
+        cache.universe(
+            identity,
+            cached_panel,
+            lambda: changed,
+            exclusions={source.tickers[1]: ["warm-rule"]},
+        )
 
 
 def test_cache_root_guard_finds_other_and_nested_worktrees_independent_of_cwd(

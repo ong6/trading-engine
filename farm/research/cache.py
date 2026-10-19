@@ -105,15 +105,24 @@ class PanelCacheIdentity:
 @dataclass(frozen=True)
 class UniverseCacheIdentity:
     membership_sha256: str
+    exclusions_sha256: str
+    delisting_return: float
     recipe_sha256: str
     coverage_version: str
 
     @classmethod
     def from_universe(
-        cls, universe: Universe, *, recipe_sha256: str, coverage_version: str,
+        cls,
+        universe: Universe,
+        *,
+        exclusions: Mapping[str, Sequence[str]] | None = None,
+        recipe_sha256: str,
+        coverage_version: str,
     ) -> UniverseCacheIdentity:
         return cls(
             membership_sha256=_universe_membership_sha256(universe),
+            exclusions_sha256=canonical_sha256(_normalize_exclusions(exclusions)),
+            delisting_return=universe.delisting_return,
             recipe_sha256=recipe_sha256,
             coverage_version=coverage_version,
         )
@@ -122,12 +131,17 @@ class UniverseCacheIdentity:
         for field, value in (
             ("panel_sha256", panel_sha256),
             ("membership_sha256", self.membership_sha256),
+            ("exclusions_sha256", self.exclusions_sha256),
             ("recipe_sha256", self.recipe_sha256),
         ):
             _identity_sha(value, field)
+        if (isinstance(self.delisting_return, bool)
+                or not isinstance(self.delisting_return, (int, float))
+                or not -1 <= float(self.delisting_return) <= 0):
+            raise ValueError("universe identity needs a valid delisting return")
         if not self.coverage_version:
             raise ValueError("universe identity needs a coverage version")
-        return {"panel_sha256": panel_sha256, **asdict(self)}
+        return json.loads(canonical_bytes({"panel_sha256": panel_sha256, **asdict(self)}))
 
 
 @dataclass(frozen=True)
@@ -246,6 +260,19 @@ def _universe_membership_rows(universe: Universe) -> list[dict[str, Any]]:
 
 def _universe_membership_sha256(universe: Universe) -> str:
     return canonical_sha256(_universe_membership_rows(universe))
+
+
+def _normalize_exclusions(
+    exclusions: Mapping[str, Sequence[str]] | None,
+) -> dict[str, list[str]]:
+    result = {}
+    for ticker, reasons in sorted((exclusions or {}).items()):
+        if (not isinstance(ticker, str) or not ticker
+                or isinstance(reasons, (str, bytes))
+                or not all(isinstance(reason, str) and reason for reason in reasons)):
+            raise ValueError("universe exclusions must map tickers to reason strings")
+        result[ticker] = sorted(set(reasons))
+    return result
 
 
 def _table_scalar(value: Any) -> Any:
@@ -682,40 +709,58 @@ class ResearchCache:
         verified_panel_object = self._load("panel", panel.object.digest, hit=True)
         source = self.load_panel(verified_panel_object)
         universe = builder()
-        if (not isinstance(universe, Universe)
-                or universe.source.declaration.snapshot_sha256
-                != source.declaration.snapshot_sha256):
-            raise CacheError("universe source differs from the cached panel source")
+        if not isinstance(universe, Universe):
+            raise TypeError("universe builder must return Universe")
+        if _panel_content_identity(universe.source) != _panel_content_identity(source):
+            raise CacheError("universe source content differs from the cached panel")
+        normalized_exclusions = _normalize_exclusions(exclusions)
+        membership_rows = _universe_membership_rows(universe)
         identity_row = identity.as_dict(verified_panel_object.digest)
-        if identity.membership_sha256 != _universe_membership_sha256(universe):
-            raise CacheError("universe cache identity differs from built membership")
+        derived_fields = {
+            "membership_sha256": canonical_sha256(membership_rows),
+            "exclusions_sha256": canonical_sha256(normalized_exclusions),
+            "delisting_return": universe.delisting_return,
+        }
+        if any(identity_row[name] != value for name, value in derived_fields.items()):
+            raise CacheError("universe cache identity differs from built content")
+        bound_universe = Universe(
+            source, universe.listings, delisting_return=universe.delisting_return,
+        )
         obj = self.get("universe", identity_row)
         if obj is None:
             def write(data_root: Path) -> Mapping[str, Any]:
-                rows = _universe_membership_rows(universe)
                 write_text_atomic(data_root / "universe.json", canonical_bytes({
                     "format": "study-universe-v1",
                     "panel_sha256": verified_panel_object.digest,
                     "source_sha256": source.declaration.snapshot_sha256,
-                    "delisting_return": universe.delisting_return,
-                    "listings": rows,
-                    "exclusions": {key: sorted(set(value))
-                                   for key, value in sorted((exclusions or {}).items())},
+                    "source_content_sha256": _panel_content_identity(source)[
+                        "part_sha256s"][0],
+                    "delisting_return": bound_universe.delisting_return,
+                    "listings": membership_rows,
+                    "exclusions": normalized_exclusions,
                 }, newline=True).decode())
-                coverage = self._coverage(universe)
+                coverage = self._coverage(bound_universe)
                 np.save(data_root / "coverage.npy", coverage, allow_pickle=False)
-                return {"format": "study-universe-v1", "listing_count": len(rows)}
+                return {
+                    "format": "study-universe-v1", "listing_count": len(membership_rows),
+                }
             obj = self.build("universe", identity_row, write)
         metadata = obj.read_json("universe.json")
         required = {
-            "format", "panel_sha256", "source_sha256", "delisting_return", "listings",
-            "exclusions",
+            "format", "panel_sha256", "source_sha256", "source_content_sha256",
+            "delisting_return", "listings", "exclusions",
         }
         if (not isinstance(metadata, dict) or set(metadata) != required
                 or metadata["format"] != "study-universe-v1"
                 or metadata["panel_sha256"] != verified_panel_object.digest
-                or metadata["source_sha256"] != source.declaration.snapshot_sha256):
+                or metadata["source_sha256"] != source.declaration.snapshot_sha256
+                or metadata["source_content_sha256"]
+                != _panel_content_identity(source)["part_sha256s"][0]):
             raise CacheCorruption("universe metadata differs")
+        if (metadata["listings"] != membership_rows
+                or metadata["exclusions"] != normalized_exclusions
+                or metadata["delisting_return"] != universe.delisting_return):
+            raise CacheError("universe cache hit differs from caller content")
         listings = tuple(ListingInterval(
             row["ticker"], date.fromisoformat(row["listed_from"]),
             date.fromisoformat(row["listed_through"]) if row["listed_through"] else None,
