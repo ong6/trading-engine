@@ -26,7 +26,7 @@ import urllib.error
 import urllib.request
 from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -59,6 +59,8 @@ VALID_PHASES = frozenset(
         "rolled-back",
         "resuming",
         "resumed",
+        "aborting",
+        "aborted",
     }
 )
 AUTOPUSH_UNITS = frozenset({"te-autopush.service", "te-autopush.timer"})
@@ -72,6 +74,7 @@ SPECIAL_UNITS = frozenset(
     }
 )
 OPTIONAL_UNITS = frozenset({"massive-options-daily.service", "massive-options-daily.timer"})
+R15_RUNTIME_VERSIONS = {"e1": 8, "forward": 12, "xs": 23}
 RUNTIME_LINKS = {
     ".venv": "python_environment",
     "ui/node_modules": "node_modules",
@@ -186,6 +189,8 @@ class ReleaseState:
     original_sha: str
     adapter_set: str
     d0: str | None
+    source_branch: str = "main"
+    source_upstream: str = "origin/main"
     prepared: dict[str, Any] = field(default_factory=dict)
     inventory: dict[str, Any] = field(default_factory=dict)
     backup: dict[str, Any] = field(default_factory=dict)
@@ -214,6 +219,8 @@ class ReleaseState:
             "database": str,
             "approved_sha": str,
             "original_sha": str,
+            "source_branch": str,
+            "source_upstream": str,
             "adapter_set": str,
         }
         if any(type(getattr(state, key)) is not kind for key, kind in scalar_types.items()):
@@ -226,6 +233,8 @@ class ReleaseState:
             raise DeployError("release state d0 has the wrong type")
         if state.adapter_set not in ADAPTERS:
             raise DeployError("release state names an unknown adapter set")
+        if state.source_branch != "main" or state.source_upstream != "origin/main":
+            raise DeployError("release state has an invalid branch or upstream")
         for value in (
             state.prepared,
             state.inventory,
@@ -294,6 +303,16 @@ class ReceiptJournal:
         return self.directory / f"{step}.json"
 
     def completed(self, step: str) -> dict[str, Any] | None:
+        receipt = self.read(step)
+        if (
+            receipt is None
+            or receipt.get("status") != "complete"
+            or not isinstance(receipt.get("result"), dict)
+        ):
+            return None
+        return receipt
+
+    def read(self, step: str) -> dict[str, Any] | None:
         path = self._path(step)
         if not path.exists():
             return None
@@ -303,8 +322,7 @@ class ReceiptJournal:
             receipt.get("schema_version") != RECEIPT_SCHEMA_VERSION
             or receipt.get("step") != step
             or receipt.get("transaction_id") != transaction_id
-            or receipt.get("status") != "complete"
-            or not isinstance(receipt.get("result"), dict)
+            or receipt.get("status") not in {"running", "failed", "complete"}
         ):
             return None
         return receipt
@@ -314,6 +332,7 @@ class ReceiptJournal:
         step: str,
         inputs: dict[str, Any],
         action: Callable[[], dict[str, Any] | None],
+        reconcile: Callable[[], dict[str, Any] | None] | None = None,
     ) -> dict[str, Any]:
         path = self._path(step)
         transaction_id = _regular_json(self.directory.parent / "state.json").get("transaction_id")
@@ -326,6 +345,21 @@ class ReceiptJournal:
                 raise DeployError(f"receipt inputs changed for {step}")
             if prior.get("status") == "complete" and isinstance(prior.get("result"), dict):
                 return prior["result"]
+            if reconcile is not None:
+                recovered = reconcile()
+                if recovered is not None:
+                    if not isinstance(recovered, dict):
+                        raise DeployError(f"step {step} reconciliation returned a non-object")
+                    completed = {
+                        **prior,
+                        "status": "complete",
+                        "completed_at": _utc_now(),
+                        "result": recovered,
+                        "error": None,
+                        "reconciled": True,
+                    }
+                    _atomic_json(path, completed)
+                    return recovered
         started = {
             "schema_version": RECEIPT_SCHEMA_VERSION,
             "step": step,
@@ -511,6 +545,28 @@ class ReleaseOperations:
             raise DeployError("Git returned an invalid HEAD")
         return value
 
+    def _branch(self, root: Path) -> str:
+        result = self.runner.run(
+            [self._tool("git"), "symbolic-ref", "--quiet", "--short", "HEAD"],
+            cwd=root,
+            check=False,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    def _upstream(self, root: Path) -> str:
+        result = self.runner.run(
+            [
+                self._tool("git"),
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{upstream}",
+            ],
+            cwd=root,
+            check=False,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+
     def _check_workspace(self, state: ReleaseState, copies: int) -> dict[str, int]:
         try:
             database_size = Path(state.database).stat().st_size
@@ -611,6 +667,10 @@ class ReleaseOperations:
         ):
             raise DeployError("strict worktree audit failed")
         self._source_status(repo_root)
+        source_branch = self._branch(repo_root)
+        source_upstream = self._upstream(repo_root)
+        if source_branch != "main" or source_upstream != "origin/main":
+            raise DeployError("release checkout must be main tracking origin/main")
         original_sha = self._head(repo_root)
         self._git(repo_root, "cat-file", "-e", f"{approved_sha}^{{commit}}")
         ancestor = self.runner.run(
@@ -644,6 +704,8 @@ class ReleaseOperations:
         return {
             "original_sha": original_sha,
             "approved_sha": approved_sha,
+            "source_branch": source_branch,
+            "source_upstream": source_upstream,
             "lock_sha256": lock_hashes,
             "tools": tools,
             "adapter_set": adapter_set,
@@ -719,6 +781,23 @@ class ReleaseOperations:
                 cwd=source,
                 env=env,
             )
+        runtime_versions = json.loads(
+            self.runner.run(
+                [
+                    str(python),
+                    "-c",
+                    "import json; from engine import forward_review,xs_forward_review; "
+                    "from farm import experiment_runner; print(json.dumps({"
+                    "'forward_review':forward_review.RUNTIME_CONTRACT_VERSION,"
+                    "'xs_forward_review':xs_forward_review.RUNTIME_CONTRACT_VERSION,"
+                    "'e1_forward':experiment_runner.RUNTIME_CONTRACT_VERSION}))",
+                ],
+                cwd=source,
+                env=env,
+            ).stdout
+        )
+        registration_path = source / "server/p15-registration.json"
+        registration = json.loads(registration_path.read_text())
         versions = {
             "python": self.runner.run([str(python), "--version"]).stdout.strip(),
             "node": self.runner.run(
@@ -737,6 +816,12 @@ class ReleaseOperations:
                 name: "optional" if name in OPTIONAL_UNITS else "required"
                 for name in sorted(install_automation.UNIT_SOURCES)
             },
+            "semantic": {
+                "registration_revision": registration["registration_revision"],
+                "registration_source_commit": registration["code_identity"]["source_commit"],
+                "registration_sha256": _sha256(registration_path),
+                "runtime_versions": runtime_versions,
+            },
             "release_manifest_sha256": manifest["manifest_sha256"],
             "release_tool_sha256": _sha256(source / "tools/release_deploy.py"),
             "versions": versions,
@@ -752,6 +837,16 @@ class ReleaseOperations:
         migrations = state.prepared.get("migrations")
         if migrations != [asdict(item) for item in ADAPTERS.get(state.adapter_set, ())]:
             raise DeployError("unknown or changed migration registry")
+
+    def validate_reconciled_source(self, state: ReleaseState, reconciled_sha: str) -> None:
+        root = Path(state.repo_root)
+        if self._head(root) != reconciled_sha:
+            raise DeployError("current source does not match the reconciled SHA")
+        if self._branch(root) != state.source_branch:
+            raise DeployError("reconciled source is not on the saved release branch")
+        if self._upstream(root) != state.source_upstream:
+            raise DeployError("reconciled source does not track the saved upstream")
+        self._source_status(root)
 
     def validate_recovery_tools(self, state: ReleaseState) -> None:
         tools = state.prepared["tools"]
@@ -832,7 +927,7 @@ class ReleaseOperations:
         result = self.runner.run([self.runner.host("crontab"), "-l"], check=False, timeout=30)
         if result.returncode == 0:
             return {"present": True, "content": result.stdout}
-        if result.returncode == 1:
+        if result.returncode == 1 and result.stderr.lower().startswith("no crontab for "):
             return {"present": False, "content": ""}
         raise DeployError("installed crontab is unreadable")
 
@@ -847,6 +942,44 @@ class ReleaseOperations:
         shutil.copy2(path, destination, follow_symlinks=False)
         return {"kind": "file", "saved": str(destination), "sha256": _sha256(destination)}
 
+    def _tree_manifest(self, root: Path) -> dict[str, Any]:
+        entries: dict[str, dict[str, Any]] = {}
+        if root.exists():
+            for path in sorted(root.rglob("*")):
+                relative = path.relative_to(root).as_posix()
+                if path.is_symlink():
+                    entries[relative] = {"kind": "symlink", "target": os.readlink(path)}
+                elif path.is_file() and not path.name.endswith(".lock"):
+                    entries[relative] = {
+                        "kind": "file",
+                        "size_bytes": path.stat().st_size,
+                        "sha256": _sha256(path),
+                    }
+                elif not path.is_dir():
+                    raise DeployError(f"artifact tree contains an unsupported node: {relative}")
+        return {"schema_version": 1, "entries": entries, "sha256": _digest(entries)}
+
+    def _verified_tree_manifest(self, root: Path, expected: dict[str, Any]) -> None:
+        if self._tree_manifest(root) != expected:
+            raise DeployError(f"artifact tree identity mismatch: {root.name}")
+
+    def _artifact_manifest(self, root: Path) -> dict[str, Any]:
+        entries = {}
+        for name in ("data", "logs"):
+            subtree = self._tree_manifest(root / name)
+            entries.update({f"{name}/{path}": value for path, value in subtree["entries"].items()})
+        for relative in backup_database.OPTIONAL_OPERATIONAL_CONTROL_FILES:
+            path = root / relative
+            if path.is_symlink():
+                entries[relative] = {"kind": "symlink", "target": os.readlink(path)}
+            elif path.is_file():
+                entries[relative] = {
+                    "kind": "file",
+                    "size_bytes": path.stat().st_size,
+                    "sha256": _sha256(path),
+                }
+        return {"schema_version": 1, "entries": entries, "sha256": _digest(entries)}
+
     def capture_inventory(self, state: ReleaseState) -> dict[str, Any]:
         root = Path(state.repo_root)
         names = self._unit_names()
@@ -860,15 +993,6 @@ class ReleaseOperations:
             for name in sorted(names)
         }
         artifacts = self.store.directory / "inventory" / "artifacts"
-        for name in ("data", "logs"):
-            source = root / name
-            if source.is_dir():
-                shutil.copytree(
-                    source,
-                    artifacts / name,
-                    ignore=shutil.ignore_patterns("*.lock"),
-                    dirs_exist_ok=True,
-                )
         try:
             predeploy_meta = self.request_json(f"{self.api_url}/meta")[0]
         except DeployError as exc:
@@ -876,15 +1000,72 @@ class ReleaseOperations:
         processes = self.runner.run(
             [self.runner.host("ps"), "-eo", "pid=,ppid=,args="], timeout=30
         ).stdout
+        registration_path = root / "server/p15-registration.json"
+        registration = json.loads(registration_path.read_text())
         return {
             "captured_at": _utc_now(),
             "units": units,
             "unit_files": unit_files,
             "crontab": cron,
             "predeploy_meta": predeploy_meta,
+            "registration": {
+                "registration_revision": registration["registration_revision"],
+                "registration_source_commit": registration["code_identity"]["source_commit"],
+                "registration_sha256": _sha256(registration_path),
+            },
             "processes_sha256": hashlib.sha256(processes.encode()).hexdigest(),
             "artifacts": str(artifacts),
         }
+
+    def capture_artifacts(self, state: ReleaseState) -> dict[str, Any]:
+        root = Path(state.repo_root)
+        artifacts = Path(state.inventory["artifacts"])
+        manifest_path = self.store.directory / "inventory/artifacts.json"
+        if artifacts.exists():
+            manifest = self._artifact_manifest(artifacts)
+            if manifest_path.exists() and _regular_json(manifest_path) != manifest:
+                raise DeployError("captured artifact image changed")
+            if not manifest_path.exists():
+                _atomic_json(manifest_path, manifest)
+            return manifest
+        temporary = artifacts.with_name("artifacts.partial")
+        if temporary.exists():
+            shutil.rmtree(temporary)
+        temporary.mkdir(mode=0o700, parents=True)
+        for name in ("data", "logs"):
+            source = root / name
+            if source.is_dir():
+                shutil.copytree(
+                    source,
+                    temporary / name,
+                    ignore=shutil.ignore_patterns("*.lock"),
+                    symlinks=True,
+                )
+        for relative in backup_database.OPTIONAL_OPERATIONAL_CONTROL_FILES:
+            source = root / relative
+            target = temporary / relative
+            if source.is_symlink():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.symlink(os.readlink(source), target)
+            elif source.is_file():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+        os.replace(temporary, artifacts)
+        manifest = self._artifact_manifest(artifacts)
+        _atomic_json(manifest_path, manifest)
+        return manifest
+
+    def reconcile_artifacts(self, state: ReleaseState) -> dict[str, Any] | None:
+        artifacts = Path(state.inventory["artifacts"])
+        if not artifacts.is_dir():
+            return None
+        manifest = self._artifact_manifest(artifacts)
+        manifest_path = self.store.directory / "inventory/artifacts.json"
+        if manifest_path.exists() and _regular_json(manifest_path) != manifest:
+            raise DeployError("captured artifact image changed")
+        if not manifest_path.exists():
+            _atomic_json(manifest_path, manifest)
+        return manifest
 
     def _stop_units(self, names: set[str]) -> None:
         timers = sorted(name for name in names if name.endswith(".timer"))
@@ -928,11 +1109,19 @@ class ReleaseOperations:
         loaded = {
             name for name, values in properties.items() if values.get("LoadState") != "not-found"
         }
+        saved_cron = state.inventory["crontab"]
         cron = self._read_crontab()
+        if not saved_cron["present"] and cron["present"] and not state.automation:
+            raise DeployError("crontab appeared after inventory capture")
+        if saved_cron["present"] and cron["present"] and not state.automation:
+            if cron["content"] != saved_cron["content"]:
+                raise DeployError("crontab changed after inventory capture")
         if cron["present"]:
             result = self.runner.run([self.runner.host("crontab"), "-r"], check=False, timeout=30)
-            if result.returncode not in {0, 1}:
+            if result.returncode != 0:
                 raise DeployError("failed to remove the installed crontab")
+            if self._read_crontab()["present"]:
+                raise DeployError("installed crontab survived removal")
         self._stop_units(loaded)
         for name in sorted(loaded):
             values = self._unit_properties(name)
@@ -947,7 +1136,7 @@ class ReleaseOperations:
         surviving = self._surviving_producers(Path(state.repo_root))
         if surviving:
             raise DeployError(f"producer process survived quiescence: {surviving[0]}")
-        return {"units_stopped": sorted(names), "crontab_removed": cron["present"]}
+        return {"units_stopped": sorted(loaded), "crontab_removed": cron["present"]}
 
     @contextmanager
     def producer_locks(self, state: ReleaseState) -> Iterator[frozenset[str]]:
@@ -1010,6 +1199,7 @@ print(json.dumps({'registration_revision': registration, 'cost_breaks': [[str(a)
     def switch_source(self, state: ReleaseState) -> dict[str, Any]:
         root = Path(state.repo_root)
         if self._head(root) == state.approved_sha:
+            self._overlay_artifacts(state)
             return {"git_sha": state.approved_sha, "idempotent": True}
         self.validate_state_source(state, state.original_sha)
         if (root / "data").exists():
@@ -1021,37 +1211,48 @@ print(json.dumps({'registration_revision': registration, 'cost_breaks': [[str(a)
         )
         if self._head(root) != state.approved_sha:
             raise DeployError("source switch did not select the approved SHA")
+        self._overlay_artifacts(state)
+        return {"git_sha": state.approved_sha, "idempotent": False}
+
+    def _overlay_artifacts(self, state: ReleaseState) -> None:
+        root = Path(state.repo_root)
         artifacts = Path(state.inventory["artifacts"])
         for name in ("data", "logs"):
             saved = artifacts / name
             if saved.is_dir():
                 shutil.copytree(saved, root / name, dirs_exist_ok=True)
-        return {"git_sha": state.approved_sha, "idempotent": False}
+
+    def reconcile_source_switch(self, state: ReleaseState) -> dict[str, Any] | None:
+        if self._head(Path(state.repo_root)) != state.approved_sha:
+            return None
+        self.validate_state_source(state, state.approved_sha)
+        self._overlay_artifacts(state)
+        return {"git_sha": state.approved_sha, "reconciled": True}
+
+    def _prior_runtime_identity(self, live: Path, saved: Path) -> dict[str, Any]:
+        identity = saved / "identity.json"
+        if saved.exists():
+            if not identity.exists():
+                raise DeployError(f"prior runtime capture is incomplete: {live}")
+            return _regular_json(identity)
+        saved.mkdir(mode=0o700, parents=True)
+        if live.is_symlink():
+            prior = {"kind": "symlink", "target": os.readlink(live)}
+        elif not live.exists():
+            prior = {"kind": "absent"}
+        elif live.is_dir():
+            prior = {"kind": "directory", "saved": str(saved / "directory")}
+        else:
+            raise DeployError(f"runtime selection target has an unsupported type: {live}")
+        _atomic_json(identity, prior)
+        return prior
 
     def _select_runtime(self, live: Path, prepared: Path, saved: Path) -> dict[str, Any]:
         if not prepared.is_dir():
             raise DeployError(f"prepared runtime is missing: {prepared}")
+        prior = self._prior_runtime_identity(live, saved)
         if live.is_symlink() and Path(os.path.realpath(live)) == prepared.resolve():
-            prior_path = saved / "identity.json"
-            if not prior_path.exists():
-                raise DeployError("selected runtime lacks its saved prior identity")
-            return _regular_json(prior_path)
-        if saved.exists():
-            identity = saved / "identity.json"
-            if not identity.exists():
-                raise DeployError(f"prior runtime capture is incomplete: {live}")
-            prior = _regular_json(identity)
-        else:
-            saved.mkdir(mode=0o700, parents=True)
-            if live.is_symlink():
-                prior = {"kind": "symlink", "target": os.readlink(live)}
-            elif not live.exists():
-                prior = {"kind": "absent"}
-            elif live.is_dir():
-                prior = {"kind": "directory", "saved": str(saved / "directory")}
-            else:
-                raise DeployError(f"runtime selection target has an unsupported type: {live}")
-            _atomic_json(saved / "identity.json", prior)
+            return prior
         if live.is_symlink():
             if prior["kind"] == "symlink" and os.readlink(live) != prior["target"]:
                 raise DeployError(f"runtime changed during selection: {live}")
@@ -1063,8 +1264,10 @@ print(json.dumps({'registration_revision': registration, 'cost_breaks': [[str(a)
                 os.replace(live, Path(prior["saved"]))
             except OSError as exc:
                 raise DeployError(f"cannot atomically save prior runtime {live}: {exc}") from exc
-        elif os.path.lexists(live) or prior["kind"] not in {"absent", "directory"}:
+        elif os.path.lexists(live) or prior["kind"] not in {"absent", "directory", "symlink"}:
             raise DeployError(f"runtime changed during selection: {live}")
+        if prior["kind"] == "directory" and not Path(prior["saved"]).is_dir():
+            raise DeployError(f"saved prior runtime is unavailable: {live}")
         live.parent.mkdir(parents=True, exist_ok=True)
         temporary = live.parent / f".{live.name}.release-{secrets.token_hex(6)}"
         os.symlink(prepared, temporary)
@@ -1077,12 +1280,40 @@ print(json.dumps({'registration_revision': registration, 'cost_breaks': [[str(a)
         result = {}
         for relative, key in RUNTIME_LINKS.items():
             name = relative.replace("/", "--").lstrip(".")
-            result[relative] = self._select_runtime(
-                root / relative, Path(state.prepared[key]), saved_root / name
-            )
+            live = root / relative
+            saved = saved_root / name
+            state.prior_runtimes[relative] = self._prior_runtime_identity(live, saved)
+            self.store.save(state)
+            result[relative] = self._select_runtime(live, Path(state.prepared[key]), saved)
             state.prior_runtimes[relative] = result[relative]
             self.store.save(state)
         return result
+
+    def reconcile_runtime_switch(self, state: ReleaseState) -> dict[str, Any] | None:
+        root = Path(state.repo_root)
+        saved_root = self.store.directory / "inventory/runtimes"
+        result = {}
+        for relative, key in RUNTIME_LINKS.items():
+            identity = saved_root / relative.replace("/", "--").lstrip(".") / "identity.json"
+            live = root / relative
+            if not identity.exists() or not live.is_symlink():
+                return None
+            if Path(os.path.realpath(live)) != Path(state.prepared[key]).resolve():
+                return None
+            result[relative] = _regular_json(identity)
+        state.prior_runtimes = result
+        self.store.save(state)
+        return result
+
+    def _hydrate_prior_runtimes(self, state: ReleaseState) -> None:
+        saved_root = self.store.directory / "inventory/runtimes"
+        for relative in RUNTIME_LINKS:
+            if relative in state.prior_runtimes:
+                continue
+            identity = saved_root / relative.replace("/", "--").lstrip(".") / "identity.json"
+            if identity.exists():
+                state.prior_runtimes[relative] = _regular_json(identity)
+        self.store.save(state)
 
     def _python_json(
         self,
@@ -1133,6 +1364,7 @@ from engine.lib import db
 from engine.price_quarantine import cleanup_hard_invalid_prices
 with db.connect(Path(__import__('os').environ['TRADING_ENGINE_DB'])) as con:
  report=cleanup_hard_invalid_prices(con)
+ report['reject_rows_before']=con.execute('SELECT COUNT(*) FROM price_observation_rejects').fetchone()[0]
 print(json.dumps(report, sort_keys=True))
 """
         return self._python_json(state, code)
@@ -1169,78 +1401,229 @@ from pathlib import Path
 from engine.lib import db
 from engine.price_quarantine import cleanup_hard_invalid_prices
 expected=json.loads(os.environ['RELEASE_MIGRATION_PLAN'])
+expected_report={k:v for k,v in expected.items() if k!='reject_rows_before'}
 with db.connect(Path(os.environ['TRADING_ENGINE_DB'])) as con:
  actual=cleanup_hard_invalid_prices(con)
- assert actual == expected, (actual, expected)
+ assert actual == expected_report, (actual, expected_report)
  applied=cleanup_hard_invalid_prices(con, dry_run=False)
  assert applied['moved'] == expected['invalid_rows'], (applied, expected)
  assert cleanup_hard_invalid_prices(con)['invalid_rows'] == 0
+ applied['reject_rows_before']=expected['reject_rows_before']
+ applied['reject_rows_after']=con.execute('SELECT COUNT(*) FROM price_observation_rejects').fetchone()[0]
+ assert applied['reject_rows_after'] == expected['reject_rows_before'] + expected['invalid_rows']
 print(json.dumps(applied, sort_keys=True))
 """
         return self._python_json(
             state, code, env={"RELEASE_MIGRATION_PLAN": json.dumps(plan, sort_keys=True)}
         )
 
-    def install_automation(self, state: ReleaseState) -> dict[str, Any]:
+    def migration_intent(
+        self, state: ReleaseState, migration: Migration, plan: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        path = self.store.directory / "migration-intents" / f"{migration.migration_id}.json"
+        if path.exists():
+            return _regular_json(path)
         root = Path(state.repo_root)
-        command = [
-            state.prepared["python_environment"] + "/bin/python",
-            "-m",
-            "tools.install_automation",
-            "--repo-root",
-            str(root),
-            "--home",
-            str(self.home),
-        ]
+        migration_id = migration.migration_id
+        if migration_id == "r15-price-cleanup":
+            intent = {"plan_sha256": _digest(plan)}
+        elif migration_id == "r15-agent-evaluation-report":
+            output = root / "data/reports/agent-evaluation.json"
+            intent = {"output_sha256_before": _sha256(output) if output.is_file() else None}
+        elif migration_id.startswith("r15-e1-"):
+            output = root / "data/reports/experiments/e1-spy-monday-forward.json"
+            intent = {"output_sha256_before": _sha256(output) if output.is_file() else None}
+        elif migration_id.startswith("r15-forward-"):
+            output = root / "data/reports/forward/sector_momentum.json"
+            intent = {"output_sha256_before": _sha256(output) if output.is_file() else None}
+        elif migration_id.startswith("r15-xs-"):
+            output = root / "data/reports/forward/xs_momentum_12_1.json"
+            intent = {"output_sha256_before": _sha256(output) if output.is_file() else None}
+        else:
+            raise DeployError(f"unknown migration: {migration_id}")
+        _atomic_json(path, intent)
+        return intent
 
-        def invoke(mode: str) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
-            result = self.runner.run(
-                [*command, mode],
-                cwd=root,
-                env={"PYTHONPATH": str(root)},
-                timeout=900,
-                check=False,
-            )
+    def reconcile_migration(
+        self,
+        state: ReleaseState,
+        migration: Migration,
+        plan: dict[str, Any] | None,
+        intent: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        root = Path(state.repo_root)
+        migration_id = migration.migration_id
+        if migration_id == "r15-price-cleanup":
+            if plan is None:
+                return None
+            if intent.get("plan_sha256") != _digest(plan):
+                raise DeployError("price cleanup intent changed")
+            current = self.plan_migration(state, migration)
+            expected_rejects = plan["reject_rows_before"] + plan["invalid_rows"]
+            if current["invalid_rows"] != 0 or current["reject_rows_before"] != expected_rejects:
+                return None
+            return {
+                "reconciled": True,
+                "moved": plan["invalid_rows"],
+                "reject_rows_after": expected_rejects,
+            }
+        if migration_id == "r15-agent-evaluation-report":
+            path = root / "data/reports/agent-evaluation.json"
             try:
-                summary = json.loads(result.stdout)
-            except ValueError as exc:
-                raise DeployError("automation installer returned invalid JSON") from exc
-            if not isinstance(summary, dict):
-                raise DeployError("automation installer returned a non-object")
-            return result, summary
+                payload = json.loads(path.read_text())
+            except (OSError, ValueError):
+                return None
+            required = {"cohorts", "coverage", "data_provenance", "generated_at"}
+            if not isinstance(payload, dict) or not required <= set(payload):
+                return None
+            if intent.get("output_sha256_before") == _sha256(path):
+                return None
+            return {"reconciled": True, "output_sha256": _sha256(path)}
+        if migration_id.startswith("r15-e1-"):
+            path = root / "data/reports/experiments/e1-spy-monday-forward.json"
+            expected = R15_RUNTIME_VERSIONS["e1"]
+            nested = False
+        elif migration_id.startswith("r15-forward-"):
+            path = root / "data/reports/forward/sector_momentum.json"
+            expected = R15_RUNTIME_VERSIONS["forward"]
+            nested = True
+        elif migration_id.startswith("r15-xs-"):
+            path = root / "data/reports/forward/xs_momentum_12_1.json"
+            expected = R15_RUNTIME_VERSIONS["xs"]
+            nested = True
+        else:
+            raise DeployError(f"unknown migration: {migration_id}")
+        try:
+            payload = json.loads(path.read_text())
+            runtime = payload["frozen_runtime"] if nested else payload
+        except (OSError, KeyError, TypeError, ValueError):
+            return None
+        if runtime.get("runtime_contract_version") != expected:
+            return None
+        if nested and payload.get("status") not in {
+            "WAITING",
+            "ACCUMULATING",
+            "PASS-FORWARD",
+            "INCONCLUSIVE",
+            "REVIEW-KILL",
+        }:
+            return None
+        if intent.get("output_sha256_before") == _sha256(path):
+            return None
+        return {"reconciled": True, "output_sha256": _sha256(path)}
 
-        _audit_result, before = invoke("--audit")
+    def _automation_invoke(
+        self, state: ReleaseState, mode: str
+    ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
+        root = Path(state.repo_root)
+        result = self.runner.run(
+            [
+                state.prepared["python_environment"] + "/bin/python",
+                "-m",
+                "tools.install_automation",
+                "--repo-root",
+                str(root),
+                "--home",
+                str(self.home),
+                mode,
+            ],
+            cwd=root,
+            env={"PYTHONPATH": str(root)},
+            timeout=900,
+            check=False,
+        )
+        try:
+            summary = json.loads(result.stdout)
+        except ValueError as exc:
+            raise DeployError("automation installer returned invalid JSON") from exc
+        if not isinstance(summary, dict):
+            raise DeployError("automation installer returned a non-object")
+        return result, summary
+
+    def _record_automation_mutations(self, state: ReleaseState) -> dict[str, Any]:
+        root = Path(state.repo_root)
+        changed_files = []
+        enablement = []
+        for name, saved in state.inventory["unit_files"].items():
+            target = self.home / ".config/systemd/user" / name
+            if target.is_symlink():
+                current = {"kind": "symlink", "target": os.readlink(target)}
+            elif target.is_file():
+                current = {"kind": "file", "sha256": _sha256(target)}
+            elif not target.exists():
+                current = {"kind": "absent"}
+            else:
+                raise DeployError(f"installed unit has an unsupported type: {name}")
+            original = {key: saved[key] for key in ("kind", "target", "sha256") if key in saved}
+            if current != original:
+                relative = install_automation.UNIT_SOURCES.get(name)
+                if (
+                    relative is None
+                    or current.get("kind") != "file"
+                    or current.get("sha256") != _sha256(root / relative)
+                ):
+                    raise DeployError(f"unit changed outside the recorded installer plan: {name}")
+                changed_files.append(name)
+            prior = state.inventory["units"][name].get("UnitFileState")
+            observed = self._unit_properties(name).get("UnitFileState")
+            if observed != prior:
+                if name not in install_automation.AUTOSTART_UNITS or observed != "enabled":
+                    raise DeployError(f"unit enablement changed outside installer policy: {name}")
+                enablement.append(name)
+        state.automation.update(
+            {
+                "installed_unit_files": sorted(changed_files),
+                "enablement_units": sorted(enablement),
+            }
+        )
+        self.store.save(state)
+        return state.automation
+
+    def _optional_automation_result(
+        self, state: ReleaseState, summary: dict[str, Any], apply_exit: int
+    ) -> dict[str, Any] | None:
+        changes = summary.get("changes", {})
+        unit_failures = sorted(
+            set(changes.get("service_units", []))
+            | set(changes.get("enable_units", []))
+            | set(changes.get("start_units", []))
+        )
+        if summary.get("errors") or changes.get("crontab") or changes.get("enable_linger"):
+            return None
+        policy = state.prepared["unit_policy"]
+        if any(policy.get(name) != "optional" for name in unit_failures):
+            return None
+        if not unit_failures:
+            return None
+        return {
+            "status": "optional-failures",
+            **state.automation,
+            "optional_failures": unit_failures,
+            "apply_exit": apply_exit,
+            "post_audit_sha256": _digest(summary),
+        }
+
+    def install_automation(self, state: ReleaseState) -> dict[str, Any]:
+        self._record_automation_mutations(state)
+        _audit_result, before = self._automation_invoke(state, "--audit")
         if before.get("status") not in {"ok", "changes-required"} or before.get("errors"):
             reasons = ", ".join(map(str, before.get("errors", []))) or str(
                 before.get("status", "unknown")
             )
             raise DeployError(f"automation installer preflight is invalid: {reasons}")
         changes = before.get("changes", {})
-        candidates = set(changes.get("service_units", []))
-        state.automation = {
-            "planned_unit_files": sorted(candidates),
-            "installed_unit_files": [],
-            "enablement_units": sorted(changes.get("enable_units", [])),
-            "optional_failures": [],
-        }
+        state.automation.update(
+            {
+                "planned_unit_files": sorted(changes.get("service_units", [])),
+                "optional_failures": [],
+            }
+        )
         self.store.save(state)
         try:
-            applied, first = invoke("--apply")
+            applied, first = self._automation_invoke(state, "--apply")
         finally:
-            installed = []
-            for name in sorted(candidates):
-                relative = install_automation.UNIT_SOURCES.get(name)
-                target = self.home / ".config/systemd/user" / name
-                if relative is None or target.is_symlink() or not target.is_file():
-                    continue
-                try:
-                    if target.read_bytes() == (root / relative).read_bytes():
-                        installed.append(name)
-                except OSError:
-                    continue
-            state.automation["installed_unit_files"] = installed
-            self.store.save(state)
-        _post_result, after = invoke("--audit")
+            self._record_automation_mutations(state)
+        _post_result, after = self._automation_invoke(state, "--audit")
         residual = after.get("changes", {})
         unit_failures = sorted(
             set(residual.get("service_units", []))
@@ -1277,10 +1660,66 @@ print(json.dumps(applied, sort_keys=True))
             **state.automation,
         }
 
-    def publish_snapshot(self, state: ReleaseState, held_locks: frozenset[str]) -> dict[str, Any]:
-        return publish_snapshot.publish_snapshot(
-            Path(state.repo_root), Path(state.database), held_locks=held_locks
+    def reconcile_automation(self, state: ReleaseState) -> dict[str, Any] | None:
+        self._record_automation_mutations(state)
+        result, summary = self._automation_invoke(state, "--audit")
+        if result.returncode == 0 and summary.get("status") == "ok":
+            return {"status": "ok", **state.automation, "reconciled": True}
+        return self._optional_automation_result(state, summary, result.returncode)
+
+    def _snapshot_name(self, state: ReleaseState, purpose: str) -> str:
+        instant = datetime.fromisoformat(state.created_at.replace("Z", "+00:00"))
+        if purpose == "rollback":
+            instant += timedelta(microseconds=1)
+        return f"market-{instant.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.duckdb"
+
+    def reconcile_snapshot(self, state: ReleaseState, *, purpose: str) -> dict[str, Any] | None:
+        directory = Path(state.database).parent / "snapshots"
+        name = self._snapshot_name(state, purpose)
+        snapshot = directory / name
+        manifest_path = snapshot.with_suffix(".json")
+        latest = directory / "market-latest.duckdb"
+        present = (
+            os.path.lexists(snapshot),
+            os.path.lexists(manifest_path),
+            os.path.lexists(latest),
         )
+        if not any(present[:2]):
+            return None
+        if (
+            not all(present)
+            or not snapshot.is_file()
+            or not manifest_path.is_file()
+            or not latest.is_symlink()
+        ):
+            raise DeployError(f"{purpose} snapshot identity is incomplete")
+        manifest = _regular_json(manifest_path)
+        if (
+            manifest.get("snapshot") != name
+            or manifest.get("sha256") != _sha256(snapshot)
+            or os.readlink(latest) != name
+        ):
+            raise DeployError(f"{purpose} snapshot identity is incomplete")
+        return manifest
+
+    def publish_snapshot(
+        self, state: ReleaseState, held_locks: frozenset[str], *, purpose: str
+    ) -> dict[str, Any]:
+        reconciled = self.reconcile_snapshot(state, purpose=purpose)
+        if reconciled is not None:
+            return reconciled
+        instant = datetime.fromisoformat(state.created_at.replace("Z", "+00:00"))
+        if purpose == "rollback":
+            instant += timedelta(microseconds=1)
+        result = publish_snapshot.publish_snapshot(
+            Path(state.repo_root),
+            Path(state.database),
+            held_locks=held_locks,
+            now=instant,
+        )
+        if result.get("snapshot") != self._snapshot_name(state, purpose):
+            raise DeployError(f"{purpose} snapshot was not transaction-addressed")
+        return result
 
     def request_json(self, url: str) -> tuple[dict[str, Any], dict[str, str]]:
         try:
@@ -1297,16 +1736,29 @@ print(json.dumps(applied, sort_keys=True))
             raise DeployError(f"semantic request returned a non-object: {url}")
         return payload, headers
 
-    def request_route(self, url: str) -> dict[str, Any]:
+    def request_route(self, url: str, *, marker: str) -> dict[str, Any]:
         try:
             with urllib.request.urlopen(url, timeout=60) as response:
                 body = response.read()
                 status_code = response.status
+                content_type = response.headers.get("Content-Type", "").lower()
         except (OSError, urllib.error.URLError) as exc:
             raise DeployError(f"route request failed for {url}: {exc}") from exc
-        if status_code != 200 or not body:
+        lowered = body.lower()
+        if (
+            status_code != 200
+            or "text/html" not in content_type
+            or b"<html" not in lowered
+            or b"<body" not in lowered
+            or b"</html>" not in lowered
+            or marker.encode() not in lowered
+        ):
             raise DeployError(f"route is not semantically readable: {url}")
-        return {"status": status_code, "body_sha256": hashlib.sha256(body).hexdigest()}
+        return {
+            "status": status_code,
+            "content_type": content_type,
+            "body_sha256": hashlib.sha256(body).hexdigest(),
+        }
 
     def _start_readers(self) -> None:
         self._systemctl(
@@ -1369,20 +1821,23 @@ print(json.dumps(applied, sort_keys=True))
             raise DeployError("running Python does not match the prepared environment")
         return {"status": "selected", "python_prefix": runtime["prefix"]}
 
-    def _adapter_semantics(
+    def _common_semantics(
         self, state: ReleaseState, meta: dict[str, Any], rolled_back: bool
     ) -> dict[str, Any]:
-        if state.adapter_set == "none":
-            return {"adapter_set": "none"}
-        expected_revision = 14 if rolled_back else 15
-        registration = json.loads(
-            (Path(state.repo_root) / "server/p15-registration.json").read_text()
-        )["registration_revision"]
-        if registration != expected_revision:
-            raise DeployError(f"unexpected P15 registration revision: {registration}")
         keys = ("forward_review", "xs_forward_review", "e1_forward")
         if any(meta.get(key, {}).get("status") != "ACCUMULATING" for key in keys):
             raise DeployError("forward evidence is not accumulating")
+        expected = state.inventory["registration"] if rolled_back else state.prepared["semantic"]
+        registration_path = Path(state.repo_root) / "server/p15-registration.json"
+        registration = json.loads(registration_path.read_text())
+        observed_registration = {
+            "registration_revision": registration["registration_revision"],
+            "registration_source_commit": registration["code_identity"]["source_commit"],
+            "registration_sha256": _sha256(registration_path),
+        }
+        for key, value in observed_registration.items():
+            if value != expected[key]:
+                raise DeployError(f"registered release identity mismatch: {key}")
         code = """
 import json
 from datetime import datetime, timezone
@@ -1393,22 +1848,38 @@ from farm import experiment_runner
 from server import agent_evaluation
 with db.connect(Path(__import__('os').environ['TRADING_ENGINE_DB']), read_only=True) as con:
  agent_evaluation.validate_p15_evidence(con, generated_at=datetime.now(timezone.utc))
- breaks=con.execute("SELECT DISTINCT registration_revision FROM sim_book_breaks WHERE kind='cost_profile'").fetchall()
-assert breaks == [(14,)], breaks
-print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
- xs_forward_review.RUNTIME_CONTRACT_VERSION, experiment_runner.RUNTIME_CONTRACT_VERSION]}))
+print(json.dumps({'versions': {'forward_review': forward_review.RUNTIME_CONTRACT_VERSION,
+ 'xs_forward_review': xs_forward_review.RUNTIME_CONTRACT_VERSION,
+ 'e1_forward': experiment_runner.RUNTIME_CONTRACT_VERSION}, 'evidence': 'valid'}))
 """
         python = Path(state.repo_root) / ".venv/bin/python" if rolled_back else None
         checked = self._python_json(state, code, python=python)
-        observed = [meta[key].get("runtime_contract_version") for key in keys]
-        if observed != checked["versions"]:
+        observed = {key: meta[key].get("runtime_contract_version") for key in keys}
+        expected_versions = (
+            {
+                key: state.inventory["predeploy_meta"][key]["runtime_contract_version"]
+                for key in keys
+            }
+            if rolled_back
+            else expected["runtime_versions"]
+        )
+        if observed != checked["versions"] or observed != expected_versions:
             raise DeployError("runtime contract versions do not match the semantic API")
-        if rolled_back:
-            saved = state.inventory.get("predeploy_meta", {})
-            saved_versions = [saved.get(key, {}).get("runtime_contract_version") for key in keys]
-            if observed != saved_versions:
-                raise DeployError("rollback did not restore predeploy runtime versions")
-        return {"registration_revision": registration, "runtime_versions": observed}
+        return {**observed_registration, "runtime_versions": observed, "evidence": "valid"}
+
+    def _adapter_semantics(self, state: ReleaseState, rolled_back: bool) -> dict[str, Any]:
+        if state.adapter_set == "none" or rolled_back:
+            return {"adapter_set": state.adapter_set}
+        code = """
+import json
+from pathlib import Path
+from engine.lib import db
+with db.connect(Path(__import__('os').environ['TRADING_ENGINE_DB']), read_only=True) as con:
+ rows=con.execute("SELECT DISTINCT registration_revision FROM sim_book_breaks WHERE kind='cost_profile'").fetchall()
+assert rows == [(14,)], rows
+print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
+"""
+        return {"adapter_set": state.adapter_set, **self._python_json(state, code)}
 
     def _forced_snapshot(self, state: ReleaseState, *, rolled_back: bool) -> dict[str, Any]:
         code = (
@@ -1448,17 +1919,23 @@ print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
         health, _health_headers = self._wait_health()
         meta, _headers = self.request_json(f"{self.api_url}/meta")
         routes = {
-            path: self.request_route(f"{self.ui_url}{path}")
-            for path in ("/", "/positions", "/league")
+            path: self.request_route(f"{self.ui_url}{path}", marker=marker)
+            for path, marker in (
+                ("/", "dashboard"),
+                ("/positions", "position"),
+                ("/league", "league"),
+            )
         }
         runtime = self._verify_runtime(state, rolled_back)
-        adapter = self._adapter_semantics(state, meta, rolled_back)
+        common = self._common_semantics(state, meta, rolled_back)
+        adapter = self._adapter_semantics(state, rolled_back)
         forced = self._forced_snapshot(state, rolled_back=rolled_back)
         return {
             "health": health,
             "meta_sha256": _digest(meta),
             "routes": routes,
             "runtime": runtime,
+            "common": common,
             "adapter": adapter,
             "forced_snapshot": forced,
         }
@@ -1536,8 +2013,13 @@ print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
         self._check_workspace(state, copies=2)
         incident = self.store.directory / "incident"
         if incident.exists():
-            raise DeployError("incident directory already exists without a completed receipt")
+            reconciled = self.reconcile_incident(state)
+            if reconciled is None:  # pragma: no cover - guarded by exists()
+                raise DeployError("incident directory could not be reconciled")
+            return reconciled
         temporary = self.store.directory / "incident.partial"
+        if temporary.exists():
+            shutil.rmtree(temporary)
         temporary.mkdir(mode=0o700, exist_ok=True)
         database = Path(state.database)
         shutil.copy2(database, temporary / database.name)
@@ -1552,6 +2034,7 @@ print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
                     temporary / name,
                     ignore=shutil.ignore_patterns("*.lock"),
                     dirs_exist_ok=True,
+                    symlinks=True,
                 )
         snapshots = database.parent / "snapshots"
         if snapshots.is_dir():
@@ -1562,10 +2045,34 @@ print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
                 dirs_exist_ok=True,
             )
         os.replace(temporary, incident)
-        return {
+        result = {
             "path": str(incident),
             "database_sha256": _sha256(incident / database.name),
+            "tree": self._tree_manifest(incident),
         }
+        _atomic_json(self.store.directory / "incident.json", result)
+        return result
+
+    def reconcile_incident(self, _state: ReleaseState) -> dict[str, Any] | None:
+        incident = self.store.directory / "incident"
+        if not incident.is_dir():
+            return None
+        databases = sorted(
+            path for path in incident.iterdir() if path.is_file() and path.name.endswith(".duckdb")
+        )
+        if len(databases) != 1:
+            raise DeployError("existing incident has no unique database image")
+        result = {
+            "path": str(incident),
+            "database_sha256": _sha256(databases[0]),
+            "tree": self._tree_manifest(incident),
+        }
+        manifest_path = self.store.directory / "incident.json"
+        if manifest_path.exists() and _regular_json(manifest_path) != result:
+            raise DeployError("existing incident identity changed")
+        if not manifest_path.exists():
+            _atomic_json(manifest_path, result)
+        return result
 
     def restore_source(self, state: ReleaseState) -> dict[str, Any]:
         root = Path(state.repo_root)
@@ -1578,14 +2085,55 @@ print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
             self.runner.run(
                 [self._tool("git"), "checkout", "--detach", state.original_sha], cwd=root
             )
-        artifacts = Path(state.inventory["artifacts"])
-        for name in ("data", "logs"):
-            saved = artifacts / name
-            if saved.is_dir():
-                shutil.copytree(saved, root / name, dirs_exist_ok=True)
         return {"git_sha": self._head(root)}
 
+    def restore_artifacts(self, state: ReleaseState) -> dict[str, Any]:
+        root = Path(state.repo_root)
+        saved_root = Path(state.inventory["artifacts"])
+        expected = state.inventory.get("artifact_manifest")
+        if not isinstance(expected, dict):
+            expected = _regular_json(self.store.directory / "inventory/artifacts.json")
+        self._verified_tree_manifest(saved_root, expected)
+        current = self._artifact_manifest(root)
+        extras = sorted(set(current["entries"]) - set(expected["entries"]))
+        for relative in sorted(current["entries"], reverse=True):
+            target = root / relative
+            if target.is_file() or target.is_symlink():
+                target.unlink()
+        for name in ("data", "logs"):
+            tree = root / name
+            if tree.is_symlink() or (tree.exists() and not tree.is_dir()):
+                raise DeployError(f"artifact root is unsafe: {name}")
+            tree.mkdir(parents=True, exist_ok=True)
+            for directory, _children, _files in os.walk(tree, topdown=False):
+                path = Path(directory)
+                if path != tree:
+                    try:
+                        path.rmdir()
+                    except OSError:
+                        pass
+        for relative, identity in expected["entries"].items():
+            source = saved_root / relative
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if identity["kind"] == "symlink":
+                os.symlink(identity["target"], target)
+            else:
+                shutil.copy2(source, target)
+        if self._artifact_manifest(root) != expected:
+            raise DeployError("restored artifact tree identity mismatch")
+        return {"restored_sha256": expected["sha256"], "quarantined_extra_paths": extras}
+
+    def verify_artifacts(self, state: ReleaseState) -> dict[str, Any]:
+        expected = state.inventory.get("artifact_manifest")
+        if not isinstance(expected, dict):
+            expected = _regular_json(self.store.directory / "inventory/artifacts.json")
+        if self._artifact_manifest(Path(state.repo_root)) != expected:
+            raise DeployError("restored artifact tree identity changed")
+        return {"sha256": expected["sha256"]}
+
     def restore_runtimes(self, state: ReleaseState) -> dict[str, Any]:
+        self._hydrate_prior_runtimes(state)
         root = Path(state.repo_root)
         for relative, prior in state.prior_runtimes.items():
             live = root / relative
@@ -1731,6 +2279,7 @@ class ReleaseDeployment:
             "lock_sha256",
             "tools",
             "unit_policy",
+            "semantic",
             "release_manifest_sha256",
             "release_tool_sha256",
             "versions",
@@ -1745,6 +2294,24 @@ class ReleaseDeployment:
             or any(value not in {"required", "optional"} for value in policy.values())
         ):
             raise DeployError("prepared unit policy is invalid")
+        semantic = state.prepared["semantic"]
+        if (
+            not isinstance(semantic, dict)
+            or set(semantic)
+            != {
+                "registration_revision",
+                "registration_source_commit",
+                "registration_sha256",
+                "runtime_versions",
+            }
+            or type(semantic["registration_revision"]) is not int
+            or not FULL_SHA.fullmatch(semantic["registration_source_commit"])
+            or not SHA256.fullmatch(semantic["registration_sha256"])
+            or set(semantic["runtime_versions"])
+            != {"forward_review", "xs_forward_review", "e1_forward"}
+            or any(type(value) is not int for value in semantic["runtime_versions"].values())
+        ):
+            raise DeployError("prepared semantic contract is invalid")
         locks = state.prepared["lock_sha256"]
         if not isinstance(locks, dict) or set(locks) != {"uv.lock", "ui/package-lock.json"}:
             raise DeployError("prepared dependency identity is incomplete")
@@ -1813,6 +2380,8 @@ class ReleaseDeployment:
             database=str(database.resolve()),
             approved_sha=approved_sha,
             original_sha=preflight["original_sha"],
+            source_branch=preflight["source_branch"],
+            source_upstream=preflight["source_upstream"],
             adapter_set=adapter_set,
             d0=d0,
         )
@@ -1854,6 +2423,7 @@ class ReleaseDeployment:
             "quiesce",
             "predeploy-adapter-check",
             "create-backup",
+            "capture-artifacts",
             "source-switch",
             "runtime-switch",
             *[f"migration-{item.migration_id}" for item in ADAPTERS[state.adapter_set]],
@@ -1870,9 +2440,16 @@ class ReleaseDeployment:
             "awaiting-optional-units",
         }:
             raise DeployError(f"apply is not allowed from phase {state.phase}")
-        expected = (
-            state.approved_sha if self.journal.completed("source-switch") else state.original_sha
-        )
+        source_receipt = self.journal.read("source-switch")
+        if source_receipt is None:
+            expected = state.original_sha
+        elif source_receipt.get("status") == "complete":
+            expected = state.approved_sha
+        else:
+            current = self.operations._head(Path(state.repo_root))
+            if current not in {state.original_sha, state.approved_sha}:
+                raise DeployError("release checkout source changed during source-switch")
+            expected = current
         self.operations.validate_state_source(state, expected)
         state.phase = "applying"
         self.store.save(state)
@@ -1883,11 +2460,14 @@ class ReleaseDeployment:
                 lambda: self.operations.capture_inventory(state),
             )
             self.store.save(state)
-            self.journal.run(
-                "quiesce",
-                {"inventory": _digest(state.inventory)},
-                lambda: self.operations.quiesce(state),
-            )
+            if self.journal.completed("quiesce") is None:
+                self.journal.run(
+                    "quiesce",
+                    {"inventory": _digest(state.inventory)},
+                    lambda: self.operations.quiesce(state),
+                )
+            else:
+                self.operations.quiesce(state)
             self.journal.run(
                 "predeploy-adapter-check",
                 {"adapter_set": state.adapter_set, "d0": state.d0},
@@ -1900,16 +2480,25 @@ class ReleaseDeployment:
             )
             self.store.save(state)
             with self.operations.producer_locks(state) as held_locks:
+                state.inventory["artifact_manifest"] = self.journal.run(
+                    "capture-artifacts",
+                    {"original_sha": state.original_sha},
+                    lambda: self.operations.capture_artifacts(state),
+                    reconcile=lambda: self.operations.reconcile_artifacts(state),
+                )
+                self.store.save(state)
                 self.journal.run(
                     "source-switch",
                     {"from": state.original_sha, "to": state.approved_sha},
                     lambda: self.operations.switch_source(state),
+                    reconcile=lambda: self.operations.reconcile_source_switch(state),
                 )
                 self._fault("source-switch")
                 state.prior_runtimes = self.journal.run(
                     "runtime-switch",
                     {"approved_sha": state.approved_sha, "locks": state.prepared["lock_sha256"]},
                     lambda: self.operations.switch_runtimes(state),
+                    reconcile=lambda: self.operations.reconcile_runtime_switch(state),
                 )
                 self.store.save(state)
                 self._fault("runtime-switch")
@@ -1936,15 +2525,20 @@ class ReleaseDeployment:
                             state.phase = "awaiting-migration-approval"
                             self.store.save(state)
                             raise ApprovalRequired(digest, migration.migration_id, plan)
+                    intent = self.operations.migration_intent(state, migration, plan)
                     self.journal.run(
                         step,
                         {
                             "migration": asdict(migration),
                             "approved_sha": state.approved_sha,
                             "plan": plan,
+                            "intent": intent,
                         },
                         lambda migration=migration, plan=plan: self.operations.apply_migration(
                             state, migration, plan
+                        ),
+                        reconcile=lambda migration=migration, plan=plan, intent=intent: (
+                            self.operations.reconcile_migration(state, migration, plan, intent)
                         ),
                     )
                     self._fault(step)
@@ -1952,6 +2546,7 @@ class ReleaseDeployment:
                     "install-automation",
                     {"approved_sha": state.approved_sha},
                     lambda: self.operations.install_automation(state),
+                    reconcile=lambda: self.operations.reconcile_automation(state),
                 )
                 self.store.save(state)
                 self._fault("install-automation")
@@ -1982,7 +2577,8 @@ class ReleaseDeployment:
                 self.journal.run(
                     "publish-snapshot",
                     {"approved_sha": state.approved_sha, "database": state.database},
-                    lambda: self.operations.publish_snapshot(state, held_locks),
+                    lambda: self.operations.publish_snapshot(state, held_locks, purpose="apply"),
+                    reconcile=lambda: self.operations.reconcile_snapshot(state, purpose="apply"),
                 )
                 self._fault("publish-snapshot")
             state.phase = "applied"
@@ -2026,14 +2622,52 @@ class ReleaseDeployment:
             self._save_failure(state, exc)
             raise
 
+    def abort(self, *, execute: bool) -> dict[str, Any]:
+        state = self._load_prepared(recovery=True)
+        actions = ["restore-captured-activation"]
+        if not execute:
+            return self._plan_existing(state, "abort", actions)
+        if state.phase == "aborted":
+            return {"status": "aborted", "idempotent": True, "state": asdict(state)}
+        if not state.inventory or self.journal.completed("capture-inventory") is None:
+            raise DeployError("abort has no completed activation inventory")
+        if self.journal.read("create-backup") is not None:
+            raise DeployError("recovery bundle work started; use rollback instead of abort")
+        mutating = [
+            "source-switch",
+            "runtime-switch",
+            "install-automation",
+            "publish-snapshot",
+            *[f"migration-{item.migration_id}" for item in ADAPTERS[state.adapter_set]],
+        ]
+        if any(self.journal.read(step) is not None for step in mutating):
+            raise DeployError("release mutation started; activation-only abort is unsafe")
+        state.phase = "aborting"
+        self.store.save(state)
+        try:
+            self.journal.run(
+                "abort-release-producers",
+                {"inventory": _digest(state.inventory)},
+                lambda: self.operations.release_producers(state, include_autopush=True),
+            )
+            state.phase = "aborted"
+            state.last_failure = None
+            self.store.save(state)
+            return {"status": "aborted", "state": asdict(state)}
+        except BaseException as exc:
+            self._save_failure(state, exc)
+            raise
+
     def rollback(self, *, execute: bool) -> dict[str, Any]:
         state = self._load_prepared(recovery=True)
         actions = [
             "rollback-quiesce",
             "capture-incident",
             "restore-source",
+            "restore-artifacts",
             "restore-runtimes",
             "restore-database",
+            "verify-restored-artifacts",
             "restore-units",
             "rollback-snapshot",
             "rollback-semantic-verify",
@@ -2050,21 +2684,30 @@ class ReleaseDeployment:
         state.phase = "rolling-back"
         self.store.save(state)
         try:
-            self.journal.run(
-                "rollback-quiesce",
-                {"inventory": _digest(state.inventory)},
-                lambda: self.operations.quiesce(state),
-            )
+            if self.journal.completed("rollback-quiesce") is None:
+                self.journal.run(
+                    "rollback-quiesce",
+                    {"inventory": _digest(state.inventory)},
+                    lambda: self.operations.quiesce(state),
+                )
+            else:
+                self.operations.quiesce(state)
             with self.operations.producer_locks(state) as held_locks:
                 self.journal.run(
                     "capture-incident",
                     {"approved_sha": state.approved_sha, "database": state.database},
                     lambda: self.operations.capture_incident(state),
+                    reconcile=lambda: self.operations.reconcile_incident(state),
                 )
                 self.journal.run(
                     "restore-source",
                     {"original_sha": state.original_sha},
                     lambda: self.operations.restore_source(state),
+                )
+                self.journal.run(
+                    "restore-artifacts",
+                    {"artifact_manifest": state.inventory.get("artifact_manifest")},
+                    lambda: self.operations.restore_artifacts(state),
                 )
                 self.journal.run(
                     "restore-runtimes",
@@ -2077,6 +2720,11 @@ class ReleaseDeployment:
                     lambda: self.operations.restore_database(state),
                 )
                 self.journal.run(
+                    "verify-restored-artifacts",
+                    {"artifact_manifest": state.inventory.get("artifact_manifest")},
+                    lambda: self.operations.verify_artifacts(state),
+                )
+                self.journal.run(
                     "restore-units",
                     {
                         "unit_files": state.inventory["unit_files"],
@@ -2087,7 +2735,8 @@ class ReleaseDeployment:
                 self.journal.run(
                     "rollback-snapshot",
                     {"original_sha": state.original_sha, "database": state.database},
-                    lambda: self.operations.publish_snapshot(state, held_locks),
+                    lambda: self.operations.publish_snapshot(state, held_locks, purpose="rollback"),
+                    reconcile=lambda: self.operations.reconcile_snapshot(state, purpose="rollback"),
                 )
             self.journal.run(
                 "rollback-semantic-verify",
@@ -2116,9 +2765,7 @@ class ReleaseDeployment:
             return self._plan_existing(state, "resume", actions)
         if state.phase not in {"rolled-back", "resuming"}:
             raise DeployError(f"resume is not allowed from phase {state.phase}")
-        if self.operations._head(Path(state.repo_root)) != reconciled_sha:
-            raise DeployError("current source does not match the reconciled SHA")
-        self.operations._source_status(Path(state.repo_root))
+        self.operations.validate_reconciled_source(state, reconciled_sha)
         state.phase = "resuming"
         self.store.save(state)
         try:
@@ -2170,7 +2817,7 @@ def _parser() -> argparse.ArgumentParser:
     apply.add_argument("--approve-plan")
     apply.add_argument("--approve-optional")
     apply.add_argument("--execute", action="store_true")
-    for name in ("verify", "rollback"):
+    for name in ("verify", "abort", "rollback"):
         command = subparsers.add_parser(name)
         command.add_argument("state_dir", type=Path)
         command.add_argument("--execute", action="store_true")
@@ -2226,6 +2873,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "verify":
             result = deployment.verify(execute=args.execute)
+        elif args.command == "abort":
+            result = deployment.abort(execute=args.execute)
         elif args.command == "rollback":
             result = deployment.rollback(execute=args.execute)
         else:

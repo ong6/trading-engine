@@ -116,8 +116,9 @@ class H(BaseHTTPRequestHandler):
    H.count+=1; body=json.dumps({'ok':True,'status':'ok','db_readable':True}).encode()
    self.send_response(200);self.send_header('Content-Type','application/json')
    if H.count%2==0:self.send_header('X-Data-Source','snapshot')
-  elif self.path=='/meta':body=b'{}';self.send_response(200);self.send_header('Content-Type','application/json')
-  else:body=b'<html>fixture</html>';self.send_response(200);self.send_header('Content-Type','text/html')
+  elif self.path=='/meta':
+   body=json.dumps({'forward_review':{'status':'ACCUMULATING','runtime_contract_version':12},'xs_forward_review':{'status':'ACCUMULATING','runtime_contract_version':23},'e1_forward':{'status':'ACCUMULATING','runtime_contract_version':8}}).encode();self.send_response(200);self.send_header('Content-Type','application/json')
+  else:body=b'<!DOCTYPE html><html><body>dashboard positions league</body></html>';self.send_response(200);self.send_header('Content-Type','text/html')
   self.end_headers();self.wfile.write(body)
  def log_message(self,*_args):pass
 ThreadingHTTPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
@@ -155,6 +156,13 @@ def main() -> int:
         ["git", "rev-parse", f"{args.approved_sha}^"], cwd=root, text=True
     ).strip()
     subprocess.run(["git", "checkout", "-B", "main", original], cwd=root, check=True)
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/main", args.approved_sha],
+        cwd=root,
+        check=True,
+    )
+    subprocess.run(["git", "config", "branch.main.remote", "origin"], cwd=root, check=True)
+    subprocess.run(["git", "config", "branch.main.merge", "refs/heads/main"], cwd=root, check=True)
     (root / ".venv").symlink_to(repo / ".venv")
     excludes = output / "git-excludes"
     excludes.write_text(".venv\n")
@@ -263,6 +271,7 @@ def main() -> int:
         assert applied["status"] == "applied"
         assert run("verify", ["verify", str(state), "--execute"])["status"] == "verified"
         assert run("rollback", ["rollback", str(state), "--execute"])["status"] == "rolled-back"
+        subprocess.run(["git", "checkout", "-B", "main", original], cwd=root, check=True)
         assert (
             run(
                 "resume",

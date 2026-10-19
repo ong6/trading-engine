@@ -23,17 +23,23 @@ class FakeOperations:
     def __init__(self, store: release_deploy.StateStore):
         self.store = store
         self.head = OLD_SHA
+        self.branch = "main"
+        self.upstream = "origin/main"
         self.calls: list[str] = []
         self.releases: list[bool] = []
         self.migrations: list[str] = []
         self.plan = {"invalid_rows": 2, "moved": 0}
         self.optional_failures: list[str] = []
+        self.reconciled_migrations: set[str] = set()
+        self.fail_quiesce = False
 
     def preflight_prepare(self, **kwargs):
         self.calls.append("preflight")
         return {
             "original_sha": OLD_SHA,
             "approved_sha": kwargs["approved_sha"],
+            "source_branch": self.branch,
+            "source_upstream": self.upstream,
             "lock_sha256": {"uv.lock": "a" * 64, "ui/package-lock.json": "b" * 64},
             "adapter_set": kwargs["adapter_set"],
             "migrations": [
@@ -64,6 +70,16 @@ class FakeOperations:
                 name: "optional" if name in release_deploy.OPTIONAL_UNITS else "required"
                 for name in release_deploy.install_automation.UNIT_SOURCES
             },
+            "semantic": {
+                "registration_revision": 15,
+                "registration_source_commit": OLD_SHA,
+                "registration_sha256": "8" * 64,
+                "runtime_versions": {
+                    "forward_review": 12,
+                    "xs_forward_review": 23,
+                    "e1_forward": 8,
+                },
+            },
             "release_manifest_sha256": "d" * 64,
             "release_tool_sha256": "9" * 64,
             "versions": {"python": "Python test", "node": "v-test"},
@@ -86,6 +102,14 @@ class FakeOperations:
 
     def validate_recovery_tools(self, _state):
         self.calls.append("validate-recovery-tools")
+
+    def validate_reconciled_source(self, state, reconciled_sha):
+        if self.head != reconciled_sha:
+            raise release_deploy.DeployError("current source does not match the reconciled SHA")
+        if self.branch != state.source_branch:
+            raise release_deploy.DeployError("reconciled source is not on the saved release branch")
+        if self.upstream != state.source_upstream:
+            raise release_deploy.DeployError("reconciled source does not track the saved upstream")
 
     def capture_inventory(self, _state):
         self.calls.append("capture-inventory")
@@ -110,6 +134,8 @@ class FakeOperations:
 
     def quiesce(self, _state):
         self.calls.append("quiesce")
+        if self.fail_quiesce:
+            raise release_deploy.DeployError("failed after cron removal")
         return {"held": True}
 
     @contextmanager
@@ -125,10 +151,24 @@ class FakeOperations:
         self.calls.append("create-backup")
         return {"manifest_sha256": "e" * 64}
 
+    def capture_artifacts(self, _state):
+        self.calls.append("capture-artifacts")
+        return {"schema_version": 1, "entries": {}, "sha256": "0" * 64}
+
+    def reconcile_artifacts(self, _state):
+        return None
+
     def switch_source(self, state):
         self.calls.append("source-switch")
         self.head = state.approved_sha
         return {"git_sha": self.head}
+
+    def reconcile_source_switch(self, state):
+        return (
+            {"git_sha": state.approved_sha, "reconciled": True}
+            if self.head == state.approved_sha
+            else None
+        )
 
     def switch_runtimes(self, _state):
         self.calls.append("runtime-switch")
@@ -137,6 +177,9 @@ class FakeOperations:
             "ui/node_modules": {"kind": "absent"},
             "ui/.next": {"kind": "absent"},
         }
+
+    def reconcile_runtime_switch(self, _state):
+        return None
 
     def plan_migration(self, _state, migration):
         self.calls.append(f"plan:{migration.migration_id}")
@@ -147,6 +190,14 @@ class FakeOperations:
         self.migrations.append(migration.migration_id)
         return {"migration": migration.migration_id}
 
+    def migration_intent(self, _state, migration, _plan):
+        return {"migration": migration.migration_id, "before": "old"}
+
+    def reconcile_migration(self, _state, migration, _plan, _intent):
+        if migration.migration_id in self.reconciled_migrations:
+            return {"migration": migration.migration_id, "reconciled": True}
+        return None
+
     def install_automation(self, _state):
         self.calls.append("install-automation")
         return {
@@ -156,9 +207,15 @@ class FakeOperations:
             "optional_failures": self.optional_failures,
         }
 
-    def publish_snapshot(self, _state, _held_locks):
+    def reconcile_automation(self, _state):
+        return None
+
+    def publish_snapshot(self, _state, _held_locks, *, purpose):
         self.calls.append("publish-snapshot")
-        return {"sha256": "f" * 64}
+        return {"sha256": "f" * 64, "purpose": purpose}
+
+    def reconcile_snapshot(self, _state, *, purpose):
+        return None
 
     def semantic_verify(self, _state, *, rolled_back):
         self.calls.append("rollback-semantic-verify" if rolled_back else "semantic-verify")
@@ -173,10 +230,18 @@ class FakeOperations:
         self.calls.append("capture-incident")
         return {"path": str(self.store.directory / "incident")}
 
+    def reconcile_incident(self, _state):
+        return None
+
     def restore_source(self, state):
         self.calls.append("restore-source")
         self.head = state.original_sha
+        self.branch = None
         return {"git_sha": self.head}
+
+    def restore_artifacts(self, _state):
+        self.calls.append("restore-artifacts")
+        return {"restored": True}
 
     def restore_runtimes(self, _state):
         self.calls.append("restore-runtimes")
@@ -186,12 +251,22 @@ class FakeOperations:
         self.calls.append("restore-database")
         return {"restored": True}
 
+    def verify_artifacts(self, _state):
+        self.calls.append("verify-artifacts")
+        return {"verified": True}
+
     def restore_units(self, _state):
         self.calls.append("restore-units")
         return {"restored": True}
 
     def _head(self, _root):
         return self.head
+
+    def _branch(self, _root):
+        return self.branch
+
+    def _upstream(self, _root):
+        return self.upstream
 
     def _source_status(self, _root):
         return []
@@ -219,6 +294,26 @@ def prepare(transaction, *, adapter_set="none"):
         adapter_set=adapter_set,
         d0="2026-10-19" if adapter_set == "revision-15" else None,
         execute=True,
+    )
+
+
+def running_receipt(store, step, inputs):
+    transaction_id = store.load().transaction_id
+    release_deploy._atomic_json(
+        store.directory / "receipts" / f"{step}.json",
+        {
+            "schema_version": release_deploy.RECEIPT_SCHEMA_VERSION,
+            "step": step,
+            "transaction_id": transaction_id,
+            "input_sha256": release_deploy._digest(
+                {"transaction_id": transaction_id, "inputs": inputs}
+            ),
+            "status": "running",
+            "started_at": "2026-10-19T00:00:00+00:00",
+            "completed_at": None,
+            "result": {},
+            "error": None,
+        },
     )
 
 
@@ -258,6 +353,21 @@ def test_prepare_refuses_to_overwrite_existing_state(transaction):
             d0=None,
             execute=True,
         )
+
+
+def test_activation_only_abort_restores_inventory_when_quiesce_fails_before_backup(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    operations.fail_quiesce = True
+    with pytest.raises(release_deploy.DeployError, match="after cron removal"):
+        deployment.apply(execute=True, approve_plan=None)
+    assert release_deploy.ReceiptJournal(deployment.store).read("create-backup") is None
+
+    operations.fail_quiesce = False
+    fresh_shell = release_deploy.ReleaseDeployment(deployment.store, operations)
+    result = fresh_shell.abort(execute=True)
+    assert result["status"] == "aborted"
+    assert operations.releases == [True]
 
 
 def test_apply_and_verify_are_idempotent_after_receipted_fault(transaction):
@@ -387,9 +497,58 @@ def test_rollback_then_resume_requires_current_reconciled_sha(transaction):
 
     with pytest.raises(release_deploy.DeployError, match="does not match"):
         deployment.resume(reconciled_sha=NEW_SHA, execute=True)
+    with pytest.raises(release_deploy.DeployError, match="saved release branch"):
+        deployment.resume(reconciled_sha=OLD_SHA, execute=True)
+    operations.branch = "main"
     result = deployment.resume(reconciled_sha=OLD_SHA, execute=True)
     assert result["status"] == "resumed"
     assert operations.releases[-1] is True
+
+
+def test_reconciled_source_refuses_detached_head_in_real_repository(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", repo], check=True)
+    subprocess.run(["git", "-C", repo, "symbolic-ref", "HEAD", "refs/heads/main"], check=True)
+    (repo / "tracked").write_text("value\n")
+    subprocess.run(["git", "-C", repo, "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            repo,
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "fixture",
+        ],
+        check=True,
+    )
+    sha = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], text=True).strip()
+    subprocess.run(["git", "-C", repo, "remote", "add", "origin", str(repo)], check=True)
+    subprocess.run(["git", "-C", repo, "update-ref", "refs/remotes/origin/main", sha], check=True)
+    subprocess.run(["git", "-C", repo, "config", "branch.main.remote", "origin"], check=True)
+    subprocess.run(
+        ["git", "-C", repo, "config", "branch.main.merge", "refs/heads/main"], check=True
+    )
+    operations = release_deploy.ReleaseOperations(
+        release_deploy.StateStore(tmp_path / "state"),
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    state = SimpleNamespace(
+        repo_root=str(repo), source_branch="main", source_upstream="origin/main"
+    )
+    operations.validate_reconciled_source(state, sha)
+    subprocess.run(["git", "-C", repo, "checkout", "-q", "--detach", sha], check=True)
+    with pytest.raises(release_deploy.DeployError, match="saved release branch"):
+        operations.validate_reconciled_source(state, sha)
 
 
 def test_changed_source_and_unknown_migration_are_refused(transaction):
@@ -507,9 +666,12 @@ import os,sys
 from pathlib import Path
 p=Path(os.environ['FAKE_CRONTAB']); a=sys.argv[1:]
 if a==['-l']:
- if not p.exists(): sys.exit(1)
+ if not p.exists(): print('no crontab for fixture',file=sys.stderr);sys.exit(1)
  print(p.read_text(),end='')
-elif a==['-r']: p.unlink(missing_ok=True)
+elif a==['-r']:
+ code=int(os.environ.get('FAKE_CRONTAB_REMOVE_EXIT','0'))
+ if code:sys.exit(code)
+ if os.environ.get('FAKE_CRONTAB_KEEP')!='1':p.unlink(missing_ok=True)
 elif a==['-']: p.write_text(sys.stdin.read())
 else: sys.exit(2)
 """
@@ -546,6 +708,10 @@ def test_quiesce_uses_only_configured_fake_systemctl_and_crontab(tmp_path, monke
     repo = tmp_path / "repo"
     (repo / "data").mkdir(parents=True)
     (repo / "logs").mkdir()
+    (repo / "server").mkdir()
+    (repo / "server/p15-registration.json").write_text(
+        json.dumps({"registration_revision": 14, "code_identity": {"source_commit": OLD_SHA}})
+    )
     home = tmp_path / "home"
     home.mkdir()
     store = release_deploy.StateStore(tmp_path / "state")
@@ -578,6 +744,107 @@ def test_quiesce_uses_only_configured_fake_systemctl_and_crontab(tmp_path, monke
     assert not cron.exists()
     observed = json.loads(host_state.read_text())
     assert observed["units"]["trading-engine-api.service"]["ActiveState"] == "inactive"
+
+
+@pytest.mark.parametrize("exit_code", [1, 2])
+def test_quiesce_refuses_failed_crontab_removal(tmp_path, monkeypatch, exit_code):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_host(bin_dir)
+    host_state = tmp_path / "host.json"
+    host_state.write_text(json.dumps({"units": {}}))
+    cron = tmp_path / "cron"
+    cron.write_text("still scheduled\n")
+    monkeypatch.setenv("FAKE_HOST_STATE", str(host_state))
+    monkeypatch.setenv("FAKE_CRONTAB", str(cron))
+    monkeypatch.setenv("FAKE_CRONTAB_REMOVE_EXIT", str(exit_code))
+    monkeypatch.setenv("FAKE_PS_OUTPUT", "")
+    store = release_deploy.StateStore(tmp_path / "state")
+    os.mkdir(store.directory, 0o700)
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(bin_dir),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    state = release_deploy.ReleaseState(
+        schema_version=1,
+        transaction_id="fixture",
+        created_at="now",
+        updated_at="now",
+        phase="applying",
+        repo_root=str(tmp_path / "repo"),
+        database=str(tmp_path / "db"),
+        approved_sha=NEW_SHA,
+        original_sha=OLD_SHA,
+        adapter_set="none",
+        d0=None,
+        inventory={
+            "units": {
+                name: {
+                    "LoadState": "not-found",
+                    "ActiveState": "inactive",
+                    "UnitFileState": "disabled",
+                }
+                for name in release_deploy.install_automation.UNIT_SOURCES
+            },
+            "crontab": {"present": True, "content": "still scheduled\n"},
+        },
+    )
+    with pytest.raises(release_deploy.DeployError, match="failed to remove"):
+        operations.quiesce(state)
+    assert cron.read_text() == "still scheduled\n"
+
+
+def test_quiesce_verifies_crontab_is_absent_after_success_exit(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_host(bin_dir)
+    host_state = tmp_path / "host.json"
+    host_state.write_text(json.dumps({"units": {}}))
+    cron = tmp_path / "cron"
+    cron.write_text("still scheduled\n")
+    monkeypatch.setenv("FAKE_HOST_STATE", str(host_state))
+    monkeypatch.setenv("FAKE_CRONTAB", str(cron))
+    monkeypatch.setenv("FAKE_CRONTAB_KEEP", "1")
+    store = release_deploy.StateStore(tmp_path / "state")
+    os.mkdir(store.directory, 0o700)
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(bin_dir),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    state = release_deploy.ReleaseState(
+        schema_version=1,
+        transaction_id="fixture",
+        created_at="now",
+        updated_at="now",
+        phase="applying",
+        repo_root=str(tmp_path / "repo"),
+        database=str(tmp_path / "db"),
+        approved_sha=NEW_SHA,
+        original_sha=OLD_SHA,
+        adapter_set="none",
+        d0=None,
+        inventory={
+            "units": {
+                name: {
+                    "LoadState": "not-found",
+                    "ActiveState": "inactive",
+                    "UnitFileState": "disabled",
+                }
+                for name in release_deploy.install_automation.UNIT_SOURCES
+            },
+            "crontab": {"present": True, "content": "still scheduled\n"},
+        },
+    )
+    with pytest.raises(release_deploy.DeployError, match="survived removal"):
+        operations.quiesce(state)
 
 
 def test_quiesce_refuses_a_surviving_writer_from_the_release_checkout(tmp_path, monkeypatch):
@@ -900,7 +1167,15 @@ def test_preflight_binds_the_approved_commit_dependency_locks(tmp_path, monkeypa
         check=True,
     )
     approved = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], text=True).strip()
-    subprocess.run(["git", "-C", repo, "checkout", "-q", old], check=True)
+    subprocess.run(["git", "-C", repo, "checkout", "-qB", "main", old], check=True)
+    subprocess.run(["git", "-C", repo, "remote", "add", "origin", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", repo, "update-ref", "refs/remotes/origin/main", approved], check=True
+    )
+    subprocess.run(["git", "-C", repo, "config", "branch.main.remote", "origin"], check=True)
+    subprocess.run(
+        ["git", "-C", repo, "config", "branch.main.merge", "refs/heads/main"], check=True
+    )
     monkeypatch.setattr(
         release_deploy.worktree_audit,
         "build_audit",
@@ -936,7 +1211,7 @@ def test_preflight_binds_the_approved_commit_dependency_locks(tmp_path, monkeypa
     }
     assert result["registration_source_commit"] == old
 
-    subprocess.run(["git", "-C", repo, "checkout", "-q", approved], check=True)
+    subprocess.run(["git", "-C", repo, "checkout", "-qB", "main", approved], check=True)
     (repo / "server/p15-registration.json").write_text(
         json.dumps({"code_identity": {"source_commit": "3" * 40}})
     )
@@ -957,7 +1232,10 @@ def test_preflight_binds_the_approved_commit_dependency_locks(tmp_path, monkeypa
         check=True,
     )
     rewritten = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], text=True).strip()
-    subprocess.run(["git", "-C", repo, "checkout", "-q", old], check=True)
+    subprocess.run(["git", "-C", repo, "checkout", "-qB", "main", old], check=True)
+    subprocess.run(
+        ["git", "-C", repo, "update-ref", "refs/remotes/origin/main", rewritten], check=True
+    )
     with pytest.raises(release_deploy.DeployError, match="not an ancestor"):
         operations.preflight_prepare(
             repo_root=repo,
@@ -968,7 +1246,7 @@ def test_preflight_binds_the_approved_commit_dependency_locks(tmp_path, monkeypa
         )
 
 
-def test_required_unit_that_does_not_converge_is_refused(tmp_path):
+def test_required_unit_that_does_not_converge_is_refused(tmp_path, monkeypatch):
     class Runner:
         def __init__(self):
             self.index = 0
@@ -1019,11 +1297,14 @@ def test_required_unit_that_does_not_converge_is_refused(tmp_path):
         ui_url="http://invalid",
         minimum_free_bytes=0,
     )
+    monkeypatch.setattr(operations, "_record_automation_mutations", lambda state: state.automation)
     with pytest.raises(release_deploy.DeployError, match="required automation"):
         operations.install_automation(state)
 
 
-def test_optional_provider_unit_failure_is_classified_without_release_failure(tmp_path):
+def test_optional_provider_unit_failure_is_classified_without_release_failure(
+    tmp_path, monkeypatch
+):
     class Runner:
         def __init__(self):
             self.index = 0
@@ -1074,6 +1355,7 @@ def test_optional_provider_unit_failure_is_classified_without_release_failure(tm
         ui_url="http://invalid",
         minimum_free_bytes=0,
     )
+    monkeypatch.setattr(operations, "_record_automation_mutations", lambda state: state.automation)
     result = operations.install_automation(state)
     assert result["status"] == "optional-failures"
     assert result["optional_failures"] == ["massive-options-daily.service"]
@@ -1332,3 +1614,382 @@ def test_cli_database_default_is_relative_to_selected_checkout(tmp_path):
     )
     assert not args.database.is_absolute()
     assert (args.repo_root.resolve() / args.database) == tmp_path / "store/market.duckdb"
+
+
+def test_running_source_switch_receipt_adopts_approved_head(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    state = deployment.store.load()
+    state.phase = "applying"
+    state.inventory = operations.capture_inventory(state)
+    state.backup = operations.create_backup(state)
+    deployment.store.save(state)
+    journal = release_deploy.ReceiptJournal(deployment.store)
+    journal.run("capture-inventory", {"original_sha": OLD_SHA}, lambda: state.inventory)
+    journal.run("quiesce", {"inventory": release_deploy._digest(state.inventory)}, lambda: {})
+    journal.run(
+        "predeploy-adapter-check",
+        {"adapter_set": "none", "d0": None},
+        lambda: {"adapter_set": "none"},
+    )
+    journal.run(
+        "create-backup",
+        {"original_sha": OLD_SHA, "database": state.database},
+        lambda: state.backup,
+    )
+    operations.head = NEW_SHA
+    running_receipt(
+        deployment.store,
+        "source-switch",
+        {"from": OLD_SHA, "to": NEW_SHA},
+    )
+    result = deployment.apply(execute=True, approve_plan=None)
+    assert result["status"] == "applied"
+    assert operations.calls.count("source-switch") == 0
+    assert journal.completed("source-switch")["reconciled"] is True
+
+
+@pytest.mark.parametrize(
+    "migration",
+    [item.migration_id for item in release_deploy.ADAPTERS["revision-15"]],
+)
+def test_running_migration_receipt_adopts_verified_post_state(transaction, migration):
+    prepare(transaction, adapter_set="revision-15")
+    deployment, operations, _repo, _database = transaction
+    state = deployment.store.load()
+    spec = next(
+        item for item in release_deploy.ADAPTERS["revision-15"] if item.migration_id == migration
+    )
+    plan = operations.plan if spec.approval_required else None
+    intent = operations.migration_intent(state, spec, plan)
+    inputs = {
+        "migration": release_deploy.asdict(spec),
+        "approved_sha": NEW_SHA,
+        "plan": plan,
+        "intent": intent,
+    }
+    running_receipt(deployment.store, f"migration-{migration}", inputs)
+    operations.reconciled_migrations.add(migration)
+    result = deployment.journal.run(
+        f"migration-{migration}",
+        inputs,
+        lambda: (_ for _ in ()).throw(AssertionError("must not repeat mutation")),
+        reconcile=lambda: operations.reconcile_migration(state, spec, plan, intent),
+    )
+    assert result == {"migration": migration, "reconciled": True}
+
+
+def test_journal_recovers_a_process_killed_after_mutation(tmp_path):
+    store = release_deploy.StateStore(tmp_path / "state")
+    state = release_deploy.ReleaseState(
+        schema_version=1,
+        transaction_id="fixture",
+        created_at="now",
+        updated_at="now",
+        phase="applying",
+        repo_root=str(tmp_path / "repo"),
+        database=str(tmp_path / "db"),
+        approved_sha=NEW_SHA,
+        original_sha=OLD_SHA,
+        adapter_set="none",
+        d0=None,
+    )
+    store.create(state)
+    marker = tmp_path / "mutated"
+    code = """
+import os,sys
+from pathlib import Path
+from tools.release_deploy import ReceiptJournal,StateStore
+store=StateStore(Path(sys.argv[1])); marker=Path(sys.argv[2])
+def action(): marker.write_text('done'); os._exit(17)
+ReceiptJournal(store).run('killed', {'value': 1}, action)
+"""
+    result = subprocess.run(
+        [
+            str(Path(__file__).parents[1] / ".venv/bin/python"),
+            "-c",
+            code,
+            str(store.directory),
+            str(marker),
+        ],
+        cwd=Path(__file__).parents[1],
+        env=os.environ | {"PYTHONPATH": str(Path(__file__).parents[1])},
+    )
+    assert result.returncode == 17
+    journal = release_deploy.ReceiptJournal(store)
+    assert journal.read("killed")["status"] == "running"
+    recovered = journal.run(
+        "killed",
+        {"value": 1},
+        lambda: (_ for _ in ()).throw(AssertionError("must not repeat mutation")),
+        reconcile=lambda: {"marker": "done"} if marker.read_text() == "done" else None,
+    )
+    assert recovered == {"marker": "done"}
+
+
+def test_runtime_switch_recovers_after_old_symlink_was_unlinked(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    old = tmp_path / "old-runtime"
+    prepared = tmp_path / "prepared-runtime"
+    old.mkdir()
+    prepared.mkdir()
+    live = repo / ".venv"
+    live.symlink_to(old)
+    store = release_deploy.StateStore(tmp_path / "state")
+    os.mkdir(store.directory, 0o700)
+    saved = store.directory / "inventory/runtimes/venv"
+    saved.mkdir(parents=True)
+    release_deploy._atomic_json(saved / "identity.json", {"kind": "symlink", "target": str(old)})
+    live.unlink()
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    assert operations._select_runtime(live, prepared, saved) == {
+        "kind": "symlink",
+        "target": str(old),
+    }
+    assert Path(os.path.realpath(live)) == prepared
+
+
+def test_existing_complete_incident_is_verified_and_adopted(tmp_path):
+    store = release_deploy.StateStore(tmp_path / "state")
+    os.mkdir(store.directory, 0o700)
+    incident = store.directory / "incident"
+    incident.mkdir()
+    (incident / "market.duckdb").write_bytes(b"incident")
+    active = tmp_path / "market.duckdb"
+    active.write_bytes(b"active")
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    state = SimpleNamespace(database=str(active))
+    first = operations.reconcile_incident(state)
+    assert first["database_sha256"] == hashlib.sha256(b"incident").hexdigest()
+    assert operations.capture_incident(state) == first
+
+
+def test_transaction_addressed_snapshot_is_adopted_without_republication(tmp_path, monkeypatch):
+    database = tmp_path / "store/market.duckdb"
+    directory = database.parent / "snapshots"
+    directory.mkdir(parents=True)
+    store = release_deploy.StateStore(tmp_path / "state")
+    os.mkdir(store.directory, 0o700)
+    state = SimpleNamespace(
+        created_at="2026-10-19T01:02:03.000004+00:00",
+        database=str(database),
+        repo_root=str(tmp_path),
+    )
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    name = operations._snapshot_name(state, "apply")
+    snapshot = directory / name
+    snapshot.write_bytes(b"snapshot")
+    manifest = {"snapshot": name, "sha256": hashlib.sha256(b"snapshot").hexdigest()}
+    manifest_path = snapshot.with_suffix(".json")
+    manifest_path.write_text(json.dumps(manifest))
+    manifest_path.chmod(0o600)
+    (directory / "market-latest.duckdb").symlink_to(name)
+    monkeypatch.setattr(
+        release_deploy.publish_snapshot,
+        "publish_snapshot",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not republish")),
+    )
+    assert operations.publish_snapshot(state, frozenset(), purpose="apply") == manifest
+
+
+def test_artifact_restore_removes_new_release_files_after_incident_capture(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "data").mkdir(parents=True)
+    (repo / "logs").mkdir()
+    (repo / "data/original.json").write_text("old\n")
+    store = release_deploy.StateStore(tmp_path / "state")
+    os.mkdir(store.directory, 0o700)
+    state = SimpleNamespace(
+        repo_root=str(repo), inventory={"artifacts": str(store.directory / "inventory/artifacts")}
+    )
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    state.inventory["artifact_manifest"] = operations.capture_artifacts(state)
+    (repo / "data/original.json").write_text("new\n")
+    (repo / "data/new-release.json").write_text("new only\n")
+    result = operations.restore_artifacts(state)
+    assert (repo / "data/original.json").read_text() == "old\n"
+    assert not (repo / "data/new-release.json").exists()
+    assert result["quarantined_extra_paths"] == ["data/new-release.json"]
+
+
+def test_apply_captures_artifacts_only_after_quiescence_and_lock(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    deployment.apply(execute=True, approve_plan=None)
+    assert operations.calls.index("quiesce") < operations.calls.index("locks")
+    assert operations.calls.index("locks") < operations.calls.index("capture-artifacts")
+
+
+def test_common_semantics_reject_killed_evidence_for_adapter_none(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    (repo / "server").mkdir(parents=True)
+    registration = {
+        "registration_revision": 15,
+        "code_identity": {"source_commit": OLD_SHA},
+    }
+    registration_path = repo / "server/p15-registration.json"
+    registration_path.write_text(json.dumps(registration))
+    semantic = {
+        "registration_revision": 15,
+        "registration_source_commit": OLD_SHA,
+        "registration_sha256": hashlib.sha256(registration_path.read_bytes()).hexdigest(),
+        "runtime_versions": {
+            "forward_review": 12,
+            "xs_forward_review": 23,
+            "e1_forward": 8,
+        },
+    }
+    state = SimpleNamespace(
+        repo_root=str(repo),
+        adapter_set="none",
+        prepared={"semantic": semantic},
+        inventory={"registration": semantic, "predeploy_meta": {}},
+    )
+    operations = release_deploy.ReleaseOperations(
+        release_deploy.StateStore(tmp_path / "state"),
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    monkeypatch.setattr(
+        operations,
+        "_python_json",
+        lambda *_args, **_kwargs: {"versions": semantic["runtime_versions"], "evidence": "valid"},
+    )
+    meta = {
+        key: {"status": "ACCUMULATING", "runtime_contract_version": version}
+        for key, version in semantic["runtime_versions"].items()
+    }
+    meta["forward_review"]["status"] = "KILLED"
+    with pytest.raises(release_deploy.DeployError, match="not accumulating"):
+        operations._common_semantics(state, meta, rolled_back=False)
+    meta["forward_review"]["status"] = "ACCUMULATING"
+    assert operations._common_semantics(state, meta, rolled_back=False)["evidence"] == "valid"
+
+
+def test_route_verification_rejects_http_200_error_shell(tmp_path, monkeypatch):
+    class Response:
+        status = 200
+        headers = {"Content-Type": "text/html"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"error"
+
+    monkeypatch.setattr(
+        release_deploy.urllib.request, "urlopen", lambda *_args, **_kwargs: Response()
+    )
+    operations = release_deploy.ReleaseOperations(
+        release_deploy.StateStore(tmp_path / "state"),
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    with pytest.raises(release_deploy.DeployError, match="not semantically readable"):
+        operations.request_route("http://fixture/positions", marker="position")
+
+
+def test_actual_unit_mutations_are_derived_from_saved_inventory(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_host(bin_dir)
+    name = "trading-engine-api.service"
+    host_state = tmp_path / "host.json"
+    host_state.write_text(
+        json.dumps(
+            {
+                "units": {
+                    name: {
+                        "LoadState": "loaded",
+                        "ActiveState": "inactive",
+                        "UnitFileState": "enabled",
+                        "MainPID": "0",
+                    }
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("FAKE_HOST_STATE", str(host_state))
+    monkeypatch.setenv("FAKE_CRONTAB", str(tmp_path / "cron"))
+    root = tmp_path / "repo"
+    source = root / release_deploy.install_automation.UNIT_SOURCES[name]
+    source.parent.mkdir(parents=True)
+    source.write_text("new unit\n")
+    home = tmp_path / "home"
+    installed = home / ".config/systemd/user" / name
+    installed.parent.mkdir(parents=True)
+    installed.write_text("new unit\n")
+    store = release_deploy.StateStore(tmp_path / "state")
+    state = release_deploy.ReleaseState(
+        schema_version=1,
+        transaction_id="fixture",
+        created_at="now",
+        updated_at="now",
+        phase="applying",
+        repo_root=str(root),
+        database=str(root / "db"),
+        approved_sha=NEW_SHA,
+        original_sha=OLD_SHA,
+        adapter_set="none",
+        d0=None,
+        inventory={
+            "unit_files": {name: {"kind": "absent"}},
+            "units": {
+                name: {
+                    "LoadState": "not-found",
+                    "ActiveState": "inactive",
+                    "UnitFileState": "disabled",
+                }
+            },
+        },
+    )
+    store.create(state)
+    operations = release_deploy.ReleaseOperations(
+        store,
+        home=home,
+        command_runner=release_deploy.CommandRunner(bin_dir),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    recorded = operations._record_automation_mutations(state)
+    assert recorded["installed_unit_files"] == [name]
+    assert recorded["enablement_units"] == [name]
