@@ -294,6 +294,47 @@ def test_baseline_rejects_arbitrary_backed_up_catalog(tmp_path, monkeypatch):
         _apply(root, database, expected_catalog)
 
 
+def test_baseline_rejects_matching_ad_hoc_catalog_without_fixture_helpers(
+    tmp_path, monkeypatch,
+):
+    root = tmp_path / "repo"
+    database = root / "store" / "market.duckdb"
+    database.parent.mkdir(parents=True)
+    con = duckdb.connect(str(database))
+    con.execute("CREATE TABLE prices (date DATE,ticker VARCHAR,volume BIGINT)")
+    con.execute("INSERT INTO prices VALUES ('2026-10-16','SPY',100)")
+    con.execute("CREATE TABLE jobs (id INTEGER,state VARCHAR)")
+    con.execute(
+        "CREATE TABLE portfolios (id VARCHAR,name VARCHAR,strategy VARCHAR,config VARCHAR,"
+        "created DATE,active BOOLEAN,cash DOUBLE,initial_cash DOUBLE,execution_profile VARCHAR)"
+    )
+    con.execute("CREATE TABLE sim_orders (id INTEGER)")
+    con.execute("CREATE TABLE sim_fills (id INTEGER)")
+    con.execute(
+        "CREATE TABLE sim_equity (portfolio_id VARCHAR,date DATE,equity DOUBLE,cash DOUBLE,"
+        "n_positions INTEGER)"
+    )
+    con.execute("CREATE TABLE definitely_not_the_r15_catalog (id INTEGER)")
+    expected_pre = schema_migrations.catalog_sha256(con)
+    snapshot_sha = canonical_sha256(
+        backup_database.database_snapshot(
+            con, con.execute("SELECT current_database()").fetchone()[0],
+        )
+    )
+    con.close()
+    monkeypatch.setattr(schema_migrations, "_source_commit", lambda _root: SOURCE_COMMIT)
+    monkeypatch.setattr(
+        backup_database, "verify_backup", lambda _bundle: {
+            "manifest_sha256": BACKUP_MANIFEST,
+            "database_snapshot_sha256": snapshot_sha,
+            "source_database": {"kind": "repository-relative", "path": "store/market.duckdb"},
+        },
+    )
+
+    with pytest.raises(schema_migrations.SchemaMigrationError, match="not a supported"):
+        _apply(root, database, expected_pre)
+
+
 def test_versioned_connection_turns_runtime_initializers_into_assertions(
     tmp_path, monkeypatch,
 ):
@@ -314,6 +355,8 @@ def test_versioned_connection_turns_runtime_initializers_into_assertions(
         assert con.execute(
             "SELECT initial_cash,execution_profile FROM portfolios WHERE id='legacy-null'"
         ).fetchone() == (None, None)
+        with pytest.raises(engine_db.SchemaMigrationRequired, match="append-only"):
+            con.execute("UPDATE bitemporal_facts SET revision=revision+1")
     finally:
         con.close()
 
@@ -336,6 +379,22 @@ def test_versioned_connection_rejects_unledgered_sequence_ddl(tmp_path):
         assert guarded.execute(
             "SELECT 1 FROM duckdb_sequences() WHERE sequence_name='runtime_probe'"
         ).fetchone() is None
+    finally:
+        guarded.close()
+
+
+def test_versioned_connection_rejects_changed_view_definition(tmp_path):
+    database = tmp_path / "versioned.duckdb"
+    con = duckdb.connect(str(database))
+    con.execute("CREATE TABLE schema_migrations (migration_id INTEGER)")
+    con.execute("CREATE VIEW runtime_view AS SELECT 1 AS value")
+    con.close()
+
+    guarded = engine_db.connect(database)
+    try:
+        with pytest.raises(engine_db.SchemaMigrationRequired, match="view definition"):
+            guarded.execute("CREATE OR REPLACE VIEW runtime_view AS SELECT 2 AS value")
+        assert guarded.execute("SELECT value FROM runtime_view").fetchone() == (1,)
     finally:
         guarded.close()
 

@@ -335,6 +335,8 @@ def test_remote_restore_interface_binds_generation_and_full_restore_checks():
     assert "semantic_health_sha256" in interface["required_restore_receipt_fields"]
     assert "full logical checksum" in interface["partition_contract"]["restore"]
     assert "no new timer" in interface["scheduler"]
+    assert callable(backup_database.write_remote_restore_plan)
+    assert callable(backup_database.remote_restore_drill)
 
 
 def test_remote_restore_drill_fetches_exact_commit_and_cleans_databases(

@@ -1,6 +1,7 @@
 """Atomic read-only database snapshot publication and discovery."""
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import threading
@@ -17,6 +18,11 @@ from engine.lib import snapshots
 from tools import backup_database, publish_snapshot
 
 NOW = datetime(2026, 10, 2, 12, tzinfo=timezone.utc)
+
+
+def test_publisher_has_no_whole_primary_copy_path():
+    source = inspect.getsource(publish_snapshot)
+    assert "backup_database._copy_database(source" not in source
 
 
 def _database(path: Path, *, cold: bool = False) -> None:
@@ -234,6 +240,7 @@ def test_delta_generations_preserve_rows_share_parts_and_respect_reader_pins(tmp
                 if record["table"] == "main.bitemporal_facts"}) == 2
     assert second["metrics"]["cold_copy_operations"] == 1
     assert third["metrics"]["cold_copy_operations"] == 0
+    assert third["metrics"]["cold_bytes_read"] == 0
     assert third["metrics"]["cold_bytes_serialized"] == 0
     assert all(record["key_min"] and record["key_max"] for record in third["parts"])
     latest = snapshots.pin_latest_generation(source)
@@ -493,17 +500,41 @@ def test_metadata_resolver_holds_generation_pin_for_direct_snapshot_reader(tmp_p
 
 
 def test_crash_orphan_never_displaces_a_valid_rollback_generation(tmp_path):
-    root, source = _repo(tmp_path)
-    publish_snapshot.publish_snapshot(root, source, now=NOW)
-    second = publish_snapshot.publish_snapshot(
-        root, source, now=NOW + timedelta(seconds=1),
-    )
-    directory = source.parent / "snapshots"
-    second_path = directory / second["snapshot"]
+    directory = tmp_path / "snapshots"
+    directory.mkdir()
+    valid = []
+    for offset in range(2):
+        path = directory / f"market-20261002T12000{offset}000000Z.duckdb"
+        path.write_bytes(f"valid-{offset}".encode())
+        manifest = {
+            "schema_version": 1,
+            "snapshot": path.name,
+            "source_database": "store/market.duckdb",
+            "source_data_commit": None,
+            "as_of": (NOW + timedelta(seconds=offset)).isoformat(),
+            "size_bytes": path.stat().st_size,
+            "sha256": publish_snapshot._sha256(path),
+            "row_counts": {},
+        }
+        path.with_suffix(".json").write_text(json.dumps(manifest))
+        valid.append(path)
+    second_path = valid[-1]
     orphan = directory / "market-20261002T120001500000Z.duckdb"
     orphan.write_bytes(b"crash orphan")
 
-    publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=2))
+    current = directory / "market-20261002T120002000000Z.duckdb"
+    current.write_bytes(b"current")
+    current.with_suffix(".json").write_text(json.dumps({
+        "schema_version": 1,
+        "snapshot": current.name,
+        "source_database": "store/market.duckdb",
+        "source_data_commit": None,
+        "as_of": (NOW + timedelta(seconds=2)).isoformat(),
+        "size_bytes": current.stat().st_size,
+        "sha256": publish_snapshot._sha256(current),
+        "row_counts": {},
+    }))
+    publish_snapshot._retain_newest(directory)
 
     assert second_path.exists()
     assert not orphan.exists()

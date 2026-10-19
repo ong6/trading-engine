@@ -230,6 +230,31 @@ class GuardedConnection:
             f"SELECT 1 FROM {source} WHERE {column}=?", [name],
         ).fetchone() is not None
 
+    def _assert_view_definition(self, statement: str, name: str) -> None:
+        body = re.split(r"\s+AS\s+", " ".join(statement.strip().split()), maxsplit=1,
+                        flags=re.IGNORECASE)
+        if len(body) != 2:
+            raise SchemaMigrationRequired(f"runtime view definition is invalid: {name}")
+        probe = f"__schema_assert_{uuid4().hex}"
+        try:
+            self._connection.execute(f'CREATE TEMP VIEW "{probe}" AS {body[1]}')
+            existing = self._connection.execute(
+                "SELECT sql FROM duckdb_views() WHERE view_name=? AND NOT temporary",
+                [name],
+            ).fetchone()[0]
+            proposed = self._connection.execute(
+                "SELECT sql FROM duckdb_views() WHERE view_name=? AND temporary",
+                [probe],
+            ).fetchone()[0]
+        finally:
+            self._connection.execute(f'DROP VIEW IF EXISTS "{probe}"')
+        existing_body = re.split(r"\s+AS\s+", existing, maxsplit=1, flags=re.IGNORECASE)[1]
+        proposed_body = re.split(r"\s+AS\s+", proposed, maxsplit=1, flags=re.IGNORECASE)[1]
+        if existing_body != proposed_body:
+            raise SchemaMigrationRequired(
+                f"{name} view definition requires an explicit schema migration"
+            )
+
     def _assert_schema_statement(self, statement: str) -> bool:
         if not self._versioned or _SCHEMA_CHANGE_AUTHORITY.get():
             return False
@@ -247,6 +272,8 @@ class GuardedConnection:
             kind, name = match.groups()
             if "IF NOT EXISTS" in upper or "OR REPLACE VIEW" in upper:
                 if self._object_exists(kind, name.lower()):
+                    if "OR REPLACE VIEW" in upper:
+                        self._assert_view_definition(statement, name.lower())
                     return True
             raise SchemaMigrationRequired(
                 f"runtime schema creation requires an explicit migration: {name.lower()}"
