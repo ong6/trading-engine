@@ -25,6 +25,7 @@ import duckdb
 from engine.lib import db as engine_db
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from engine.lib.snapshots import (
+    COLD_APPEND_FRONTIERS,
     COLD_TABLE_LAYOUTS,
     LATEST_NAME,
     GenerationError,
@@ -206,6 +207,13 @@ def _cold_specs(connection: duckdb.DuckDBPyConnection) -> dict[str, dict]:
         ]
         if availability not in {column["name"] for column in columns}:
             raise SnapshotError(f"cold table lacks availability column: {qualified_name}")
+        append_key = COLD_APPEND_FRONTIERS.get(qualified_name)
+        append_frontier = None
+        if append_key is not None:
+            append_frontier = connection.execute(
+                f"SELECT MAX({_identifier(append_key)}) FROM "
+                f"{_qualified(schema, table)}"
+            ).fetchone()[0]
         specs[qualified_name] = {
             "schema": schema,
             "table": table,
@@ -221,6 +229,8 @@ def _cold_specs(connection: duckdb.DuckDBPyConnection) -> dict[str, dict]:
                     [database, schema, table],
                 ).fetchall()
             ],
+            "append_key": append_key,
+            "append_frontier": append_frontier,
         }
     return specs
 
@@ -243,27 +253,67 @@ def _partition_fingerprint(
     )
 
 
-def _partition_counts(
+def _partitions(
     connection: duckdb.DuckDBPyConnection, spec: dict,
-) -> dict[str, int]:
+) -> list[str]:
     table = _qualified(spec["schema"], spec["table"])
     column = _identifier(spec["availability_column"])
-    return {
-        str(partition): int(count)
-        for partition, count in connection.execute(
-            f"SELECT COALESCE(CAST(CAST({column} AS DATE) AS VARCHAR), '__null__'), "
-            f"COUNT(*) FROM {table} GROUP BY 1 ORDER BY 1"
+    return [
+        str(row[0]) for row in connection.execute(
+            f"SELECT DISTINCT COALESCE(CAST(CAST({column} AS DATE) AS VARCHAR), "
+            f"'__null__') FROM {table} ORDER BY 1"
+        ).fetchall()
+    ]
+
+
+def _frontier_reusable_partitions(
+    connection: duckdb.DuckDBPyConnection,
+    spec: dict,
+    previous_spec: dict | None,
+    current_partitions: set[str],
+) -> set[str]:
+    """Return partitions unchanged by rows beyond a durable monotonic-key frontier."""
+    if previous_spec is None:
+        return set()
+    append_key = spec["append_key"]
+    previous_frontier = previous_spec.get("append_frontier")
+    current_frontier = spec["append_frontier"]
+    if (
+        append_key is None
+        or previous_spec.get("append_key") != append_key
+        or type(previous_frontier) is not int
+        or type(current_frontier) is not int
+        or current_frontier < previous_frontier
+    ):
+        return set()
+    table = _qualified(spec["schema"], spec["table"])
+    column = _identifier(spec["availability_column"])
+    key = _identifier(append_key)
+    changed = {
+        str(row[0]) for row in connection.execute(
+            f"SELECT DISTINCT COALESCE(CAST(CAST({column} AS DATE) AS VARCHAR), "
+            f"'__null__') FROM {table} WHERE {key}>? ORDER BY 1",
+            [previous_frontier],
         ).fetchall()
     }
+    previous_partitions = {
+        str(record["partition"])
+        for record in previous_spec.get("parts", ())
+    }
+    return current_partitions & previous_partitions - changed
 
 
 def _install_cold_parts(
     connection: duckdb.DuckDBPyConnection,
     directory: Path,
     previous_parts: tuple[dict, ...],
+    previous_cold_tables: dict[str, dict],
 ) -> tuple[list[dict], dict[str, dict], dict[str, int]]:
     installed: list[dict] = []
-    metrics = {"new_bytes": 0, "read_bytes": 0, "serialized_bytes": 0, "copy_operations": 0}
+    metrics = {
+        "new_bytes": 0, "read_bytes": 0, "serialized_bytes": 0,
+        "copy_operations": 0, "frontier_reused_parts": 0,
+    }
     previous = {
         (record["table"], record["partition"]): record for record in previous_parts
         if "fingerprint_sha256" in record
@@ -272,10 +322,23 @@ def _install_cold_parts(
     for qualified_name, spec in specs.items():
         table = _qualified(spec["schema"], spec["table"])
         order = ", ".join(_identifier(name) for name in spec["key_columns"])
-        for partition, current_count in _partition_counts(connection, spec).items():
+        partitions = _partitions(connection, spec)
+        previous_spec = previous_cold_tables.get(qualified_name)
+        if previous_spec is not None:
+            previous_spec = {
+                **previous_spec,
+                "parts": tuple(
+                    record for record in previous_parts
+                    if record["table"] == qualified_name
+                ),
+            }
+        reusable = _frontier_reusable_partitions(
+            connection, spec, previous_spec, set(partitions),
+        )
+        for partition in partitions:
             where = _partition_where(spec, partition)
             prior = previous.get((qualified_name, partition))
-            if prior is not None and prior["row_count"] == current_count:
+            if prior is not None and partition in reusable:
                 prior_path = directory / prior["path"]
                 if (
                     prior_path.is_file()
@@ -284,6 +347,7 @@ def _install_cold_parts(
                     and _sha256(prior_path) == prior["sha256"]
                 ):
                     installed.append(dict(prior))
+                    metrics["frontier_reused_parts"] += 1
                     continue
             fingerprint, row_count, bytes_read, key_min, key_max = _partition_fingerprint(
                 connection, spec, where,
@@ -467,7 +531,8 @@ def _build_hot_database(
 
 def _verify_semantic_equality(
     capture: Path, hot: Path, row_counts: dict[str, int], cold_tables: set[str],
-) -> None:
+) -> dict[str, float | int]:
+    started = time.monotonic()
     connection = duckdb.connect()
     try:
         connection.execute(
@@ -477,8 +542,6 @@ def _verify_semantic_equality(
             f"ATTACH {backup_database._sql_string(str(hot))} AS generation (READ_ONLY)"
         )
         for qualified_name in sorted(row_counts):
-            if qualified_name in cold_tables:
-                continue
             schema, table = qualified_name.split(".", 1)
             original = _qualified(schema, table, database="original")
             generation = _qualified(schema, table, database="generation")
@@ -496,6 +559,10 @@ def _verify_semantic_equality(
         raise SnapshotError(f"generation equality verification failed: {exc}") from exc
     finally:
         connection.close()
+    return {
+        "seconds": time.monotonic() - started,
+        "rows": sum(row_counts[name] for name in cold_tables),
+    }
 
 
 def _data_commit(repo_root: Path) -> str | None:
@@ -721,15 +788,18 @@ def _publish_locked(
                 schema_identity = engine_db.require_compatible_database_schema(source_connection)
                 captured_cohort = _capture_cohort(repo_root, snapshot)
                 previous_parts = () if previous_pin is None else previous_pin.info.parts
+                previous_cold_tables = (
+                    {} if previous_pin is None else previous_pin.info.cold_tables
+                )
                 parts, cold_specs, cold_metrics = _install_cold_parts(
-                    source_connection, directory, previous_parts,
+                    source_connection, directory, previous_parts, previous_cold_tables,
                 )
                 snapshot["table_sha256"] = _generation_table_hashes(
                     source_connection, source_database, snapshot["row_counts"],
                     cold_specs, parts,
                 )
                 _build_hot_database(source, temporary, parts, cold_specs)
-                _verify_semantic_equality(
+                equality_metrics = _verify_semantic_equality(
                     source, temporary, snapshot["row_counts"], set(cold_specs),
                 )
                 as_of = datetime.now(timezone.utc)
@@ -764,6 +834,9 @@ def _publish_locked(
                 "cold_bytes_read": cold_metrics["read_bytes"],
                 "cold_bytes_serialized": cold_metrics["serialized_bytes"],
                 "cold_copy_operations": cold_metrics["copy_operations"],
+                "cold_frontier_reused_parts": cold_metrics["frontier_reused_parts"],
+                "cold_verification_rows": equality_metrics["rows"],
+                "cold_verification_seconds": equality_metrics["seconds"],
             },
         }
         manifest = {**body, "manifest_sha256": backup_database.canonical_sha256(body)}

@@ -238,10 +238,13 @@ def test_delta_generations_preserve_rows_share_parts_and_respect_reader_pins(tmp
     assert first_part_paths & second_part_paths
     assert len({record["partition"] for record in second["parts"]
                 if record["table"] == "main.bitemporal_facts"}) == 2
-    assert second["metrics"]["cold_copy_operations"] == 1
-    assert third["metrics"]["cold_copy_operations"] == 0
-    assert third["metrics"]["cold_bytes_read"] == 0
-    assert third["metrics"]["cold_bytes_serialized"] == 0
+    assert second["metrics"]["cold_copy_operations"] == 2
+    assert third["metrics"]["cold_copy_operations"] == 1
+    assert third["metrics"]["cold_frontier_reused_parts"] == 3
+    assert third["metrics"]["cold_bytes_read"] > 0
+    assert third["metrics"]["cold_bytes_serialized"] > 0
+    assert third["metrics"]["cold_verification_rows"] == 4
+    assert third["metrics"]["cold_verification_seconds"] >= 0
     assert all(record["key_min"] and record["key_max"] for record in third["parts"])
     latest = snapshots.pin_latest_generation(source)
     try:
@@ -263,6 +266,61 @@ def test_delta_generations_preserve_rows_share_parts_and_respect_reader_pins(tmp
     pin.close()
     publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=3))
     assert not first_info.path.exists()
+
+
+@pytest.mark.parametrize("mutation", ["update", "delete-insert"])
+def test_same_count_cold_correction_never_publishes_stale_parts(tmp_path, mutation):
+    root, source = _repo(tmp_path, cold=True)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    writer = duckdb.connect(str(source))
+    try:
+        if mutation == "update":
+            writer.execute(
+                "UPDATE bitemporal_facts SET revision=9, "
+                "normalized_payload='{\"corrected\":true}' WHERE id=1"
+            )
+        else:
+            row = list(writer.execute(
+                "SELECT * FROM bitemporal_facts WHERE id=1"
+            ).fetchone())
+            row[9] = 9
+            row[10] = '{"corrected":true}'
+            writer.execute("DELETE FROM bitemporal_facts WHERE id=1")
+            writer.execute(
+                "INSERT INTO bitemporal_facts VALUES " + "(" + ",".join("?" for _ in row) + ")",
+                row,
+            )
+    finally:
+        writer.close()
+
+    with pytest.raises(publish_snapshot.SnapshotError, match="differs from source table"):
+        publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=1))
+
+    with snapshots.pin_latest_generation(source) as info:
+        assert info.generation_id == Path(first["snapshot"]).stem
+        with duckdb.connect(str(info.path), read_only=True) as con:
+            assert con.execute(
+                "SELECT revision,normalized_payload FROM bitemporal_facts WHERE id=1"
+            ).fetchone() == (1, "{}")
+
+
+def test_non_frontier_cold_partition_is_rebuilt_after_same_count_update(tmp_path):
+    root, source = _repo(tmp_path, cold=True)
+    publish_snapshot.publish_snapshot(root, source, now=NOW)
+    writer = duckdb.connect(str(source))
+    writer.execute("UPDATE intraday_prices SET volume=999 WHERE ticker='SPY'")
+    writer.close()
+
+    second = publish_snapshot.publish_snapshot(
+        root, source, now=NOW + timedelta(seconds=1),
+    )
+
+    assert second["metrics"]["cold_copy_operations"] >= 1
+    with snapshots.pin_latest_generation(source) as info:
+        with duckdb.connect(str(info.path), read_only=True) as con:
+            assert con.execute(
+                "SELECT volume FROM intraday_prices WHERE ticker='SPY'"
+            ).fetchone() == (999,)
 
 
 def test_generation_pin_refuses_a_corrupt_cold_part(tmp_path):

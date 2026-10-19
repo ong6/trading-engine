@@ -37,6 +37,10 @@ COLD_TABLE_LAYOUTS = {
     "main.bitemporal_facts": ("ingested_at", ("id",)),
     "main.source_response_receipts": ("received_at", ("id",)),
 }
+COLD_APPEND_FRONTIERS = {
+    "main.bitemporal_facts": "id",
+    "main.source_response_receipts": "id",
+}
 _VERIFIED_CACHE_LIMIT = 16
 _verified_generations: dict[tuple, dict[Path, tuple[int, ...]]] = {}
 
@@ -520,7 +524,7 @@ def _generation_info(
             or not isinstance(spec, dict)
             or set(spec) != {
                 "schema", "table", "availability_column", "key_columns",
-                "create_sql", "columns", "indexes",
+                "create_sql", "columns", "indexes", "append_key", "append_frontier",
             }
             or qualified_name != f"{spec.get('schema')}.{spec.get('table')}"
             or not isinstance(spec.get("availability_column"), str)
@@ -530,6 +534,23 @@ def _generation_info(
             or not isinstance(spec.get("create_sql"), str)
             or not isinstance(spec.get("columns"), list)
             or not isinstance(spec.get("indexes"), list)
+            or spec.get("append_key") != COLD_APPEND_FRONTIERS.get(qualified_name)
+            or (
+                spec.get("append_key") is not None
+                and (
+                    not isinstance(spec["append_key"], str)
+                    or not spec["append_key"]
+                    or spec["append_key"] not in spec["key_columns"]
+                    or (
+                        spec.get("append_frontier") is not None
+                        and type(spec["append_frontier"]) is not int
+                    )
+                )
+            )
+            or (
+                spec.get("append_key") is None
+                and spec.get("append_frontier") is not None
+            )
         ):
             return None
     if (
@@ -548,6 +569,8 @@ def _generation_info(
             "wall_seconds", "writer_lock_seconds", "hot_size_bytes",
             "cold_part_bytes", "new_cold_part_bytes",
             "cold_bytes_read", "cold_bytes_serialized", "cold_copy_operations",
+            "cold_frontier_reused_parts", "cold_verification_rows",
+            "cold_verification_seconds",
         }
         or any(
             isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0
