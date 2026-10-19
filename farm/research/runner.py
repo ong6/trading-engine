@@ -21,8 +21,8 @@ from farm.study.costs import calculate
 from .artifacts import (
     _build_label_artifact,
     _new_label_capability,
-    label_cache_identity,
     build_study_artifacts,
+    label_cache_identity,
     materialize_decision_features,
     validate_feature_label_alignment,
     validate_study_object,
