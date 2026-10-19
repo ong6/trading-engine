@@ -27,8 +27,12 @@ def complete_contract(root: Path) -> dict:
         '"close":101.0,"session":"2024-01-03"}]\n'
     ))
     write_text_atomic(outcome_path, (
-        '[{"entry_price":100.0,"exit_price":101.0,"session":"2024-01-02"},'
-        '{"entry_price":101.0,"exit_price":101.0,"session":"2024-01-03"}]\n'
+        '[{"entry_at":"2024-01-03T09:30:00-05:00",'
+        '"entry_price":100.0,"exit_at":"2024-01-03T16:00:00-05:00",'
+        '"exit_price":101.0,"session":"2024-01-02"},'
+        '{"entry_at":"2024-01-04T09:30:00-05:00",'
+        '"entry_price":101.0,"exit_at":"2024-01-04T16:00:00-05:00",'
+        '"exit_price":101.0,"session":"2024-01-03"}]\n'
     ))
     write_text_atomic(membership_path, (
         '{"point_in_time":true,"survivor_status":"point_in_time","rows":['
@@ -113,7 +117,9 @@ def complete_contract(root: Path) -> dict:
             "availability": "available_at",
             "output_schema": [
                 {"name": "session", "dtype": "date", "nullable": False},
+                {"name": "entry_at", "dtype": "datetime", "nullable": False},
                 {"name": "entry_price", "dtype": "float64", "nullable": False},
+                {"name": "exit_at", "dtype": "datetime", "nullable": False},
                 {"name": "exit_price", "dtype": "float64", "nullable": False},
                 {"name": "available_at", "dtype": "datetime", "nullable": False},
             ],
@@ -125,6 +131,7 @@ def complete_contract(root: Path) -> dict:
             "fill_rule": {
                 "entry_price_field": "entry_price",
                 "exit_price_field": "exit_price",
+                "horizon_sessions": 1,
             },
             "universe_rule": "point-in-time membership",
             "liquidity_rule": "positive trailing volume",

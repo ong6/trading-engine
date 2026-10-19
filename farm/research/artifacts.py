@@ -408,9 +408,9 @@ def validate_study_object(
         )
         if "session" not in {column["name"] for column in outcomes["output_schema"]}:
             raise ArtifactValidationError("folded label schemas require a session column")
-        if any(datetime.fromisoformat(row[outcomes["availability"]]).date() >= latest_fold_end
+        if any(date.fromisoformat(row["session"]) >= latest_fold_end
                for row in rows):
-            raise ArtifactValidationError("label availability exceeds declared fold bounds")
+            raise ArtifactValidationError("label decision session exceeds declared fold bounds")
         if receipt["row_counts"].get("labels") != len(rows):
             raise ArtifactValidationError("label receipt row count differs")
     else:

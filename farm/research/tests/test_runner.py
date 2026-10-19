@@ -1,5 +1,6 @@
 import importlib
 import json
+from datetime import date
 from pathlib import Path
 
 from engine.lib.resources import write_text_atomic
@@ -250,7 +251,19 @@ def test_pass_precedes_overlapping_admit_threshold(tmp_path):
     assert _verdict({"metrics": {"mean_net_return": 0.03}}, evaluation) == "pass"
 
 
-def test_runner_computes_gross_fill_return_and_applies_cost_registry(tmp_path):
+def test_runner_computes_next_session_return_and_passes_fill_sessions_to_costs(
+    tmp_path, monkeypatch,
+):
+    import farm.research.runner as runner_module
+
+    calls = []
+    original = runner_module.calculate
+
+    def checked_calculate(*args, **kwargs):
+        calls.append((kwargs.get("session_date"), kwargs.get("fill_kind")))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(runner_module, "calculate", checked_calculate)
     _, runner, features = _setup(tmp_path)
     result = runner.run(attempt="costed", features=features)
     row = next(
@@ -264,6 +277,25 @@ def test_runner_computes_gross_fill_return_and_applies_cost_registry(tmp_path):
     assert row["net_returns"]["ibkr_tiered_auction_v1"] == pytest.approx(
         0.01 - 5.142455445544554 / 10_000
     )
+    assert calls == [
+        (date(2024, 1, 3), "next_open"),
+        (date(2024, 1, 3), "moc"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("callback", "message"),
+    [
+        ("same_bar_label_recipe", "first exchange-session open"),
+        ("wrong_horizon_label_recipe", "declared horizon"),
+    ],
+)
+def test_runner_refuses_same_bar_or_wrong_horizon_fill_instants(
+    tmp_path, callback, message,
+):
+    _, runner, features = _setup(tmp_path, label_callback=callback)
+    with pytest.raises(StudyRunError, match=message):
+        runner.run(attempt="same-bar-fill", features=features)
 
 
 def test_strategy_cannot_supply_or_override_gross_returns(tmp_path):

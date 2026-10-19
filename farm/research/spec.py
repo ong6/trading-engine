@@ -387,7 +387,8 @@ def _strategy(value: object) -> dict[str, Any]:
     except Exception as exc:
         raise ContractError(f"{path}.decision.timezone is unknown") from exc
     fill = _mapping(
-        row["fill_rule"], f"{path}.fill_rule", ("entry_price_field", "exit_price_field")
+        row["fill_rule"], f"{path}.fill_rule",
+        ("entry_price_field", "exit_price_field", "horizon_sessions"),
     )
     return {
         "callback": _callback(row["callback"], f"{path}.callback"),
@@ -399,6 +400,9 @@ def _strategy(value: object) -> dict[str, Any]:
             ),
             "exit_price_field": _string(
                 fill["exit_price_field"], f"{path}.fill_rule.exit_price_field"
+            ),
+            "horizon_sessions": _integer(
+                fill["horizon_sessions"], f"{path}.fill_rule.horizon_sessions", minimum=1,
             ),
         },
         "universe_rule": _string(row["universe_rule"], f"{path}.universe_rule"),
@@ -650,11 +654,24 @@ class StudySpec:
         outcome_types = {
             column["name"]: column["dtype"] for column in normalized["outcomes"]["output_schema"]
         }
-        for field in normalized["strategy"]["fill_rule"].values():
+        for field in (
+            normalized["strategy"]["fill_rule"]["entry_price_field"],
+            normalized["strategy"]["fill_rule"]["exit_price_field"],
+        ):
             if outcome_types.get(field) != "float64":
                 raise ContractError(
                     f"strategy fill price field {field!r} must be a float64 outcome column"
                 )
+        for field in ("entry_at", "exit_at"):
+            declaration = outcome_schema.get(field)
+            if declaration is None or declaration["dtype"] != "datetime" \
+                    or declaration["nullable"]:
+                raise ContractError(
+                    f"outcomes.output_schema requires non-nullable datetime {field}"
+                )
+        if normalized["strategy"]["fill_rule"]["horizon_sessions"] \
+                not in normalized["outcomes"]["horizons"]:
+            raise ContractError("strategy fill horizon must be declared by outcomes.horizons")
         declared_packages = {
             item["name"]: item["version"] for item in normalized["execution"]["packages"]
         }

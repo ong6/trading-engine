@@ -13,10 +13,14 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import date, datetime, time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from engine.lib.resources import write_text_atomic
 from farm.study.costs import calculate
+from sim import nyse
+from sim.order_types import MARKET_OPEN
 
 from .artifacts import (
     _build_label_artifact,
@@ -138,15 +142,62 @@ def _verdict(result: object, evaluation: dict) -> str:
     return matched[0]
 
 
+def _expected_fill_instants(
+    decision_session: str, inputs: dict, strategy: dict,
+) -> tuple[datetime, datetime]:
+    if inputs["calendar"]["name"] not in {"XNYS", "NYSE"}:
+        raise StudyRunError("trusted fill timing requires the XNYS exchange calendar")
+    exchange_zone = ZoneInfo(inputs["timezone"])
+    decision = strategy["decision"]
+    hour, minute = map(int, decision["time"].split(":"))
+    decision_at = datetime.combine(
+        date.fromisoformat(decision_session), time(hour, minute),
+        ZoneInfo(decision["timezone"]),
+    )
+    entry_session = decision_at.astimezone(exchange_zone).date()
+    entry_at = datetime.combine(entry_session, MARKET_OPEN, exchange_zone)
+    if not nyse.is_session(entry_session) or entry_at <= decision_at:
+        entry_session = nyse.next_session(entry_session)
+        entry_at = datetime.combine(entry_session, MARKET_OPEN, exchange_zone)
+    exit_session = entry_session
+    for _ in range(strategy["fill_rule"]["horizon_sessions"] - 1):
+        exit_session = nyse.next_session(exit_session)
+    exit_at = datetime.combine(exit_session, nyse.session_close(exit_session), exchange_zone)
+    return entry_at, exit_at
+
+
+def _aware_instant(value: object, field: str) -> datetime:
+    try:
+        result = datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError as exc:
+        raise StudyRunError(f"outcome {field} is not an aware timestamp") from exc
+    if result is None or result.tzinfo is None or result.utcoffset() is None:
+        raise StudyRunError(f"outcome {field} is not an aware timestamp")
+    return result
+
+
 def _reduce_evaluation(predictions: dict, labels: list[dict], evaluation: dict,
-                       costs: dict, primary_key: list[str], fill_rule: dict,
-                       capital: float) -> dict:
+                       costs: dict, inputs: dict, strategy: dict) -> dict:
+    primary_key = inputs["primary_key"]
+    fill_rule = strategy["fill_rule"]
+    capital = strategy["capital"]
     label_map = {}
+    label_instants = {}
     for row in labels:
         key = tuple(row[name] for name in primary_key)
         if key in label_map:
             raise StudyRunError("outcomes contain duplicate primary keys")
+        expected_entry, expected_exit = _expected_fill_instants(
+            row["session"], inputs, strategy,
+        )
+        entry_at = _aware_instant(row.get("entry_at"), "entry_at")
+        exit_at = _aware_instant(row.get("exit_at"), "exit_at")
+        if entry_at != expected_entry:
+            raise StudyRunError("outcome entry_at is not the first exchange-session open")
+        if exit_at != expected_exit:
+            raise StudyRunError("outcome exit_at does not match the declared horizon")
         label_map[key] = row
+        label_instants[key] = entry_at, exit_at
     profiles = costs["profiles"]
     profile_hashes = {item["name"]: item["sha256"] for item in profiles}
     rows = []
@@ -197,13 +248,19 @@ def _reduce_evaluation(predictions: dict, labels: list[dict], evaluation: dict,
                 notional = capital * abs(weight)
                 if notional:
                     entry_side, exit_side = (("buy", "sell") if weight > 0 else ("sell", "buy"))
+                    entry_at, exit_at = label_instants[key]
+                    exchange_zone = ZoneInfo(inputs["timezone"])
                     total += calculate(
                         profile["name"], side=entry_side, notional=notional,
                         fill_price=entry, mdv60=label.get("mdv60"),
+                        session_date=entry_at.astimezone(exchange_zone).date(),
+                        fill_kind="next_open",
                     ).total
                     total += calculate(
                         profile["name"], side=exit_side, notional=notional,
                         fill_price=exit_, mdv60=label.get("mdv60"),
+                        session_date=exit_at.astimezone(exchange_zone).date(),
+                        fill_kind="moc",
                     ).total
             cost_returns[profile["name"]] = total / capital
         net = {name: gross - cost for name, cost in cost_returns.items()}
@@ -466,9 +523,8 @@ class StudyRunner:
                     outcomes.read_json("labels.json"),
                     self.resolved.spec.as_dict()["evaluation"],
                     self.resolved.spec.as_dict()["costs"],
-                    self.resolved.spec.as_dict()["inputs"]["primary_key"],
-                    self.resolved.spec.as_dict()["strategy"]["fill_rule"],
-                    self.resolved.spec.as_dict()["strategy"]["capital"],
+                    self.resolved.spec.as_dict()["inputs"],
+                    self.resolved.spec.as_dict()["strategy"],
                 )
                 evaluation_contract = self.resolved.spec.as_dict()["evaluation"]
                 variant_verdicts = [{

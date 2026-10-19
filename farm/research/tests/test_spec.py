@@ -16,7 +16,7 @@ def test_complete_contract_has_canonical_golden_bytes_and_derived_markdown(tmp_p
     second = StudySpec.from_dict(json.loads(first.canonical_bytes))
     assert first.canonical_bytes == second.canonical_bytes
     assert first.sha256 == second.sha256
-    assert first.sha256 == "a522fc6fdde3e89b30dee1306082408a348776fa8a8af63b39337603b0513789"
+    assert first.sha256 == "b090c4be153401b18326b019f229a569df3aecebb5b8342a18390b541aca0bcc"
     assert first.resolve(tmp_path).spec == first
     markdown = first.to_markdown()
     assert f"Contract SHA-256: `{first.sha256}`" in markdown
@@ -79,6 +79,21 @@ def test_contract_refuses_overlapping_fold_decision_windows(tmp_path):
         {"name": "overlap", "start": "2024-01-15", "end": "2024-03-01"},
     ]
     with pytest.raises(ContractError, match="non-overlapping decision windows"):
+        StudySpec.from_dict(contract)
+
+
+def test_outcome_protocol_requires_aware_fill_instants_and_declared_horizon(tmp_path):
+    contract = complete_contract(tmp_path)
+    contract["outcomes"]["output_schema"] = [
+        column for column in contract["outcomes"]["output_schema"]
+        if column["name"] != "entry_at"
+    ]
+    with pytest.raises(ContractError, match="requires non-nullable datetime entry_at"):
+        StudySpec.from_dict(contract)
+
+    contract = complete_contract(tmp_path)
+    contract["strategy"]["fill_rule"]["horizon_sessions"] = 5
+    with pytest.raises(ContractError, match="fill horizon must be declared"):
         StudySpec.from_dict(contract)
 
 

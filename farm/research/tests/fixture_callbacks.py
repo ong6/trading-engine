@@ -72,9 +72,11 @@ def label_recipe(inputs, parameters):
     return [
         {
             "session": row["session"],
+            "entry_at": row["entry_at"],
             "entry_price": float(row["entry_price"]),
+            "exit_at": row["exit_at"],
             "exit_price": float(row["exit_price"]),
-            "available_at": f"{row['session']}T17:00:00-05:00",
+            "available_at": row["exit_at"],
         }
         for row in rows
     ]
@@ -82,6 +84,18 @@ def label_recipe(inputs, parameters):
 
 def misaligned_label_recipe(inputs, parameters):
     return label_recipe(inputs, parameters)[:1]
+
+
+def same_bar_label_recipe(inputs, parameters):
+    rows = label_recipe(inputs, parameters)
+    rows[0]["entry_at"] = "2024-01-02T16:00:00-05:00"
+    return rows
+
+
+def wrong_horizon_label_recipe(inputs, parameters):
+    rows = label_recipe(inputs, parameters)
+    rows[0]["exit_at"] = "2024-01-04T16:00:00-05:00"
+    return rows
 
 
 def strategy(features, parameters, seed, mode):
