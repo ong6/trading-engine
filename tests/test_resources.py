@@ -2,6 +2,7 @@ import importlib.util
 import json
 import multiprocessing
 import os
+import shlex
 import stat
 import subprocess
 import sys
@@ -413,15 +414,23 @@ def test_historical_restatement_tool_dry_runs_from_direct_path(tmp_path):
         root / "docs" / "history" / "incident-tools-2026-09-02"
         / "repair_restatements.py"
     )
+    historical = _historical_tool("repair_restatements")
+    usage = next(
+        line.strip() for line in historical.__doc__.splitlines()
+        if "--db <copy>" in line and "--apply" not in line
+    )
+    command = shlex.split(usage)
+    assert command.pop(0) == "PYTHONPATH=$PWD"
+    assert command[0] == ".venv/bin/python"
+    assert command[1] == (
+        "docs/history/incident-tools-2026-09-02/repair_restatements.py"
+    )
+    assert "-m" not in command
+    command[0] = sys.executable
+    command[1] = str(root / command[1])
+    command[command.index("<copy>")] = str(database)
     result = subprocess.run(
-        [
-            sys.executable,
-            str(tool),
-            "--db",
-            str(database),
-            "--target",
-            "TEST:2026-01-02:2.0",
-        ],
+        [*command, "--target", "TEST:2026-01-02:2.0"],
         cwd=root,
         env={
             "PATH": os.environ["PATH"],
