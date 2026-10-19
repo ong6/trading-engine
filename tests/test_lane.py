@@ -648,7 +648,7 @@ def test_release_reaudits_commit_injected_during_live_handoff(tmp_path, monkeypa
 
     monkeypatch.setattr(lane, "_advertised_handoff_sha", commit_during_handoff)
 
-    with pytest.raises(lane.LaneError, match="handoff audit failed"):
+    with pytest.raises(lane.LaneError, match="release mutation barrier"):
         lane.release_lane(
             lanes_root=fixture["root"],
             home=fixture["home"],
@@ -657,11 +657,12 @@ def test_release_reaudits_commit_injected_during_live_handoff(tmp_path, monkeypa
         )
 
     assert injected is True
-    assert _git(target, "rev-parse", "HEAD").stdout.strip() != head
+    assert _git(target, "rev-parse", "HEAD").stdout.strip() == head
+    assert not (target / "concurrent.txt").exists()
     assert _claims(fixture)[0]["state"] == "active"
 
 
-def test_release_rolls_back_transition_when_state_changes_after_final_snapshot(
+def test_release_refuses_commit_attempt_after_final_snapshot(
     tmp_path, monkeypatch
 ):
     fixture = _fixture(tmp_path)
@@ -683,7 +684,7 @@ def test_release_rolls_back_transition_when_state_changes_after_final_snapshot(
 
     monkeypatch.setattr(lane, "_release_snapshot", snapshot_then_commit)
 
-    with pytest.raises(lane.LaneError, match="changed during release transition"):
+    with pytest.raises(lane.LaneError, match="release mutation barrier"):
         lane.release_lane(
             lanes_root=fixture["root"],
             home=fixture["home"],
@@ -692,10 +693,65 @@ def test_release_rolls_back_transition_when_state_changes_after_final_snapshot(
         )
 
     row = _claims(fixture)[0]
-    assert snapshots == 2
+    assert snapshots == 1
     assert row["state"] == "active"
     assert "released_at" not in row
     assert "head_sha" not in row
+
+
+@pytest.mark.parametrize("mutation", ["status", "hook", "identity"])
+def test_release_barrier_refuses_invalid_state_after_second_audit(
+    tmp_path, monkeypatch, mutation
+):
+    fixture = _fixture(tmp_path)
+    _create(fixture)
+    target = fixture["root"] / "lane-one"
+    head = _commit(target)
+    status = _status(fixture, "lane-one", head)
+    _git(target, "push", "-u", "origin", "HEAD")
+    original = lane._audit_unlocked
+    audits = 0
+
+    def audit_then_mutate(*args, **kwargs):
+        nonlocal audits
+        report = original(*args, **kwargs)
+        audits += 1
+        if audits == 2:
+            if mutation == "status":
+                status.write_text("blocked\n")
+            elif mutation == "hook":
+                hooks = Path(
+                    _git(
+                        target,
+                        "config",
+                        "--worktree",
+                        "--get",
+                        "core.hooksPath",
+                    ).stdout.strip()
+                )
+                (hooks / "pre-push").unlink()
+            else:
+                _git(
+                    target,
+                    "config",
+                    "--worktree",
+                    "user.email",
+                    "private@company.invalid",
+                )
+        return report
+
+    monkeypatch.setattr(lane, "_audit_unlocked", audit_then_mutate)
+
+    with pytest.raises((lane.LaneError, OSError, subprocess.CalledProcessError)):
+        lane.release_lane(
+            lanes_root=fixture["root"],
+            home=fixture["home"],
+            lane="lane-one",
+            status_path=status,
+        )
+
+    assert audits == 2
+    assert _claims(fixture)[0]["state"] == "active"
 
 
 def test_audit_and_release_reject_opaque_stash_subject(tmp_path):

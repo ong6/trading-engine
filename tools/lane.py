@@ -589,6 +589,96 @@ def _release_lease(target: Path):
         os.close(descriptor)
 
 
+def _remove_write_bits(path: Path, modes: dict[Path, int]) -> None:
+    if path in modes:
+        return
+    details = path.lstat()
+    if stat.S_ISLNK(details.st_mode):
+        return
+    if not (stat.S_ISDIR(details.st_mode) or stat.S_ISREG(details.st_mode)):
+        raise LaneError("release seal encountered a special file")
+    mode = stat.S_IMODE(details.st_mode)
+    modes[path] = mode
+    path.chmod(mode & ~0o222)
+
+
+def _restore_modes(modes: dict[Path, int]) -> None:
+    for path, mode in sorted(modes.items(), key=lambda item: len(item[0].parts)):
+        try:
+            path.chmod(mode)
+        except FileNotFoundError:
+            pass
+
+
+@contextmanager
+def _release_mutation_barrier(target: Path, branch: str, head: str, status_path: Path):
+    admin = _admin_dir(target)
+    common = Path(_git_value(target, "rev-parse", "--git-common-dir"))
+    if not common.is_absolute():
+        common = (target / common).resolve()
+    branch_ref = common / "refs" / "heads" / branch.removeprefix("refs/heads/")
+    branch_ref.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    lock_paths = (
+        admin / "index.lock",
+        admin / "config.worktree.lock",
+        branch_ref.with_name(f"{branch_ref.name}.lock"),
+    )
+    descriptors = []
+    modes: dict[Path, int] = {}
+    original_head = (admin / "HEAD").read_text(encoding="utf-8")
+    state = {"detached": False, "sealed": False}
+    try:
+        if _git_value(target, "rev-parse", f"refs/heads/{branch}") != head:
+            raise LaneError("branch moved before release barrier")
+        for path in lock_paths:
+            descriptor = os.open(
+                path,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+            descriptors.append((descriptor, path))
+        for path in [target, *target.rglob("*")]:
+            _remove_write_bits(path, modes)
+        for path in admin.rglob("*"):
+            _remove_write_bits(path, modes)
+        _remove_write_bits(status_path, modes)
+        _remove_write_bits(status_path.parent, modes)
+
+        def detach_and_seal() -> None:
+            _atomic_text(admin / "HEAD", f"{head}\n", 0o444)
+            state["detached"] = True
+            _remove_write_bits(admin, modes)
+
+        state["detach_and_seal"] = detach_and_seal
+        yield state
+    except OSError as exc:
+        raise LaneError(f"cannot establish release mutation barrier: {exc}") from exc
+    finally:
+        for descriptor, _path in descriptors:
+            os.close(descriptor)
+        created_paths = [path for _descriptor, path in descriptors]
+        if lock_paths[-1] in created_paths:
+            try:
+                lock_paths[-1].unlink()
+            except FileNotFoundError:
+                pass
+        if not state["sealed"]:
+            _restore_modes(modes)
+            if state["detached"]:
+                _atomic_text(admin / "HEAD", original_head)
+            for path in created_paths:
+                if path == lock_paths[-1]:
+                    continue
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+
+
 def _claims(root: Path) -> tuple[Path, str, list[dict], dict | None]:
     path = root / "CLAIMS.md"
     try:
@@ -1478,6 +1568,38 @@ def _release_snapshot(target: Path, status_path: Path, claim: dict) -> dict:
     }
 
 
+def _snapshot_matches_audit(
+    snapshot: dict,
+    report: dict,
+    claim: dict,
+    status_path: Path,
+) -> bool:
+    status_done, fields = _status_fields(status_path)
+    return (
+        snapshot["head"] == report["head_sha"]
+        and snapshot["advertised_head"] == report["head_sha"]
+        and snapshot["branch"] == report["branch"] == claim["branch"]
+        and snapshot["hook"] == hashlib.sha256(HOOK_TEMPLATE.read_bytes()).hexdigest()
+        and snapshot["excludes"] == hashlib.sha256(b".venv\n").hexdigest()
+        and public_identity_error(
+            snapshot["identity_name"], snapshot["identity_email"]
+        )
+        is None
+        and snapshot["environment_valid"]
+        and snapshot["status_receipt"] is not None
+        and status_done
+        and fields.get("lane") == report["lane"]
+        and fields.get("branch") == claim["branch"]
+        and fields.get("base") == claim["base_sha"]
+        and fields.get("head") == report["head_sha"]
+        and not snapshot["status"]
+        and snapshot["stash_sha"] is None
+        and not snapshot["unpushed_commit_count"]
+        and not snapshot["protected_stores"]
+        and not snapshot["running_pids"]
+    )
+
+
 def _audit_unlocked(
     root: Path,
     home: Path,
@@ -1597,38 +1719,26 @@ def release_lane(
         row = next(item for item in rows if item["lane"] == lane)
         target = _target(root, lane, home)
         with _release_lease(target):
-            for _attempt in range(2):
-                report = _audit_unlocked(root, home, lane, status, rows)
-                if not report["ok"]:
-                    failed = sorted(
-                        key for key, passed in report["checks"].items() if not passed
-                    )
-                    raise LaneError(f"handoff audit failed: {', '.join(failed)}")
-            before = _release_snapshot(target, status, row)
-            if (
-                before["head"] != report["head_sha"]
-                or before["advertised_head"] != report["head_sha"]
-                or before["branch"] != report["branch"]
-                or before["status"]
-                or before["stash_sha"] is not None
-                or before["unpushed_commit_count"]
-                or before["protected_stores"]
-                or before["running_pids"]
-                or not before["environment_valid"]
-                or before["status_receipt"] is None
-            ):
-                raise LaneError("handoff state changed before release transition")
-            original = dict(row)
-            row["head_sha"] = report["head_sha"]
-            row["released_at"] = _timestamp(clock)
-            row["state"] = "released"
-            _write_claim_rows(path, content, rows, migration)
-            after = _release_snapshot(target, status, row)
-            if after != before:
-                row.clear()
-                row.update(original)
+            barrier_head = _git_value(target, "rev-parse", "HEAD")
+            with _release_mutation_barrier(
+                target, row["branch"], barrier_head, status
+            ) as barrier:
+                for _attempt in range(2):
+                    report = _audit_unlocked(root, home, lane, status, rows)
+                    if not report["ok"]:
+                        failed = sorted(
+                            key for key, passed in report["checks"].items() if not passed
+                        )
+                        raise LaneError(f"handoff audit failed: {', '.join(failed)}")
+                before = _release_snapshot(target, status, row)
+                if not _snapshot_matches_audit(before, report, row, status):
+                    raise LaneError("handoff state changed before release transition")
+                barrier["detach_and_seal"]()
+                row["head_sha"] = report["head_sha"]
+                row["released_at"] = _timestamp(clock)
+                row["state"] = "released"
                 _write_claim_rows(path, content, rows, migration)
-                raise LaneError("handoff state changed during release transition")
+                barrier["sealed"] = True
     return report
 
 
