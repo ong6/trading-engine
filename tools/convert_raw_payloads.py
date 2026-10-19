@@ -8,6 +8,7 @@ import json
 import os
 import re
 import stat
+from contextlib import contextmanager
 from pathlib import Path
 
 from engine import raw_payload
@@ -66,21 +67,33 @@ def _entry(path: Path, *, base: Path, apply: bool) -> dict:
     if target.exists():
         if target.is_symlink() or not target.is_file():
             raise FreeSourceError(f"compressed conversion candidate is unsafe: {target}")
-        compressed = target.read_bytes()
-        raw_payload.read_compressed(
-            path, expected_sha256=match.group("sha"), expected_size=len(body),
+        descriptor = os.open(
+            target,
+            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
         )
+        try:
+            compressed_size = os.fstat(descriptor).st_size
+            raw_payload.read_compressed_descriptor(
+                descriptor, expected_sha256=match.group("sha"), expected_size=len(body),
+            )
+            compressed_sha256 = raw_payload.descriptor_sha256(
+                descriptor, expected_size=compressed_size,
+            )
+        finally:
+            os.close(descriptor)
     else:
         compressed = raw_payload.encode(body)
         if raw_payload.decode(compressed) != body:
             raise FreeSourceError("dry-run zstd round trip changed the payload")
+        compressed_size = len(compressed)
+        compressed_sha256 = hashlib.sha256(compressed).hexdigest()
     return {
         "path": _relative(path, base),
         "source_sha256": match.group("sha"),
         "source_size": len(body),
         "compressed_path": _relative(raw_payload.compressed_path(path), base),
-        "compressed_sha256": hashlib.sha256(compressed).hexdigest(),
-        "compressed_size": len(compressed),
+        "compressed_sha256": compressed_sha256,
+        "compressed_size": compressed_size,
         "mode": f"{stat.S_IMODE(info.st_mode):04o}",
     }
 
@@ -126,31 +139,124 @@ def _load_manifest(path: Path) -> dict | None:
     return payload
 
 
-def _verify_manifest_entry(entry: dict, base: Path) -> None:
-    logical = base / entry["path"]
-    body = raw_payload.read_compressed(
-        logical, expected_sha256=entry["source_sha256"],
-        expected_size=entry["source_size"],
-    )
-    target = raw_payload.compressed_path(logical)
-    if target.is_symlink() or not target.is_file():
-        raise FreeSourceError("manifest compressed payload is unsafe")
-    compressed = target.read_bytes()
-    if (len(body) != entry["source_size"]
-            or len(compressed) != entry["compressed_size"]
-            or hashlib.sha256(compressed).hexdigest() != entry["compressed_sha256"]
-            or stat.S_IMODE(target.stat().st_mode) != int(entry["mode"], 8)):
-        raise FreeSourceError("compressed payload differs from conversion manifest")
+@contextmanager
+def _opened_base(base: Path):
+    descriptor = None
+    try:
+        descriptor = os.open(
+            base,
+            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+        )
+        if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            raise FreeSourceError("conversion base is unsafe")
+        yield descriptor
+    except OSError as exc:
+        raise FreeSourceError("conversion base is unsafe or unreadable") from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+@contextmanager
+def _opened_member_parent(base_descriptor: int, relative: str):
+    path = Path(relative)
+    descriptor = os.dup(base_descriptor)
+    try:
+        for component in path.parts[:-1]:
+            child = os.open(
+                component,
+                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=descriptor,
+            )
+            if not stat.S_ISDIR(os.fstat(child).st_mode):
+                os.close(child)
+                raise FreeSourceError("conversion member parent is unsafe")
+            os.close(descriptor)
+            descriptor = child
+        yield descriptor, path.name
+    except OSError as exc:
+        raise FreeSourceError("conversion member parent is unsafe or unreadable") from exc
+    finally:
+        os.close(descriptor)
+
+
+def _verify_manifest_entry_at(entry: dict, base_descriptor: int) -> None:
+    with _opened_member_parent(base_descriptor, entry["path"]) as (parent, leaf):
+        descriptor = None
+        try:
+            descriptor = os.open(
+                f"{leaf}.zst",
+                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=parent,
+            )
+            info = os.fstat(descriptor)
+            body = raw_payload.read_compressed_descriptor(
+                descriptor, expected_sha256=entry["source_sha256"],
+                expected_size=entry["source_size"],
+            )
+            compressed_sha = raw_payload.descriptor_sha256(
+                descriptor, expected_size=entry["compressed_size"],
+            )
+            if (len(body) != entry["source_size"]
+                    or compressed_sha != entry["compressed_sha256"]
+                    or stat.S_IMODE(info.st_mode) != int(entry["mode"], 8)):
+                raise FreeSourceError("compressed payload differs from conversion manifest")
+        except FreeSourceError as exc:
+            raise FreeSourceError("compressed payload differs from conversion manifest") from exc
+        except OSError as exc:
+            raise FreeSourceError("manifest compressed payload is unsafe or unreadable") from exc
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
+
+def _verify_manifest_entry(
+    entry: dict, base: Path, *, base_descriptor: int | None = None,
+) -> None:
+    if base_descriptor is not None:
+        _verify_manifest_entry_at(entry, base_descriptor)
+        return
+    with _opened_base(base) as descriptor:
+        _verify_manifest_entry_at(entry, descriptor)
+
+
+def _remove_original_at(entry: dict, base_descriptor: int) -> None:
+    _verify_manifest_entry_at(entry, base_descriptor)
+    with _opened_member_parent(base_descriptor, entry["path"]) as (parent, leaf):
+        original = None
+        try:
+            original = os.open(
+                leaf,
+                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=parent,
+            )
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise FreeSourceError("conversion original is unsafe or unreadable") from exc
+        try:
+            info = os.fstat(original)
+            raw_payload.read_plain_descriptor(
+                original, expected_sha256=entry["source_sha256"],
+                expected_size=entry["source_size"],
+            )
+            current = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
+            if ((info.st_dev, info.st_ino, info.st_size)
+                    != (current.st_dev, current.st_ino, current.st_size)
+                    or not stat.S_ISREG(current.st_mode)
+                    or stat.S_IMODE(current.st_mode) != int(entry["mode"], 8)):
+                raise FreeSourceError("conversion original changed before removal")
+            os.unlink(leaf, dir_fd=parent)
+            os.fsync(parent)
+        finally:
+            os.close(original)
 
 
 def _remove_original(entry: dict, base: Path) -> None:
-    path = base / entry["path"]
-    _verify_manifest_entry(entry, base)
-    if path.exists() or path.is_symlink():
-        if path.is_symlink() or not path.is_file():
-            raise FreeSourceError("conversion original is unsafe")
-        path.unlink()
-        raw_payload.fsync_directory(path.parent)
+    with _opened_base(base) as descriptor:
+        _remove_original_at(entry, descriptor)
 
 
 def verify_manifest(manifest_path: Path, *, base: Path) -> dict:
@@ -158,8 +264,9 @@ def verify_manifest(manifest_path: Path, *, base: Path) -> dict:
     manifest = _load_manifest(manifest_path)
     if manifest is None:
         raise FreeSourceError("conversion manifest is missing")
-    for entry in manifest["entries"]:
-        _verify_manifest_entry(entry, base)
+    with _opened_base(base) as descriptor:
+        for entry in manifest["entries"]:
+            _verify_manifest_entry(entry, base, base_descriptor=descriptor)
     return manifest
 
 
@@ -174,18 +281,19 @@ def convert(
     existing = _load_manifest(manifest_path) if apply and manifest_path is not None else None
     if existing is not None and existing["remove_originals"] != remove_originals:
         raise FreeSourceError("existing conversion manifest removal policy differs")
-    entries_by_path = {
-        entry["path"]: entry for entry in ([] if existing is None else existing["entries"])
-    }
-    for entry in entries_by_path.values():
-        _verify_manifest_entry(entry, base)
-    for candidate in _discover(roots):
-        entry = _entry(candidate, base=base, apply=apply)
-        prior = entries_by_path.get(entry["path"])
-        if prior is not None and prior != entry:
-            raise FreeSourceError("converted payload differs from existing manifest")
-        entries_by_path[entry["path"]] = entry
-    entries = [entries_by_path[key] for key in sorted(entries_by_path)]
+    with _opened_base(base) as base_descriptor:
+        entries_by_path = {
+            entry["path"]: entry for entry in ([] if existing is None else existing["entries"])
+        }
+        for entry in entries_by_path.values():
+            _verify_manifest_entry(entry, base, base_descriptor=base_descriptor)
+        for candidate in _discover(roots):
+            entry = _entry(candidate, base=base, apply=apply)
+            prior = entries_by_path.get(entry["path"])
+            if prior is not None and prior != entry:
+                raise FreeSourceError("converted payload differs from existing manifest")
+            entries_by_path[entry["path"]] = entry
+        entries = [entries_by_path[key] for key in sorted(entries_by_path)]
     manifest = {
         "schema_version": 1,
         "zstd_level": raw_payload.ZSTD_LEVEL,

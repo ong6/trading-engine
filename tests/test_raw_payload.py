@@ -223,6 +223,38 @@ def test_manifest_refuses_path_hash_that_differs_from_source_identity(tmp_path: 
         convert_raw_payloads.verify_manifest(manifest_path, base=tmp_path)
 
 
+def test_manifest_parent_symlink_cannot_verify_or_remove_outside_base(tmp_path: Path):
+    base = tmp_path / "checkpoint"
+    member = base / "member"
+    member.mkdir(parents=True)
+    body = b"outside-original"
+    digest = hashlib.sha256(body).hexdigest()
+    logical = member / f"{digest}.json"
+    logical.write_bytes(body)
+    logical.chmod(0o600)
+    manifest_path = base / "manifest.json"
+    convert_raw_payloads.convert(
+        [member], base=base, apply=True, manifest_path=manifest_path,
+    )
+    manifest = json.loads(manifest_path.read_text())
+    manifest["remove_originals"] = True
+    manifest["manifest_sha256"] = convert_raw_payloads._manifest_identity(manifest)
+    manifest_path.write_text(json.dumps(manifest))
+
+    outside = tmp_path / "outside-member"
+    member.rename(outside)
+    member.symlink_to(outside, target_is_directory=True)
+    empty = base / "empty"
+    empty.mkdir()
+    with pytest.raises(FreeSourceError, match="parent is unsafe"):
+        convert_raw_payloads.convert(
+            [empty], base=base, apply=True, remove_originals=True,
+            manifest_path=manifest_path,
+        )
+    assert (outside / logical.name).read_bytes() == body
+    assert raw_payload.compressed_path(outside / logical.name).exists()
+
+
 def test_codec_works_in_scheduler_minimal_path():
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
@@ -270,7 +302,17 @@ def test_decoder_rejects_declared_size_above_receipt_before_output_allocation(
     monkeypatch.setattr(raw_payload.ctypes, "create_string_buffer", record_allocation)
     with pytest.raises(FreeSourceError, match="exceeds the allowed decoded size"):
         raw_payload.decode(encoded, max_output_size=8)
-    assert allocations == [len(encoded)]
+    assert allocations == [min(raw_payload.FRAME_HEADER_BYTES, len(encoded))]
+
+
+def test_compressed_file_size_is_bounded_before_stream_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    logical = tmp_path / f"{'a' * 64}.raw"
+    raw_payload.compressed_path(logical).write_bytes(b"not-zstd!")
+    monkeypatch.setattr(raw_payload, "MAX_COMPRESSED_BYTES", 8)
+    with pytest.raises(FreeSourceError, match="compressed raw payload size is invalid"):
+        raw_payload.read_compressed(logical)
 
 
 def test_empty_payload_round_trips_and_converts(tmp_path: Path):
@@ -286,7 +328,10 @@ def test_empty_payload_round_trips_and_converts(tmp_path: Path):
     assert planned["entries"][0]["source_size"] == 0
 
 
-@pytest.mark.parametrize("failure_point", ["encode", "file_fsync", "replace", "dir_fsync"])
+@pytest.mark.parametrize(
+    "failure_point",
+    ["encode", "file_fsync", "temp_chmod", "replace", "dir_fsync", "final_verify"],
+)
 def test_seal_atomic_failure_matrix_retains_original(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_point: str,
 ):
@@ -296,6 +341,8 @@ def test_seal_atomic_failure_matrix_retains_original(
     original_fsync = raw_payload.os.fsync
     original_replace = raw_payload.os.replace
     original_dir_fsync = raw_payload.fsync_directory
+    original_chmod = Path.chmod
+    original_read_compressed = raw_payload.read_compressed
 
     if failure_point == "encode":
         monkeypatch.setattr(
@@ -312,10 +359,22 @@ def test_seal_atomic_failure_matrix_retains_original(
             raw_payload.os, "replace",
             lambda *_args: (_ for _ in ()).throw(OSError("replace crash")),
         )
-    else:
+    elif failure_point == "dir_fsync":
         monkeypatch.setattr(
             raw_payload, "fsync_directory",
             lambda _path: (_ for _ in ()).throw(OSError("directory fsync crash")),
+        )
+    elif failure_point == "temp_chmod":
+        def fail_temp_chmod(chmod_path, mode):
+            if chmod_path.name.startswith(".") and ".zst." in chmod_path.name:
+                raise OSError("temporary chmod crash")
+            return original_chmod(chmod_path, mode)
+
+        monkeypatch.setattr(Path, "chmod", fail_temp_chmod)
+    else:
+        monkeypatch.setattr(
+            raw_payload, "read_compressed",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("final verify crash")),
         )
 
     with pytest.raises(OSError, match="crash"):
@@ -330,9 +389,68 @@ def test_seal_atomic_failure_matrix_retains_original(
     monkeypatch.setattr(raw_payload.os, "fsync", original_fsync)
     monkeypatch.setattr(raw_payload.os, "replace", original_replace)
     monkeypatch.setattr(raw_payload, "fsync_directory", original_dir_fsync)
+    monkeypatch.setattr(Path, "chmod", original_chmod)
+    monkeypatch.setattr(raw_payload, "read_compressed", original_read_compressed)
     assert raw_payload.read(
         logical, expected_sha256=logical.stem,
     ) == body
+
+
+def test_existing_target_permission_repair_failure_retains_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    logical = _plain(tmp_path)
+    body = logical.read_bytes()
+    target = raw_payload.seal(logical, body, mode=0o640)
+    target.chmod(0o666)
+    monkeypatch.setattr(
+        raw_payload, "fsync_file",
+        lambda _path: (_ for _ in ()).throw(OSError("permission fsync crash")),
+    )
+    with pytest.raises(OSError, match="permission fsync crash"):
+        raw_payload.seal(logical, body, mode=0o640)
+    assert logical.read_bytes() == body
+
+
+@pytest.mark.parametrize("failure_point", ["chmod", "file_fsync", "directory_fsync"])
+def test_manifest_durability_failure_retains_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_point: str,
+):
+    logical = _plain(tmp_path)
+    body = logical.read_bytes()
+    raw_payload.seal(logical, body, mode=0o640)
+    manifest_path = tmp_path / "manifest.json"
+    original_chmod = Path.chmod
+    original_fsync = convert_raw_payloads.os.fsync
+    original_directory_fsync = raw_payload.fsync_directory
+
+    if failure_point == "chmod":
+        def fail_manifest_chmod(chmod_path, mode):
+            if chmod_path == manifest_path:
+                raise OSError("manifest chmod crash")
+            return original_chmod(chmod_path, mode)
+
+        monkeypatch.setattr(Path, "chmod", fail_manifest_chmod)
+    elif failure_point == "file_fsync":
+        monkeypatch.setattr(
+            convert_raw_payloads.os, "fsync",
+            lambda _fd: (_ for _ in ()).throw(OSError("manifest file fsync crash")),
+        )
+    else:
+        monkeypatch.setattr(
+            raw_payload, "fsync_directory",
+            lambda _path: (_ for _ in ()).throw(OSError("manifest directory fsync crash")),
+        )
+
+    with pytest.raises(OSError, match="manifest .* crash"):
+        convert_raw_payloads.convert(
+            [logical], base=tmp_path, apply=True, remove_originals=True,
+            manifest_path=manifest_path,
+        )
+    assert logical.read_bytes() == body
+    monkeypatch.setattr(Path, "chmod", original_chmod)
+    monkeypatch.setattr(convert_raw_payloads.os, "fsync", original_fsync)
+    monkeypatch.setattr(raw_payload, "fsync_directory", original_directory_fsync)
 
 
 def test_fetched_checkpoint_restores_through_manifest_and_real_loader(tmp_path: Path):

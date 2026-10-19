@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ctypes
 import hashlib
+import io
 import os
 import stat
 import tempfile
@@ -17,6 +18,9 @@ MIN_ZSTD_VERSION_NUMBER = 10308
 ZSTD_CONTENTSIZE_UNKNOWN = (1 << 64) - 1
 ZSTD_CONTENTSIZE_ERROR = (1 << 64) - 2
 MAX_DECODED_BYTES = 512_000_000
+MAX_COMPRESSED_BYTES = 512_000_000
+STREAM_INPUT_BYTES = 128 * 1024
+FRAME_HEADER_BYTES = 18
 
 
 class _ZSTDInBuffer(ctypes.Structure):
@@ -106,15 +110,17 @@ def encode(body: bytes, *, level: int = ZSTD_LEVEL) -> bytes:
     return destination.raw[:written]
 
 
-def decode(body: bytes, *, max_output_size: int = MAX_DECODED_BYTES) -> bytes:
-    if not isinstance(body, bytes) or not body:
-        raise FreeSourceError("compressed raw payload must be non-empty bytes")
+def _decode_stream(source, *, compressed_size: int, max_output_size: int) -> bytes:
+    if not 0 < compressed_size <= MAX_COMPRESSED_BYTES:
+        raise FreeSourceError("compressed raw payload size is invalid")
     if (not isinstance(max_output_size, int) or isinstance(max_output_size, bool)
             or not 0 <= max_output_size <= MAX_DECODED_BYTES):
         raise FreeSourceError("zstd decoded-size limit is invalid")
     library = _codec()
-    source = ctypes.create_string_buffer(body)
-    declared = int(library.ZSTD_getFrameContentSize(source, len(body)))
+    header = source.read(min(FRAME_HEADER_BYTES, compressed_size))
+    source.seek(0)
+    header_buffer = ctypes.create_string_buffer(header)
+    declared = int(library.ZSTD_getFrameContentSize(header_buffer, len(header)))
     if declared == ZSTD_CONTENTSIZE_ERROR:
         raise FreeSourceError("zstd payload has an invalid frame header")
     if declared != ZSTD_CONTENTSIZE_UNKNOWN and declared > max_output_size:
@@ -124,54 +130,152 @@ def decode(body: bytes, *, max_output_size: int = MAX_DECODED_BYTES) -> bytes:
         raise FreeSourceError("zstd decoder allocation failed")
     try:
         _checked_result(library, library.ZSTD_initDStream(stream))
-        input_buffer = _ZSTDInBuffer(
-            ctypes.cast(source, ctypes.c_void_p), len(body), 0,
-        )
         output = bytearray()
         chunk_size = int(library.ZSTD_DStreamOutSize())
         remaining_hint = 1
-        while True:
-            allowed = max_output_size - len(output)
-            capacity = min(chunk_size, allowed + 1)
-            destination = ctypes.create_string_buffer(max(1, capacity))
-            output_buffer = _ZSTDOutBuffer(
-                ctypes.cast(destination, ctypes.c_void_p), capacity, 0,
+        consumed = 0
+        while consumed < compressed_size:
+            chunk = source.read(min(STREAM_INPUT_BYTES, compressed_size - consumed))
+            if not chunk:
+                raise FreeSourceError("compressed raw payload changed while reading")
+            consumed += len(chunk)
+            input_storage = ctypes.create_string_buffer(chunk)
+            input_buffer = _ZSTDInBuffer(
+                ctypes.cast(input_storage, ctypes.c_void_p), len(chunk), 0,
             )
-            prior_input = input_buffer.pos
-            remaining_hint = _checked_result(
-                library,
-                library.ZSTD_decompressStream(
-                    stream, ctypes.byref(output_buffer), ctypes.byref(input_buffer),
-                ),
-            )
-            produced = int(output_buffer.pos)
-            if produced > allowed:
-                raise FreeSourceError("zstd payload exceeds the allowed decoded size")
-            output.extend(destination.raw[:produced])
-            if input_buffer.pos == input_buffer.size:
-                if remaining_hint != 0:
-                    raise FreeSourceError("zstd payload is truncated")
-                break
-            if input_buffer.pos == prior_input and produced == 0:
-                raise FreeSourceError("zstd decoder made no progress")
+            while input_buffer.pos < input_buffer.size:
+                allowed = max_output_size - len(output)
+                capacity = min(chunk_size, allowed + 1)
+                destination = ctypes.create_string_buffer(max(1, capacity))
+                output_buffer = _ZSTDOutBuffer(
+                    ctypes.cast(destination, ctypes.c_void_p), capacity, 0,
+                )
+                prior_input = input_buffer.pos
+                remaining_hint = _checked_result(
+                    library,
+                    library.ZSTD_decompressStream(
+                        stream, ctypes.byref(output_buffer), ctypes.byref(input_buffer),
+                    ),
+                )
+                produced = int(output_buffer.pos)
+                if produced > allowed:
+                    raise FreeSourceError("zstd payload exceeds the allowed decoded size")
+                output.extend(destination.raw[:produced])
+                if input_buffer.pos == prior_input and produced == 0:
+                    raise FreeSourceError("zstd decoder made no progress")
+        if remaining_hint != 0:
+            raise FreeSourceError("zstd payload is truncated")
         return bytes(output)
     finally:
         library.ZSTD_freeDStream(stream)
 
 
-def _read_regular(
-    path: Path, *, compressed: bool, max_output_size: int = MAX_DECODED_BYTES,
+def decode(body: bytes, *, max_output_size: int = MAX_DECODED_BYTES) -> bytes:
+    if not isinstance(body, bytes) or not body:
+        raise FreeSourceError("compressed raw payload must be non-empty bytes")
+    return _decode_stream(
+        io.BytesIO(body), compressed_size=len(body), max_output_size=max_output_size,
+    )
+
+
+class _DescriptorReader:
+    def __init__(self, descriptor: int):
+        self.descriptor = descriptor
+        self.offset = 0
+
+    def read(self, size: int) -> bytes:
+        chunk = os.pread(self.descriptor, size, self.offset)
+        self.offset += len(chunk)
+        return chunk
+
+    def seek(self, offset: int) -> None:
+        self.offset = offset
+
+
+def _file_identity(info: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def read_plain_descriptor(
+    descriptor: int, *, expected_sha256: str | None = None,
+    expected_size: int | None = None,
 ) -> bytes:
+    before = os.fstat(descriptor)
+    if not stat.S_ISREG(before.st_mode):
+        raise FreeSourceError("sealed raw payload path is unsafe")
+    limit = expected_size if expected_size is not None else MAX_DECODED_BYTES
+    if before.st_size > limit:
+        raise FreeSourceError("sealed raw payload length is invalid")
+    reader = _DescriptorReader(descriptor)
+    body = bytearray()
+    while len(body) < before.st_size:
+        chunk = reader.read(min(STREAM_INPUT_BYTES, before.st_size - len(body)))
+        if not chunk:
+            raise FreeSourceError("sealed raw payload changed while reading")
+        body.extend(chunk)
+    after = os.fstat(descriptor)
+    if _file_identity(before) != _file_identity(after):
+        raise FreeSourceError("sealed raw payload changed while reading")
+    return _verify(bytes(body), expected_sha256=expected_sha256, expected_size=expected_size)
+
+
+def read_compressed_descriptor(
+    descriptor: int, *, expected_sha256: str | None = None,
+    expected_size: int | None = None,
+) -> bytes:
+    before = os.fstat(descriptor)
+    if (not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= MAX_COMPRESSED_BYTES):
+        raise FreeSourceError("compressed raw payload size is invalid")
+    body = _decode_stream(
+        _DescriptorReader(descriptor), compressed_size=before.st_size,
+        max_output_size=(expected_size if expected_size is not None else MAX_DECODED_BYTES),
+    )
+    after = os.fstat(descriptor)
+    if _file_identity(before) != _file_identity(after):
+        raise FreeSourceError("compressed raw payload changed while reading")
+    return _verify(body, expected_sha256=expected_sha256, expected_size=expected_size)
+
+
+def descriptor_sha256(descriptor: int, *, expected_size: int | None = None) -> str:
+    before = os.fstat(descriptor)
+    if not stat.S_ISREG(before.st_mode):
+        raise FreeSourceError("sealed raw payload path is unsafe")
+    if expected_size is not None and before.st_size != expected_size:
+        raise FreeSourceError("sealed raw payload length is invalid")
+    digest = hashlib.sha256()
+    offset = 0
+    while offset < before.st_size:
+        chunk = os.pread(descriptor, min(STREAM_INPUT_BYTES, before.st_size - offset), offset)
+        if not chunk:
+            raise FreeSourceError("sealed raw payload changed while hashing")
+        digest.update(chunk)
+        offset += len(chunk)
+    after = os.fstat(descriptor)
+    if _file_identity(before) != _file_identity(after):
+        raise FreeSourceError("sealed raw payload changed while hashing")
+    return digest.hexdigest()
+
+
+def _read_regular(
+    path: Path, *, compressed: bool, expected_size: int | None = None,
+) -> bytes:
+    descriptor = None
     try:
-        info = path.lstat()
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-            raise FreeSourceError("sealed raw payload path is unsafe")
-        body = path.read_bytes()
+        descriptor = os.open(
+            path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        )
+        if compressed:
+            return read_compressed_descriptor(
+                descriptor, expected_size=expected_size,
+            )
+        return read_plain_descriptor(descriptor, expected_size=expected_size)
     except FileNotFoundError:
         raise
     except OSError as exc:
         raise FreeSourceError("sealed raw payload is unreadable") from exc
-    return decode(body, max_output_size=max_output_size) if compressed else body
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 def _verify(body: bytes, *, expected_sha256: str | None, expected_size: int | None) -> bytes:
@@ -192,8 +296,7 @@ def read(
         try:
             versions.append(_read_regular(
                 candidate, compressed=is_compressed,
-                max_output_size=(expected_size if expected_size is not None
-                                 else MAX_DECODED_BYTES),
+                expected_size=expected_size,
             ))
         except FileNotFoundError:
             pass
@@ -213,8 +316,7 @@ def read_compressed(
     try:
         body = _read_regular(
             compressed_path(Path(path)), compressed=True,
-            max_output_size=(expected_size if expected_size is not None
-                             else MAX_DECODED_BYTES),
+            expected_size=expected_size,
         )
     except FileNotFoundError as exc:
         raise FreeSourceError("compressed raw payload is missing") from exc
@@ -276,7 +378,7 @@ def seal(
             os.fsync(output.fileno())
         temporary.chmod(mode)
         decoded = _read_regular(
-            temporary, compressed=True, max_output_size=len(body),
+            temporary, compressed=True, expected_size=len(body),
         )
         _verify(decoded, expected_sha256=digest, expected_size=len(body))
         os.replace(temporary, target)
