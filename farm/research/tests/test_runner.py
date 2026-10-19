@@ -1,5 +1,6 @@
 import importlib
 import json
+from pathlib import Path
 
 from engine.lib.resources import write_text_atomic
 from farm.research.artifacts import build_study_artifacts
@@ -96,6 +97,34 @@ def test_label_cache_receipt_is_bound_to_the_current_attempt(tmp_path):
         receipts.append(capability)
     assert label_digests[0] != label_digests[1]
     assert receipts[0] != receipts[1]
+
+
+def test_attempt_start_and_holdout_directories_are_fsynced_before_callbacks(
+    tmp_path, monkeypatch,
+):
+    import farm.research.runner as runner_module
+
+    _, runner, features = _setup(tmp_path, phase="holdout")
+    synced = []
+    original_fsync_directory = runner_module._fsync_directory
+    original_run_sandboxed = runner_module.run_sandboxed
+    run_directory = (
+        tmp_path / "work" / "synthetic-contract" / "v1" / "durable-holdout"
+    ).resolve()
+    holdout_directory = (tmp_path / "work" / "holdout").resolve()
+
+    def recording_fsync(path):
+        original_fsync_directory(path)
+        synced.append(Path(path).resolve())
+
+    def checked_run_sandboxed(*args, **kwargs):
+        assert run_directory in synced
+        assert holdout_directory in synced
+        return original_run_sandboxed(*args, **kwargs)
+
+    monkeypatch.setattr(runner_module, "_fsync_directory", recording_fsync)
+    monkeypatch.setattr(runner_module, "run_sandboxed", checked_run_sandboxed)
+    runner.run(attempt="durable-holdout", features=features)
 
 
 def test_pilot_never_builds_label_object(tmp_path):

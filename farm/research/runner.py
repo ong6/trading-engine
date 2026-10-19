@@ -91,6 +91,14 @@ def _seal_json(value, target: Path) -> str:
     return file_sha256(target)
 
 
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def _seed(master: int, variant: str, fold: str) -> int:
     material = f"{master}\0{variant}\0{fold}".encode()
     return int.from_bytes(hashlib.sha256(material).digest()[:8], "big")
@@ -287,6 +295,7 @@ class StudyRunner:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
+        _fsync_directory(marker.parent)
 
     def run(
         self,
@@ -317,6 +326,7 @@ class StudyRunner:
         }
         started_path = run_directory / "attempt-started.json"
         started_sha = _seal_json(started_receipt, started_path)
+        _fsync_directory(run_directory)
         try:
             if phase == "holdout":
                 self._open_holdout(attempt, run_directory)
