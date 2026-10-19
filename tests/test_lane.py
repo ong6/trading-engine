@@ -628,6 +628,76 @@ def test_release_rejects_stale_origin_and_unrelated_remote_advertisement(tmp_pat
         )
 
 
+def test_release_reaudits_commit_injected_during_live_handoff(tmp_path, monkeypatch):
+    fixture = _fixture(tmp_path)
+    _create(fixture)
+    target = fixture["root"] / "lane-one"
+    head = _commit(target)
+    status = _status(fixture, "lane-one", head)
+    _git(target, "push", "-u", "origin", "HEAD")
+    original = lane._advertised_handoff_sha
+    injected = False
+
+    def commit_during_handoff(worktree, remote, ref):
+        nonlocal injected
+        advertised = original(worktree, remote, ref)
+        if not injected:
+            injected = True
+            _commit(target, "concurrent.txt")
+        return advertised
+
+    monkeypatch.setattr(lane, "_advertised_handoff_sha", commit_during_handoff)
+
+    with pytest.raises(lane.LaneError, match="handoff audit failed"):
+        lane.release_lane(
+            lanes_root=fixture["root"],
+            home=fixture["home"],
+            lane="lane-one",
+            status_path=status,
+        )
+
+    assert injected is True
+    assert _git(target, "rev-parse", "HEAD").stdout.strip() != head
+    assert _claims(fixture)[0]["state"] == "active"
+
+
+def test_release_rolls_back_transition_when_state_changes_after_final_snapshot(
+    tmp_path, monkeypatch
+):
+    fixture = _fixture(tmp_path)
+    _create(fixture)
+    target = fixture["root"] / "lane-one"
+    head = _commit(target)
+    status = _status(fixture, "lane-one", head)
+    _git(target, "push", "-u", "origin", "HEAD")
+    original = lane._release_snapshot
+    snapshots = 0
+
+    def snapshot_then_commit(worktree, status_path, claim):
+        nonlocal snapshots
+        result = original(worktree, status_path, claim)
+        snapshots += 1
+        if snapshots == 1:
+            _commit(target, "transition-race.txt")
+        return result
+
+    monkeypatch.setattr(lane, "_release_snapshot", snapshot_then_commit)
+
+    with pytest.raises(lane.LaneError, match="changed during release transition"):
+        lane.release_lane(
+            lanes_root=fixture["root"],
+            home=fixture["home"],
+            lane="lane-one",
+            status_path=status,
+        )
+
+    row = _claims(fixture)[0]
+    assert snapshots == 2
+    assert row["state"] == "active"
+    assert "released_at" not in row
+    assert "head_sha" not in row
+
+
 def test_audit_and_release_reject_opaque_stash_subject(tmp_path):
     fixture = _fixture(tmp_path)
     _create(fixture)

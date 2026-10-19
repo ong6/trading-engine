@@ -570,6 +570,25 @@ def _claims_lock(root: Path):
         os.close(descriptor)
 
 
+@contextmanager
+def _release_lease(target: Path):
+    path = _admin_dir(target) / "lane-release.lock"
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise LaneError(f"cannot open release lease: {exc}") from exc
+    try:
+        details = os.fstat(descriptor)
+        if not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid():
+            raise LaneError("release lease is not a user-owned regular file")
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
+
+
 def _claims(root: Path) -> tuple[Path, str, list[dict], dict | None]:
     path = root / "CLAIMS.md"
     try:
@@ -1411,6 +1430,53 @@ def _read_environment(target: Path) -> dict | None:
         return None
 
 
+def _regular_digest(path: Path) -> str | None:
+    try:
+        details = path.lstat()
+        if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
+            return None
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _release_snapshot(target: Path, status_path: Path, claim: dict) -> dict:
+    state = _worktree_state(target)
+    head = _git_value(target, "rev-parse", "HEAD")
+    hook_path = Path(_git_value(target, "config", "--worktree", "--get", "core.hooksPath"))
+    excludes_path = Path(
+        _git_value(target, "config", "--worktree", "--get", "core.excludesFile")
+    )
+    environment = _read_environment(target)
+    lock_sha256 = _lock_hash(target / "uv.lock")
+    return {
+        "advertised_head": _advertised_handoff_sha(
+            target, claim["handoff_remote"], claim["handoff_ref"]
+        ),
+        "branch": state["branch"],
+        "environment_record": _regular_digest(_environment_record(target)),
+        "environment_valid": bool(
+            environment
+            and _shared_environment_valid(root=target.parent, target=target, lock_sha256=lock_sha256, record=environment)
+        ),
+        "excludes": _regular_digest(excludes_path),
+        "head": head,
+        "hook": _regular_digest(hook_path / "pre-push"),
+        "identity_email": _git_value(
+            target, "config", "--worktree", "--get", "user.email"
+        ),
+        "identity_name": _git_value(
+            target, "config", "--worktree", "--get", "user.name"
+        ),
+        "protected_stores": _protected_stores(target),
+        "running_pids": _running_pids(target),
+        "stash_sha": state["stash_sha"],
+        "status": state["status_porcelain"],
+        "status_receipt": _regular_digest(status_path),
+        "unpushed_commit_count": state["unpushed_commit_count"],
+    }
+
+
 def _audit_unlocked(
     root: Path,
     home: Path,
@@ -1527,19 +1593,41 @@ def release_lane(
     status = status_path or home / ".tae" / "out" / lane / "STATUS"
     with _claims_lock(root):
         path, content, rows, migration = _claims(root)
-        report = _audit_unlocked(root, home, lane, status, rows)
-        if not report["ok"]:
-            failed = sorted(key for key, passed in report["checks"].items() if not passed)
-            raise LaneError(f"handoff audit failed: {', '.join(failed)}")
         row = next(item for item in rows if item["lane"] == lane)
-        row["head_sha"] = report["head_sha"]
-        row["released_at"] = _timestamp(clock)
-        row["state"] = "released"
-        _atomic_text(
-            path,
-            _render_claims(content, rows, migration),
-            path.stat().st_mode & 0o777,
-        )
+        target = _target(root, lane, home)
+        with _release_lease(target):
+            for _attempt in range(2):
+                report = _audit_unlocked(root, home, lane, status, rows)
+                if not report["ok"]:
+                    failed = sorted(
+                        key for key, passed in report["checks"].items() if not passed
+                    )
+                    raise LaneError(f"handoff audit failed: {', '.join(failed)}")
+            before = _release_snapshot(target, status, row)
+            if (
+                before["head"] != report["head_sha"]
+                or before["advertised_head"] != report["head_sha"]
+                or before["branch"] != report["branch"]
+                or before["status"]
+                or before["stash_sha"] is not None
+                or before["unpushed_commit_count"]
+                or before["protected_stores"]
+                or before["running_pids"]
+                or not before["environment_valid"]
+                or before["status_receipt"] is None
+            ):
+                raise LaneError("handoff state changed before release transition")
+            original = dict(row)
+            row["head_sha"] = report["head_sha"]
+            row["released_at"] = _timestamp(clock)
+            row["state"] = "released"
+            _write_claim_rows(path, content, rows, migration)
+            after = _release_snapshot(target, status, row)
+            if after != before:
+                row.clear()
+                row.update(original)
+                _write_claim_rows(path, content, rows, migration)
+                raise LaneError("handoff state changed during release transition")
     return report
 
 
