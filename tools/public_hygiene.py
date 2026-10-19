@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
-"""Reject private host details, credentials, and non-public commit identities.
+"""Reject private host details, fixed credential patterns, and private identities.
 
 The checker is deliberately read-only.  It can inspect committed additions, a
 worktree, CI's advertised revision pair, or the ref updates supplied to a
 pre-push hook.  Findings never include the matched value.
+
+The credential contract is intentionally fixed: PEM/OpenSSH private-key
+blocks; AWS AKIA/ASIA, GitHub, GitLab, Slack, Google, Stripe, OpenAI,
+Anthropic, npm, and PyPI token prefixes; and entropy-gated 16+ character
+literal assignments whose key contains secret, password, passwd, token,
+api_key, apikey, or private_key.  Assignment scanning covers Python, shell,
+env, JSON, YAML, TOML, INI, and plain text, including source-escaped and
+multiline serialized forms.  GitHub server-side secret scanning is the second
+layer; this tool does not claim to recognize every possible credential.
 """
 
 from __future__ import annotations
@@ -11,6 +20,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import stat
@@ -65,20 +75,36 @@ _PATH_RULES = (
 _SECRET_RULES = (
     (
         "private_key",
-        re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
+        re.compile(
+            r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----"
+        ),
         0,
     ),
-    ("github_token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b"), 0),
-    ("aws_access_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b"), 0),
+    (
+        "github_token",
+        re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b"),
+        0,
+    ),
+    ("aws_access_key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), 0),
+    ("gitlab_token", re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}\b"), 0),
+    ("slack_token", re.compile(r"\bxox[abpr]-[A-Za-z0-9-]{20,}\b"), 0),
+    ("google_api_key", re.compile(r"\bAIza[A-Za-z0-9_-]{20,}\b"), 0),
+    ("stripe_key", re.compile(r"\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b"), 0),
+    (
+        "model_api_key",
+        re.compile(r"\b(?:sk-ant-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9_-]{20,})\b"),
+        0,
+    ),
+    ("npm_token", re.compile(r"\bnpm_[A-Za-z0-9]{20,}\b"), 0),
+    ("pypi_token", re.compile(r"\bpypi-[A-Za-z0-9_-]{20,}\b"), 0),
     (
         "credential_assignment",
         re.compile(
-            r"(?i)(?<![A-Za-z0-9_-])(?:export[ \t]+)?[\"']?"
-            r"(?:[A-Za-z][A-Za-z0-9]{0,31}[_-]){0,3}"
-            r"(?:api[_-]?(?:key|token)|access[_-]?token|client[_-]?secret|password|"
-            r"secret[_-]?access[_-]?key)[\"']?[ \t]*[:=][ \t]*"
-            r"(?:\"([^\"\r\n]{20,})\"|'([^'\r\n]{20,})'|"
-            r"([^\s#\"'`,}\]]{24,}))"
+            r"(?i)(?<![A-Za-z0-9_-])(?:export\s+)?[\"']?"
+            r"[A-Za-z0-9_-]*(?:secret|password|passwd|token|api[_-]?key|apikey|"
+            r"private[_-]?key)[A-Za-z0-9_-]*[\"']?\s*[:=]\s*"
+            r"(?:\"([^\"\r\n]{16,})\"|'([^'\r\n]{16,})'|"
+            r"([A-Za-z0-9_./+=:@!$%^&*?~-]{16,}))"
         ),
         (1, 2, 3),
     ),
@@ -172,6 +198,24 @@ def _matched_candidate(match: re.Match[str], group: int | tuple[int, ...]) -> st
     return next(value for index in group if (value := match.group(index)) is not None)
 
 
+def _high_entropy(value: str) -> bool:
+    if len(value) < 16:
+        return False
+    counts = Counter(value)
+    entropy = -sum(
+        (count / len(value)) * math.log2(count / len(value)) for count in counts.values()
+    )
+    classes = sum(
+        (
+            any(character.islower() for character in value),
+            any(character.isupper() for character in value),
+            any(character.isdigit() for character in value),
+            any(not character.isalnum() for character in value),
+        )
+    )
+    return entropy >= 3.0 and classes >= 3
+
+
 def _sensitive_path(path: str, denylist: tuple[str, ...]) -> bool:
     if any(pattern.search(path) for _, pattern in _PATH_RULES) or any(
         item.casefold() in path.casefold() for item in denylist
@@ -180,7 +224,9 @@ def _sensitive_path(path: str, denylist: tuple[str, ...]) -> bool:
     for rule, pattern, group in _SECRET_RULES:
         for match in pattern.finditer(path):
             candidate = _matched_candidate(match, group)
-            if rule != "credential_assignment" or not _public_fixture(path, candidate):
+            if rule != "credential_assignment" or (
+                _high_entropy(candidate) and not _public_fixture(path, candidate)
+            ):
                 return True
     return False
 
@@ -204,12 +250,18 @@ def _scan_value(
                 _finding(path, "host_private_denylist", denied, redact_path=redact_path)
             )
     if include_secrets:
-        for rule, pattern, group in _SECRET_RULES:
-            for match in pattern.finditer(value):
-                candidate = _matched_candidate(match, group)
-                if rule == "credential_assignment" and _public_fixture(path, candidate):
-                    continue
-                findings.add(_finding(path, rule, candidate, redact_path=redact_path))
+        secret_inputs = (value, value.replace(r'\"', '"').replace(r"\'", "'"))
+        for secret_input in dict.fromkeys(secret_inputs):
+            for rule, pattern, group in _SECRET_RULES:
+                for match in pattern.finditer(secret_input):
+                    candidate = _matched_candidate(match, group)
+                    if rule == "credential_assignment" and (
+                        not _high_entropy(candidate) or _public_fixture(path, candidate)
+                    ):
+                        continue
+                    findings.add(
+                        _finding(path, rule, candidate, redact_path=redact_path)
+                    )
     return findings
 
 

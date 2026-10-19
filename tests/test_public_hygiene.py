@@ -62,6 +62,11 @@ def _rules(findings: set[public_hygiene.Finding]) -> set[str]:
     return {finding.rule for finding in findings}
 
 
+def _generic_secret(seed: str) -> str:
+    material = f"Aa{seed}9!zZ7$kK3@"
+    return (material * 4)[:32]
+
+
 def test_safe_public_fixture_and_binary_commit_pass(tmp_path):
     root, _remote = _repository(tmp_path)
     base = _git(root, "rev-parse", "HEAD").stdout.strip()
@@ -80,9 +85,7 @@ def test_safe_public_fixture_and_binary_commit_pass(tmp_path):
 def test_unquoted_env_and_yaml_credentials_are_redacted(tmp_path, capsys):
     root, _remote = _repository(tmp_path)
     base = _git(root, "rev-parse", "HEAD").stdout.strip()
-    candidates = [
-        "A" * 24 + suffix for suffix in ("Api9", "Token8", "Secret7", "Password6")
-    ]
+    candidates = [_generic_secret(seed) for seed in ("Api", "Tok", "Sec", "Pwd")]
     (root / ".env").write_text(
         "\n".join(
             (
@@ -108,7 +111,7 @@ def test_unquoted_env_and_yaml_credentials_are_redacted(tmp_path, capsys):
 def test_fixture_word_outside_test_path_does_not_exempt_credential(tmp_path):
     root, _remote = _repository(tmp_path)
     base = _git(root, "rev-parse", "HEAD").stdout.strip()
-    candidate = "fixture-" + "A" * 28
+    candidate = "fixture-" + _generic_secret("Outside")
     (root / ".env").write_text(f"API_KEY={candidate}\n")
     head = _commit(root)
 
@@ -120,12 +123,7 @@ def test_fixture_word_outside_test_path_does_not_exempt_credential(tmp_path):
 def test_namespaced_json_and_punctuated_credentials_are_redacted(tmp_path, capsys):
     root, _remote = _repository(tmp_path)
     base = _git(root, "rev-parse", "HEAD").stdout.strip()
-    candidates = [
-        "T" * 28 + "Key9",
-        "D" * 24 + "!Pass9",
-        "A" * 20 + "!Secret$Access#9",
-        "J" * 24 + "_Json9",
-    ]
+    candidates = [_generic_secret(seed) for seed in ("Tiingo", "Db", "Aws", "Json")]
     content = "\n".join(
         (
             f"TIINGO_API_KEY={candidates[0]}",
@@ -156,7 +154,7 @@ def test_multifield_nested_list_json_inline_yaml_and_api_tokens_are_redacted(
 ):
     root, _remote = _repository(tmp_path)
     base = _git(root, "rev-parse", "HEAD").stdout.strip()
-    candidates = [prefix * 32 for prefix in ("A", "B", "C", "D", "E")]
+    candidates = [_generic_secret(seed) for seed in ("One", "Two", "Three", "Four", "Five", "Six", "Seven")]
     content = "\n".join(
         (
             "{" + f'\"api_key\":\"{candidates[0]}\",\"region\":\"us\"' + "}",
@@ -164,6 +162,8 @@ def test_multifield_nested_list_json_inline_yaml_and_api_tokens_are_redacted(
             "[{" + f'\"api_key\":\"{candidates[2]}\"' + "}]",
             f"service: {{api_token: {candidates[3]}, region: us}}",
             f"TIINGO_API_TOKEN={candidates[4]}",
+            "payload = " + r"{\"api_key\":\"" + candidates[5] + r"\"}",
+            '"api_key":\n    ' + f'"{candidates[6]}"',
         )
     )
     (root / "serialized-credentials.txt").write_text(content + "\n")
@@ -177,10 +177,63 @@ def test_multifield_nested_list_json_inline_yaml_and_api_tokens_are_redacted(
     )
     output = capsys.readouterr()
 
-    assert len([item for item in committed if item.rule == "credential_assignment"]) == 5
-    assert len([item for item in worktree if item.rule == "credential_assignment"]) == 5
+    assert len([item for item in committed if item.rule == "credential_assignment"]) == 7
+    assert len([item for item in worktree if item.rule == "credential_assignment"]) == 7
     assert result == 1
     assert not any(candidate in output.out + output.err for candidate in candidates)
+
+
+def test_documented_private_key_and_provider_prefix_set_is_redacted(tmp_path, capsys):
+    root, _remote = _repository(tmp_path)
+    base = _git(root, "rev-parse", "HEAD").stdout.strip()
+    providers = [
+        "AKIA" + "A1B2C3D4E5F6G7H8",
+        "ASIA" + "H8G7F6E5D4C3B2A1",
+        "ghp_" + "Ab9" * 10,
+        "gho_" + "Bc8" * 10,
+        "ghs_" + "Cd7" * 10,
+        "github_pat_" + "De6_" * 8,
+        "glpat-" + "Ef5_" * 8,
+        "xoxb-" + "Fg4-" * 8,
+        "AIza" + "Gh3_" * 7,
+        "sk_live_" + "Hi2" * 7,
+        "rk_live_" + "Ij1" * 7,
+        "sk-" + "Jk9_" * 6,
+        "sk-ant-" + "Kl8_" * 5,
+        "npm_" + "Lm7" * 8,
+        "pypi-" + "Mn6_" * 6,
+    ]
+    private_header = "-----BEGIN " + "OPENSSH PRIVATE KEY-----"
+    (root / "provider-secrets.txt").write_text(
+        private_header + "\n" + "\n".join(providers) + "\n"
+    )
+    head = _commit(root)
+    scanner = public_hygiene.RepositoryScanner(root)
+
+    committed = scanner.scan_range(f"{base}..{head}")
+    worktree = scanner.scan_worktree()
+    result = public_hygiene.main(
+        ["--repo-root", str(root), "--range", f"{base}..{head}", "--worktree"]
+    )
+    output = capsys.readouterr()
+    expected_rules = {
+        "aws_access_key",
+        "github_token",
+        "gitlab_token",
+        "slack_token",
+        "google_api_key",
+        "stripe_key",
+        "model_api_key",
+        "npm_token",
+        "pypi_token",
+        "private_key",
+    }
+
+    assert expected_rules <= _rules(committed)
+    assert expected_rules <= _rules(worktree)
+    assert result == 1
+    assert private_header not in output.out + output.err
+    assert not any(candidate in output.out + output.err for candidate in providers)
 
 
 def test_checker_source_does_not_trigger_its_path_rules():
