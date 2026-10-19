@@ -8,7 +8,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 from typing import BinaryIO
@@ -32,6 +32,11 @@ MINIMUM_SCHEMA_ID = 0
 CURRENT_SCHEMA_ID = len(MIGRATION_MODULES) - 1
 MINIMUM_DATABASE_SCHEMA_ID = MINIMUM_SCHEMA_ID
 CURRENT_DATABASE_SCHEMA_ID = CURRENT_SCHEMA_ID
+COLD_TABLE_LAYOUTS = {
+    "main.intraday_prices": ("as_of", ("ticker", "ts", "interval")),
+    "main.bitemporal_facts": ("ingested_at", ("id",)),
+    "main.source_response_receipts": ("received_at", ("id",)),
+}
 _VERIFIED_CACHE_LIMIT = 16
 _verified_generations: dict[tuple, dict[Path, tuple[int, ...]]] = {}
 
@@ -137,6 +142,95 @@ def sequence_state(
             "next_value": int(match.group(1)),
         })
     return state
+
+
+def sql_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def sql_string(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def logical_value(value: object) -> object:
+    if value is None or isinstance(value, (str, int, bool)):
+        return [type(value).__name__, value]
+    if isinstance(value, float):
+        return ["float", value.hex()]
+    if isinstance(value, bytes):
+        return ["bytes", value.hex()]
+    if isinstance(value, (date, datetime)):
+        return [type(value).__name__, value.isoformat()]
+    return [type(value).__name__, str(value)]
+
+
+def query_fingerprint(
+    connection: duckdb.DuckDBPyConnection,
+    query: str,
+    *,
+    key_columns: tuple[str, ...] = (),
+) -> tuple[str, int, int, list | None, list | None]:
+    cursor = connection.execute(query)
+    digest = hashlib.sha256()
+    row_count = 0
+    bytes_read = 0
+    key_indexes = [
+        index for index, description in enumerate(cursor.description)
+        if description[0] in key_columns
+    ]
+    key_min = key_max = None
+    while rows := cursor.fetchmany(10_000):
+        for row in rows:
+            encoded = json.dumps(
+                [logical_value(value) for value in row],
+                separators=(",", ":"), sort_keys=False,
+            ).encode()
+            digest.update(len(encoded).to_bytes(8, "big"))
+            digest.update(encoded)
+            bytes_read += len(encoded)
+            key = [logical_value(row[index]) for index in key_indexes]
+            key_min = key if key_min is None else key_min
+            key_max = key
+            row_count += 1
+    return digest.hexdigest(), row_count, bytes_read, key_min, key_max
+
+
+def table_logical_sha256(
+    connection: duckdb.DuckDBPyConnection,
+    database: str,
+    schema: str,
+    table: str,
+) -> str:
+    qualified_name = f"{schema}.{table}"
+    qualified = ".".join(sql_identifier(name) for name in (database, schema, table))
+    layout = COLD_TABLE_LAYOUTS.get(qualified_name)
+    if layout is None:
+        return query_fingerprint(connection, f"SELECT * FROM {qualified} ORDER BY ALL")[0]
+    availability, keys = layout
+    column = sql_identifier(availability)
+    partitions = [
+        str(row[0]) for row in connection.execute(
+            f"SELECT DISTINCT COALESCE(CAST(CAST({column} AS DATE) AS VARCHAR), '__null__') "
+            f"FROM {qualified} ORDER BY 1"
+        ).fetchall()
+    ]
+    records = []
+    order = ", ".join(sql_identifier(name) for name in keys)
+    for partition in partitions:
+        where = (
+            f"{column} IS NULL" if partition == "__null__"
+            else f"CAST({column} AS DATE)=DATE {sql_string(partition)}"
+        )
+        fingerprint, count, _read, _first, _last = query_fingerprint(
+            connection,
+            f"SELECT * FROM {qualified} WHERE {where} ORDER BY {order}",
+            key_columns=keys,
+        )
+        records.append({
+            "partition": partition, "row_count": count,
+            "fingerprint_sha256": fingerprint,
+        })
+    return canonical_sha256(records)
 
 
 def _has_migration_ledger(con: duckdb.DuckDBPyConnection) -> bool:
@@ -519,6 +613,34 @@ def _latest_info(database: Path) -> SnapshotInfo | None:
     if manifest.get("manifest_schema_version") == GENERATION_MANIFEST_SCHEMA_VERSION:
         return _generation_info(directory, snapshot, manifest_path, manifest)
     return _legacy_info(snapshot, manifest_path, manifest)
+
+
+def verified_snapshot_file(snapshot: Path) -> SnapshotInfo | None:
+    """Return one fully byte-verified generation/snapshot file, if valid."""
+    snapshot = Path(snapshot).absolute()
+    if SNAPSHOT_PATTERN.fullmatch(snapshot.name) is None:
+        return None
+    manifest_path = snapshot.with_suffix(".json")
+    try:
+        if snapshot.is_symlink() or not snapshot.is_file() or manifest_path.is_symlink():
+            return None
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    info = (
+        _generation_info(snapshot.parent, snapshot, manifest_path, manifest)
+        if manifest.get("manifest_schema_version") == GENERATION_MANIFEST_SCHEMA_VERSION
+        else _legacy_info(snapshot, manifest_path, manifest)
+    )
+    if info is None:
+        return None
+    try:
+        _verify_files(info)
+    except GenerationError:
+        return None
+    return info
 
 
 def latest_snapshot(

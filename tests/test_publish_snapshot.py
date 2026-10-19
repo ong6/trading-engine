@@ -490,3 +490,23 @@ def test_metadata_resolver_holds_generation_pin_for_direct_snapshot_reader(tmp_p
     resolved._lifetime_pin.close()
     publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=3))
     assert not first_path.exists()
+
+
+def test_crash_orphan_never_displaces_a_valid_rollback_generation(tmp_path):
+    root, source = _repo(tmp_path)
+    publish_snapshot.publish_snapshot(root, source, now=NOW)
+    second = publish_snapshot.publish_snapshot(
+        root, source, now=NOW + timedelta(seconds=1),
+    )
+    directory = source.parent / "snapshots"
+    second_path = directory / second["snapshot"]
+    orphan = directory / "market-20261002T120001500000Z.duckdb"
+    orphan.write_bytes(b"crash orphan")
+
+    publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=2))
+
+    assert second_path.exists()
+    assert not orphan.exists()
+    assert len([
+        path for path in directory.glob("market-*.duckdb") if not path.is_symlink()
+    ]) == 2

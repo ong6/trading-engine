@@ -176,6 +176,13 @@ _NULL_BACKFILL = re.compile(
     r'^UPDATE\s+"?([A-Za-z_][A-Za-z0-9_]*)"?\s+SET\s+'
     r'"?([A-Za-z_][A-Za-z0-9_]*)"?\s*=.*\s+WHERE\s+\2\s+IS\s+NULL$',
 )
+_COLD_TABLE_NAMES = frozenset({
+    "intraday_prices", "bitemporal_facts", "source_response_receipts",
+})
+_MUTATING_TABLE = re.compile(
+    r'^(UPDATE|DELETE\s+FROM|INSERT\s+OR\s+REPLACE\s+INTO)\s+'
+    r'(?:(?:"?main"?)\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?',
+)
 
 
 class DBBusyError(RuntimeError):
@@ -228,6 +235,11 @@ class GuardedConnection:
             return False
         normalized = " ".join(statement.strip().rstrip(";").split())
         upper = normalized.upper()
+        mutation = _MUTATING_TABLE.match(upper)
+        if mutation is not None and mutation.group(2).lower() in _COLD_TABLE_NAMES:
+            raise SchemaMigrationRequired(
+                f"cold table is append-only after schema activation: {mutation.group(2).lower()}"
+            )
         if " TEMP " in f" {upper} " or upper.startswith("CREATE TEMP"):
             return False
         match = _CREATE_OBJECT.match(upper)
@@ -272,7 +284,8 @@ class GuardedConnection:
                 f"{table} requires an explicit schema migration backfill: {column}"
             )
         if upper.startswith(("ALTER TABLE", "DROP TABLE", "DROP VIEW", "CREATE TABLE",
-                             "CREATE VIEW", "CREATE INDEX")):
+                             "CREATE VIEW", "CREATE INDEX", "CREATE SEQUENCE",
+                             "CREATE OR REPLACE SEQUENCE", "DROP SEQUENCE")):
             raise SchemaMigrationRequired("runtime schema DDL requires an explicit migration")
         return False
 

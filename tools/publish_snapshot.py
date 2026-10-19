@@ -17,7 +17,7 @@ import tempfile
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
@@ -25,19 +25,19 @@ import duckdb
 from engine.lib import db as engine_db
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from engine.lib.snapshots import (
+    COLD_TABLE_LAYOUTS,
     LATEST_NAME,
     GenerationError,
     pin_latest_generation,
+    query_fingerprint,
     snapshot_directory,
+    table_logical_sha256,
+    verified_snapshot_file,
 )
 from tools import backup_database
 
 KEEP_SNAPSHOTS = 2
-COLD_TABLES = {
-    "main.intraday_prices": ("as_of", ("ticker", "ts", "interval")),
-    "main.bitemporal_facts": ("ingested_at", ("id",)),
-    "main.source_response_receipts": ("received_at", ("id",)),
-}
+COLD_TABLES = COLD_TABLE_LAYOUTS
 _PUBLICATION_LOCK_HELD: ContextVar[bool] = ContextVar(
     "generation_publication_lock_held", default=False,
 )
@@ -225,18 +225,6 @@ def _cold_specs(connection: duckdb.DuckDBPyConnection) -> dict[str, dict]:
     return specs
 
 
-def _partition_values(
-    connection: duckdb.DuckDBPyConnection, spec: dict,
-) -> list[str]:
-    table = _qualified(spec["schema"], spec["table"])
-    column = _identifier(spec["availability_column"])
-    rows = connection.execute(
-        f"SELECT DISTINCT COALESCE(CAST(CAST({column} AS DATE) AS VARCHAR), '__null__') "
-        f"FROM {table} ORDER BY 1"
-    ).fetchall()
-    return [str(row[0]) for row in rows]
-
-
 def _partition_where(spec: dict, partition: str) -> str:
     column = _identifier(spec["availability_column"])
     if partition == "__null__":
@@ -244,46 +232,29 @@ def _partition_where(spec: dict, partition: str) -> str:
     return f"CAST({column} AS DATE) = DATE {backup_database._sql_string(partition)}"
 
 
-def _fingerprint_value(value: object) -> object:
-    if value is None or isinstance(value, (str, int, bool)):
-        return [type(value).__name__, value]
-    if isinstance(value, float):
-        return ["float", value.hex()]
-    if isinstance(value, bytes):
-        return ["bytes", value.hex()]
-    if isinstance(value, (date, datetime)):
-        return [type(value).__name__, value.isoformat()]
-    return [type(value).__name__, str(value)]
-
-
 def _partition_fingerprint(
     connection: duckdb.DuckDBPyConnection, spec: dict, where: str,
 ) -> tuple[str, int, int, list | None, list | None]:
     table = _qualified(spec["schema"], spec["table"])
     order = ", ".join(_identifier(name) for name in spec["key_columns"])
-    cursor = connection.execute(f"SELECT * FROM {table} WHERE {where} ORDER BY {order}")
-    digest = hashlib.sha256()
-    row_count = 0
-    bytes_read = 0
-    key_indexes = [
-        index for index, description in enumerate(cursor.description)
-        if description[0] in spec["key_columns"]
-    ]
-    key_min = key_max = None
-    while rows := cursor.fetchmany(10_000):
-        for row in rows:
-            encoded = json.dumps(
-                [_fingerprint_value(value) for value in row],
-                separators=(",", ":"), sort_keys=False,
-            ).encode()
-            digest.update(len(encoded).to_bytes(8, "big"))
-            digest.update(encoded)
-            bytes_read += len(encoded)
-            key = [_fingerprint_value(row[index]) for index in key_indexes]
-            key_min = key if key_min is None else key_min
-            key_max = key
-            row_count += 1
-    return digest.hexdigest(), row_count, bytes_read, key_min, key_max
+    return query_fingerprint(
+        connection, f"SELECT * FROM {table} WHERE {where} ORDER BY {order}",
+        key_columns=tuple(spec["key_columns"]),
+    )
+
+
+def _partition_counts(
+    connection: duckdb.DuckDBPyConnection, spec: dict,
+) -> dict[str, int]:
+    table = _qualified(spec["schema"], spec["table"])
+    column = _identifier(spec["availability_column"])
+    return {
+        str(partition): int(count)
+        for partition, count in connection.execute(
+            f"SELECT COALESCE(CAST(CAST({column} AS DATE) AS VARCHAR), '__null__'), "
+            f"COUNT(*) FROM {table} GROUP BY 1 ORDER BY 1"
+        ).fetchall()
+    }
 
 
 def _install_cold_parts(
@@ -301,14 +272,10 @@ def _install_cold_parts(
     for qualified_name, spec in specs.items():
         table = _qualified(spec["schema"], spec["table"])
         order = ", ".join(_identifier(name) for name in spec["key_columns"])
-        for partition in _partition_values(connection, spec):
+        for partition, current_count in _partition_counts(connection, spec).items():
             where = _partition_where(spec, partition)
-            fingerprint, row_count, bytes_read, key_min, key_max = _partition_fingerprint(
-                connection, spec, where,
-            )
-            metrics["read_bytes"] += bytes_read
             prior = previous.get((qualified_name, partition))
-            if prior is not None and prior["fingerprint_sha256"] == fingerprint:
+            if prior is not None and prior["row_count"] == current_count:
                 prior_path = directory / prior["path"]
                 if (
                     prior_path.is_file()
@@ -318,6 +285,10 @@ def _install_cold_parts(
                 ):
                     installed.append(dict(prior))
                     continue
+            fingerprint, row_count, bytes_read, key_min, key_max = _partition_fingerprint(
+                connection, spec, where,
+            )
+            metrics["read_bytes"] += bytes_read
             temporary_dir = directory / ".parts"
             _mkdir_durable(directory, temporary_dir)
             descriptor, temporary_name = tempfile.mkstemp(
@@ -370,6 +341,33 @@ def _install_cold_parts(
             finally:
                 temporary.unlink(missing_ok=True)
     return installed, specs, metrics
+
+
+def _generation_table_hashes(
+    connection: duckdb.DuckDBPyConnection,
+    database: str,
+    row_counts: dict[str, int],
+    cold_specs: dict[str, dict],
+    parts: list[dict],
+) -> dict[str, str]:
+    hashes = {}
+    for qualified_name in sorted(row_counts):
+        if qualified_name in cold_specs:
+            records = [
+                {
+                    "partition": record["partition"],
+                    "row_count": record["row_count"],
+                    "fingerprint_sha256": record["fingerprint_sha256"],
+                }
+                for record in parts if record["table"] == qualified_name
+            ]
+            hashes[qualified_name] = backup_database.canonical_sha256(records)
+        else:
+            schema, table = qualified_name.split(".", 1)
+            hashes[qualified_name] = table_logical_sha256(
+                connection, database, schema, table,
+            )
+    return hashes
 
 
 def _empty_relation(spec: dict) -> str:
@@ -467,7 +465,9 @@ def _build_hot_database(
     _sync_file(destination)
 
 
-def _verify_semantic_equality(capture: Path, hot: Path, row_counts: dict[str, int]) -> None:
+def _verify_semantic_equality(
+    capture: Path, hot: Path, row_counts: dict[str, int], cold_tables: set[str],
+) -> None:
     connection = duckdb.connect()
     try:
         connection.execute(
@@ -477,6 +477,8 @@ def _verify_semantic_equality(capture: Path, hot: Path, row_counts: dict[str, in
             f"ATTACH {backup_database._sql_string(str(hot))} AS generation (READ_ONLY)"
         )
         for qualified_name in sorted(row_counts):
+            if qualified_name in cold_tables:
+                continue
             schema, table = qualified_name.split(".", 1)
             original = _qualified(schema, table, database="original")
             generation = _qualified(schema, table, database="generation")
@@ -614,10 +616,17 @@ def _retain_newest(directory: Path) -> None:
         with _publication_window(directory):
             _retain_newest(directory)
         return
-    snapshots = sorted(
+    candidates = sorted(
         path for path in directory.glob("market-*.duckdb")
         if path.name != LATEST_NAME and not path.is_symlink()
     )
+    snapshots = []
+    for candidate in candidates:
+        if verified_snapshot_file(candidate) is None:
+            candidate.unlink(missing_ok=True)
+            candidate.with_suffix(".json").unlink(missing_ok=True)
+        else:
+            snapshots.append(candidate)
     for old in snapshots[:-KEEP_SNAPSHOTS]:
         pin_path = directory / "pins" / f"{old.stem}.lock"
         _mkdir_durable(directory, pin_path.parent)
@@ -707,7 +716,7 @@ def _publish_locked(
                     "SELECT current_database()"
                 ).fetchone()[0]
                 snapshot = backup_database.database_snapshot(
-                    source_connection, source_database,
+                    source_connection, source_database, include_content=False,
                 )
                 schema_identity = engine_db.require_compatible_database_schema(source_connection)
                 captured_cohort = _capture_cohort(repo_root, snapshot)
@@ -715,8 +724,14 @@ def _publish_locked(
                 parts, cold_specs, cold_metrics = _install_cold_parts(
                     source_connection, directory, previous_parts,
                 )
+                snapshot["table_sha256"] = _generation_table_hashes(
+                    source_connection, source_database, snapshot["row_counts"],
+                    cold_specs, parts,
+                )
                 _build_hot_database(source, temporary, parts, cold_specs)
-                _verify_semantic_equality(source, temporary, snapshot["row_counts"])
+                _verify_semantic_equality(
+                    source, temporary, snapshot["row_counts"], set(cold_specs),
+                )
                 as_of = datetime.now(timezone.utc)
             finally:
                 source_connection.close()

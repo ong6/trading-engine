@@ -1696,6 +1696,7 @@ def test_verify_accepts_schema_v1_snapshot_without_operational_artifacts(tmp_pat
             payload.pop("operational_controls"),
             payload["database"]["snapshot"].pop("index_count"),
                 payload["database"]["snapshot"].pop("sequence_state"),
+                payload["database"]["snapshot"].pop("table_sha256"),
         ),
     )
 

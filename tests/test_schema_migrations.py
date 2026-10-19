@@ -151,6 +151,47 @@ def test_apply_refuses_stale_recovery_bundle(tmp_path, monkeypatch):
         _apply(root, database, expected_catalog)
 
 
+def test_same_count_value_change_makes_recovery_bundle_stale(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    database = root / "store" / "market.duckdb"
+    database.parent.mkdir(parents=True)
+    con = duckdb.connect(str(database))
+    con.execute("CREATE TABLE prices (date DATE, ticker VARCHAR, volume BIGINT)")
+    con.execute("INSERT INTO prices VALUES ('2026-10-16','SPY',100)")
+    con.execute("CREATE TABLE jobs (id INTEGER, state VARCHAR)")
+    con.execute(
+        "CREATE TABLE portfolios (id VARCHAR,name VARCHAR,strategy VARCHAR,config VARCHAR,"
+        "created DATE,active BOOLEAN,cash DOUBLE,initial_cash DOUBLE,execution_profile VARCHAR)"
+    )
+    con.execute("CREATE TABLE sim_orders (id INTEGER)")
+    con.execute("CREATE TABLE sim_fills (id INTEGER)")
+    con.execute(
+        "CREATE TABLE sim_equity (portfolio_id VARCHAR,date DATE,equity DOUBLE,cash DOUBLE,"
+        "n_positions INTEGER)"
+    )
+    con.execute("CREATE TABLE arbitrary_facts (id INTEGER, value VARCHAR)")
+    con.execute("INSERT INTO arbitrary_facts VALUES (1,'before')")
+    expected_pre = schema_migrations.catalog_sha256(con)
+    before = canonical_sha256(
+        backup_database.database_snapshot(
+            con, con.execute("SELECT current_database()").fetchone()[0],
+        )
+    )
+    con.execute("UPDATE arbitrary_facts SET value='after' WHERE id=1")
+    con.close()
+    monkeypatch.setattr(schema_migrations, "_source_commit", lambda _root: SOURCE_COMMIT)
+    monkeypatch.setattr(
+        backup_database, "verify_backup", lambda _bundle: {
+            "manifest_sha256": BACKUP_MANIFEST,
+            "database_snapshot_sha256": before,
+            "source_database": {"kind": "repository-relative", "path": "store/market.duckdb"},
+        },
+    )
+
+    with pytest.raises(schema_migrations.SchemaMigrationError, match="bundle is stale"):
+        _apply(root, database, expected_pre)
+
+
 def test_interrupted_statement_rolls_back_ledger_and_catalog(tmp_path, monkeypatch):
     root, database, _verified, expected_catalog = _prepare(tmp_path, monkeypatch)
     migration = schema_migrations.Migration(
@@ -275,6 +316,28 @@ def test_versioned_connection_turns_runtime_initializers_into_assertions(
         ).fetchone() == (None, None)
     finally:
         con.close()
+
+
+def test_versioned_connection_rejects_unledgered_sequence_ddl(tmp_path):
+    database = tmp_path / "versioned.duckdb"
+    con = duckdb.connect(str(database))
+    con.execute(
+        "CREATE TABLE schema_migrations (migration_id INTEGER PRIMARY KEY, "
+        "migration_sha256 VARCHAR, source_commit VARCHAR, applied_at TIMESTAMPTZ, "
+        "pre_catalog_sha256 VARCHAR, post_catalog_sha256 VARCHAR, "
+        "recovery_manifest_sha256 VARCHAR)"
+    )
+    con.close()
+
+    guarded = engine_db.connect(database)
+    try:
+        with pytest.raises(engine_db.SchemaMigrationRequired, match="explicit migration"):
+            guarded.execute("CREATE SEQUENCE runtime_probe START 1")
+        assert guarded.execute(
+            "SELECT 1 FROM duckdb_sequences() WHERE sequence_name='runtime_probe'"
+        ).fetchone() is None
+    finally:
+        guarded.close()
 
 
 @pytest.mark.parametrize(

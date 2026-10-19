@@ -34,6 +34,7 @@ from engine.lib.snapshots import (
     pin_latest_generation,
     require_compatible_schema,
     sequence_state,
+    table_logical_sha256,
 )
 from server import nightly_monitor
 from server.driver_monitor import DRIVER_SCHEDULES
@@ -98,10 +99,11 @@ SNAPSHOT_FIELDS = {
     "active_portfolio_count",
     "active_portfolios_sha256",
     "sequence_state",
+    "table_sha256",
 }
 # The first schema-v1 bundle predates index_count. Keep it verifiable while
 # requiring every newly emitted field to have a strict type.
-PRE_GENERATION_SNAPSHOT_FIELDS = SNAPSHOT_FIELDS - {"sequence_state"}
+PRE_GENERATION_SNAPSHOT_FIELDS = SNAPSHOT_FIELDS - {"sequence_state", "table_sha256"}
 LEGACY_SNAPSHOT_FIELDS = PRE_GENERATION_SNAPSHOT_FIELDS - {"index_count"}
 EVIDENCE_RECORD_FIELDS = {"bundle_path", "size_bytes", "sha256"}
 OPERATIONAL_STATIC_FILES = (
@@ -978,6 +980,14 @@ def _validate_snapshot(snapshot: object, *, schema_version: int) -> None:
         )
     _validate_count_map(snapshot["row_counts"], "row_counts")
     _validate_count_map(snapshot["job_states"], "job_states")
+    if "table_sha256" in snapshot:
+        table_hashes = snapshot["table_sha256"]
+        if (
+            not isinstance(table_hashes, dict)
+            or set(table_hashes) != set(snapshot["row_counts"])
+            or any(not _valid_hash(value, SHA256_PATTERN) for value in table_hashes.values())
+        ):
+            raise BackupError("backup database snapshot table hashes are invalid")
     if "sequence_state" in snapshot:
         states = snapshot["sequence_state"]
         fields = {
@@ -1140,7 +1150,12 @@ def _table_row_counts(
     return row_counts
 
 
-def database_snapshot(connection: duckdb.DuckDBPyConnection, database: str) -> dict:
+def database_snapshot(
+    connection: duckdb.DuckDBPyConnection,
+    database: str,
+    *,
+    include_content: bool = True,
+) -> dict:
     """Return restore invariants for one attached database."""
     catalog = _catalog_rows(connection, database)
     table_names = {(schema, table) for schema, table, _sql in catalog["tables"]}
@@ -1163,7 +1178,7 @@ def database_snapshot(connection: duckdb.DuckDBPyConnection, database: str) -> d
         f"execution_profile FROM {prefix}.{_identifier('portfolios')} "
         "WHERE active ORDER BY id"
     ).fetchall()
-    return {
+    result = {
         "schema_sha256": canonical_sha256(catalog),
         "table_count": len(catalog["tables"]),
         "view_count": len(catalog["views"]),
@@ -1175,6 +1190,14 @@ def database_snapshot(connection: duckdb.DuckDBPyConnection, database: str) -> d
         "active_portfolios_sha256": canonical_sha256(active_portfolios),
         "sequence_state": sequence_state(connection, database),
     }
+    if include_content:
+        result["table_sha256"] = {
+            f"{schema}.{table}": table_logical_sha256(
+                connection, database, schema, table,
+            )
+            for schema, table in sorted(table_names)
+        }
+    return result
 
 
 def _copy_database(source: Path, destination: Path) -> dict:
