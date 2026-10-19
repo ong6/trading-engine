@@ -5,6 +5,7 @@
   "database": "store/market.duckdb",
   "schema": "main",
   "table_count": 107,
+  "tables_sha256": "d45dc55b422fc9b085dbc76c143018b66634fc4da3a7d7074fa071ce7f715eaa",
   "tables": [
     "account_events",
     "account_reconciliations",

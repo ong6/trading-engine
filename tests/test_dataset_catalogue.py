@@ -1,5 +1,6 @@
 import ast
 import copy
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -106,6 +107,15 @@ SOURCE_DATABASES = {
     Path("farm/credit_confirmed_experiment.py"): "scratch/credit-confirmed-spy-v1/**.duckdb",
 }
 NON_DUCKDB_DDL_SOURCES = {Path("tools/ops_digest.py")}
+PINNED_REHEARSAL = {
+    "as_of": "2026-10-18T13:39:50.276918+00:00",
+    "source_commit": "1d104decf05c64a29dacbfb361c4f5a2805e775b",
+    "snapshot_sha256": "5f788cc04a7dc2dcde102f5d89000698235c0a72ebb8b287dd7c0a85e4e528d0",
+    "database": "store/market.duckdb",
+    "schema": "main",
+    "table_count": 107,
+    "tables_sha256": "d45dc55b422fc9b085dbc76c143018b66634fc4da3a7d7074fa071ce7f715eaa",
+}
 
 Relation = tuple[str, str, str, str]
 
@@ -466,10 +476,20 @@ def _fresh_pit_relations() -> set[Relation]:
     return relations
 
 
-def _rehearsal_relations() -> set[Relation]:
-    fixture = json.loads(REHEARSAL_PATH.read_text())
+def _table_inventory_sha256(tables: list[str]) -> str:
+    return hashlib.sha256(("\n".join(tables) + "\n").encode()).hexdigest()
+
+
+def _validate_rehearsal_fixture(fixture: dict) -> None:
+    assert {key: fixture.get(key) for key in PINNED_REHEARSAL} == PINNED_REHEARSAL
     assert fixture["table_count"] == len(fixture["tables"]) == 107
     assert fixture["tables"] == sorted(set(fixture["tables"]))
+    assert _table_inventory_sha256(fixture["tables"]) == fixture["tables_sha256"]
+
+
+def _rehearsal_relations() -> set[Relation]:
+    fixture = json.loads(REHEARSAL_PATH.read_text())
+    _validate_rehearsal_fixture(fixture)
     return {
         (fixture["database"], fixture["schema"], "table", name)
         for name in fixture["tables"]
@@ -519,6 +539,28 @@ def test_pinned_revision15_rehearsal_catalogue_is_covered():
     catalogued = _catalogue_relations(_load_catalogue())
     rehearsal = _rehearsal_relations()
     assert rehearsal <= catalogued, {"missing_from_catalogue": sorted(rehearsal - catalogued)}
+
+
+def test_rehearsal_pin_rejects_metadata_omission_and_catalogued_substitution():
+    original = json.loads(REHEARSAL_PATH.read_text())
+    variants = []
+    for field in ("source_commit", "snapshot_sha256", "database", "schema"):
+        changed = copy.deepcopy(original)
+        changed[field] = "changed"
+        variants.append(changed)
+    omitted = copy.deepcopy(original)
+    omitted["tables"] = omitted["tables"][1:]
+    variants.append(omitted)
+    substituted = copy.deepcopy(original)
+    substituted["tables"] = sorted(
+        {"p16_book_contracts", *substituted["tables"][1:]}
+    )
+    assert len(substituted["tables"]) == 107
+    variants.append(substituted)
+
+    for fixture in variants:
+        with pytest.raises(AssertionError):
+            _validate_rehearsal_fixture(fixture)
 
 
 def test_account_source_and_backup_inventories_are_covered():
