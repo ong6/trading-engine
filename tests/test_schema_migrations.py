@@ -1,6 +1,9 @@
 """Operational schema migrations are explicit, ordered, and recovery-gated."""
 from __future__ import annotations
 
+import base64
+import json
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,20 +17,57 @@ from tools import backup_database
 
 SOURCE_COMMIT = "a" * 40
 BACKUP_MANIFEST = "b" * 64
+HISTORICAL_FIXTURES = {
+    "pre-v2": (
+        "schema_catalog_pre_v2.json", "63e5b3ba7476cd280737924ec3fb6a2a812e2afe",
+        "3ea2d60e7c575d4e4e249f3d13ae3ede031a9c5eabf8e7d8b56c6b6205ef6fba",
+    ),
+    "v2": (
+        "schema_catalog_v2.json", "f37ee65d0072c18f29f096b9de7011215ee0a526",
+        "62bf42557342666325c3b7ee19bf0fb15c564df4c6516be93eb0cf974cbb6034",
+    ),
+    "r15": (
+        "schema_catalog_r15.json", "c3f5c0b13e8107b9e9e68c8afeca0a7e4701f85b",
+        "dcd1a8ea73f4136bc935f37d506b16b0d65f7928c88788c96a0f2bde809165b7",
+    ),
+}
 
 
 def _database(path: Path, shape: str = "r15") -> None:
+    fixture_name, source_commit, catalog_sha256 = HISTORICAL_FIXTURES[shape]
+    fixture = json.loads((Path(__file__).parent / "fixtures" / fixture_name).read_text())
+    assert fixture["format"] == "duckdb-zlib-base64-v1"
+    assert fixture["source_commit"] == source_commit
+    assert fixture["catalog_sha256"] == catalog_sha256
+    path.write_bytes(zlib.decompress(base64.b64decode(fixture["payload"], validate=True)))
     con = duckdb.connect(str(path))
-    migration = schema_migrations.migrations()[0]
-    calls = migration.module.BOOTSTRAP_CALLS
-    limits = {"pre-v2": 7, "v2": 14, "r15": len(calls)}
-    for module_name, function_name in calls[:limits[shape]]:
-        module = __import__(module_name, fromlist=[function_name])
-        getattr(module, function_name)(con)
-    con.execute(
-        "INSERT INTO prices (ticker,date,open,high,low,close,volume,first_fetched_at) "
-        "VALUES ('SPY','2026-10-16',1,1,1,1,100,'2026-10-16')"
-    )
+    assert schema_migrations.catalog_sha256(con) == fixture["catalog_sha256"]
+    price_columns = {
+        row[0] for row in con.execute(
+            "SELECT column_name FROM duckdb_columns() WHERE table_name='prices'"
+        ).fetchall()
+    }
+    if "first_fetched_at" in price_columns:
+        con.execute(
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume,first_fetched_at) "
+            "VALUES ('SPY','2026-10-16',1,1,1,1,100,'2026-10-16')"
+        )
+    else:
+        con.execute(
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+            "VALUES ('SPY','2026-10-16',1,1,1,1,100)"
+        )
+    if shape == "v2":
+        con.execute(
+            "INSERT INTO portfolios VALUES "
+            "('legacy','Legacy','legacy','{}','2026-01-01',TRUE,100,100,"
+            "'baseline_v1','account','legacy_cost','margin','private','halted',"
+            "'massive_daily')"
+        )
+        con.execute(
+            "INSERT INTO sim_fill_fees VALUES "
+            "(7,'legacy_cost',1,2,3,4,5,6,7,8,9)"
+        )
     con.close()
 
 
@@ -237,6 +277,16 @@ def test_supported_deployed_shapes_reach_exact_baseline(tmp_path, monkeypatch, s
         assert {row[1] for row in catalog["tables"]} == migration.module.EXPECTED_TABLES
         assert {row[1] for row in catalog["views"]} == migration.module.EXPECTED_VIEWS
         assert {row[1] for row in catalog["sequences"]} == migration.module.EXPECTED_SEQUENCES
+        if shape == "v2":
+            assert con.execute(
+                "SELECT engine,cost_profile,account_type,visibility,status,price_source "
+                "FROM portfolio_accounts WHERE portfolio_id='legacy'"
+            ).fetchone() == (
+                "account", "legacy_cost", "margin", "private", "halted", "massive_daily",
+            )
+            assert con.execute(
+                "SELECT cat_fee,total_usd FROM sim_fill_fees WHERE order_id=7"
+            ).fetchone() == (None, 9)
     finally:
         con.close()
     assert result["database_schema_id"] == 1
@@ -315,6 +365,35 @@ def test_baseline_rejects_matching_ad_hoc_catalog_without_fixture_helpers(
         "n_positions INTEGER)"
     )
     con.execute("CREATE TABLE definitely_not_the_r15_catalog (id INTEGER)")
+    expected_pre = schema_migrations.catalog_sha256(con)
+    snapshot_sha = canonical_sha256(
+        backup_database.database_snapshot(
+            con, con.execute("SELECT current_database()").fetchone()[0],
+        )
+    )
+    con.close()
+    monkeypatch.setattr(schema_migrations, "_source_commit", lambda _root: SOURCE_COMMIT)
+    monkeypatch.setattr(
+        backup_database, "verify_backup", lambda _bundle: {
+            "manifest_sha256": BACKUP_MANIFEST,
+            "database_snapshot_sha256": snapshot_sha,
+            "source_database": {"kind": "repository-relative", "path": "store/market.duckdb"},
+        },
+    )
+
+    with pytest.raises(schema_migrations.SchemaMigrationError, match="not a supported"):
+        _apply(root, database, expected_pre)
+
+
+def test_baseline_rejects_synthetic_current_initializer_prefix(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    database = root / "store" / "market.duckdb"
+    database.parent.mkdir(parents=True)
+    con = duckdb.connect(str(database))
+    migration = schema_migrations.migrations()[0]
+    for module_name, function_name in migration.module.BOOTSTRAP_CALLS[:7]:
+        module = __import__(module_name, fromlist=[function_name])
+        getattr(module, function_name)(con)
     expected_pre = schema_migrations.catalog_sha256(con)
     snapshot_sha = canonical_sha256(
         backup_database.database_snapshot(
