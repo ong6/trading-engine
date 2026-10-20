@@ -3925,7 +3925,7 @@ the 42-entry 2026-09-19 C90 complexity series is in
 
 - **Why:** the round-1 review failed the admission: E1 could append close/open - 1 for an admitted same-night Monday SPY bar, and shadow-agent price facts carried that open; follow-ups covered non-UTC hosts, stale provisional bars, skipped replacements and P16 marks.
 - **What:** E1 `_mondays` and P16 holding marks skip a never-settled open fault (E1 candidates equal the store without it); model context withholds the open (`open: null`, `open_withheld: provisional_open_fault`, no immutable binding). `db.connect` sets DuckDB TimeZone to UTC. A bar dated before the store's newest session is stale and judged as settled (ingest rejects, cleanup moves, quality counts); open consumers exclude every never-settled open fault. A blocked same-night newcomer is retained as `provisional_replacement_skipped`, not an invalid date.
-  Hygiene: the rewrite commit map leaves the tree (kept privately); the 2022 probe evidence records the CLI runtime by hash; no "internal edition" literal remains.
+  Hygiene: the rewrite commit map leaves the tree (kept privately); the 2022 probe evidence records the CLI runtime by hash, so no CLI edition string remains in the tree.
   Re-pin: E1 v8, sector v12 and XS v23 hashes recomputed; registration revision 15 re-pins 6 files, source_commit fbfade07, registration_sha256 d26c765e.
 - **Evidence:** snapshot replay of 2026-10-19: 227 of 228 admitted (FMC basis-held), E1 candidates and settled days 10-13..10-16 identical to 63714eba; full suites 5,759 passed under UTC and Asia/Singapore with warnings as errors; ruff passes.
 - **Metrics:** engine, server, farm and tests +330/-48 lines.
