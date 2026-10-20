@@ -93,7 +93,7 @@ RUNTIME_CONTRACT_FILES = (
 # Filled after the dependency list was frozen. The self-file digest normalizes
 # this literal so the contract can cover its own validation and verdict code.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "ce87ec500a1cdf3f3721a93bb58ac81e1978c22c24b7493a528ee48a75dd859c"
+    "4da5afa3c006c5eb09fe17943e65ba74f2518078f9f94383bd66b1b4135346b5"
 )
 PRIOR_RUNTIME_CONTRACT_VERSION = 7
 PRIOR_RUNTIME_CONTRACT_SHA256 = '5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280'
