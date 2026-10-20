@@ -190,6 +190,7 @@ def test_backtest_releases_live_reader_before_session_loop(monkeypatch, tmp_path
         replay.league, "step",
         lambda *_args, **kwargs: steps.append((kwargs, _writer_can_open(live_path))),
     )
+    monkeypatch.setattr(replay.league, "write_reports", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(replay.stats, "bil_daily_returns", lambda *_: [])
     monkeypatch.setattr(replay.stats, "equity_stats", lambda *_: {"cagr": 0.01})
     monkeypatch.setattr("farm.backtest.report.write_reports", lambda: [])

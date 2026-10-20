@@ -252,9 +252,6 @@ def test_recorded_free_tier_contract_pages_load_for_every_underlying(tmp_path):
     assert recorded == (date(2026, 11, 20), 763.0, "C")
 
 
-@pytest.mark.xfail(strict=True, raises=free_sources.FreeSourceError,
-                   reason="free-tier DELAYED option bars are rejected until the "
-                          "delayed-status fix lands")
 def test_recorded_free_tier_delayed_daily_page_loads(tmp_path):
     spy = json.loads(RECORDED_BODIES["SPY"])
     only_recorded = json.dumps({**spy, "results": [

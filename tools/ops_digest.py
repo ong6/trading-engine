@@ -66,14 +66,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import duckdb
 
+from engine.lib import db
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DEFAULT_DB, LOGS_DIR, REPO_ROOT
 from engine.lib.snapshots import latest_snapshot
-from server import schedule_contract
-from tools import log_retention
-from server import agent_model_client
+from server import agent_model_client, schedule_contract
 from server.json_utils import loads_object
-from tools import model_gateway_check
+from tools import log_retention, model_gateway_check
 from tools.stage_timings import load_timings
 
 OPS_DIR = LOGS_DIR / "ops"
@@ -1085,7 +1084,7 @@ def work_receipts(database: Path, start: datetime, end: datetime, logs_dir: Path
         "trading-engine-daily-opportunity": ("daily_opportunity_runs", "started_at"),
     }
     try:
-        with duckdb.connect(str(snapshot.path), read_only=True) as con:
+        with db.connect(snapshot.path, read_only=True, wait_s=0) as con:
             for job, (table, stamp) in sources.items():
                 try:
                     rows = con.execute(

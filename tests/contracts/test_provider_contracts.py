@@ -13,9 +13,9 @@ from tools import provider_contracts as contracts
 
 FIXTURES = contracts.FIXTURES_DIR
 MANIFEST = json.loads((FIXTURES / "manifest.json").read_text())
-# Items the replay still fails on this branch, each owned by another fix branch. Merging
-# fix/massive-options-delayed-status empties this set and turns the strict xfail into a pass.
-KNOWN_OPEN = {"massive_option_daily_delayed"}
+# Items the replay still fails on this branch, each owned by another fix branch. The
+# delayed-status fix has landed (revision 15), so nothing is open and the strict xfail is off.
+KNOWN_OPEN: set[str] = set()
 DELAYED_OPEN = pytest.mark.xfail(
     "massive_option_daily_delayed" in KNOWN_OPEN, strict=True,
     raises=free_sources.FreeSourceError,

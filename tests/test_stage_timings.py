@@ -145,4 +145,4 @@ if [[ "$*" == *tools.publish_snapshot* ]]; then exit "${PUBLISH_EXIT:-0}"; fi
     env={**os.environ,'ARGV_LOG':str(log),'PUBLISH_EXIT':'7'}
     run=subprocess.run(['bash',str(fake/'server/run_tradingview_history_archive.sh')],env=env)
     assert run.returncode==7
-    assert log.read_text().splitlines()[-1]=='-m tools.publish_snapshot --min-age-minutes 120'
+    assert log.read_text().splitlines()[-1]=='-m tools.publish_snapshot --min-age-minutes 1440'
