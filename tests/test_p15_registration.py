@@ -551,6 +551,21 @@ def test_p15_registered_derived_identities_match_code():
     }
 
 
+def _rewritten_commit(commit: str) -> str:
+    """Follow a cited commit ID through each recorded history rewrite (old -> new).
+
+    The registration keeps the commit ID it was hashed with, so its registration_sha256
+    and the evidence keyed by it stay valid after a history rewrite.
+    """
+    for commit_map in sorted((ROOT / "docs" / "history").glob("commit-map-*.txt")):
+        for line in commit_map.read_text(encoding="utf-8").splitlines():
+            fields = line.split()
+            if len(fields) == 2 and fields[0] == commit:
+                commit = fields[1]
+                break
+    return commit
+
+
 def test_p15_registered_file_hashes_match_checkout():
     registration = _registration()
     files = registration["code_identity"]["files"]
@@ -569,7 +584,9 @@ def test_p15_registered_file_hashes_match_checkout():
         ["git", "rev-list", "-1", "HEAD", "--", *sorted(files)],
         cwd=ROOT, check=True, capture_output=True, text=True,
     ).stdout.strip()
-    assert registration["code_identity"]["source_commit"] == latest_registered_change
+    assert _rewritten_commit(registration["code_identity"]["source_commit"]) == (
+        latest_registered_change
+    )
 
 
 def test_p15_entrypoints_are_discovered_without_manual_seeds():

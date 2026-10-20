@@ -1,0 +1,129 @@
+{
+ "absolute": {
+  "/usr/bin/python3": true
+ },
+ "commands": {
+  "awk": {
+   "env_i": "/usr/bin/awk",
+   "systemd_user": "/usr/bin/awk"
+  },
+  "bash": {
+   "env_i": "/usr/bin/bash",
+   "systemd_user": "/usr/bin/bash"
+  },
+  "cat": {
+   "env_i": "/usr/bin/cat",
+   "systemd_user": "/usr/bin/cat"
+  },
+  "cmp": {
+   "env_i": "/usr/bin/cmp",
+   "systemd_user": "/usr/bin/cmp"
+  },
+  "cp": {
+   "env_i": "/usr/bin/cp",
+   "systemd_user": "/usr/bin/cp"
+  },
+  "crontab": {
+   "env_i": "/usr/bin/crontab",
+   "systemd_user": "/usr/bin/crontab"
+  },
+  "curl": {
+   "env_i": "/usr/bin/curl",
+   "systemd_user": "/usr/bin/curl"
+  },
+  "date": {
+   "env_i": "/usr/bin/date",
+   "systemd_user": "/usr/bin/date"
+  },
+  "dirname": {
+   "env_i": "/usr/bin/dirname",
+   "systemd_user": "/usr/bin/dirname"
+  },
+  "find": {
+   "env_i": "/usr/bin/find",
+   "systemd_user": "/usr/bin/find"
+  },
+  "flock": {
+   "env_i": "/usr/bin/flock",
+   "systemd_user": "/usr/bin/flock"
+  },
+  "fuser": {
+   "env_i": "/usr/bin/fuser",
+   "systemd_user": "/usr/bin/fuser"
+  },
+  "git": {
+   "env_i": "/usr/bin/git",
+   "systemd_user": "/usr/bin/git"
+  },
+  "grep": {
+   "env_i": "/usr/bin/grep",
+   "systemd_user": "/usr/bin/grep"
+  },
+  "install": {
+   "env_i": "/usr/bin/install",
+   "systemd_user": "/usr/bin/install"
+  },
+  "mkdir": {
+   "env_i": "/usr/bin/mkdir",
+   "systemd_user": "/usr/bin/mkdir"
+  },
+  "mv": {
+   "env_i": "/usr/bin/mv",
+   "systemd_user": "/usr/bin/mv"
+  },
+  "node": {
+   "env_i": null,
+   "systemd_user": null
+  },
+  "ps": {
+   "env_i": "/usr/bin/ps",
+   "systemd_user": "/usr/bin/ps"
+  },
+  "readlink": {
+   "env_i": "/usr/bin/readlink",
+   "systemd_user": "/usr/bin/readlink"
+  },
+  "realpath": {
+   "env_i": "/usr/bin/realpath",
+   "systemd_user": "/usr/bin/realpath"
+  },
+  "rm": {
+   "env_i": "/usr/bin/rm",
+   "systemd_user": "/usr/bin/rm"
+  },
+  "sleep": {
+   "env_i": "/usr/bin/sleep",
+   "systemd_user": "/usr/bin/sleep"
+  },
+  "systemctl": {
+   "env_i": "/usr/bin/systemctl",
+   "systemd_user": "/usr/bin/systemctl"
+  },
+  "tee": {
+   "env_i": "/usr/bin/tee",
+   "systemd_user": "/usr/bin/tee"
+  },
+  "timeout": {
+   "env_i": "/usr/bin/timeout",
+   "systemd_user": "/usr/bin/timeout"
+  },
+  "touch": {
+   "env_i": "/usr/bin/touch",
+   "systemd_user": "/usr/bin/touch"
+  },
+  "tr": {
+   "env_i": "/usr/bin/tr",
+   "systemd_user": "/usr/bin/tr"
+  },
+  "xargs": {
+   "env_i": "/usr/bin/xargs",
+   "systemd_user": "/usr/bin/xargs"
+  }
+ },
+ "paths": {
+  "env_i": "/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin:.",
+  "systemd_user": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ },
+ "recorded_on": "2026-10-20",
+ "schema_version": 1
+}

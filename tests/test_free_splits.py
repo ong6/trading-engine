@@ -10,6 +10,7 @@ import pytest
 
 from engine import free_sources
 from tools import free_sources as capture
+from tools import provider_contracts as contracts
 
 FETCHED_BEFORE = datetime(2026, 1, 2, 12, tzinfo=timezone.utc)
 FETCHED_AFTER = datetime(2026, 1, 5, 12, tzinfo=timezone.utc)
@@ -376,3 +377,77 @@ def test_split_parser_rejects_invalid_ratios():
     body = SPLIT_BODY.replace(b'"split_to":4', b'"split_to":0')
     with pytest.raises(free_sources.FreeSourceError, match="split row"):
         free_sources.parse_massive_splits(body)
+
+
+def test_split_cursor_that_returns_to_an_earlier_page_fails_closed(tmp_path):
+    database, data_dir = tmp_path / "free.duckdb", tmp_path / "raw"
+    first = capture._split_url(capture._split_start(database, date(2026, 1, 6)))
+
+    with pytest.raises(free_sources.FreeSourceError, match="repeats a page"):
+        _capture_splits(
+            database, data_dir, _split_body(_five_splits(), next_url=first), 6, max_pages=3
+        )
+
+
+def test_split_page_limit_is_capped(tmp_path):
+    with pytest.raises(free_sources.FreeSourceError, match="between 1 and 10"):
+        _capture_splits(
+            tmp_path / "free.duckdb", tmp_path / "raw", _split_body([]), 6,
+            max_pages=capture.MASSIVE_SPLIT_PAGE_CAP + 1,
+        )
+
+
+RECORDED = json.loads((contracts.FIXTURES_DIR / "manifest.json").read_text())["splits"]
+RECORDED_PAGES = [
+    (contracts.FIXTURES_DIR / page["file"]).read_bytes() for page in RECORDED["pages"]
+]
+
+
+class ChainSession:
+    """Serve the recorded 2026-10-18 chain by next_url; its last cursor ends the chain."""
+
+    def __init__(self):
+        self.urls = []
+        self.links = {
+            json.loads(body)["next_url"]: (
+                RECORDED_PAGES[index + 1] if index + 1 < len(RECORDED_PAGES) else _split_body([])
+            )
+            for index, body in enumerate(RECORDED_PAGES)
+        }
+
+    def get(self, url, **_kwargs):
+        self.urls.append(url)
+        return Response(self.links.get(url, RECORDED_PAGES[0]))
+
+
+def _capture_chain(tmp_path, session, **kwargs):
+    return capture.capture_massive_splits(
+        database=tmp_path / "free.duckdb", data_dir=tmp_path / "raw", api_key="fixture-key",
+        session=session, now=lambda: datetime(2026, 10, 18, 19, 49, tzinfo=timezone.utc),
+        rate_limit=lambda: None, **kwargs,
+    )
+
+
+def test_recorded_split_chain_longer_than_two_pages_is_followed_to_the_end(tmp_path):
+    session = ChainSession()
+
+    result = _capture_chain(tmp_path, session)
+    con = duckdb.connect(str(tmp_path / "free.duckdb"), read_only=True)
+    try:
+        stored = con.execute(
+            "SELECT ticker, split_from, split_to FROM free_splits WHERE ticker='AGBA'"
+        ).fetchall()
+        count = con.execute("SELECT COUNT(*) FROM free_splits").fetchone()[0]
+    finally:
+        con.close()
+
+    assert result["status"] == "complete"
+    assert len(session.urls) == RECORDED["chain_length_lower_bound"] == 3
+    assert session.urls[1:] == [json.loads(page)["next_url"] for page in RECORDED_PAGES]
+    assert count == sum(page["rows"] for page in RECORDED["pages"])
+    assert stored == [("AGBA", 1.0, 1.9365)]
+
+
+def test_recorded_split_chain_stops_at_the_requested_page_bound(tmp_path):
+    with pytest.raises(free_sources.FreeSourceError, match="exceeded the 2-page bound"):
+        _capture_chain(tmp_path, ChainSession(), max_pages=2)
