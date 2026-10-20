@@ -34,6 +34,7 @@ def test_bundle_tree_identity_follows_only_its_opened_root(tmp_path):
 
 def _source_database(path: Path) -> None:
     connection = duckdb.connect(str(path))
+    connection.execute("BEGIN TRANSACTION")
     connection.execute("CREATE TABLE prices (date DATE, ticker VARCHAR, volume BIGINT)")
     connection.execute(
         "INSERT INTO prices VALUES ('2026-09-10', 'SPY', 1000), ('2026-09-09', 'QQQ', 1000)"
@@ -70,6 +71,7 @@ def _source_database(path: Path) -> None:
         "('2026-09-10', 'QQQ', FALSE, FALSE, 'all')"
     )
     connection.execute("CREATE INDEX jobs_state_idx ON jobs(state)")
+    connection.execute("COMMIT")
     connection.close()
 
 

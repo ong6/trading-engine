@@ -21,6 +21,7 @@ RECEIVED = datetime(2026, 10, 7, 13, 27, tzinfo=timezone.utc)
 
 def _main_store(path):
     con = duckdb.connect(str(path))
+    con.execute("BEGIN TRANSACTION")
     engine_db.init_schema(con)
     engine_db.init_actions_schema(con)
     init_sim_schema(con)
@@ -38,11 +39,13 @@ def _main_store(path):
         "('RETIRE','RETIRE','Retire','NYSE',FALSE,'fixture',?,TRUE,TRUE,TRUE)",
         [PRIOR, PRIOR, PRIOR],
     )
+    con.execute("COMMIT")
     con.close()
 
 
 def _daily_store(path):
     con = duckdb.connect(str(path))
+    con.execute("BEGIN TRANSACTION")
     free_sources.init_schema(con)
     history = [date(2026, 9, 30), date(2026, 10, 1), date(2026, 10, 2),
                date(2026, 10, 5), PRIOR]
@@ -62,21 +65,25 @@ def _daily_store(path):
          "fixture", datetime(2026, 10, 7, 21), "a" * 64)
     )
     con.executemany("INSERT INTO free_daily_bars VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+    con.execute("COMMIT")
     con.close()
 
 
 def _minute_store(path):
     con = duckdb.connect(str(path))
+    con.execute("BEGIN TRANSACTION")
     con.execute(
         "CREATE TABLE massive_minute_bars "
         "(ticker VARCHAR,ts_utc TIMESTAMP,o DOUBLE,h DOUBLE,l DOUBLE,c DOUBLE,v DOUBLE,"
         "vw DOUBLE,n BIGINT,session VARCHAR,source_sha256 VARCHAR,fetched_at TIMESTAMP)"
     )
+    con.execute("COMMIT")
     con.close()
 
 
 def _short_store(path):
     con = duckdb.connect(str(path))
+    con.execute("BEGIN TRANSACTION")
     con.execute(
         "CREATE TABLE regsho_threshold "
         "(ticker VARCHAR,session_date DATE,publication_date DATE)"
@@ -88,6 +95,7 @@ def _short_store(path):
     con.execute(
         "INSERT INTO finra_short_interest VALUES ('SHORT',?,1,?)", [PRIOR, PRIOR]
     )
+    con.execute("COMMIT")
     con.close()
 
 
