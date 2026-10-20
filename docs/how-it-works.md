@@ -37,6 +37,14 @@ The `trading-engine-ops-digest.timer` collects at :08 UTC from the user journal,
 probe holds an API read connection that refuses writers, so it runs clear of every other
 timer's start minute. Digests are kept 30 days and metrics 180 days. A missing source shows as a collection gap, never a failure.
 
+Logs are bounded by `tools/log_retention.py`, which the digest runs once a UTC day from 10:00:
+cumulative `*cron.log` files over 8 MB are compressed to `logs/rotated/` and rewritten in place
+to their run-marker lines plus the last 256 KB, so the driver monitors parse them as before, and
+dated logs older than 60 days are deleted unless tracked text (`git grep`) cites them. It is a
+dry run, reported in `logs/ops/retention.md`, until the host-private `logs/ops/retention.json`
+sets `"apply": true` (optional `days`, `cap_mb`, `tail_kb`, `keep` globs). By hand:
+`.venv/bin/python -m tools.log_retention` lists candidates; `--apply` acts on them.
+
 Read `GET /meta` before interpreting a log in isolation. It reconciles schedule, log, lock,
 database, report, queue, source-control, and evidence state. A missing or malformed
 `data/_meta.json` is reported separately and does not hide live projections. `GET /health`
