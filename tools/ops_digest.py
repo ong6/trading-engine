@@ -5,7 +5,8 @@ Every hour (``trading-engine-ops-digest.timer``, :08 UTC) this reads what the sc
 left behind and writes two things under ``logs/ops/``:
 
 - ``hourly/YYYY-MM-DD/HH.md``: one collated, human- and agent-readable digest per UTC hour
-  (unit runs, nightly stages, API probes, new warning/error lines with samples, footprint).
+  (unit runs, nightly stages, API probes, the GET-only model gateway preflight from
+  ``tools.model_gateway_check``, new warning/error lines with samples, footprint).
   ``latest.md`` is a copy of the newest digest.
 - ``ops.sqlite``: metrics only (run outcomes and durations, per-source line/byte/error counts,
   line signatures, probe latency, ``/meta`` section statuses, disk footprint). Raw log text
@@ -70,6 +71,9 @@ from engine.lib.settings import DEFAULT_DB, LOGS_DIR, REPO_ROOT
 from engine.lib.snapshots import latest_snapshot
 from server import schedule_contract
 from tools import log_retention
+from server import agent_model_client
+from server.json_utils import loads_object
+from tools import model_gateway_check
 from tools.stage_timings import load_timings
 
 OPS_DIR = LOGS_DIR / "ops"
@@ -83,6 +87,7 @@ SAMPLES_PER_LEVEL = 5
 SLOW_FACTOR = 3.0
 SLOW_PROBE_MS = 10_000
 API_URL = os.environ.get("TRADING_ENGINE_API_URL", "http://127.0.0.1:8000")
+GATEWAY_URL = f"http://{agent_model_client.PROXY_HOST}:{agent_model_client.PROXY_PORT}"
 USER_UNIT_DIR = Path.home() / ".config" / "systemd" / "user"
 HEALTHY_META = {"ok", "current", "idle", "accumulating", "collecting"}
 
@@ -543,6 +548,19 @@ def invariants_probe(ops_dir: Path) -> dict:
     return {"ran": True, "reason": None, "result": result, "error": error}
 
 
+def gateway(fetch: Fetch, run: Runner) -> dict:
+    """The model gateway preflight, read through this digest's own GET and runner."""
+    def get(path: str) -> dict:
+        status, _ms, body = fetch(GATEWAY_URL + path, agent_model_client.STATUS_TIMEOUT_SECONDS)
+        if status != 200:
+            raise agent_model_client.ConnectorError(f"Trae proxy returned HTTP {status}")
+        try:
+            return loads_object(body)
+        except (TypeError, ValueError, UnicodeDecodeError) as exc:
+            raise agent_model_client.ConnectorError("Trae proxy returned invalid JSON") from exc
+    return model_gateway_check.check(fetch=get, run=run)
+
+
 def _tree_bytes(root: Path) -> int:
     """Apparent size of the regular files under ``root``; symlinks are not followed."""
     total = 0
@@ -681,6 +699,8 @@ def render(hour: datetime, data: dict) -> str:
                   for item in contract["violations"]]
         lines += [f"- probe error: {error}" for error in contract["errors"]]
     lines += _invariants_lines(data.get("invariants"))
+    if data.get("gateway"):
+        lines += ["", "## Model gateway", "", *model_gateway_check.summary_lines(data["gateway"])]
     noisy = [(name, sig) for name, sig in sorted(data["signals"].items())
              if sig.counts["error"] or sig.counts["warn"]]
     if noisy:
@@ -740,7 +760,8 @@ def collect_hour(
             item["typical"] = typical_seconds(db, item["unit"], item["started"])
             item["slow"] = bool(item["typical"] and item["seconds"] > SLOW_FACTOR * item["typical"])
     stages = collect_stages(db, logs_dir, since) if since is not None else []
-    probes, sections, fp, degraded, contract, invariants = [], {}, {}, [], None, None
+    probes, sections, fp, degraded, contract, invariants, gateway_report = (
+        [], {}, {}, [], None, None, None)
     if last:
         collect_files(db, logs_dir, ops_dir, signals)
         first_seen = db.execute("SELECT value FROM meta WHERE key='stages_seen'").fetchone()
@@ -760,6 +781,7 @@ def collect_hour(
         if invariants["error"]:
             gaps.append("invariants probe: " + invariants["error"])
         probes, sections = probe(fetch)
+        gateway_report = gateway(fetch, run)
         fp = footprint(run, logs_dir, db_path)
     previous = dict(db.execute(
         "SELECT section, status FROM meta_status WHERE hour=("
@@ -772,9 +794,11 @@ def collect_hour(
     errors = sum(sig.counts["error"] for sig in signals.values())
     warns = sum(sig.counts["warn"] for sig in signals.values())
     health = next((p for p in probes if p["target"] == "/health"), None)
-    if failed or failed_stages or (health and health["http_status"] != 200):
+    gateway_status = gateway_report["status"] if gateway_report else "ok"
+    if failed or failed_stages or (health and health["http_status"] != 200) or (
+            gateway_status == "fail"):
         status = "FAIL"
-    elif errors or warns or degraded or any(
+    elif errors or warns or degraded or gateway_status == "warn" or any(
             r.get("slow") or r["result"] == SKIPPED_RESULT for r in runs) or any(
             p["ms"] > SLOW_PROBE_MS for p in probes) or (
             contract is not None and contract["status"] != "ok"):
@@ -786,7 +810,7 @@ def collect_hour(
             failed_stages), "error_lines": errors, "warn_lines": warns, "gaps": gaps,
         "runs": runs, "stages": stages, "probes": probes, "sections": sections,
         "section_changes": changes, "signals": signals, "footprint": fp, "work": degraded,
-        "contract": contract, "invariants": invariants,
+        "contract": contract, "invariants": invariants, "gateway": gateway_report,
     }
     digest = ops_dir / "hourly" / f"{hour:%Y-%m-%d}" / f"{hour:%H}.md"
     text = render(hour, data)

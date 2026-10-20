@@ -255,7 +255,7 @@ def _aggregate_identity(samples: Sequence[Mapping]) -> tuple[dict, dict]:
     source = completed[0] if completed else {
         "model": identity["model"], "model_version": identity["model_version"],
         "proxy_source_sha256": identity["required_proxy_source_sha256"],
-        "traecli_runtime": identity["required_traecli_runtime"],
+        "traecli_runtime": agent_model_client.summarize_traecli_runtime(()),
         "upstream_model_family": agent_model_client.UPSTREAM_MODEL_FAMILY,
         "model_catalog_entry_sha256": identity["model_catalog_entry_sha256"],
     }

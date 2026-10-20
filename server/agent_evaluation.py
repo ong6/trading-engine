@@ -914,7 +914,7 @@ def _validate_p15_samples(con, row, context, run):
                 or model_version != model_identity["model_version"]
                 or proxy_version != model_identity["required_proxy_version"]
                 or proxy_sha != model_identity["required_proxy_source_sha256"]
-                or runtime != model_identity["required_traecli_runtime"]
+                or not agent_model_client.traecli_runtime_matches(model_identity, runtime)
                 or upstream_family != agent_model_client.UPSTREAM_MODEL_FAMILY
                 or catalog_sha != model_identity["model_catalog_entry_sha256"]):
             raise EvaluationError("P15 scoring sample model identity differs")

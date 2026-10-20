@@ -41,7 +41,7 @@ def _connector_result(model_input: dict, output: dict):
         model_version=agent_model_client.MODEL_VERSION,
         proxy_version=agent_model_client.REQUIRED_PROXY_VERSION,
         proxy_source_sha256=agent_model_client.REQUIRED_PROXY_SOURCE_SHA256,
-        traecli_runtime=agent_model_client.REQUIRED_TRAECLI_RUNTIME,
+        traecli_runtime="traecli 0.210.1",
         upstream_model_family=agent_model_client.UPSTREAM_MODEL_FAMILY,
         upstream_request_id="upstream-attribution",
         model_catalog_entry_sha256=(agent_model_client.MODEL_CATALOG_ENTRY_SHA256),

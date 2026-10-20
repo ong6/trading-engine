@@ -15,6 +15,7 @@ import duckdb
 import pytest
 
 from engine.lib import db as engine_db
+from server import agent_model_client
 from tools import ops_digest
 
 NOW = datetime(2026, 10, 10, 3, 5, tzinfo=UTC)
@@ -76,15 +77,36 @@ def _fake_run(journal: dict[str, str]):
             return journal.get(args[args.index("-u") + 1], "")
         if args[0] == "git":
             return "0\n" if "rev-list" in args else " M data/reports/league.md\n"
+        if args[1:] == ["--version"]:
+            return "traecli 0.210.1\n"
         return None
     return run
 
 
-def _fetch(url, _timeout):
-    if url.endswith("/meta"):
-        return 200, 40, json.dumps({"nightly": {"status": "ok"},
-                                    "price_verification": {"status": "issues"}}).encode()
-    return 200, 3, b"{}"
+def _gateway_health(**overrides):
+    return {
+        "ok": True, "proxy_version": agent_model_client.REQUIRED_PROXY_VERSION,
+        "proxy_source_sha256": agent_model_client.REQUIRED_PROXY_SOURCE_SHA256,
+        "traex": "traecli 0.210.1", "token": {"present": True, "hours_left": 170.0},
+        "relogin": {"last_ok": True}, "catalog": {"age_s": 3600}, **overrides,
+    }
+
+
+def _gateway_fetch(health):
+    def fetch(url, timeout):
+        if url == ops_digest.GATEWAY_URL + "/healthz":
+            return 200, 2, json.dumps(health).encode()
+        if url == ops_digest.GATEWAY_URL + "/v1/models":
+            return 200, 2, json.dumps({"object": "list", "data": [
+                agent_model_client.EXPECTED_MODEL_CATALOG_ENTRY]}).encode()
+        if url.endswith("/meta"):
+            return 200, 40, json.dumps({"nightly": {"status": "ok"},
+                                        "price_verification": {"status": "issues"}}).encode()
+        return 200, 3, b"{}"
+    return fetch
+
+
+_fetch = _gateway_fetch(_gateway_health())
 
 
 def _collect(tmp_path, journal, now=NOW):
@@ -824,3 +846,28 @@ def test_invariants_probe_retries_errors_and_reports_a_timeout(tmp_path, monkeyp
     [hour] = _collect(tmp_path, {})
     assert "invariants probe: timed out" in hour["text"]
     assert hour["status"] == "OK"
+
+
+@pytest.mark.parametrize(("health", "status", "detail"), [
+    (_gateway_health(), "OK", "Gateway OK: startup runtime 0.210.1, installed 0.210.1"),
+    (_gateway_health(token={"present": True, "hours_left": 12.0}), "WARN",
+     "- [warn] token_hours_left: observed `12.0`"),
+    (_gateway_health(traex="traecli 0.299.9"), "FAIL", "- [fail] startup_runtime"),
+])
+def test_hourly_digest_embeds_the_model_gateway_preflight(tmp_path, health, status, detail):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    requested = []
+    fetch = _gateway_fetch(health)
+
+    def recording(url, timeout):
+        requested.append(url)
+        return fetch(url, timeout)
+
+    [hour] = ops_digest.collect(now=NOW, run=_fake_run({}), fetch=recording, logs_dir=logs,
+                                ops_dir=logs / "ops", db_path=tmp_path / "store.duckdb")
+
+    assert hour["status"] == status
+    assert "## Model gateway" in hour["text"] and detail in hour["text"]
+    gateway = [url for url in requested if url.startswith(ops_digest.GATEWAY_URL)]
+    assert gateway == [ops_digest.GATEWAY_URL + "/healthz", ops_digest.GATEWAY_URL + "/v1/models"]

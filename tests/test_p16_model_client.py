@@ -11,7 +11,7 @@ def _health():
     return {
         "ok": True, "proxy_version": base.REQUIRED_PROXY_VERSION,
         "proxy_source_sha256": base.REQUIRED_PROXY_SOURCE_SHA256,
-        "traex": base.REQUIRED_TRAECLI_RUNTIME, "token": {"present": True},
+        "traex": "traecli 0.210.1", "token": {"present": True},
     }
 
 
@@ -167,7 +167,7 @@ def test_ambiguous_catalogue_fails_before_model_inference():
 
 def test_contract_exposes_runtime_hash_and_rejects_empty_instructions():
     binding = _contract()
-    assert binding["runtime_sha256"] == canonical_sha256(base.REQUIRED_TRAECLI_RUNTIME)
+    assert binding["runtime_sha256"] == canonical_sha256("traecli 0.210.1")
     assert "traex" not in binding and "traecli_runtime" not in binding
     assert binding["provider_model_revision"] is None
     with pytest.raises(base.ConnectorError, match="instructions"):

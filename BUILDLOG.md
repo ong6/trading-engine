@@ -3892,4 +3892,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +1,103 · server +117 · product unchanged.
 - **Next:** the orchestrator reviews the baseline entries; `--gate` waits for the filed fixes.
 
+## 2026-10-20 — Accept reviewed Trae CLI builds so a proxy restart keeps model calls up
+
+- **Why:** reproduction: the installed CLI reports `traecli 0.210.1` while the client pinned one exact 0.205.1 string, so the old `_traecli_runtime` rejects the string a restarted proxy would cache ("Trae CLI runtime version is invalid") and every model call would fail closed.
+- **What:** `agent_model_client` pins an allowlist of reviewed builds by canonical hash of the `--version` line (0.205.1, 0.210.1); identity schema 4 carries the hash list, and schema-2/3 identities in retained evidence are accepted by registered hash only. Runtime, source, version, catalog and mid-call identity mismatches raise `TransportIdentityError` with reason `transport_identity_mismatch`.
+  Runners and validators compare runtimes through `traecli_runtime_matches`; the P7 manifest bindings are re-pinned to the schema-4 identities. P15 model-identity and file pins await the next registration revision.
+  New GET-only `tools/model_gateway_check.py` checks `/healthz` and `/v1/models` against the pins, token hours, relogin, catalog age and the installed build a restart would load; the hourly ops digest embeds it with no new timer.
+- **Evidence:** live preflight exits 0: startup 0.205.1, installed 0.210.1 (drift), restart simulation ok; affected modules pass except the three P15 registration pin tests.
+- **Metrics:** server +79, tools +240, farm 0, tests +340 lines.
+- **Next:** re-pin P15 registration (model identities and file hashes) in the next revision.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

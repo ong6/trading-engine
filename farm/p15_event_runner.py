@@ -164,7 +164,7 @@ def _identity(result, payload):
     if (result.model != expected["model"] or result.model_version != expected["model_version"]
             or result.proxy_version != expected["required_proxy_version"]
             or result.proxy_source_sha256 != expected["required_proxy_source_sha256"]
-            or result.traecli_runtime != expected["required_traecli_runtime"]
+            or not agent_model_client.traecli_runtime_matches(expected, result.traecli_runtime)
             or result.upstream_model_family != agent_model_client.UPSTREAM_MODEL_FAMILY
             or result.model_catalog_entry_sha256 != expected["model_catalog_entry_sha256"]
             or result.request_sha256 != canonical_sha256(

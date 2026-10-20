@@ -5,7 +5,7 @@ from __future__ import annotations
 import http.client
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,7 +13,7 @@ from engine.lib.provenance import canonical_sha256
 
 from .json_utils import loads_object
 
-CONNECTOR_SCHEMA_VERSION = 3
+CONNECTOR_SCHEMA_VERSION = 4
 PROXY_HOST = "127.0.0.1"
 PROXY_PORT = 8317
 PROXY_API = "openai_responses"
@@ -21,7 +21,15 @@ PROXY_HEALTH_PATH = "/healthz"
 PROXY_MODELS_PATH = "/v1/models"
 PROXY_RESPONSES_PATH = "/v1/responses"
 REQUIRED_PROXY_VERSION = "0.7"
-REQUIRED_TRAECLI_RUNTIME = "traecli 0.205.1(internal edition)"
+# Reviewed Trae CLI builds, keyed by semantic version. Each value is the canonical SHA-256 of
+# the exact first ``--version`` line the proxy reports as ``traex`` in /healthz, so a build
+# can be pinned without repeating its vendor label here. Any other runtime fails closed;
+# add a build only after reviewing it and reading its string from the binary.
+REVIEWED_TRAECLI_RUNTIMES = {
+    "0.205.1": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "0.210.1": "f0fcdb221d1ebf2ceaf840bdbc975a26241c152f325ea60d9e6c758c3a91a1ba",
+}
+REVIEWED_TRAECLI_RUNTIME_SHA256 = tuple(sorted(REVIEWED_TRAECLI_RUNTIMES.values()))
 REQUIRED_PROXY_SOURCE_SHA256 = "61d66eadb3eae92306cdf080470e816b38401383b947df785820a8ad6f7d16c6"
 MODEL = "GPT-5.6-Sol:max"
 MODEL_VERSION = "unversioned-catalog-alias"
@@ -168,11 +176,47 @@ TRADE_TOOL = {
                      "thesis", "invalidation", "evidence_ids"],
     },
 }
+# Schema-2 and schema-3 identities each pinned one exact runtime string. Retained evidence
+# still carries them, so they are accepted by canonical hash only; new evidence always uses
+# ``identity()``.
+RETAINED_SCHEMA_2_IDENTITY_SHA256 = {
+    "proposal": "d9d53f80d4a9acd7a79b2a2865516a298eedc3b4701d800c799dd19c891be717",
+    "veto": "03904932ce0d3d2c6a877abbbdb1248f93a56e35cb70a5821bf1a024041b6e73",
+    "opportunity": "6beaeda8308f78793cd2c20fbe57cfa81d06f368e594efe74d42966d668f370f",
+    "p15_scoring": "85539223247a63cfae6cbe7f47582f5bfbef8e99059b09914895ab7e29066c96",
+    "p15_preopen": "819aa97d193a3be837d153a2e7ab6aa0e6836da4882610bfc62c869fa1252e41",
+    "p15_event": "c2baa017eeb8945cb9a2354a366feeedacbca4f3836e265df867f5afb00fe8db",
+    "trade_tool": "4d90852bc7e740244bdf149c958e9a9908e29204c1b47724aa8c6c8e29e89a15",
+    "historical_replay": "38acb75f85c6fb4142b5a956aa0eab1bb059b60fc5e8dae2196921dbe63bcea9",
+}
+RETAINED_SCHEMA_3_IDENTITY_SHA256 = {
+    "proposal": "98deaaa204cc64ab8486af5b9962549af47f9fc7b92540f9230bff51a1c31411",
+    "veto": "8c556e0df1ba81796107f27b7d67d2e26a0c79ca4b5a97bbb32ba89127378393",
+    "opportunity": "46a46f755520997d528b6c1fbc50ca89891fd9e0e8e0f42c6e895629c24dbaae",
+    "p15_scoring": "f2afbed44e9445956f4eed1373e235bc55a5a0ac82c9d498120c0605822763a4",
+    "p15_preopen": "ca48bf04fd84781f6bf7cd33185b5b1f5bf359d9f01afba5fef601f9deb2fd81",
+    "p15_event": "e8077edeeb46e6a1d4a2b17b14879ad7425c1292eb8612de951b4ee5c2802fe5",
+    "trade_tool": "5bcca91ff5ee6f287dab28e445fa3058b736e8dc372def5c393fe3c5fb6f08ac",
+    "historical_replay": "cd429ad0cbba2493330a086a99f642e2a15a292f80aa8c275f22c111185b63e1",
+}
+TRANSPORT_UNAVAILABLE = "unavailable"
+TRANSPORT_IDENTITY_MISMATCH = "transport_identity_mismatch"
 _VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$")
 
 
 class ConnectorError(RuntimeError):
     """The local model transport failed closed."""
+
+    reason = TRANSPORT_UNAVAILABLE
+
+
+class TransportIdentityError(ConnectorError):
+    """The proxy answered, but its runtime, source, version or catalog is not the reviewed one."""
+
+    reason = TRANSPORT_IDENTITY_MISMATCH
+
+    def __init__(self, detail: str):
+        super().__init__(f"{TRANSPORT_IDENTITY_MISMATCH}: {detail}")
 
 
 class ModelOutputError(ConnectorError):
@@ -284,24 +328,53 @@ def _proxy_version(health: dict) -> str:
         or _VERSION.fullmatch(value) is None
         or value != REQUIRED_PROXY_VERSION
     ):
-        raise ConnectorError("Trae proxy version is invalid")
+        raise TransportIdentityError("Trae proxy version is invalid")
     token = health.get("token")
     if not isinstance(token, dict) or token.get("present") is not True:
         raise ConnectorError("Trae proxy authentication is unavailable")
     return value
 
 
+def reviewed_traecli_runtime_sha256(identity: Mapping) -> tuple[str, ...]:
+    """Runtime hashes a current or retained connector identity accepts."""
+    if "reviewed_traecli_runtime_sha256" in identity:
+        return tuple(identity["reviewed_traecli_runtime_sha256"])
+    runtime = identity.get("required_traecli_runtime")
+    return (canonical_sha256(runtime),) if isinstance(runtime, str) else ()
+
+
+def traecli_runtime_matches(identity: Mapping, runtime: object) -> bool:
+    """Whether an observed runtime string satisfies a connector identity's runtime pin."""
+    return (
+        isinstance(runtime, str)
+        and bool(runtime)
+        and len(runtime) <= 128
+        and runtime.isprintable()
+        and canonical_sha256(runtime) in reviewed_traecli_runtime_sha256(identity)
+    )
+
+
+def summarize_traecli_runtime(runtimes: Iterable[object]) -> str:
+    """One deterministic runtime label for an aggregate of model calls."""
+    observed = sorted({item for item in runtimes if isinstance(item, str)})
+    if len(observed) == 1:
+        return observed[0]
+    return "unobserved" if not observed else f"mixed:{canonical_sha256(observed)}"
+
+
 def _traecli_runtime(health: dict) -> str:
     value = health.get("traex")
-    if value != REQUIRED_TRAECLI_RUNTIME:
-        raise ConnectorError("Trae CLI runtime version is invalid")
+    if not traecli_runtime_matches(
+        {"reviewed_traecli_runtime_sha256": REVIEWED_TRAECLI_RUNTIME_SHA256}, value
+    ):
+        raise TransportIdentityError("Trae CLI runtime version is not reviewed")
     return value
 
 
 def _proxy_source_sha256(health: dict) -> str:
     value = health.get("proxy_source_sha256")
     if value != REQUIRED_PROXY_SOURCE_SHA256:
-        raise ConnectorError("Trae proxy source identity is invalid")
+        raise TransportIdentityError("Trae proxy source identity is invalid")
     return value
 
 
@@ -324,7 +397,7 @@ def _selected_catalog_entry(catalog: dict) -> dict:
     if selected is None:
         raise ConnectorError("configured model is unavailable from the Trae proxy")
     if selected != EXPECTED_MODEL_CATALOG_ENTRY:
-        raise ConnectorError("configured model catalog entry has drifted")
+        raise TransportIdentityError("configured model catalog entry has drifted")
     return dict(selected)
 
 
@@ -393,7 +466,7 @@ def identity(*, role: str = "proposal") -> dict:
         "model_catalog_entry_sha256": MODEL_CATALOG_ENTRY_SHA256,
         "required_proxy_version": REQUIRED_PROXY_VERSION,
         "required_proxy_source_sha256": REQUIRED_PROXY_SOURCE_SHA256,
-        "required_traecli_runtime": REQUIRED_TRAECLI_RUNTIME,
+        "reviewed_traecli_runtime_sha256": list(REVIEWED_TRAECLI_RUNTIME_SHA256),
         "instructions_sha256": canonical_sha256(instructions),
         "toolset_sha256": canonical_sha256(toolset),
         "tools": "submit_paper_trade" if toolset else "none",
@@ -401,13 +474,17 @@ def identity(*, role: str = "proposal") -> dict:
     }
 
 
-def legacy_identity(*, role: str = "proposal") -> dict:
-    """Return the immutable schema-v2 identity used by retained shadow evidence."""
-    current = identity(role=role)
-    current["schema_version"] = 2
-    current.pop("required_proxy_source_sha256")
-    current["required_traecli_runtime"] = "traecli 0.204.1(internal edition)"
-    return current
+def accepted_identity(model: object, *, role: str) -> bool:
+    """Whether a persisted connector identity is the current, schema-2 or schema-3 one."""
+    if not isinstance(model, dict):
+        return False
+    schema = model.get("schema_version")
+    retained = {2: RETAINED_SCHEMA_2_IDENTITY_SHA256, 3: RETAINED_SCHEMA_3_IDENTITY_SHA256}.get(
+        schema if type(schema) is int else None
+    )
+    if retained is not None:
+        return canonical_sha256(model) == retained.get(role)
+    return model == identity(role=role)
 
 
 def _usage(value: object) -> dict[str, int]:
@@ -576,7 +653,7 @@ def _generate_json(
         "observed_model_catalog_entry_sha256",
     )
     if any(transport_before[field] != transport_after[field] for field in attestation_fields):
-        raise ConnectorError("Trae model transport identity changed during generation")
+        raise TransportIdentityError("Trae model transport identity changed during generation")
     response_id = response.get("id")
     if (
         not isinstance(response_id, str)
@@ -718,7 +795,7 @@ def generate_trade_tool(
         "proxy_version", "proxy_source_sha256", "traecli_runtime",
         "observed_model_catalog_entry_sha256",
     )):
-        raise ConnectorError("Trae model transport identity changed during generation")
+        raise TransportIdentityError("Trae model transport identity changed during generation")
     output = response.get("output")
     if (response.get("status") != "completed" or response.get("model") != MODEL
             or not isinstance(output, list) or not output

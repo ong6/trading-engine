@@ -312,8 +312,8 @@ def test_readiness_is_shadow_only_and_exposes_concrete_blockers(con):
             "model_catalog_entry_sha256"
         ] == agent_model_client.MODEL_CATALOG_ENTRY_SHA256
         assert by_name["provider_stable_model_revision"]["evidence"][
-            "required_traecli_runtime"
-        ] == agent_model_client.REQUIRED_TRAECLI_RUNTIME
+            "reviewed_traecli_runtime_sha256"
+        ] == list(agent_model_client.REVIEWED_TRAECLI_RUNTIME_SHA256)
         assert by_name["provider_stable_model_revision"]["evidence"][
             "stable_revision"
         ] is False

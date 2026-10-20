@@ -847,7 +847,7 @@ def _generated_response(
         or response.model_version != expected["model_version"]
         or response.proxy_version != expected["required_proxy_version"]
         or response.proxy_source_sha256 != expected["required_proxy_source_sha256"]
-        or response.traecli_runtime != expected["required_traecli_runtime"]
+        or not agent_model_client.traecli_runtime_matches(expected, response.traecli_runtime)
         or response.upstream_model_family != agent_model_client.UPSTREAM_MODEL_FAMILY
         or response.model_catalog_entry_sha256 != expected["model_catalog_entry_sha256"]
     ):

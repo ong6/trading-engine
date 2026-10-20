@@ -271,13 +271,14 @@ def _validate_identity(result, request: dict) -> None:
                 "upstream_model_family": result.upstream_model_family,
                 "model_catalog_entry_sha256": result.model_catalog_entry_sha256,
                 "proxy_version": result.proxy_version, "proxy_source_sha256": result.proxy_source_sha256,
-                "traecli_runtime": result.traecli_runtime}
+                "traecli_runtime_reviewed": agent_model_client.traecli_runtime_matches(
+                    expected, result.traecli_runtime)}
     required = {"model": expected["model"], "model_version": expected["model_version"],
                 "upstream_model_family": expected["upstream_model_family"],
                 "model_catalog_entry_sha256": expected["model_catalog_entry_sha256"],
                 "proxy_version": expected["required_proxy_version"],
                 "proxy_source_sha256": expected["required_proxy_source_sha256"],
-                "traecli_runtime": expected["required_traecli_runtime"]}
+                "traecli_runtime_reviewed": True}
     if observed != required or result.request_sha256 != canonical_sha256(request):
         raise FilingRunError("filing model identity differs")
 def _retryable(exc: Exception) -> bool:
