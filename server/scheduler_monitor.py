@@ -1,4 +1,4 @@
-"""Read-only audit of the engine's cron installation and launch prerequisites."""
+"""Read-only audit of the engine's cron, user units, backup age and launch prerequisites."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import shlex
 import stat
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from engine.lib.settings import REPO_ROOT
@@ -16,7 +17,48 @@ from .driver_monitor import DRIVER_SCHEDULES
 from .host_command import command_budget
 
 PUBLIC_INVALID_REASONS = frozenset({"crontab-unreadable", "projection-error"})
-PUBLIC_STATUSES = frozenset({"inactive", "invalid", "misconfigured", "ok", "unknown"})
+PUBLIC_STATUSES = frozenset(
+    {"degraded", "inactive", "invalid", "misconfigured", "ok", "unknown"}
+)
+PUBLIC_UNIT_STATUSES = frozenset({"degraded", "ok", "unknown"})
+PUBLIC_BACKUP_STATUSES = frozenset({"current", "stale", "unknown"})
+PUBLIC_BACKUP_STATES = frozenset({"absent", "failed", "ok", "retry", "unknown"})
+
+# Installed but left as the operator set them: tools.install_automation does not
+# enable, start or verify a held unit until the blocker named beside it is fixed.
+HELD_UNITS = frozenset(
+    {
+        # Disabled at the v2 deploy: the provider rejects the splits page bound and
+        # option daily bars return status invalid. Persistent=true would fire at once.
+        "massive-options-daily.timer",
+    }
+)
+AUTOSTART_UNITS = (
+    frozenset(
+        {
+            "trading-engine-agent-data-capture.timer",
+            "trading-engine-agent-shadow.timer",
+            "trading-engine-daily-opportunity.timer",
+            "trading-engine-hourly-opportunity.timer",
+            "trading-engine-four-hour-opportunity.timer",
+            "trading-engine-tradingview-history.timer",
+            "trading-engine-p15-scoring.timer",
+            "trading-engine-p15-preopen.timer",
+            "trading-engine-p15-events.timer",
+            "massive-options-daily.timer",
+            "trading-engine-accounts-settle.timer",
+            "trading-engine-ops-digest.timer",
+            "trading-engine-api.service",
+            "trading-engine-ui.service",
+        }
+    )
+    - HELD_UNITS
+)
+# The private data repository's backup timer runs at 04:30 and 10:30 UTC; a day with
+# both slots skipped or failed leaves the newest off-host copy older than this.
+BACKUP_STALE_AFTER_HOURS = 26
+BACKUP_STATE_PATH = Path.home() / ".local" / "state" / "trading-data-backup.json"
+BACKUP_REPOSITORY = Path.home() / "trading-data"
 
 
 @dataclass(frozen=True)
@@ -32,6 +74,11 @@ class _SchedulerObservation:
     unsafe_log_targets: tuple[str, ...]
     log_directory_writable: bool
     launch_identities: tuple[tuple[str, tuple | None], ...]
+    unit_enablement: tuple[tuple[str, str], ...] | None = None
+    failed_units: tuple[str, ...] | None = None
+    backup_state: str = "unknown"
+    backup_state_at: str | None = None
+    backup_commit_at: str | None = None
 
 
 def _stable_metadata(
@@ -436,6 +483,8 @@ def invalid_status(
     unlaunchable_auxiliary_entries: tuple[str, ...] = (),
     unsafe_log_targets: tuple[str, ...] = (),
     log_directory_writable: bool = False,
+    user_units: dict | None = None,
+    backup: dict | None = None,
 ) -> dict:
     """Return the complete fail-closed scheduler schema for unavailable probes."""
     if reason not in PUBLIC_INVALID_REASONS:
@@ -461,6 +510,66 @@ def invalid_status(
         "unexecutable_drivers": sorted(unexecutable_drivers),
         "unsafe_log_targets": sorted(unsafe_log_targets),
         "log_directory_writable": log_directory_writable,
+        "user_units": user_units or user_unit_status(None, None),
+        "backup": backup or backup_status("unknown", None, None),
+    }
+
+
+def user_unit_status(
+    enablement: tuple[tuple[str, str], ...] | None,
+    failed_units: tuple[str, ...] | None,
+) -> dict:
+    """Project autostart enablement and failed user units into the public schema."""
+    not_enabled = (
+        []
+        if enablement is None
+        else sorted(unit for unit, state in enablement if state != "enabled")
+    )
+    failed = [] if failed_units is None else sorted(failed_units)
+    if enablement is None or failed_units is None:
+        state = "unknown"
+    else:
+        state = "degraded" if not_enabled or failed else "ok"
+    return {
+        "status": state,
+        "autostart_expected": len(AUTOSTART_UNITS),
+        "autostart_not_enabled": not_enabled,
+        "failed": failed,
+    }
+
+
+def backup_status(
+    state: str,
+    state_at: str | None,
+    commit_at: str | None,
+    *,
+    now: datetime | None = None,
+) -> dict:
+    """Age the newest good off-host backup: a clean run or a backup commit.
+
+    The backup script records exit 75 (engine locks busy) as state ``retry``, which its
+    unit reports as success, so only an ``ok`` state or a backup commit counts here.
+    """
+    candidates = [commit_at] if commit_at else []
+    if state == "ok" and state_at:
+        candidates.append(state_at)
+    last = max(candidates, key=datetime.fromisoformat) if candidates else None
+    age_hours = None
+    if last is not None:
+        seconds = ((now or datetime.now(UTC)) - datetime.fromisoformat(last)).total_seconds()
+        age_hours = round(max(0.0, seconds) / 3600, 1)
+    if age_hours is None:
+        health = "unknown"
+    elif age_hours > BACKUP_STALE_AFTER_HOURS:
+        health = "stale"
+    else:
+        health = "current"
+    return {
+        "status": health,
+        "state": state if state in PUBLIC_BACKUP_STATES else "unknown",
+        "last_success_at": last,
+        "age_hours": age_hours,
+        "stale_after_hours": BACKUP_STALE_AFTER_HOURS,
     }
 
 
@@ -522,6 +631,9 @@ def _observation(repo_root: Path) -> _SchedulerObservation:
     service_state, service_unit = scheduler_host.cron_service()
     service_enabled = scheduler_host.service_enabled(service_unit)
     timezone_name = scheduler_host.system_timezone()
+    autostart = tuple(sorted(AUTOSTART_UNITS))
+    enablement = scheduler_host.user_unit_enablement(autostart)
+    backup_state, backup_state_at = scheduler_host.backup_state(BACKUP_STATE_PATH)
     (
         unexecutable_drivers,
         unlaunchable_auxiliary_entries,
@@ -541,10 +653,21 @@ def _observation(repo_root: Path) -> _SchedulerObservation:
         unsafe_log_targets=unsafe_logs,
         log_directory_writable=log_directory_writable,
         launch_identities=launch_identities,
+        unit_enablement=(
+            None if enablement is None else tuple((unit, enablement[unit]) for unit in autostart)
+        ),
+        failed_units=scheduler_host.failed_user_units(),
+        backup_state=backup_state,
+        backup_state_at=backup_state_at,
+        backup_commit_at=scheduler_host.last_backup_commit(BACKUP_REPOSITORY),
     )
 
 
 def _project_observation(observation: _SchedulerObservation, repo_root: Path) -> dict:
+    user_units = user_unit_status(observation.unit_enablement, observation.failed_units)
+    backup = backup_status(
+        observation.backup_state, observation.backup_state_at, observation.backup_commit_at
+    )
     if observation.crontab_error is not None or observation.crontab_text is None:
         return invalid_status(
             observation.crontab_error or "crontab-unreadable",
@@ -556,8 +679,10 @@ def _project_observation(observation: _SchedulerObservation, repo_root: Path) ->
             unlaunchable_auxiliary_entries=observation.unlaunchable_auxiliary_entries,
             unsafe_log_targets=observation.unsafe_log_targets,
             log_directory_writable=observation.log_directory_writable,
+            user_units=user_units,
+            backup=backup,
         )
-    return evaluate_scheduler(
+    cron = evaluate_scheduler(
         observation.crontab_text,
         observation.service_state,
         service_unit=observation.service_unit,
@@ -569,6 +694,11 @@ def _project_observation(observation: _SchedulerObservation, repo_root: Path) ->
         log_directory_writable=observation.log_directory_writable,
         repo_root=repo_root,
     )
+    # Cron problems keep their own status; otherwise a failed or disabled user unit,
+    # or a missing or stale off-host backup, must not read as ok.
+    healthy = user_units["status"] == "ok" and backup["status"] == "current"
+    status = "degraded" if cron["status"] == "ok" and not healthy else cron["status"]
+    return {**cron, "status": status, "user_units": user_units, "backup": backup}
 
 
 def _status(repo_root: Path) -> dict:

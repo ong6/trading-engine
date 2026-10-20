@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import re
+from datetime import UTC, datetime
+from pathlib import Path
+
 from .host_command import bounded_printable_line, run_bounded
 
 CRON_SERVICE_UNITS = ("cron", "crond")
@@ -146,3 +151,91 @@ def service_enabled(unit: str | None) -> str:
         return "unknown"
     expected_zero = state in _ZERO_EXIT_ENABLEMENT_STATES
     return state if (result.returncode == 0) == expected_zero else "unknown"
+
+
+USER_UNIT_NAME_RE = re.compile(r"[A-Za-z0-9:_.@\\-]{1,255}\.[a-z]+")
+BACKUP_STATE_MAX_BYTES = 65_536
+BACKUP_STATE_STATUSES = frozenset({"ok", "retry", "failed"})
+
+
+def user_unit_enablement(units: tuple[str, ...]) -> dict[str, str] | None:
+    """Read the boot enablement of named user units in one query, or None."""
+    if not units:
+        return {}
+    result = run_bounded(
+        ["systemctl", "--user", "show", "--property=Id", "--property=UnitFileState", "--", *units]
+    )
+    if result is None or result.returncode != 0 or result.stderr:
+        return None
+    states: dict[str, str] = {}
+    for block in result.stdout.strip("\n").split("\n\n"):
+        properties = dict(line.partition("=")[::2] for line in block.splitlines())
+        unit = properties.get("Id")
+        if unit not in units or unit in states or set(properties) != {"Id", "UnitFileState"}:
+            return None
+        state = properties["UnitFileState"] or "not-found"
+        states[unit] = (
+            state if state in CRON_SERVICE_ENABLEMENT_STATES | {"not-found"} else "unknown"
+        )
+    return states if set(states) == set(units) else None
+
+
+def failed_user_units() -> tuple[str, ...] | None:
+    """List this user's units in the failed state, or None when unreadable."""
+    result = run_bounded(
+        ["systemctl", "--user", "list-units", "--state=failed", "--all", "--plain",
+         "--no-legend", "--full"]
+    )
+    if result is None or result.returncode != 0 or result.stderr:
+        return None
+    units = set()
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        unit = line.split()[0]
+        if not USER_UNIT_NAME_RE.fullmatch(unit):
+            return None
+        units.add(unit)
+    return tuple(sorted(units))
+
+
+def _utc_timestamp(value: object) -> str | None:
+    if not isinstance(value, str) or len(value) > 64:
+        return None
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        return None
+    return moment.astimezone(UTC).isoformat(timespec="seconds")
+
+
+def backup_state(path: Path) -> tuple[str, str | None]:
+    """Return the backup script's last recorded status and when it was written."""
+    try:
+        with path.open("rb") as handle:
+            raw = handle.read(BACKUP_STATE_MAX_BYTES + 1)
+    except FileNotFoundError:
+        return "absent", None
+    except OSError:
+        return "unknown", None
+    if len(raw) > BACKUP_STATE_MAX_BYTES:
+        return "unknown", None
+    try:
+        state = json.loads(raw)
+    except (UnicodeDecodeError, ValueError):
+        return "unknown", None
+    if not isinstance(state, dict) or state.get("status") not in BACKUP_STATE_STATUSES:
+        return "unknown", None
+    return state["status"], _utc_timestamp(state.get("at"))
+
+
+def last_backup_commit(repository: Path) -> str | None:
+    """Return the commit time of the newest backup commit in the data repository."""
+    result = run_bounded(
+        ["git", "-C", str(repository), "log", "-1", "--format=%cI", "--grep=^backup "]
+    )
+    if result is None or result.returncode != 0 or result.stderr:
+        return None
+    return _utc_timestamp(result.stdout.strip())

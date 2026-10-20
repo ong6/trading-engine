@@ -131,9 +131,10 @@ def test_p22_data_and_account_units_are_registered_with_required_schedules():
         "trading-engine-accounts-settle.timer",
     }
     assert expected <= set(install_automation.UNIT_SOURCES)
-    assert {
-        "massive-options-daily.timer", "trading-engine-accounts-settle.timer"
-    } <= install_automation.AUTOSTART_UNITS
+    assert "trading-engine-accounts-settle.timer" in install_automation.AUTOSTART_UNITS
+    # Held until the provider fixes land: installed, never enabled by --apply.
+    assert "massive-options-daily.timer" in install_automation.HELD_UNITS
+    assert "massive-options-daily.timer" not in install_automation.AUTOSTART_UNITS
 
     root = install_automation.REPO_ROOT
     options_service = (root / "server/massive-options-daily.service").read_text()
@@ -207,6 +208,99 @@ def test_plan_reports_disabled_and_inactive_units_as_drift(tmp_path, monkeypatch
     assert summary["changes"]["start_units"] == [units[0]]
     assert summary["service_units"][units[0]]["enabled"] == "disabled"
     assert summary["service_units"][units[0]]["active"] == "inactive"
+
+
+def test_held_units_are_installed_but_never_autostarted():
+    assert install_automation.HELD_UNITS <= set(install_automation.UNIT_SOURCES)
+    assert not install_automation.HELD_UNITS & install_automation.AUTOSTART_UNITS
+    assert install_automation.AUTOSTART_UNITS <= set(install_automation.UNIT_SOURCES)
+
+
+def test_plan_leaves_a_disabled_held_timer_alone(tmp_path, monkeypatch):
+    root, home = _repo(tmp_path)
+    unit_dir = home / ".config" / "systemd" / "user"
+    unit_dir.mkdir(parents=True)
+    for unit, relative in install_automation.UNIT_SOURCES.items():
+        (unit_dir / unit).write_bytes((root / relative).read_bytes())
+    current = install_automation.render_crontab("", root)
+    held = "massive-options-daily.timer"
+
+    def state(action, unit):
+        if unit == held:
+            return "disabled" if action == "is-enabled" else "inactive"
+        return "enabled" if action == "is-enabled" else "active"
+
+    monkeypatch.setattr(install_automation, "_service_state", state)
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: current)
+
+    summary, _desired = install_automation.plan(root, home)
+
+    assert summary["status"] == "ok"
+    assert summary["changes"]["enable_units"] == []
+    assert summary["changes"]["start_units"] == []
+    assert summary["held_units"] == [held]
+    assert summary["service_units"][held]["matches"] is True
+
+
+def test_apply_installs_but_never_enables_or_starts_a_held_timer(tmp_path, monkeypatch):
+    root, home = _repo(tmp_path)
+    unit_dir = home / ".config" / "systemd" / "user"
+    unit_dir.mkdir(parents=True)
+    held = "massive-options-daily.timer"
+    for unit, relative in install_automation.UNIT_SOURCES.items():
+        (unit_dir / unit).write_bytes((root / relative).read_bytes())
+    (unit_dir / held).write_text("old\n")
+    current = install_automation.render_crontab("", root)
+
+    def state(action, unit):
+        if unit == held:
+            return "disabled" if action == "is-enabled" else "inactive"
+        return "enabled" if action == "is-enabled" else "active"
+
+    calls = []
+    monkeypatch.setattr(install_automation, "_service_state", state)
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: current)
+    monkeypatch.setattr(
+        install_automation,
+        "_checked",
+        lambda args, *, input_text=None: calls.append(args),
+    )
+    monkeypatch.setattr(
+        install_automation.scheduler_monitor,
+        "status",
+        lambda **_kwargs: {"status": "degraded"},
+    )
+    summary, desired = install_automation.plan(root, home)
+
+    result = install_automation.apply(summary, desired, root, home)
+
+    assert result["status"] == "ok"
+    assert result["changes"]["service_units"] == [held]
+    assert (unit_dir / held).read_bytes() == (
+        root / install_automation.UNIT_SOURCES[held]
+    ).read_bytes()
+    assert ["systemctl", "--user", "daemon-reload"] in calls
+    assert all(held not in args for args in calls)
+
+
+def test_apply_still_rejects_an_unhealthy_cron_scheduler(tmp_path, monkeypatch):
+    root, home = _repo(tmp_path)
+    unit_dir = home / ".config" / "systemd" / "user"
+    unit_dir.mkdir(parents=True)
+    for unit, relative in install_automation.UNIT_SOURCES.items():
+        (unit_dir / unit).write_bytes((root / relative).read_bytes())
+    current = install_automation.render_crontab("", root)
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: current)
+    monkeypatch.setattr(install_automation, "_checked", lambda args, *, input_text=None: None)
+    monkeypatch.setattr(
+        install_automation.scheduler_monitor,
+        "status",
+        lambda **_kwargs: {"status": "misconfigured"},
+    )
+    summary, desired = install_automation.plan(root, home)
+
+    with pytest.raises(RuntimeError, match="post-install scheduler verification failed"):
+        install_automation.apply(summary, desired, root, home)
 
 
 def test_service_state_fails_closed_when_systemctl_is_unavailable(monkeypatch):

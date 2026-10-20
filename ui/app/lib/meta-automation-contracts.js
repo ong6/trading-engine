@@ -25,6 +25,7 @@ const FRIDAY_POSTFLIGHT_STATUSES = new Set([
   "updating",
 ]);
 const SCHEDULER_STATUSES = new Set([
+  "degraded",
   "inactive",
   "invalid",
   "misconfigured",
@@ -88,7 +89,13 @@ const SCHEDULER_FIELDS = [
   "unexecutable_drivers",
   "unsafe_log_targets",
   "log_directory_writable",
+  "user_units",
+  "backup",
 ];
+const SCHEDULER_UNIT_STATUSES = new Set(["degraded", "ok", "unknown"]);
+const SCHEDULER_BACKUP_STATUSES = new Set(["current", "stale", "unknown"]);
+const SCHEDULER_BACKUP_STATES = new Set(["absent", "failed", "ok", "retry", "unknown"]);
+const SCHEDULER_UNIT_NAME = /^[A-Za-z0-9:_.@\\-]{1,255}\.[a-z]+$/;
 const SOURCE_CONTROL_FIELDS = [
   "status",
   "reason",
@@ -182,6 +189,66 @@ function timestampAtOrBefore(value, boundary) {
   return comparison !== null && comparison <= 0;
 }
 
+function isSortedUniqueUnitNames(value) {
+  return (
+    Array.isArray(value) &&
+    value.every((item) => typeof item === "string" && SCHEDULER_UNIT_NAME.test(item)) &&
+    value.every((item, index) => index === 0 || value[index - 1] < item)
+  );
+}
+
+function isSchedulerUserUnits(units) {
+  if (
+    !hasExactFields(units, [
+      "status",
+      "autostart_expected",
+      "autostart_not_enabled",
+      "failed",
+    ]) ||
+    !SCHEDULER_UNIT_STATUSES.has(units.status) ||
+    !isNonnegativeInteger(units.autostart_expected) ||
+    !isSortedUniqueUnitNames(units.autostart_not_enabled) ||
+    units.autostart_not_enabled.length > units.autostart_expected ||
+    !isSortedUniqueUnitNames(units.failed)
+  ) {
+    return false;
+  }
+  const problems = units.autostart_not_enabled.length + units.failed.length;
+  if (units.status === "unknown") return true;
+  return units.status === (problems ? "degraded" : "ok");
+}
+
+function isSchedulerBackup(backup) {
+  if (
+    !hasExactFields(backup, [
+      "status",
+      "state",
+      "last_success_at",
+      "age_hours",
+      "stale_after_hours",
+    ]) ||
+    !SCHEDULER_BACKUP_STATUSES.has(backup.status) ||
+    !SCHEDULER_BACKUP_STATES.has(backup.state) ||
+    !isPositiveInteger(backup.stale_after_hours)
+  ) {
+    return false;
+  }
+  if (backup.last_success_at === null || backup.age_hours === null) {
+    return (
+      backup.last_success_at === null &&
+      backup.age_hours === null &&
+      backup.status === "unknown"
+    );
+  }
+  return (
+    isOffsetIsoTimestamp(backup.last_success_at) &&
+    typeof backup.age_hours === "number" &&
+    Number.isFinite(backup.age_hours) &&
+    backup.age_hours >= 0 &&
+    backup.status === (backup.age_hours > backup.stale_after_hours ? "stale" : "current")
+  );
+}
+
 function schedulerStatus(scheduler, scheduleReady, launchReady) {
   if (
     scheduler.cron_service === "active" &&
@@ -190,7 +257,9 @@ function schedulerStatus(scheduler, scheduleReady, launchReady) {
     scheduleReady &&
     launchReady
   ) {
-    return "ok";
+    return scheduler.user_units.status === "ok" && scheduler.backup.status === "current"
+      ? "ok"
+      : "degraded";
   }
   if (
     scheduler.cron_service === "unknown" ||
@@ -234,7 +303,9 @@ function isScheduler(scheduler) {
     typeof scheduler.timezone_ok !== "boolean" ||
     !isBoundedPrintableLine(scheduler.timezone, SCHEDULER_TIMEZONE_MAX_CHARS) ||
     scheduler.expected_timezone !== "UTC" ||
-    !SCHEDULER_ENABLEMENT_STATES.has(scheduler.cron_service_enabled)
+    !SCHEDULER_ENABLEMENT_STATES.has(scheduler.cron_service_enabled) ||
+    !isSchedulerUserUnits(scheduler.user_units) ||
+    !isSchedulerBackup(scheduler.backup)
   ) {
     return false;
   }

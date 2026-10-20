@@ -174,6 +174,19 @@ function validMeta() {
       unexecutable_drivers: [],
       unsafe_log_targets: [],
       log_directory_writable: true,
+      user_units: {
+        status: "ok",
+        autostart_expected: 13,
+        autostart_not_enabled: [],
+        failed: [],
+      },
+      backup: {
+        status: "current",
+        state: "ok",
+        last_success_at: "2026-10-20T04:40:00+00:00",
+        age_hours: 2.5,
+        stale_after_hours: 26,
+      },
     },
     friday_postflight: {
       status: "not-yet-run",
@@ -481,6 +494,44 @@ test("meta projection validates UI-consumed monitor fields and honest degraded s
       status: "misconfigured",
       timezone: "America/New_York",
       timezone_ok: false,
+    },
+    {
+      ...clone(valid.scheduler),
+      status: "degraded",
+      user_units: {
+        status: "degraded",
+        autostart_expected: 13,
+        autostart_not_enabled: [],
+        failed: ["massive-options-daily.service", "p22-rb-massive-options-daily.service"],
+      },
+    },
+    {
+      ...clone(valid.scheduler),
+      status: "degraded",
+      backup: {
+        status: "stale",
+        state: "retry",
+        last_success_at: "2026-10-18T13:20:08+00:00",
+        age_hours: 38.3,
+        stale_after_hours: 26,
+      },
+    },
+    {
+      ...clone(valid.scheduler),
+      status: "degraded",
+      user_units: {
+        status: "unknown",
+        autostart_expected: 13,
+        autostart_not_enabled: [],
+        failed: [],
+      },
+      backup: {
+        status: "unknown",
+        state: "absent",
+        last_success_at: null,
+        age_hours: null,
+        stale_after_hours: 26,
+      },
     },
   ]) {
     const statusVariant = clone(valid);
@@ -1288,6 +1339,33 @@ test("meta projection requires exact ordered unique stale-exposure rows", () => 
   assert.equal(isMetaProjection(unicodeOrder), true);
 });
 
+test("scheduler unit and backup health must agree with the scheduler status", () => {
+  for (const mutate of [
+    (value) => (value.scheduler.status = "degraded"),
+    (value) => delete value.scheduler.user_units,
+    (value) => delete value.scheduler.backup,
+    (value) => (value.scheduler.user_units.failed = ["x.service"]),
+    (value) => (value.scheduler.user_units.failed = ["b.service", "a.service"]),
+    (value) => (value.scheduler.user_units.failed = ["bad unit"]),
+    (value) => (value.scheduler.user_units.status = "invented"),
+    (value) => {
+      value.scheduler.user_units.status = "degraded";
+      value.scheduler.status = "degraded";
+    },
+    (value) => (value.scheduler.user_units.internal = "not public"),
+    (value) => (value.scheduler.backup.age_hours = 27),
+    (value) => (value.scheduler.backup.age_hours = -1),
+    (value) => (value.scheduler.backup.age_hours = null),
+    (value) => (value.scheduler.backup.state = "invented"),
+    (value) => (value.scheduler.backup.last_success_at = "2026-10-20 04:40"),
+    (value) => (value.scheduler.backup.reason = "lock path"),
+  ]) {
+    const malformed = clone(validMeta());
+    mutate(malformed);
+    assert.equal(isMetaProjection(malformed), false, mutate.toString());
+  }
+});
+
 test("meta projection rejects nested values that could misstate runtime evidence", () => {
   const response = validMeta();
   response.meta = { regime: "risk-off", screen_date: "2026-09-04" };
@@ -1364,6 +1442,19 @@ test("meta projection rejects nested values that could misstate runtime evidence
     unexecutable_drivers: [],
     unsafe_log_targets: [],
     log_directory_writable: false,
+    user_units: {
+      status: "unknown",
+      autostart_expected: 13,
+      autostart_not_enabled: [],
+      failed: [],
+    },
+    backup: {
+      status: "unknown",
+      state: "unknown",
+      last_success_at: null,
+      age_hours: null,
+      stale_after_hours: 26,
+    },
   };
   response.source_control = {
     status: "invalid",
