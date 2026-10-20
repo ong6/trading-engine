@@ -20,6 +20,11 @@ DuckDB refuses every writer meanwhile; the timer therefore fires outside every o
 start window (``tests/test_ops_digest.py``). Collection is best effort: a missing source is
 noted in the digest, never fatal.
 
+Once a UTC day, at the first collection from ``LOG_RETENTION_HOUR``, it also runs
+``tools/log_retention.py`` over ``logs/`` (rotate oversized ``*cron.log``, expire old dated logs)
+and writes ``logs/ops/retention.md``; that is a dry run unless the host-private
+``logs/ops/retention.json`` sets ``"apply": true``.
+
 ``python -m tools.ops_digest --report [--hours 24]`` prints a summary for an agent to start
 from: hour statuses, failed, degraded, missing, unknown and slow runs, scheduled work checked
 only against observed installed schedule intervals, each driver's stages, log signals and growth.
@@ -64,12 +69,14 @@ from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DEFAULT_DB, LOGS_DIR, REPO_ROOT
 from engine.lib.snapshots import latest_snapshot
 from server import schedule_contract
+from tools import log_retention
 from tools.stage_timings import load_timings
 
 OPS_DIR = LOGS_DIR / "ops"
 DIGEST_RETENTION_DAYS = 30
 METRIC_RETENTION_DAYS = 180
 MAX_BACKFILL_HOURS = 48
+LOG_RETENTION_HOUR = 10  # UTC: clear of the nightly, the weekend verify and the live windows
 MAX_READ_BYTES = 64 * 1024 * 1024
 CLASSIFY_CHARS = 2000
 SAMPLES_PER_LEVEL = 5
@@ -832,6 +839,27 @@ def prune(db: sqlite3.Connection, ops_dir: Path, now: datetime) -> None:
     db.execute("DELETE FROM stage_runs WHERE ended < ?", (started_cutoff,))
 
 
+def daily_log_retention(
+    db: sqlite3.Connection, logs_dir: Path, ops_dir: Path, now: datetime,
+) -> log_retention.Result | None:
+    """Run log retention once a UTC day; a rotated log's read offset moves to its new end."""
+    moment = now.astimezone(UTC)
+    day = f"{moment:%Y-%m-%d}"
+    row = db.execute("SELECT value FROM meta WHERE key='log_retention_day'").fetchone()
+    if moment.hour < LOG_RETENTION_HOUR or (row is not None and row[0] == day):
+        return None
+    config = log_retention.load_config(ops_dir)
+    result = log_retention.run_retention(logs_dir, repo_root=logs_dir.parent, now=now,
+                                         config=config)
+    for item in result.rotate if result.applied else ():
+        db.execute("UPDATE file_offsets SET inode=?, offset=? WHERE path=?",
+                   (item["inode"], item["kept_bytes"], str(item["path"])))
+    write_text_atomic(ops_dir / "retention.md",
+                      log_retention.render(result, now=now, config=config))
+    db.execute("INSERT OR REPLACE INTO meta VALUES ('log_retention_day', ?)", (day,))
+    return result
+
+
 def collect(
     *, now: datetime | None = None, run: Runner = _run, fetch: Fetch = _fetch,
     logs_dir: Path = LOGS_DIR, ops_dir: Path = OPS_DIR, db_path: Path = DEFAULT_DB,
@@ -871,6 +899,11 @@ def collect(
             if results:
                 write_text_atomic(ops_dir / "latest.md", results[-1]["text"])
             prune(db, ops_dir, now)
+            db.commit()
+            try:
+                daily_log_retention(db, logs_dir, ops_dir, now)
+            except OSError as exc:  # best effort, like every other source
+                print(f"[ops-digest] log retention failed: {exc}")
             db.commit()
             return results
         finally:

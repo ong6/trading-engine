@@ -77,6 +77,14 @@ digest reruns the check in shadow mode whenever the snapshot sha256 changes and 
 regressions are listed in the digest and never change its status. `--gate` exits 2 on a
 regression for a caller that wants to block on it.
 
+Logs are bounded by `tools/log_retention.py`, which the digest runs once a UTC day from 10:00:
+cumulative `*cron.log` files over 8 MB are compressed to `logs/rotated/` and rewritten in place
+to their run-marker lines plus the last 256 KB, so the driver monitors parse them as before, and
+dated logs older than 60 days are deleted unless tracked text (`git grep`) cites them. It is a
+dry run, reported in `logs/ops/retention.md`, until the host-private `logs/ops/retention.json`
+sets `"apply": true` (optional `days`, `cap_mb`, `tail_kb`, `keep` globs). By hand:
+`.venv/bin/python -m tools.log_retention` lists candidates; `--apply` acts on them.
+
 Read `GET /meta` before interpreting a log in isolation. It reconciles schedule, log, lock,
 database, report, queue, source-control, and evidence state. A missing or malformed
 `data/_meta.json` is reported separately and does not hide live projections. `GET /health`
