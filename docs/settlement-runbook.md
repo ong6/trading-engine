@@ -70,7 +70,8 @@ Before any code reaches the live checkout (a settlement fix, a deployment in the
 below, or any pull), run the gate on the exact candidate checkout, committed and clean:
 
 ```bash
-.venv/bin/python -m tools.deploy_gate --check <candidate-worktree>
+CANDIDATE="$HOME/engine-lanes/<lane>"  # the committed, clean candidate checkout
+.venv/bin/python -m tools.deploy_gate --check "$CANDIDATE"
 ```
 
 It runs the contract tests, `schedule_contract_check --static`, the provider-contract replay
