@@ -11,6 +11,7 @@ import pytest
 from engine import free_massive_options as options
 from engine import free_sources
 from tools import free_massive_options as capture
+from tools import provider_contracts as contracts
 
 AS_OF = date(2026, 10, 6)
 NOW = datetime(2026, 10, 6, 11, 35, tzinfo=timezone.utc)
@@ -192,6 +193,78 @@ def test_loader_checks_expected_source_hash():
             )
     finally:
         con.close()
+
+
+RECORDED = json.loads((contracts.FIXTURES_DIR / "manifest.json").read_text())["options"]
+RECORDED_AS_OF = date.fromisoformat(RECORDED["as_of"])
+RECORDED_NOW = datetime.fromisoformat(RECORDED["now"])
+RECORDED_OCC = RECORDED["daily"]["occ"]
+RECORDED_CLOSES = {page["underlying"]: page["close"] for page in RECORDED["contracts"]}
+RECORDED_BODIES = {
+    page["underlying"]: (contracts.FIXTURES_DIR / page["file"]).read_bytes()
+    for page in RECORDED["contracts"]
+}
+RECORDED_DAILY = (contracts.FIXTURES_DIR / RECORDED["daily"]["file"]).read_bytes()
+
+
+class RecordedSession(Session):
+    """Serve the 2026-10-18 free-tier responses: contracts by underlying, one daily page."""
+
+    def __init__(self, contracts_by_underlying=None):
+        super().__init__()
+        self.contracts = contracts_by_underlying or RECORDED_BODIES
+
+    def get(self, url, **_kwargs):
+        self.urls.append(url)
+        if "/v3/reference/" in url:
+            underlying = url.split("underlying_ticker=")[1].split("&")[0]
+            return Response(self.contracts[underlying])
+        return Response(RECORDED_DAILY if f"O:{RECORDED_OCC}/" in url else b"{}", 200)
+
+
+def _recorded_capture(tmp_path, session, underlyings, **kwargs):
+    return capture.capture(
+        database=tmp_path / "options.duckdb", data_dir=tmp_path / "raw",
+        daily_database=tmp_path / "unused.duckdb", api_key="fixture-key", session=session,
+        now=lambda: RECORDED_NOW, as_of=RECORDED_AS_OF, selected_underlyings=underlyings,
+        rate_limit=lambda: None,
+        close_overrides={key: RECORDED_CLOSES[key] for key in underlyings}, **kwargs,
+    )
+
+
+def test_recorded_free_tier_contract_pages_load_for_every_underlying(tmp_path):
+    result = _recorded_capture(
+        tmp_path, RecordedSession(), ("SPY", "QQQ", "IWM"), contracts_only=True
+    )
+    con = duckdb.connect(str(tmp_path / "options.duckdb"), read_only=True)
+    try:
+        per_underlying = dict(con.execute(
+            "SELECT underlying, COUNT(*) FROM option_contracts GROUP BY 1"
+        ).fetchall())
+        recorded = con.execute(
+            "SELECT expiry, strike, \"right\" FROM option_contracts WHERE occ=?", [RECORDED_OCC]
+        ).fetchone()
+    finally:
+        con.close()
+
+    assert result["contract_pages"] == 3 and result["truncated"] == []
+    assert per_underlying == {page["underlying"]: page["rows"] for page in RECORDED["contracts"]}
+    assert recorded == (date(2026, 11, 20), 763.0, "C")
+
+
+@pytest.mark.xfail(strict=True, raises=free_sources.FreeSourceError,
+                   reason="free-tier DELAYED option bars are rejected until the "
+                          "delayed-status fix lands")
+def test_recorded_free_tier_delayed_daily_page_loads(tmp_path):
+    spy = json.loads(RECORDED_BODIES["SPY"])
+    only_recorded = json.dumps({**spy, "results": [
+        row for row in spy["results"] if row["ticker"] == f"O:{RECORDED_OCC}"
+    ]}).encode()
+
+    result = _recorded_capture(tmp_path, RecordedSession({"SPY": only_recorded}), ("SPY",))
+
+    assert json.loads(RECORDED_DAILY)["status"] == "DELAYED"
+    assert (result["daily_requests"], result["daily_bars"]) == (1, RECORDED["daily"]["rows"])
 
 
 def test_prior_closes_opens_existing_adjusted_store_read_only(tmp_path, monkeypatch):
