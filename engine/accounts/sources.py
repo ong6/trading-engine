@@ -60,6 +60,12 @@ def _attached_has(
     ).fetchone() is not None
 
 
+def _has_account_books(con: duckdb.DuckDBPyConnection) -> bool:
+    return _main_has(con, 'portfolio_accounts_v') and con.execute(
+        "SELECT 1 FROM portfolio_accounts_v WHERE pa_engine='account' LIMIT 1"
+    ).fetchone() is not None
+
+
 @contextmanager
 def production_sources(
     con: duckdb.DuckDBPyConnection,
@@ -72,7 +78,13 @@ def production_sources(
     The source writer may hold its lock throughout collection. Retry briefly;
     record unavailable stores so settlement can defer only dependent accounts.
     Temp snapshots release all source locks before account transactions begin.
+    A store with no account book and no requested ticker (a walk-forward or
+    backtest scratch replay) has nothing to settle, so it attaches nothing.
     """
+    if not tickers and not _has_account_books(con):
+        short_ready = all(_main_has(con, name) for name in SOURCE_TABLES['account_short'])
+        yield con if short_ready else None
+        return
     snapshots: list[str] = []
     names = set(tickers or [])
     for relation in ('sim_positions', 'sim_orders'):

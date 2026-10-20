@@ -55,6 +55,8 @@ import time
 from datetime import date
 from pathlib import Path
 
+import duckdb
+
 from engine.lib import db, resources
 from engine.lib import leverage as lev
 from engine.lib.data_quality import data_snapshot, quality_class
@@ -85,6 +87,34 @@ PRICE_WARMUP_SESSIONS = 460   # covers every lookback any book reads (see above)
 
 def _provenance(config: dict) -> dict:
     return research_provenance(config)
+
+
+def is_reader(con) -> bool:
+    """True for a read-only store handle, which a queue child owns outright.
+
+    The sequential drain lends its single writer instead and keeps using it, so
+    only a reader may be released before a long replay ends.
+    """
+    if not isinstance(con, duckdb.DuckDBPyConnection):
+        return False
+    row = con.execute(
+        "SELECT readonly FROM duckdb_databases() "
+        "WHERE database_name = current_database()").fetchone()
+    return bool(row and row[0])
+
+
+# A grid reopens its reader per replay and may race a nightly writer's collect.
+REOPEN_WAIT_S = 900.0
+
+
+def reader_path(con) -> str | None:
+    """The store path behind a read-only handle a grid may close and reopen."""
+    if not is_reader(con):
+        return None
+    row = con.execute(
+        "SELECT path FROM duckdb_databases() "
+        "WHERE database_name = current_database()").fetchone()
+    return row[0] if row and row[0] else None
 
 
 def _require_single_portfolio(con) -> None:
@@ -364,8 +394,13 @@ def run_replay(live_con, config_id: str, window: str, *,
                threads: int | None = 16, mem_mb: int | None = 8000,
                override: tuple[date, date] | None = None,
                initial_cash: float | None = None,
-               execution_profile: str | None = None) -> dict:
-    """Replay one (book, window). Returns the result dict (also written as JSON)."""
+               execution_profile: str | None = None,
+               release_live: bool = False) -> dict:
+    """Replay one (book, window). Returns the result dict (also written as JSON).
+
+    `release_live` closes `live_con` after its last read, before the session
+    loop, so a long replay never holds a reader on the live store.
+    """
     source_cfg = config_by_id(config_id)
     why = excluded_reason(config_id, source_cfg.get("strategy"))
     if why:
@@ -431,6 +466,8 @@ def run_replay(live_con, config_id: str, window: str, *,
             else:
                 raise SystemExit(f"[replay] bad screen_source {screen_source!r}")
         screen_s = time.time() - t_screen
+        if release_live:
+            live_con.close()
 
         # Portfolio: insert the frozen live config selected above. Calling
         # init_portfolios here would silently substitute mutable source CONFIGS
@@ -446,7 +483,8 @@ def run_replay(live_con, config_id: str, window: str, *,
 
         t_step = time.time()
         for i, d in enumerate(sessions):
-            league.step(con, d, scratch_dir, rerun=False, verbose=False)
+            league.step(con, d, scratch_dir, rerun=False, verbose=False,
+                        no_accounts=True)
             if verbose and (i + 1) % 250 == 0:
                 log.info(f"[replay]   {i + 1}/{len(sessions)} sessions "
                       f"({time.time() - t_step:.0f}s)")
@@ -571,7 +609,8 @@ def run_job(params: dict, con, meta_path=None) -> None:
                mem_mb=params.get("mem_mb", 4500),
                initial_cash=(float(params["initial_cash"])
                              if "initial_cash" in params else None),
-               execution_profile=params.get("execution_profile"))
+               execution_profile=params.get("execution_profile"),
+               release_live=is_reader(con))
     from farm.backtest import report
     report.write_reports()
 
@@ -612,6 +651,7 @@ def main() -> int:
                    write_result=not args.no_result, threads=args.threads,
                    initial_cash=args.initial_cash,
                    execution_profile=args.execution_profile,
+                   release_live=True,
                    override=((date.fromisoformat(args.start),
                               date.fromisoformat(args.end))
                              if args.start and args.end else None))

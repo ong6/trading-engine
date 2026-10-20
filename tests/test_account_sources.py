@@ -6,6 +6,7 @@ from pathlib import Path
 import duckdb
 
 from engine.accounts.sources import production_sources
+from sim.schema import set_portfolio_account
 
 
 def _database(path: Path, statement: str) -> None:
@@ -48,6 +49,11 @@ def test_production_sources_attach_daily_minute_and_short_tables(con, tmp_path):
         "TRADING_ENGINE_SHORT_DATA_DB": str(short),
     }
 
+    # Sources are attached only for a store that holds an account book.
+    con.execute(
+        "INSERT INTO portfolios (id,name,strategy,config,created,active,cash) "
+        "VALUES ('acct','acct','none','{}',DATE '2026-01-02',TRUE,1000)")
+    set_portfolio_account(con, "acct", engine="account", status="active")
     with production_sources(con, environ=environ) as attached_short:
         assert attached_short is con
         names = {

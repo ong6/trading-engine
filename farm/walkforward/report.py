@@ -27,6 +27,7 @@ from engine.lib.util import num, pct
 from farm import stats as fstats
 from farm.walkforward.controls import CONTROLS as BENCHMARKS
 from farm.walkforward.controls import EW, SPY
+from server.json_utils import loads_strict
 
 log = get_logger("wf-report")
 
@@ -128,32 +129,63 @@ fold count in the high tens and are deliberately not used here.
 
 
 # --------------------------------------------------------------------------- #
-def load_results(results_dir: Path = RESULTS_DIR) -> list[dict]:
-    if not results_dir.exists():
-        return []
+def current_identity() -> dict:
+    """Identity a result must carry to count as evidence for the code on disk."""
+    from engine.lib.provenance import runtime_source_hash
+    from farm.walkforward import runtime_contract
+    from sim.portfolio import FILL_MODEL_VERSION
+    return {"fill_model": FILL_MODEL_VERSION,
+            "runtime_contract": runtime_contract.payload(),
+            "source_sha256": runtime_source_hash()[0]}
+
+
+def _eligible_ids(*, active_only: bool = False) -> set[str]:
     from farm.walkforward import protocol
     from sim.strategies.configs import CONFIGS
-    eligible = {c["id"] for c in CONFIGS
-                if (c.get("active", True) or c.get("retain_latest_result", False))
-                and protocol.excluded_reason(c["id"], c["strategy"]) is None}
+    return {c["id"] for c in CONFIGS
+            if (c.get("active", True)
+                or (not active_only and c.get("retain_latest_result", False)))
+            and protocol.excluded_reason(c["id"], c["strategy"]) is None}
+
+
+def _matches(result: dict, identity: dict) -> bool:
+    return all(result.get(key) == value for key, value in identity.items())
+
+
+def load_results(results_dir: Path = RESULTS_DIR,
+                 current: dict | None = None) -> list[dict]:
+    """Results produced by the current code, as one comparable cohort.
+
+    A result whose fill model, runtime contract or source tree differs from
+    `current` (default: the code on disk) is stale and is never shown, however
+    many stale files outnumber the current ones. Files are parsed as strict
+    JSON, the same as /meta, so a NaN artifact is skipped here too.
+    """
+    if not results_dir.exists():
+        return []
+    from sim.strategies.configs import CONFIGS
+    current = current_identity() if current is None else current
+    eligible = _eligible_ids()
     retained = {c["id"] for c in CONFIGS
                 if not c.get("active", True) and c.get("retain_latest_result", False)}
     out = []
     for p in sorted(results_dir.glob("*.json")):
         try:
-            result = json.loads(p.read_text())
-            if result.get("config_id") in eligible:
-                out.append(_relabel_stale_inert(result))
-        except json.JSONDecodeError:
+            result = loads_strict(p.read_text())
+        except ValueError:  # includes JSONDecodeError, NaN and duplicate keys
             log.warning(f"[wf-report] skipping unreadable {p}")
+            continue
+        if isinstance(result, dict) and result.get("config_id") in eligible:
+            out.append(_relabel_stale_inert(result))
     # A weekly grid replaces files one-by-one.  Never put results from different
     # anchors/protocols in one comparison table while a grid is partially
-    # drained; keep only the newest protocol cohort currently on disk.
-    anchors = [r.get("protocol", {}).get("anchor") for r in out]
+    # drained; keep only the newest protocol cohort of current results.
+    stamped = [r for r in out if r.get("source_sha256") and _matches(r, current)]
+    anchors = [r.get("protocol", {}).get("anchor") for r in stamped]
     newest = max((a for a in anchors if a), default=None)
     if newest is None:
-        return out
-    newest_rows = [r for r in out if r.get("protocol", {}).get("anchor") == newest]
+        return []
+    newest_rows = [r for r in stamped if r.get("protocol", {}).get("anchor") == newest]
     def base_signature(r):
         p = r.get("protocol", {})
         # n_folds is intentionally absent: a late-listed ETF can legitimately
@@ -162,25 +194,25 @@ def load_results(results_dir: Path = RESULTS_DIR) -> list[dict]:
         return (p.get("train_months"), p.get("validate_months"),
                 p.get("step_months"), *_research_signature(r)[1:])
 
-    stamped = [r for r in newest_rows if r.get("source_sha256")]
     signatures = {}
-    for r in stamped or newest_rows:
+    for r in newest_rows:
         sig = (*base_signature(r), r.get("source_sha256"))
         signatures.setdefault(sig, []).append(r)
     # Same-anchor ad-hoc runs can still use protocol overrides. Prefer the
     # largest coherent source cohort; deterministic tie-break by signature.
     selected = max(signatures.items(), key=lambda kv: (len(kv[1]), str(kv[0])))[1]
-    if not stamped:
-        return selected
 
     # A deliberately retained retirement artifact may predate provenance.
     # Preserve that negative evidence when its protocol/fill policy matches,
     # while never admitting an unstamped active result into a stamped cohort.
     selected_base = base_signature(selected[0])
-    legacy_retained = [r for r in newest_rows
+    unsourced = {k: v for k, v in current.items() if k != "source_sha256"}
+    legacy_retained = [r for r in out
                        if not r.get("source_sha256")
                        and r.get("config_id") in retained
-                       and base_signature(r) == selected_base]
+                       and r.get("protocol", {}).get("anchor") == newest
+                       and base_signature(r) == selected_base
+                       and _matches(r, unsourced)]
     return selected + legacy_retained
 
 
@@ -454,8 +486,26 @@ def _retained_ids() -> set[str]:
     return {c["id"] for c in CONFIGS if c.get("retain_latest_result", False)}
 
 
+def _missing_banner(results: list[dict], current: dict) -> list[str]:
+    """Name every scheduled book that has no result from the current code."""
+    expected = _eligible_ids(active_only=True)
+    missing = sorted(expected - {r["config_id"] for r in results})
+    if not missing:
+        return []
+    contract = current.get("runtime_contract") or {}
+    source = current.get("source_sha256") or ""
+    identity = (f" (fill model `{current.get('fill_model')}`, runtime contract "
+                f"revision {contract.get('revision')}, source `{source[:12]}`)"
+                if current else "")
+    return [f"**Not yet re-validated: {len(missing)} of {len(expected)} scheduled "
+            f"book(s).** Only results produced by the current code{identity} are "
+            "shown; older results are stale and are not evidence until the book "
+            "is re-run. Missing: " + ", ".join(f"`{m}`" for m in missing) + ".", ""]
+
+
 def _write_reports(results_dir: Path, out_dir: Path) -> list[Path]:
-    results = load_results(results_dir)
+    current = current_identity()
+    results = load_results(results_dir, current)
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     bench = _bench_index(results)
@@ -474,6 +524,7 @@ def _write_reports(results_dir: Path, out_dir: Path) -> list[Path]:
         f"_{len(results)} book(s) re-validated · protocol {proto_line} · "
         f"generated {stamp}._",
         "",
+        *_missing_banner(results, current),
         "Every book below is replayed by its OWN live strategy code through the "
         "real `sim/league.py` day-step — real orders, real t+1-open fills with "
         "the league's slippage and liquidity guards, real dividend crediting. "

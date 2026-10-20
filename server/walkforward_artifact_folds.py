@@ -110,9 +110,14 @@ def _validate_performance_metrics(value: dict, equity_end: float, return_base: f
     cagr = _finite_number(value.get("cagr"), "invalid CAGR")
     _nonnegative_number(value.get("vol_ann"), "invalid annualized volatility")
     _bounded_number(value.get("max_dd"), "invalid maximum drawdown", minimum=-1.0, maximum=0.0)
-    _bounded_number(value.get("worst_month"), "invalid worst month", minimum=-1.0, maximum=math.inf)
+    # Sharpe and worst month are undefined (null) on a flat or sub-two-month curve.
+    worst_month = value.get("worst_month")
+    if worst_month is not None:
+        _bounded_number(worst_month, "invalid worst month", minimum=-1.0, maximum=math.inf)
     _bounded_number(value.get("bil_coverage"), "invalid BIL coverage", minimum=0.0, maximum=1.0)
-    _finite_number(value.get("sharpe"), "invalid Sharpe")
+    sharpe = value.get("sharpe")
+    if sharpe is not None:
+        _finite_number(sharpe, "invalid Sharpe")
     sharpe_ex_bil = value.get("sharpe_ex_bil")
     if sharpe_ex_bil is not None:
         _finite_number(sharpe_ex_bil, "invalid excess Sharpe")

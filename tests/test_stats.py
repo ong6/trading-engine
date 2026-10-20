@@ -1,4 +1,5 @@
 """farm.stats.inference and farm.stats.equity against hand-computed values."""
+import json
 import math
 from datetime import date
 
@@ -128,8 +129,9 @@ def test_backtest_sharpe_hand_series():
     # r = [.1, -.1, .1]: mean 1/30 ; std(ddof=1) = sqrt(.026667/2) = .11547
     r = np.array([0.1, -0.1, 0.1])
     assert bs._sharpe(r) == pytest.approx((1 / 30) / 0.1154700538 * math.sqrt(252), rel=1e-6)
-    assert math.isnan(bs._sharpe(np.array([0.1])))
-    assert math.isnan(bs._sharpe(np.array([0.1, 0.1])))        # zero vol
+    # Undefined is None, never NaN: a NaN makes the result JSON non-standard.
+    assert bs._sharpe(np.array([0.1])) is None
+    assert bs._sharpe(np.array([0.1, 0.1])) is None            # zero vol
 
 
 def test_worst_month():
@@ -138,7 +140,16 @@ def test_worst_month():
     eq = np.array([100, 110, 105, 99, 108.9])
     # month-ends: Jan 110, Feb 99, Mar 108.9 -> Feb -10%, Mar +10%
     assert bs.worst_month(dates, eq) == pytest.approx(-0.10)
-    assert math.isnan(bs.worst_month(dates[:2], eq[:2]))
+    assert bs.worst_month(dates[:2], eq[:2]) is None
+
+
+def test_equity_stats_flat_curve_is_strict_json():
+    # A train slice clamped to a data floor can be a few flat sessions: Sharpe
+    # and worst month are undefined there and must serialize as null.
+    dates = [date(2016, 10, 7), date(2016, 10, 10), date(2016, 10, 14)]
+    st = bs.equity_stats(dates, [39000.0, 39000.0, 39000.0])
+    assert st["sharpe"] is None and st["worst_month"] is None
+    assert json.loads(json.dumps(st, allow_nan=False))["sharpe"] is None
 
 
 def test_equity_stats_hand_series():

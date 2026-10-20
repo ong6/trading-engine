@@ -54,6 +54,7 @@ from farm.backtest.replay import (
     REQUIRED,
     REQUIRED_LOOKBACK,
     build_scratch,
+    is_reader,
 )
 from farm.walkforward import monthly as wf_monthly
 from farm.walkforward import protocol, runtime_contract
@@ -322,7 +323,8 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
         fold_prepare(con, book, fold, sessions)
     _insert_book(con, book, sessions[0], initial_cash, execution_profile)
     for d in sessions:
-        league.step(con, d, data_dir, rerun=False, verbose=False)
+        # A scratch replay holds no account book; never attach the live pit stores.
+        league.step(con, d, data_dir, rerun=False, verbose=False, no_accounts=True)
 
     eq = con.execute(
         "SELECT date, equity FROM sim_equity WHERE portfolio_id = ? ORDER BY date",
@@ -495,7 +497,11 @@ def run_book(live_con, config_id: str, *,
              mem_mb: int | None = 8000, book: dict | None = None,
              initial_cash: float | None = None,
              execution_profile: str | None = None,
-             scratch_prepare=None, fold_prepare=None) -> dict:
+             scratch_prepare=None, fold_prepare=None,
+             release_live: bool = False) -> dict:
+    # `release_live` closes `live_con` once its start-of-run reads are done, so
+    # an hours-long fold loop never holds a reader on the live store (a DuckDB
+    # reader blocks every writer). Only an owner that will not reuse it opts in.
     # `book` is the CANDIDATE seam (farm/sweep). Production passes nothing and
     # the config is read from the live `portfolios` row, which is the whole
     # point of the walk-forward: it re-validates the rule the league is actually
@@ -616,6 +622,8 @@ def run_book(live_con, config_id: str, *,
             scratch_prepare(live_con, con, span_start, span_end, all_sessions)
             if scratch_prepare is not None else None
         )
+        if release_live:
+            live_con.close()
 
         t_screen = time.time()
         n_screen = 0
@@ -685,7 +693,8 @@ def run_book(live_con, config_id: str, *,
             results_dir.mkdir(parents=True, exist_ok=True)
             out = results_dir / f"{config_id}.json"
             resources.write_text_atomic(
-                out, json.dumps(result, indent=2, sort_keys=True) + "\n"
+                out, json.dumps(result, indent=2, sort_keys=True,
+                                allow_nan=False) + "\n"
             )
             log.info(f"[wf] wrote {out}")
     finally:
@@ -764,7 +773,8 @@ def run_job(params: dict, con, meta_path=None) -> None:
 
     `con` is the runner's LIVE connection and is used READ-ONLY here (SELECTs
     plus `COPY … TO` parquet inside build_scratch); every write goes to the
-    job's scratch store or to data/reports/walkforward/.
+    job's scratch store or to data/reports/walkforward/. A queue child's reader
+    is closed once the scratch store is built, before the fold loop.
     """
     cfg_id = params.get("config_id")
     if not cfg_id:
@@ -788,6 +798,7 @@ def run_job(params: dict, con, meta_path=None) -> None:
         initial_cash=(float(params["initial_cash"])
                       if "initial_cash" in params else None),
         execution_profile=params.get("execution_profile"),
+        release_live=is_reader(con),
     )
     if __package__:
         from . import report
@@ -838,7 +849,8 @@ def main() -> int:
                  keep_scratch=args.keep_scratch,
                  write_result=not args.no_result, threads=args.threads,
                  initial_cash=args.initial_cash,
-                 execution_profile=args.execution_profile)
+                 execution_profile=args.execution_profile,
+                 release_live=True)
     finally:
         live.close()
     if not args.no_result and not args.no_report:
