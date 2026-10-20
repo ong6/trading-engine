@@ -325,6 +325,10 @@ Price verification retains every discrepant field and named result. Exact Nasdaq
 bytes, HTTP identity and requested security/window are written to a hash-named receipt under
 `data/price-verify/` before `_meta.json` changes. The summary points to the immutable receipt
 relative to `_meta.json`'s directory, without publishing an absolute host path.
+Receipts are a local 35-day audit window: older receipts that `_meta.json` no longer cites are
+pruned after each run, and stdout carries only the summary, never response bodies.
+An ETF answer with no volume on any row (an index level or indicative value) is `not_checked`
+(`source_identity`), never compared as a price.
 A mismatch remains a mismatch until security, currency and corporate-action adjustment basis
 are established; the verifier never overwrites operational prices or converts currencies.
 

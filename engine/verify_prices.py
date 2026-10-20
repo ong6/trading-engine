@@ -688,6 +688,19 @@ def run(
                 ticker, why, "no_source_rows",
                 f"{fetched['rows']} rows, none parseable" if fetched["rows"]
                 else "0 rows returned"), item_parse_errors, [], [])
+        # An ETF answer with no volume on ANY row is not a traded price history,
+        # even under the right symbol. Weekly 10-18: exactly six of 1,230 ETF
+        # answers had no volume anywhere, all six disagreed, and every other ETF
+        # answer carried volumes. VFLO and GFLW were index levels (84,130.335 vs a
+        # $52.90 close); VTEL/VTEC/VTEI/VTES an untraded three-decimal series 10-49bp
+        # off the consolidated prints. A price-ratio guard is deliberately NOT used:
+        # it would hide a missed large reverse split, which this stage exists to catch.
+        if is_etf and all(bar.get("volume") is None for bar in fetched["bars"].values()):
+            return (i, not_checked(
+                ticker, why, "source_identity",
+                f"etf answer has no volume on any of {len(fetched['bars'])} rows: "
+                "an index level or indicative value, not trades"),
+                item_parse_errors, [], [])
 
         store_bars = store.get(ticker) or {}
         if not store_bars:
@@ -892,6 +905,43 @@ def _newest_session(as_of: date, checked: list[dict]) -> dict:
     }
 
 
+EVIDENCE_KEYS = frozenset({"source_evidence", "store_evidence"})
+# Receipts are complete evidence (~0.7 MB a nightly, ~15 MB a weekly pass) and
+# are gitignored, so they are a local audit window, not an archive. The receipts
+# `_meta.json` currently cites are kept regardless of age.
+RECEIPT_RETENTION_DAYS = 35
+
+
+def _without_evidence(accounting: dict) -> dict:
+    return {key: value for key, value in accounting.items() if key not in EVIDENCE_KEYS}
+
+
+def _cited_receipts(meta_path: str | Path) -> set[str]:
+    meta = json.loads(Path(meta_path).read_text())
+    return {meta[key]["evidence_receipt"]["sha256"] for key in (META_KEY, FULL_META_KEY)
+            if isinstance(meta.get(key), dict) and "evidence_receipt" in meta[key]}
+
+
+def prune_evidence(directory: Path, keep: set[str], *,
+                   max_age_days: float = RECEIPT_RETENTION_DAYS,
+                   now: float | None = None) -> list[str]:
+    """Delete hash-named receipts older than the window that nothing cites."""
+    cutoff = (time.time() if now is None else now) - max_age_days * 86_400
+    removed = []
+    for path in directory.glob("*.json"):
+        digest = path.stem
+        if len(digest) != 64 or digest.strip("0123456789abcdef") or digest in keep:
+            continue
+        try:
+            if path.stat().st_mtime >= cutoff:
+                continue
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        removed.append(digest)
+    return sorted(removed)
+
+
 def retain_evidence(accounting: dict, directory: Path) -> dict:
     """Publish a complete immutable receipt before replacing the current summary."""
     body = json.dumps(accounting, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
@@ -911,7 +961,7 @@ def retain_evidence(accounting: dict, directory: Path) -> dict:
                 raise RuntimeError("verification evidence hash collision or changed receipt") from None
     finally:
         os.unlink(temporary)
-    summary = {key: value for key, value in accounting.items() if key not in {"source_evidence", "store_evidence"}}
+    summary = _without_evidence(accounting)
     summary["evidence_receipt"] = {
         "sha256": digest, "path": f"price-verify/{digest}.json", "bytes": len(body),
     }
@@ -1011,16 +1061,30 @@ def main() -> int:
               f"_meta.json update, nightly unaffected")
         return 0
 
-    print(json.dumps(acc, indent=2))
+    # stdout is tee'd into two logs: print the summary, never the raw response
+    # bodies (~18 MB a weekly pass). The receipt is the evidence channel.
+    summary = _without_evidence(acc)
     if args.no_meta or args.self_test:
+        print(json.dumps(summary, indent=2))
         log.info("[verify] --no-meta/--self-test: _meta.json NOT written")
         return 0
+    receipts = Path(args.meta).parent / "price-verify"
     try:
-        acc = retain_evidence(acc, Path(args.meta).parent / "price-verify")
-        rsc.merge_meta(args.meta, {args.meta_key: acc})
+        summary = retain_evidence(acc, receipts)
+        rsc.merge_meta(args.meta, {args.meta_key: summary})
         log.info(f"[verify] merged '{args.meta_key}' into {args.meta}")
     except Exception as exc:
+        print(json.dumps(summary, indent=2))
         log.error(f"TODO: price verify could not write _meta.json ({exc}) — result above only")
+        return 0
+    print(json.dumps(summary, indent=2))
+    try:
+        removed = prune_evidence(receipts, _cited_receipts(args.meta))
+        if removed:
+            log.info(f"[verify] pruned {len(removed)} uncited receipts older than "
+                     f"{RECEIPT_RETENTION_DAYS} days")
+    except Exception as exc:
+        log.error(f"TODO: price verify could not prune old receipts ({exc})")
     return 0
 
 

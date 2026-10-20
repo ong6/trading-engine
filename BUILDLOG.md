@@ -3641,4 +3641,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; documentation and manual-harness lines only, budget ok.
 - **Next:** orchestrator acceptance of the runbook and Sunday execution-time gates.
 
+## 2026-10-20 — Stop the weekly full price verify flagging non-trade answers and logging raw bodies
+
+- **Why:** The 10-18 weekly verify reported 73 disagreements on 7 names, so `/meta` full verification read `issues`. Six were ETF answers with no volume on any row: VFLO and GFLW as index levels (84,130.335 against a 52.90 close), VTEL, VTEC, VTEI and VTES as an untraded three-decimal series 10-49 bp off. Every other ETF answer (1,224) carried volumes.
+  `main()` printed the full accounting, base64 bodies included, before `retain_evidence` stripped them: weekly logs grew from 0.23 MB to about 18 MB. `data/price-verify/` had no retention (66 MB in two weeks).
+- **What:** An ETF answer with no volume on any row is `not_checked` (`source_identity`). No price-ratio guard: it would hide a missed large reverse split. stdout carries the stripped summary only; uncited receipts older than 35 days are pruned after each run. Fetch, parse and `API_URL` are unchanged.
+  SKYD stays a disagreement: the store's raw series (PSKY history) has no record of the roughly 1.67 distribution that Nasdaq adjusts for (constant 1,801.5 bp). That is a corporate-actions repair, not a verifier change.
+- **Evidence:** Replaying the 10-18 receipt through `run()`: 1 name and 8 disagreements (SKYD), 6 `source_identity`, printed output 2.1 MB instead of 18.1 MB. Four new tests in `tests/test_verify_prices.py` fail before the change. `pytest -q -W error -n 2` across verify, market-health, meta-projection, drivers, independent-price-evidence, discrepancy-review and operating-contract modules passes, apart from the expected registration hash.
+- **Metrics:** engine +64, tests +105; server and tools unchanged. Registered: `engine/verify_prices.py` (integrator re-pins).
+- **Next:** integrator re-pins `engine/verify_prices.py`; ops records the SKYD distribution.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
