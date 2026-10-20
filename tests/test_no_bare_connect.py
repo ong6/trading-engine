@@ -20,10 +20,24 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCANNED = ("engine", "sim", "farm", "server")  # agents/ archived 2026-09-03
 PUBLISHER_SCANNED = (*SCANNED, "tools")
+CONNECT_SCANNED = (*SCANNED, "tools")
 FACTORY = REPO_ROOT / "engine" / "lib" / "db.py"
-# Exact-line exceptions with a stated reason. Empty on purpose — add one only
-# with a reason a reviewer would accept.
-ALLOWED: dict[str, str] = {}
+# Whole-file exceptions with a stated reason; add one only with a reason a reviewer
+# would accept. The tools/ entries were grandfathered when tools/ joined the scan
+# (2026-10-20): none of them opens a live store file.
+ALLOWED: dict[str, str] = {
+    "tools/backup_database.py": (
+        "in-memory connection that ATTACHes the store READ_ONLY to copy it, then opens "
+        "only the private bundle copy read-only to verify it"),
+    "tools/check_invariants.py": (
+        "opens a vetted published snapshot read-only; refuses any live store path first"),
+    "tools/free_sec.py": "in-memory connection over READ_ONLY attachments of copies",
+    "tools/free_source_audit.py": "in-memory connection over READ_ONLY attachments of copies",
+    "tools/publish_snapshot.py": (
+        "in-memory connection that attaches the verified backup bundle READ_ONLY"),
+    "tools/release_manifest.py": (
+        "operator CLI reading the schema of a named DuckDB file read-only"),
+}
 DIRECT_WRITE_ALLOWED = {
     "tools/backup_database.py": (
         "copies into a private verified bundle that is atomically published as one directory"
@@ -33,16 +47,16 @@ DIRECT_WRITE_ALLOWED = {
 CALL = re.compile(r"duckdb\s*\.\s*connect\s*\(")
 
 
-def _offenders() -> list[str]:
+def _offenders(allowed: dict[str, str] = ALLOWED) -> list[str]:
     out = []
-    for pkg in SCANNED:
+    for pkg in CONNECT_SCANNED:
         for path in sorted((REPO_ROOT / pkg).rglob("*.py")):
             if "__pycache__" in path.parts or path == FACTORY:
                 continue
             rel = path.relative_to(REPO_ROOT).as_posix()
             for lineno, line in enumerate(path.read_text().splitlines(), 1):
                 code = line.split("#", 1)[0]
-                if CALL.search(code) and rel not in ALLOWED:
+                if CALL.search(code) and rel not in allowed:
                     out.append(f"{rel}:{lineno}: {line.strip()}")
     return out
 
@@ -63,6 +77,12 @@ def test_factory_is_the_only_duckdb_connect():
 def test_scan_actually_covers_the_packages():
     n = sum(1 for pkg in SCANNED for _ in (REPO_ROOT / pkg).rglob("*.py"))
     assert n > 40, f"only {n} files scanned — is the test running from the repo?"
+
+
+def test_allowed_connect_exceptions_are_still_used():
+    used = {line.split(":", 1)[0] for line in _offenders(allowed={})}
+    stale = sorted(set(ALLOWED) - used)
+    assert not stale, f"ALLOWED files no longer call duckdb.connect (remove them): {stale}"
 
 
 def test_dataframe_registration_is_centralized_in_db_helper():
