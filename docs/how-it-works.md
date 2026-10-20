@@ -65,6 +65,18 @@ unit or cron line missing from the manifest, a failed unit, or a process holding
 line and cgroup in `logs/ops/schedule-contract.json`). Change the manifest in the same commit
 as the unit; the installer reads its autostart and held sets from it.
 
+Data and day-zero invariants run against the published snapshot only, never the live store:
+`.venv/bin/python -m tools.check_invariants --snapshot latest` (bar geometry, one split basis
+per liquid name, unrecorded split-sized breaks, a fee row per fill from the fee day zero, equity
+for every active book after its publisher, single close-outs, P15 publication order, pre-open
+voids and missed runs, and finite experiment and walk-forward results). A path that is not a
+published snapshot is refused with exit 3 before anything is opened. Accepted exceptions live
+in `tools/invariants/baseline.json`, each with an owner, a reason and an expiry. The hourly
+digest reruns the check in shadow mode whenever the snapshot sha256 changes and publishes it as
+`/meta` `invariants` (stale after 26 hours or when a newer snapshot is published); shadow
+regressions are listed in the digest and never change its status. `--gate` exits 2 on a
+regression for a caller that wants to block on it.
+
 Read `GET /meta` before interpreting a log in isolation. It reconciles schedule, log, lock,
 database, report, queue, source-control, and evidence state. A missing or malformed
 `data/_meta.json` is reported separately and does not hide live projections. `GET /health`

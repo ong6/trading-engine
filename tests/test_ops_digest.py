@@ -9,6 +9,7 @@ import sys
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import duckdb
 import pytest
@@ -25,11 +26,17 @@ CONTRACT_OK = {"status": "ok", "checked_at": "2026-10-10T03:05:00+00:00",
                "counts": {}}
 
 
+INVARIANTS_IDLE = {"ran": False, "reason": "no published snapshot", "result": None,
+                   "error": None}
+REAL_INVARIANTS_PROBE = ops_digest.invariants_probe
+
+
 @pytest.fixture(autouse=True)
 def _no_host_units(tmp_path, monkeypatch):
     monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", tmp_path / "no-units")
     monkeypatch.setattr(ops_digest, "HOST_LOG_GLOBS", ())
     monkeypatch.setattr(ops_digest, "contract_probe", lambda _now: CONTRACT_OK)
+    monkeypatch.setattr(ops_digest, "invariants_probe", lambda _ops_dir: INVARIANTS_IDLE)
 
 
 def _entry(stamp: str, message: str, ident: str = "python") -> str:
@@ -732,3 +739,88 @@ def test_schedule_contract_probe_crash_is_a_collection_gap(tmp_path, monkeypatch
 
     assert hour["status"] == "WARN"
     assert "schedule contract probe: probe crashed: RuntimeError" in hour["text"]
+
+
+def _invariants_result(sha: str, status: str = "regression") -> dict:
+    regression = {"subject": "DDS 2026-10-12", "class": "stale_provisional", "detail": {}}
+    return {
+        "status": status, "mode": "shadow", "checked_at": "2026-10-10T03:05:30+00:00",
+        "regression_count": 4 if status == "regression" else 0,
+        "snapshot": {"name": "market-20261010T025000000000Z.duckdb", "sha256": sha},
+        "invariants": {
+            "ohlc_geometry": {"status": status, "regression_count": 4,
+                              "regressions": [regression] * 4, "error": None},
+            "fee_row_per_fill": {"status": "pass", "regression_count": 0, "regressions": [],
+                                 "error": None},
+        },
+    }
+
+
+def test_shadow_invariant_regressions_are_listed_but_never_change_the_hour(tmp_path,
+                                                                           monkeypatch):
+    monkeypatch.setattr(ops_digest, "invariants_probe", lambda _ops_dir: {
+        "ran": True, "reason": None, "result": _invariants_result("a" * 64), "error": None})
+
+    [hour] = _collect(tmp_path, {})
+
+    assert hour["status"] == "OK"
+    assert "## Invariants (shadow)" in hour["text"]
+    assert "regression: 4 regression(s) on market-20261010T025000000000Z.duckdb" in hour["text"]
+    assert ("- ohlc_geometry: regression, 4 regression(s): stale_provisional DDS 2026-10-12, "
+            "stale_provisional DDS 2026-10-12, stale_provisional DDS 2026-10-12 and 1 more"
+            in hour["text"])
+    assert "fee_row_per_fill" not in hour["text"]
+
+
+def test_invariants_run_only_when_the_published_snapshot_changes(tmp_path, monkeypatch):
+    monkeypatch.setattr(ops_digest, "invariants_probe", REAL_INVARIANTS_PROBE)
+    published = {"sha": "a" * 64}
+    monkeypatch.setattr(ops_digest, "latest_snapshot",
+                        lambda _db: SimpleNamespace(sha256=published["sha"]))
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        out = Path(args[args.index("--publish") + 1])
+        out.write_text(json.dumps(_invariants_result(published["sha"], "pass")))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(ops_digest.subprocess, "run", run)
+    ops = tmp_path / "ops"
+    ops.mkdir()
+
+    first = ops_digest.invariants_probe(ops)
+    again = ops_digest.invariants_probe(ops)
+    published["sha"] = "b" * 64
+    moved = ops_digest.invariants_probe(ops)
+
+    assert (first["ran"], again["ran"], moved["ran"]) == (True, False, True)
+    assert again["reason"] == "snapshot unchanged" and again["result"]["status"] == "pass"
+    assert len(calls) == 2
+    assert calls[0][1:5] == ["-m", "tools.check_invariants", "--snapshot", "latest"]
+    assert "--gate" not in calls[0]
+
+
+def test_invariants_probe_retries_errors_and_reports_a_timeout(tmp_path, monkeypatch):
+    monkeypatch.setattr(ops_digest, "latest_snapshot",
+                        lambda _db: SimpleNamespace(sha256="a" * 64))
+    ops = tmp_path / "ops"
+    ops.mkdir()
+    (ops / ops_digest.INVARIANTS_RESULT).write_text(json.dumps(
+        {"status": "error", "snapshot": {"sha256": "a" * 64}}))
+
+    def slow(args, **kwargs):
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+
+    monkeypatch.setattr(ops_digest.subprocess, "run", slow)
+    result = REAL_INVARIANTS_PROBE(ops)
+    assert result["ran"] is True
+    assert result["error"] == f"timed out after {ops_digest.INVARIANTS_TIMEOUT_S}s"
+
+    monkeypatch.setattr(ops_digest, "invariants_probe", lambda _ops_dir: result)
+    # The snapshot stub above has no file; revision-15 work receipts read the
+    # snapshot through the same helper, so keep them out of this probe test.
+    monkeypatch.setattr(ops_digest, "work_receipts", lambda *_args: ({}, []))
+    [hour] = _collect(tmp_path, {})
+    assert "invariants probe: timed out" in hour["text"]
+    assert hour["status"] == "OK"

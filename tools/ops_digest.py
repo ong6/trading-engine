@@ -27,6 +27,11 @@ only against observed installed schedule intervals, each driver's stages, log si
 Each run also checks the host and schedule contract (``server/schedule_contract.py``, read-only)
 and writes the result to ``logs/ops/schedule-contract.json``, which ``/meta`` projects as
 ``schedule_contract``; any violation makes the hour WARN.
+
+When the published snapshot's sha256 differs from the last invariant result, the run also checks
+the snapshot invariants in shadow mode (``python -m tools.check_invariants``, read-only on the
+snapshot, never the live store) into ``logs/ops/invariants.json``, projected as ``/meta``
+``invariants``. Shadow regressions are listed but never change the hour's status.
 """
 
 from __future__ import annotations
@@ -41,6 +46,7 @@ import shutil
 import sqlite3
 import stat
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -144,6 +150,10 @@ Runner = Callable[[list[str], float], str | None]
 Fetch = Callable[[str, float], tuple[int, int, bytes]]
 ContractProbe = Callable[[datetime], dict]
 CONTRACT_RESULT = "schedule-contract.json"
+InvariantsProbe = Callable[[Path], dict]
+INVARIANTS_RESULT = "invariants.json"
+INVARIANTS_TIMEOUT_S = 300
+INVARIANTS_LISTED = 3
 
 
 def _iso(moment: datetime) -> str:
@@ -493,6 +503,39 @@ def contract_probe(now: datetime) -> dict:
                 "errors": [f"probe crashed: {type(exc).__name__}"], "counts": {}}
 
 
+def invariants_probe(ops_dir: Path) -> dict:
+    """Shadow invariant check, run only when the published snapshot changed since the last."""
+    path = ops_dir / INVARIANTS_RESULT
+    current = latest_snapshot(REPO_ROOT / "store" / "market.duckdb")
+    if current is None:
+        return {"ran": False, "reason": "no published snapshot", "result": None, "error": None}
+    try:
+        previous = json.loads(path.read_text())
+    except (OSError, ValueError):
+        previous = None
+    if isinstance(previous, dict) and previous.get("status") != "error" and (
+            previous.get("snapshot") or {}).get("sha256") == current.sha256:
+        return {"ran": False, "reason": "snapshot unchanged", "result": previous, "error": None}
+    args = [sys.executable, "-m", "tools.check_invariants", "--snapshot", "latest",
+            "--engine-root", str(REPO_ROOT), "--publish", str(path)]
+    try:
+        done = subprocess.run(args, cwd=REPO_ROOT, capture_output=True, text=True,
+                              timeout=INVARIANTS_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return {"ran": True, "reason": None, "result": None,
+                "error": f"timed out after {INVARIANTS_TIMEOUT_S}s"}
+    except OSError as exc:
+        return {"ran": True, "reason": None, "result": None,
+                "error": f"could not start: {type(exc).__name__}"}
+    try:
+        result = json.loads(path.read_text())
+    except (OSError, ValueError):
+        result = None
+    error = None if done.returncode in (0, 3) and result is not None else (
+        f"exit {done.returncode}")
+    return {"ran": True, "reason": None, "result": result, "error": error}
+
+
 def _tree_bytes(root: Path) -> int:
     """Apparent size of the regular files under ``root``; symlinks are not followed."""
     total = 0
@@ -542,6 +585,34 @@ def _contract_detail(detail: dict) -> str:
     shown = {key: detail[key] for key in keys if key in detail}
     text = ", ".join(f"{key} {value}" for key, value in shown.items())
     return f" ({text.replace(str(Path.home()), '~')[:400]})".replace("`", "'") if text else ""
+
+
+def _invariants_lines(probe: dict | None) -> list[str]:
+    result = (probe or {}).get("result")
+    if not result:
+        return []
+    snapshot = result.get("snapshot") or {}
+    checked = str(result.get("checked_at", ""))[:16].replace("T", " ")
+    when = "checked this hour" if probe["ran"] else f"snapshot unchanged since {checked} UTC"
+    lines = ["", "## Invariants (shadow)", "",
+             f"{result['status']}: {result.get('regression_count', 0)} regression(s) on "
+             f"{snapshot.get('name', 'no snapshot')}, {when} "
+             f"(`python -m tools.check_invariants --snapshot latest`)."]
+    if result.get("error"):
+        lines += ["", f"- cannot evaluate: {result['error']}"]
+    failing = [(name, item) for name, item in (result.get("invariants") or {}).items()
+               if item["status"] != "pass"]
+    if failing:
+        lines.append("")
+    for name, item in failing:
+        shown = ", ".join(f"{entry['class']} {entry['subject']}"
+                          for entry in item["regressions"][:INVARIANTS_LISTED])
+        more = item["regression_count"] - min(len(item["regressions"]), INVARIANTS_LISTED)
+        lines.append(f"- {name}: {item['status']}"
+                     + (f", {item['regression_count']} regression(s): {shown}" if shown else "")
+                     + (f" and {more} more" if more > 0 else "")
+                     + (f" ({item['error']})" if item.get("error") else ""))
+    return lines
 
 
 def render(hour: datetime, data: dict) -> str:
@@ -602,6 +673,7 @@ def render(hour: datetime, data: dict) -> str:
         lines += [f"- {item['rule']}: {item['subject']}" + _contract_detail(item["detail"])
                   for item in contract["violations"]]
         lines += [f"- probe error: {error}" for error in contract["errors"]]
+    lines += _invariants_lines(data.get("invariants"))
     noisy = [(name, sig) for name, sig in sorted(data["signals"].items())
              if sig.counts["error"] or sig.counts["warn"]]
     if noisy:
@@ -633,6 +705,7 @@ def collect_hour(
     db: sqlite3.Connection, hour: datetime, *, since: datetime | None, run: Runner,
     fetch: Fetch, logs_dir: Path, ops_dir: Path, db_path: Path, now: datetime,
     contract_check: ContractProbe | None = None,
+    invariants_check: InvariantsProbe | None = None,
 ) -> dict:
     """Collect one UTC hour.
 
@@ -660,7 +733,7 @@ def collect_hour(
             item["typical"] = typical_seconds(db, item["unit"], item["started"])
             item["slow"] = bool(item["typical"] and item["seconds"] > SLOW_FACTOR * item["typical"])
     stages = collect_stages(db, logs_dir, since) if since is not None else []
-    probes, sections, fp, degraded, contract = [], {}, {}, [], None
+    probes, sections, fp, degraded, contract, invariants = [], {}, {}, [], None, None
     if last:
         collect_files(db, logs_dir, ops_dir, signals)
         first_seen = db.execute("SELECT value FROM meta WHERE key='stages_seen'").fetchone()
@@ -676,6 +749,9 @@ def collect_hour(
                           json.dumps(contract, indent=1, sort_keys=True) + "\n")
         if contract["errors"]:
             gaps.append("schedule contract probe: " + "; ".join(contract["errors"]))
+        invariants = (invariants_check or invariants_probe)(ops_dir)
+        if invariants["error"]:
+            gaps.append("invariants probe: " + invariants["error"])
         probes, sections = probe(fetch)
         fp = footprint(run, logs_dir, db_path)
     previous = dict(db.execute(
@@ -703,7 +779,7 @@ def collect_hour(
             failed_stages), "error_lines": errors, "warn_lines": warns, "gaps": gaps,
         "runs": runs, "stages": stages, "probes": probes, "sections": sections,
         "section_changes": changes, "signals": signals, "footprint": fp, "work": degraded,
-        "contract": contract,
+        "contract": contract, "invariants": invariants,
     }
     digest = ops_dir / "hourly" / f"{hour:%Y-%m-%d}" / f"{hour:%H}.md"
     text = render(hour, data)
@@ -760,6 +836,7 @@ def collect(
     *, now: datetime | None = None, run: Runner = _run, fetch: Fetch = _fetch,
     logs_dir: Path = LOGS_DIR, ops_dir: Path = OPS_DIR, db_path: Path = DEFAULT_DB,
     contract_check: ContractProbe | None = None,
+    invariants_check: InvariantsProbe | None = None,
 ) -> list[dict]:
     """Collect every closed hour since the last run (at most ``MAX_BACKFILL_HOURS``)."""
     now = now or datetime.now(UTC)
@@ -786,7 +863,8 @@ def collect(
                 results.append(collect_hour(
                     db, hour, since=hours[0] if index == len(hours) - 1 else None,
                     run=run, fetch=fetch, logs_dir=logs_dir, ops_dir=ops_dir,
-                    db_path=db_path, now=now, contract_check=contract_check))
+                    db_path=db_path, now=now, contract_check=contract_check,
+                    invariants_check=invariants_check))
                 db.execute("INSERT OR REPLACE INTO meta VALUES ('next_hour', ?)",
                            ((hour + timedelta(hours=1)).isoformat(),))
                 db.commit()

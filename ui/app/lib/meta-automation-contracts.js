@@ -186,6 +186,45 @@ const SCHEDULE_CONTRACT_RULES = new Set([
 ]);
 const SCHEDULE_CONTRACT_VIOLATION_LIMIT = 20;
 const SCHEDULE_CONTRACT_SUBJECT_MAX_CHARS = 255;
+const INVARIANTS_STATUSES = new Set([
+  "absent",
+  "error",
+  "invalid",
+  "pass",
+  "regression",
+  "stale",
+]);
+const INVARIANT_RESULT_STATUSES = new Set(["error", "pass", "regression"]);
+const INVARIANTS_FIELDS = [
+  "status",
+  "mode",
+  "checked_at",
+  "age_minutes",
+  "stale_after_minutes",
+  "snapshot_as_of",
+  "snapshot_current",
+  "regression_count",
+  "baselined_count",
+  "invariants",
+  "regressions",
+  "truncated",
+];
+// server/invariants_status.py INVARIANT_NAMES
+const INVARIANT_NAMES = new Set([
+  "closeouts_once",
+  "equity_per_active_book",
+  "experiment_results_finite",
+  "fee_row_per_fill",
+  "ohlc_geometry",
+  "one_split_basis_per_ticker",
+  "preopen_not_voided",
+  "publication_order",
+  "split_recorded_vs_restated",
+  "walkforward_results_finite",
+]);
+const INVARIANTS_REGRESSION_LIMIT = 20;
+const INVARIANTS_SUBJECT_MAX_CHARS = 120;
+const INVARIANT_CLASS_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
 const FIRST_POSTFLIGHT_AT = "2026-09-12T05:15:00+00:00";
 const SCHEDULER_TIMEZONE_MAX_CHARS = 255;
 const SOURCE_CONTROL_IDENTITY_MAX_CHARS = 4096;
@@ -609,11 +648,76 @@ function isScheduleContract(contract) {
   return true;
 }
 
+function isInvariantRegression(item) {
+  return (
+    hasExactFields(item, ["invariant", "class", "subject"]) &&
+    INVARIANT_NAMES.has(item.invariant) &&
+    typeof item.class === "string" &&
+    INVARIANT_CLASS_PATTERN.test(item.class) &&
+    isBoundedPrintableLine(item.subject, INVARIANTS_SUBJECT_MAX_CHARS) &&
+    !item.subject.includes("/")
+  );
+}
+
+function isInvariantSummary(item) {
+  return (
+    hasExactFields(item, ["name", "status"]) &&
+    INVARIANT_NAMES.has(item.name) &&
+    INVARIANT_RESULT_STATUSES.has(item.status)
+  );
+}
+
+function isInvariants(section) {
+  if (
+    !hasExactFields(section, INVARIANTS_FIELDS) ||
+    !INVARIANTS_STATUSES.has(section.status) ||
+    section.mode !== "shadow" ||
+    !isPositiveInteger(section.stale_after_minutes) ||
+    !isNonnegativeInteger(section.regression_count) ||
+    !isNonnegativeInteger(section.baselined_count) ||
+    typeof section.truncated !== "boolean" ||
+    !Array.isArray(section.invariants) ||
+    !section.invariants.every(isInvariantSummary) ||
+    new Set(section.invariants.map((item) => item.name)).size !== section.invariants.length ||
+    !Array.isArray(section.regressions) ||
+    section.regressions.length > INVARIANTS_REGRESSION_LIMIT ||
+    !section.regressions.every(isInvariantRegression) ||
+    section.truncated !== section.regression_count > section.regressions.length ||
+    ![null, true, false].includes(section.snapshot_current) ||
+    (section.snapshot_as_of !== null && !isOffsetIsoTimestamp(section.snapshot_as_of))
+  ) {
+    return false;
+  }
+  if (section.checked_at === null) {
+    return (
+      ["absent", "invalid"].includes(section.status) &&
+      section.age_minutes === null &&
+      section.regression_count === 0 &&
+      section.invariants.length === 0
+    );
+  }
+  if (
+    !isOffsetIsoTimestamp(section.checked_at) ||
+    !isNonnegativeInteger(section.age_minutes) ||
+    ["absent", "invalid"].includes(section.status)
+  ) {
+    return false;
+  }
+  const outdated =
+    section.age_minutes > section.stale_after_minutes || section.snapshot_current === false;
+  if (section.status === "stale") return outdated;
+  if (outdated) return false;
+  if (section.status === "pass") return section.regression_count === 0;
+  if (section.status === "regression") return section.regression_count > 0;
+  return true;
+}
+
 export function isMetaAutomation(data) {
   return (
     isScheduler(data.scheduler) &&
     isFridayPostflight(data.friday_postflight) &&
     isSourceControl(data.source_control) &&
-    isScheduleContract(data.schedule_contract)
+    isScheduleContract(data.schedule_contract) &&
+    isInvariants(data.invariants)
   );
 }

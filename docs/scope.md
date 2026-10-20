@@ -84,6 +84,15 @@ Agents append one line here instead of building. The owner promotes a line to a 
 deletes it.
 
 
+- 2026-10-20 · **Snapshot-invariant defects with no fix branch** (shadow monitor, first run):
+  same-night bars whose next-night re-fetch was skipped stay provisional with impossible opens
+  (DDS and SUNC 2026-10-12, CIB 2026-10-16); WLFC's 2026-07-15 bar sits on a third price basis
+  after the 3:1 restatement (close 23.00 between 72.33 and 65.33: stored already restated, then
+  divided again); the walk-forward runner writes NaN Sharpe and worst-month for zero-volatility
+  folds (sector_momentum's first train window, every earnings_context_pead fold), which strict JSON
+  readers reject. The 18 unrecorded split-sized breaks and the CRWU and ETHA mixed bases are
+  `fix/corporate-actions-split-integrity`'s.
+
 - 2026-10-10 · **Registered-file observability defects (next registration revision)**: since
   `9a37ac0` `engine/verify_prices.py` prints its full evidence JSON (base64 bodies) to stdout,
   ~13k lines a night and 18 MB a weekly verify; fail-soft stages and units exit 0 when they

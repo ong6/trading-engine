@@ -211,6 +211,25 @@ function validMeta() {
       violations: [{ rule: "foreign-holder", subject: "pid 4242" }],
       truncated: false,
     },
+    invariants: {
+      status: "regression",
+      mode: "shadow",
+      checked_at: "2026-10-20T08:08:04+00:00",
+      age_minutes: 12,
+      stale_after_minutes: 1560,
+      snapshot_as_of: "2026-10-20T03:55:13+00:00",
+      snapshot_current: true,
+      regression_count: 1,
+      baselined_count: 380,
+      invariants: [
+        { name: "ohlc_geometry", status: "regression" },
+        { name: "fee_row_per_fill", status: "pass" },
+      ],
+      regressions: [
+        { invariant: "ohlc_geometry", class: "stale_provisional", subject: "DDS 2026-10-12" },
+      ],
+      truncated: false,
+    },
     nightly: {
       status: "ok",
       name: "run_daily",
@@ -1991,6 +2010,61 @@ test("schedule contract section is bounded, path-free and status-consistent", ()
     (value) => (value.schedule_contract.truncated = true),
     (value) => (value.schedule_contract.checked_at = null),
     (value) => (value.schedule_contract.internal = "not public"),
+  ];
+  for (const change of rejected) {
+    const value = clone(base);
+    change(value);
+    assert.equal(isMetaProjection(value), false, change.toString());
+  }
+});
+
+test("invariants section is shadow, bounded, path-free and status-consistent", () => {
+  const base = validMeta();
+  assert.equal(isMetaProjection(base), true);
+  const accepted = [
+    (value) => (value.invariants = {
+      status: "absent", mode: "shadow", checked_at: null, age_minutes: null,
+      stale_after_minutes: 1560, snapshot_as_of: null, snapshot_current: null,
+      regression_count: 0, baselined_count: 0, invariants: [], regressions: [], truncated: false,
+    }),
+    (value) => Object.assign(value.invariants, {
+      status: "pass", regression_count: 0, regressions: [],
+    }),
+    (value) => Object.assign(value.invariants, { status: "stale", age_minutes: 1561 }),
+    (value) => Object.assign(value.invariants, { status: "stale", snapshot_current: false }),
+    (value) => Object.assign(value.invariants, {
+      status: "error", snapshot_as_of: null, snapshot_current: null, invariants: [],
+      regression_count: 0, regressions: [],
+    }),
+    (value) => Object.assign(value.invariants, {
+      regression_count: 38,
+      regressions: Array.from({ length: 20 }, () => ({
+        invariant: "split_recorded_vs_restated", class: "unrecorded", subject: "RKLZ 2026-09-03",
+      })),
+      truncated: true,
+    }),
+  ];
+  for (const change of accepted) {
+    const value = clone(base);
+    change(value);
+    assert.equal(isMetaProjection(value), true, change.toString());
+  }
+  const rejected = [
+    (value) => delete value.invariants,
+    (value) => (value.invariants.mode = "gate"),
+    (value) => (value.invariants.status = "ok"),
+    (value) => (value.invariants.status = "pass"),
+    (value) => (value.invariants.snapshot_current = false),
+    (value) => (value.invariants.age_minutes = 1561),
+    (value) => (value.invariants.regressions[0].invariant = "invented"),
+    (value) => (value.invariants.regressions[0].class = "Bad Class"),
+    (value) => (value.invariants.regressions[0].subject = "store/market.duckdb"),
+    (value) => (value.invariants.regressions[0].detail = { open: 1 }),
+    (value) => (value.invariants.invariants[0].status = "baselined"),
+    (value) => value.invariants.invariants.push({ name: "ohlc_geometry", status: "pass" }),
+    (value) => (value.invariants.regression_count = 2),
+    (value) => (value.invariants.checked_at = null),
+    (value) => (value.invariants.internal = "not public"),
   ];
   for (const change of rejected) {
     const value = clone(base);

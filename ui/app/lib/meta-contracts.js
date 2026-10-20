@@ -30,6 +30,7 @@ const META_FIELDS = [
   "friday_postflight",
   "source_control",
   "schedule_contract",
+  "invariants",
   "nightly",
   "weekly_verify",
   "weekly_sweeps",
