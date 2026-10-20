@@ -459,7 +459,7 @@ printf '%s\n' "$P22_PROCESS_BEFORE" > "$P22_STATE/pre-stop-processes.txt"
 printf '%s\n' "$P22_CRON" > "$P22_STATE/predeploy.crontab"
 if test "$P22_CRON_PRESENT" = 1; then touch "$P22_STATE/had-crontab"; fi
 .venv/bin/python --version > "$P22_STATE/predeploy-python.txt"
-node --version > "$P22_STATE/predeploy-node.txt"
+"${NODE_BIN:-$HOME/tools/node/bin}/node" --version > "$P22_STATE/predeploy-node.txt"
 cp -a uv.lock pyproject.toml engine/requirements.txt ui/package.json ui/package-lock.json "$P22_STATE/"
 cp -a "$HOME/.config/systemd/user" "$P22_STATE/predeploy-units"
 .venv/bin/python - <<'PYCODE'
