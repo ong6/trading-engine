@@ -10,6 +10,7 @@ from typing import TypeVar
 
 import duckdb
 
+from engine.lib.snapshots import latest_snapshot
 from engine.lib.util import table_exists
 
 from . import (
@@ -18,6 +19,7 @@ from . import (
     exposure_monitor,
     forward_contracts,
     friday_postflight,
+    invariants_status,
     liquidity_monitor,
     market_health,
     market_read_models,
@@ -66,6 +68,7 @@ PUBLIC_META_FIELDS = (
     "friday_postflight",
     "source_control",
     "schedule_contract",
+    "invariants",
     "nightly",
     "weekly_verify",
     "weekly_sweeps",
@@ -231,7 +234,21 @@ def _host_status(data_dir: Path) -> dict:
             ),
             schedule_contract.invalid_status(),
         ),
+        # Shadow result the ops digest writes when the published snapshot changes.
+        "invariants": _optional(
+            "invariants",
+            lambda: invariants_status.public_status(
+                data_dir.parent / "logs" / "ops" / "invariants.json",
+                current_sha256=_published_snapshot_sha256(),
+            ),
+            invariants_status.invalid_status(),
+        ),
     }
+
+
+def _published_snapshot_sha256() -> str | None:
+    snapshot = latest_snapshot()
+    return snapshot.sha256 if snapshot is not None else None
 
 
 def _nightly_evidence(

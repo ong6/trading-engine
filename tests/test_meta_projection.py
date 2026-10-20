@@ -1,7 +1,8 @@
 """Tests for composing the operational metadata projection."""
 
+import json
 import re
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from server import (
     e1_forward_status,
     exposure_monitor,
     friday_postflight,
+    invariants_status,
     liquidity_monitor,
     main,
     market_health,
@@ -42,6 +44,7 @@ OPTIONAL_PROJECTION_OWNERS = {
     "e1_forward": e1_forward_status,
     "friday_postflight": friday_postflight,
     "schedule_contract": schedule_contract,
+    "invariants": invariants_status,
 }
 
 EMPTY_QUARANTINES = {
@@ -76,6 +79,88 @@ def test_schedule_contract_rules_match_browser_contract():
     assert _javascript_constant(source, "SCHEDULE_CONTRACT_VIOLATION_LIMIT") == str(
         schedule_contract.PUBLIC_VIOLATION_LIMIT
     )
+
+
+def test_invariant_names_match_the_registry_and_browser_contract():
+    from tools import invariants
+
+    source = (REPO_ROOT / "ui" / "app" / "lib" / "meta-automation-contracts.js").read_text()
+    assert invariants_status.INVARIANT_NAMES == tuple(invariants.registry.ordered_names())
+    assert set(_javascript_string_fields(source, "INVARIANT_NAMES")) == set(
+        invariants_status.INVARIANT_NAMES)
+    assert _javascript_constant(source, "INVARIANTS_REGRESSION_LIMIT") == str(
+        invariants_status.PUBLIC_REGRESSION_LIMIT)
+    assert set(_javascript_string_fields(source, "INVARIANTS_STATUSES")) == (
+        invariants_status.PUBLIC_STATUSES)
+
+
+SHADOW_NOW = datetime(2026, 10, 20, 8, 20, tzinfo=UTC)
+
+
+def _shadow_result(path: Path, **override) -> None:
+    result = {
+        "status": "regression", "mode": "shadow", "checked_at": "2026-10-20T08:08:04+00:00",
+        "regression_count": 2,
+        "snapshot": {"name": "market-20261020T035412271772Z.duckdb", "sha256": "a" * 64,
+                     "as_of": "2026-10-20T03:55:13+00:00"},
+        "invariants": {
+            "ohlc_geometry": {"status": "regression", "baselined_count": 228, "regressions": [
+                {"subject": "DDS 2026-10-12", "class": "stale_provisional",
+                 "detail": {"open": 648.7}},
+                {"subject": "walkforward/results x", "class": "nonfinite", "detail": {}}]},
+            "fee_row_per_fill": {"status": "pass", "baselined_count": 0, "regressions": []},
+        },
+        **override,
+    }
+    path.write_text(json.dumps(result))
+
+
+def test_invariants_section_projects_the_shadow_result_without_details(tmp_path):
+    path = tmp_path / "invariants.json"
+    assert invariants_status.public_status(path, current_sha256=None)["status"] == "absent"
+    _shadow_result(path)
+
+    section = invariants_status.public_status(path, current_sha256="a" * 64, now=SHADOW_NOW)
+
+    assert section == {
+        "status": "regression", "mode": "shadow", "checked_at": "2026-10-20T08:08:04+00:00",
+        "age_minutes": 11, "stale_after_minutes": 1560,
+        "snapshot_as_of": "2026-10-20T03:55:13+00:00", "snapshot_current": True,
+        "regression_count": 2, "baselined_count": 228,
+        "invariants": [{"name": "ohlc_geometry", "status": "regression"},
+                       {"name": "fee_row_per_fill", "status": "pass"}],
+        "regressions": [
+            {"invariant": "ohlc_geometry", "class": "stale_provisional",
+             "subject": "DDS 2026-10-12"},
+            {"invariant": "ohlc_geometry", "class": "nonfinite",
+             "subject": "walkforward:results x"}],
+        "truncated": False,
+    }
+
+
+def test_invariants_section_is_stale_after_26_hours_or_a_new_snapshot(tmp_path):
+    path = tmp_path / "invariants.json"
+    _shadow_result(path)
+    later = SHADOW_NOW + timedelta(hours=26)
+    assert invariants_status.public_status(path, current_sha256="a" * 64,
+                                           now=later)["status"] == "stale"
+    moved = invariants_status.public_status(path, current_sha256="b" * 64, now=SHADOW_NOW)
+    assert (moved["status"], moved["snapshot_current"]) == ("stale", False)
+    assert invariants_status.public_status(path, current_sha256=None,
+                                           now=SHADOW_NOW)["status"] == "stale"
+
+
+@pytest.mark.parametrize("override", [
+    {"status": "fine"},
+    {"invariants": {"invented": {"status": "pass", "baselined_count": 0, "regressions": []}}},
+    {"snapshot": None},
+    {"checked_at": "yesterday"},
+])
+def test_invariants_section_rejects_a_malformed_result(tmp_path, override):
+    path = tmp_path / "invariants.json"
+    _shadow_result(path, **override)
+    assert invariants_status.public_status(path, current_sha256="a" * 64,
+                                           now=SHADOW_NOW) == invariants_status.invalid_status()
 
 
 def test_public_driver_fields_match_browser_contract():
@@ -306,6 +391,7 @@ def test_meta_uses_complete_snapshot_internally_but_returns_only_summary(
             "friday_postflight": {},
             "source_control": {},
             "schedule_contract": {},
+            "invariants": {},
         },
     )
     monkeypatch.setattr(
@@ -573,6 +659,7 @@ def test_meta_keeps_live_status_when_snapshot_is_invalid(tmp_path, monkeypatch):
             {"status": "invalid", "reason": "projection-error"},
         ),
         ("public_status", "schedule_contract", schedule_contract.invalid_status()),
+        ("public_status", "invariants", invariants_status.invalid_status()),
     ],
 )
 def test_meta_isolates_unexpected_optional_projection_failures(
