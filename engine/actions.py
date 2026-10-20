@@ -38,7 +38,7 @@ Yahoo occasionally failing to restate past prices at all):
       We locate the break by scanning the one-session close ratios around the
       ex-date for one that matches the reported ratio in log space (±8%), and
       the match must sit within BREAK_NEAR_EX_SESSIONS of the ex-date AND the
-      bars before it must have been stored BEFORE the ex-date (otherwise Yahoo
+      bars before it must have been first stored BEFORE the ex-date (otherwise Yahoo
       had already restated them when we fetched them, and the jump is a real
       move). Two readings are accepted — "break present, restate" and "already
       restated, no-op" — and anything else is logged as skipped_* (audit_log
@@ -47,6 +47,17 @@ Yahoo occasionally failing to restate past prices at all):
   (b) An INDEPENDENT tripwire, run regardless of what actions data says: any
       held-or-pending name whose latest one-session close move exceeds 40% with
       no corporate_actions row nearby is WARNed loudly (possible missed split).
+      A second pass (`scan_breaks`) reads the recent bars of the whole liquid
+      universe: a split-ratio break with a matching volume shift and no restated
+      split row, or a split-sized single-bar glitch, puts the name in
+      price_quarantine (buys refused) for a human. Added after the 2026-10 gap:
+      IESC 685.04 -> 324.12 went unflagged, and CRWU and ETHA were bought on
+      mixed bases left by a skipped split.
+
+COVERAGE. The incremental fetch also pulls a rotating 1/ROLLING_SLICES of the
+liquid universe each run, so every liquid name is asked about at least weekly.
+Without it a name fell out of the fetch set exactly when its unrecorded split
+made it look like a crash and fail the screen template.
 
 A LATE RESTATEMENT (DXJ 3:1, ex 2026-10-09): Yahoo served the old scale on the
 ex-date evening and restated a night later, so the 5d re-fetch rewrote three
@@ -73,6 +84,7 @@ import json
 import math
 import statistics
 import time
+import zlib
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -132,6 +144,17 @@ TODO_LOG_CAP = 20          # TODO breadcrumbs printed per run (audit_log has all
 REWRITE_ACTOR = "collect"
 REWRITE_ACTION = "split_like_rewrite"
 REWRITE_RECENT_DAYS = 14   # how long a rewrite keeps its name in the nightly fetch
+# Incremental runs also pull the liquid names whose crc32 bucket matches the run
+# date's ordinal mod this: five consecutive weekday runs cover every bucket.
+ROLLING_SLICES = 5
+# Liquid-universe break scan (scan_breaks): sessions checked per run, the bars on
+# each side of a break whose median volume must shift by the price ratio, and
+# the split ratios (and their inverses) a scale break can take.
+SCAN_SESSIONS = 10
+VOLUME_SESSIONS = 5
+SCAN_RATIOS = (1.5, 2.0, 3.0, 4.0, 5.0, 10.0)
+QUARANTINE_SPLIT = "suspected_unrecorded_split"
+QUARANTINE_GLITCH = "single_bar_glitch"
 
 
 # --------------------------------------------------------------------------- #
@@ -293,7 +316,17 @@ def _yf_map(con, canon: set[str]) -> list[tuple[str, str]]:
     return sorted((tk, ymap.get(tk, tk)) for tk in canon)
 
 
-def _select_universe(con, params: dict, mode: str) -> tuple[list[tuple[str, str]], str]:
+def _rolling_slice(con, on: date, slices: int) -> set[str]:
+    """Liquid names in today's rotation bucket (crc32 is stable across runs)."""
+    if slices <= 0 or not table_exists(con, "universe"):
+        return set()
+    k = on.toordinal() % slices
+    return {r[0] for r in con.execute("SELECT ticker FROM universe WHERE liquid").fetchall()
+            if zlib.crc32(r[0].encode()) % slices == k}
+
+
+def _select_universe(con, params: dict, mode: str,
+                     on: date | None = None) -> tuple[list[tuple[str, str]], str]:
     """((canonical, yf) pairs, source label). --tickers always wins."""
     tickers = params.get("tickers")
     if tickers:
@@ -327,12 +360,15 @@ def _select_universe(con, params: dict, mode: str) -> tuple[list[tuple[str, str]
             "SELECT DISTINCT ticker FROM price_observation_rejects "
             "WHERE reason='basis_unverified' AND recorded_at >= current_timestamp - INTERVAL 14 DAY"
         ).fetchall()}
+    canon |= _rolling_slice(con, on or datetime.now(timezone.utc).date(),
+                            int(params.get("rolling_slices", ROLLING_SLICES)))
     # Never ask Yahoo about a name we hold no bars for.
     have = {r[0] for r in con.execute(
         "SELECT DISTINCT ticker FROM prices WHERE ticker IN "
         f"({','.join(['?'] * len(canon))})", list(canon)).fetchall()} if canon else set()
     return _yf_map(con, canon & have), (
-        "active-held ∪ active-pending ∪ core-ETFs ∪ screen-top-N ∪ split-like-rewrites")
+        "active-held ∪ active-pending ∪ core-ETFs ∪ screen-top-N ∪ split-like-rewrites"
+        " ∪ liquid-rolling-slice")
 
 
 def _already_done(con, on: date) -> set[str]:
@@ -463,23 +499,32 @@ def collect(con, params: dict, mode: str, meta_path: str | Path = DEFAULT_META) 
 # --------------------------------------------------------------------------- #
 # split reconciliation
 # --------------------------------------------------------------------------- #
-def _session_window(con, ticker: str, ex_date: date) -> list[tuple[date, float, object]]:
-    """Stored (date, close, fetched_at) around ex_date: SEARCH_BEFORE sessions
-    before through SEARCH_AFTER sessions after, oldest first. Rows with a NULL
-    close are dropped (a break can't be measured against a hole). fetched_at is
-    the row's provenance — when it was stored — and may be NULL on old copies."""
+def _session_window(con, ticker: str,
+                    ex_date: date) -> list[tuple[date, float, object, object]]:
+    """Stored (date, close, fetched_at, first stored) around ex_date: SEARCH_BEFORE
+    sessions before through SEARCH_AFTER sessions after, oldest first. Rows with
+    a NULL close are dropped (a break can't be measured against a hole).
+    fetched_at is the row's last write; the nightly 5d re-fetch restamps it on
+    unchanged bars. first stored is first_fetched_at (fetched_at where it is
+    NULL or the column is absent) — when the row's scale was first set. Either
+    may be NULL on old copies."""
+    has_first = con.execute(
+        "SELECT COUNT(*) FROM information_schema.columns "
+        "WHERE table_name = 'prices' AND column_name = 'first_fetched_at'"
+    ).fetchone()[0]
+    first = "COALESCE(first_fetched_at, fetched_at)" if has_first else "fetched_at"
     before = con.execute(
-        "SELECT date, close, fetched_at FROM prices WHERE ticker = ? AND date < ? "
-        "AND close IS NOT NULL ORDER BY date DESC LIMIT ?",
+        f"SELECT date, close, fetched_at, {first} FROM prices WHERE ticker = ? "
+        "AND date < ? AND close IS NOT NULL ORDER BY date DESC LIMIT ?",
         [ticker, ex_date, SEARCH_BEFORE],
     ).fetchall()
     after = con.execute(
-        "SELECT date, close, fetched_at FROM prices WHERE ticker = ? AND date >= ? "
-        "AND close IS NOT NULL ORDER BY date ASC LIMIT ?",
+        f"SELECT date, close, fetched_at, {first} FROM prices WHERE ticker = ? "
+        "AND date >= ? AND close IS NOT NULL ORDER BY date ASC LIMIT ?",
         [ticker, ex_date, SEARCH_AFTER],
     ).fetchall()
-    return [(d, float(c), f) for d, c, f in reversed(before)] + \
-           [(d, float(c), f) for d, c, f in after]
+    return [(d, float(c), f, ff) for d, c, f, ff in reversed(before)] + \
+           [(d, float(c), f, ff) for d, c, f, ff in after]
 
 
 def _fetched_on(ts) -> date | None:
@@ -504,7 +549,12 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
          re-fetched after a collection gap. A ratio-sized jump anywhere else is a
          real move -> `skipped_no_break_near_ex` (recorded, never restated).
       3. CONTINUITY / PROVENANCE. The bars BEFORE the candidate must have been
-         stored before the ex-date (prices.fetched_at < ex_date). Yahoo
+         FIRST stored before the ex-date (prices.first_fetched_at < ex_date,
+         fetched_at where first_fetched_at is NULL). Not the last write: the
+         5d re-fetch restamps fetched_at on unchanged old-scale bars, so a
+         break 3-5 sessions before the ex-date always looked post-ex (ETHA
+         1:3, break 10-01, ex 10-06: its 09-30 bar was restamped on the
+         ex-date and the split was skipped, leaving mixed bases). Yahoo
          back-adjusts at fetch time, so bars fetched on/after the ex-date are
          already on the post-split scale and the series is already continuous
          across the split — there is nothing to restate, and the jump we found
@@ -531,8 +581,8 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
                                  jump's date is returned as break_date for the
                                  record, rows_restated stays 0
       skipped_already_adjusted - a ratio-sized jump sits by the ex-date, but the
-                                 bars before it were fetched on/after the ex-date
-                                 (rule 3)
+                                 bars before it were first stored on/after the
+                                 ex-date (rule 3)
     """
     if ratio <= 0:
         return {"outcome": "skipped_sanity", "break_date": None, "observed": None}
@@ -553,7 +603,7 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
     if len(win) < 2:
         return {"outcome": "skipped_no_bars", "break_date": None, "observed": None}
     # Index of the ex session (the first stored session on/after ex_date).
-    ex_idx = next((i for i, (d, _c, _f) in enumerate(win) if d >= ex_date), None)
+    ex_idx = next((i for i, (d, *_rest) in enumerate(win) if d >= ex_date), None)
     if ex_idx is None:
         return {"outcome": "skipped_no_bars", "break_date": None, "observed": None}
     # Rule 2's exception: sessions stored on/after ex_date, up to the latest bar.
@@ -589,12 +639,13 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
 
     if near is not None:
         _dist, i, break_date, obs = near
-        # Rule 3: the bars before the break must predate the ex-date in storage,
-        # unless a recorded rewrite shows they were stored on the old scale.
-        stored = [f for _d, _c, f in win[:i] if f is not None]
-        fetched = [_fetched_on(f) for f in stored]
-        if fetched and max(fetched) >= ex_date and not (
-            isinstance(max(stored), datetime)
+        # Rule 3: the bars before the break must have been first stored before
+        # the ex-date, unless a recorded rewrite shows they were stored on the
+        # old scale.
+        stored = [f for _d, _c, f, _ff in win[:i] if f is not None]
+        first = [_fetched_on(ff) for _d, _c, _f, ff in win[:i] if ff is not None]
+        if first and max(first) >= ex_date and not (
+            stored and isinstance(max(stored), datetime)
             and _rewrite_shows_old_scale(con, ticker, ratio, break_date, max(stored))
         ):
             return {"outcome": "skipped_already_adjusted", "break_date": break_date,
@@ -754,6 +805,128 @@ def tripwire(con) -> list[str]:
     return warns
 
 
+def _split_sized(lr: float) -> float | None:
+    """The SCAN_RATIOS ratio (or inverse) a log close ratio matches, if any.
+    A move inside the ambiguity band is never split-sized (a 3:2 split's ±8%
+    reaches down to ordinary -28% days)."""
+    if abs(lr) < MIN_SEPARATION_LOG:
+        return None
+    for k in SCAN_RATIOS:
+        for r in (k, 1.0 / k):
+            if abs(lr - math.log(r)) <= TOL_LOG:
+                return r
+    return None
+
+
+def _explained_by_split(con, ticker: str, day: date) -> bool:
+    """A split row near `day` the reconciler has not skipped (pending or decided)."""
+    return con.execute(
+        "SELECT COUNT(*) FROM corporate_actions c LEFT JOIN split_adjustments s "
+        "ON s.ticker = c.ticker AND s.ex_date = c.ex_date "
+        "WHERE c.ticker = ? AND c.kind = 'split' AND c.ex_date BETWEEN ? AND ? "
+        "AND (s.outcome IS NULL OR s.outcome NOT LIKE 'skipped%')",
+        [ticker, day - timedelta(days=TRIPWIRE_NEAR_DAYS),
+         day + timedelta(days=TRIPWIRE_NEAR_DAYS)],
+    ).fetchone()[0] > 0
+
+
+def scan_breaks(con, sessions: int = SCAN_SESSIONS) -> list[str]:
+    """Guard (b), wide pass: the last `sessions` sessions of every liquid name
+    (plus held and pending names), independent of what the actions feed says.
+
+    Two shapes are flagged and quarantined (buys refused until a human resolves):
+      * a split-ratio break: close(t-1)/close(t) within TOL_LOG of a SCAN_RATIOS
+        ratio or its inverse, the median volume of the VOLUME_SESSIONS bars after
+        it shifted by that ratio (within half its log size) against the bars
+        before, and no split row nearby that the reconciler has not skipped;
+      * a split-sized single-bar glitch: a move of at least the ambiguity band
+        that the next bar reverses within TOL_LOG (MNST, RUSHA).
+    A name with an active quarantine keeps it; one a human resolved on or after
+    the flagged session is not re-flagged."""
+    if not table_exists(con, "universe"):
+        return []
+    days = con.execute(
+        "SELECT DISTINCT date FROM prices ORDER BY date DESC LIMIT ?",
+        [sessions + VOLUME_SESSIONS],
+    ).fetchall()
+    if len(days) < 2:
+        return []
+    scan_from = days[min(sessions, len(days)) - 1][0]
+    rows = con.execute(
+        "SELECT ticker, date, close, volume FROM prices WHERE date >= ? AND close > 0 "
+        "AND ticker IN (SELECT ticker FROM universe WHERE liquid "
+        "UNION SELECT p.ticker FROM sim_positions p JOIN portfolios pf "
+        "ON pf.id = p.portfolio_id WHERE pf.active AND p.qty > 0 "
+        "UNION SELECT o.ticker FROM sim_orders o JOIN portfolios pf "
+        "ON pf.id = o.portfolio_id WHERE pf.active AND o.status = 'pending') "
+        "ORDER BY ticker, date",
+        [days[-1][0]],
+    ).fetchall()
+    series: dict[str, list[tuple[date, float, float]]] = {}
+    for tk, d, c, v in rows:
+        series.setdefault(tk, []).append((d, float(c), float(v or 0)))
+
+    flags: list[tuple[str, date, str, dict]] = []
+    for tk, s in series.items():
+        i = 1
+        while i < len(s):
+            d, c = s[i][0], s[i][1]
+            lr = math.log(s[i - 1][1] / c)
+            if d < scan_from:
+                i += 1
+                continue
+            if (abs(lr) >= MIN_SEPARATION_LOG and i + 1 < len(s)
+                    and abs(lr + math.log(c / s[i + 1][1])) <= TOL_LOG):
+                flags.append((tk, d, QUARANTINE_GLITCH, {
+                    "date": d.isoformat(), "prev_close": s[i - 1][1], "close": c,
+                    "next_close": s[i + 1][1]}))
+                i += 2      # the reversing bar is the glitch's other half
+                continue
+            ratio = _split_sized(lr)
+            pre = [v for _d, _c, v in s[max(0, i - VOLUME_SESSIONS):i] if v > 0]
+            post = [v for _d, _c, v in s[i:i + VOLUME_SESSIONS] if v > 0]
+            if ratio is not None and pre and post:
+                shift = math.log(statistics.median(post) / statistics.median(pre))
+                if (abs(shift - math.log(ratio)) <= abs(math.log(ratio)) / 2
+                        and not _explained_by_split(con, tk, d)):
+                    flags.append((tk, d, QUARANTINE_SPLIT, {
+                        "date": d.isoformat(), "prev_close": s[i - 1][1], "close": c,
+                        "ratio": ratio, "volume_shift": math.exp(shift)}))
+            i += 1
+
+    from engine import price_quarantine
+    warns: list[str] = []
+    for tk, d, reason, evidence in flags:
+        row = con.execute(
+            "SELECT status, resolved_at FROM price_quarantine WHERE ticker = ?", [tk]
+        ).fetchone()
+        active = row is not None and row[0] == "active"
+        if not active and row is not None and row[1] is not None \
+                and _fetched_on(row[1]) >= d:
+            continue    # a human resolved this name after the flagged session
+        line = (f"WARN break scan: {tk} {reason} on {d} (close {evidence['prev_close']:g}"
+                f" -> {evidence['close']:g}) — quarantined, needs a human")
+        warns.append(line)
+        log.info(f"[actions] {line}")
+        if not active:
+            price_quarantine.set_quarantine(
+                con, tk, reason=reason, evidence=json.dumps(evidence, sort_keys=True))
+    return warns
+
+
+def _resolve_split_quarantine(con, ticker: str, ex_date: date) -> None:
+    """A split the reconciler just restated clears the break scan's quarantine."""
+    if not table_exists(con, "price_quarantine"):
+        return
+    row = con.execute(
+        "SELECT reason FROM price_quarantine WHERE ticker = ? AND status = 'active'",
+        [ticker]).fetchone()
+    if row is not None and row[0] == QUARANTINE_SPLIT:
+        from engine import price_quarantine
+        price_quarantine.resolve_quarantine(
+            con, ticker, resolution=f"split ex {ex_date} restated by actions.reconcile")
+
+
 def reconcile(con) -> dict:
     """Adjudicate every not-yet-considered split with ex_date <= the latest bar,
     restating where the stored series genuinely shows the break. Idempotent: the
@@ -782,6 +955,7 @@ def reconcile(con) -> dict:
         outcome = v["outcome"]
         if outcome == "applied_pending":
             n = _restate(con, tk, ex, ratio, v["break_date"])
+            _resolve_split_quarantine(con, tk, ex)
             restated_rows += n
             outcome = "applied"
             log.info(f"[actions] RESTATED {tk} split {ratio:g}:1 ex={ex} "
@@ -800,6 +974,7 @@ def reconcile(con) -> dict:
         counts[outcome] = counts.get(outcome, 0) + 1
 
     todos += tripwire(con)
+    todos += scan_breaks(con)
     todos += _unexplained_rewrites(con)
     summary = {"candidates": len(cands), "rows_restated": restated_rows,
                "outcomes": counts, "warnings": len(todos)}
@@ -921,10 +1096,13 @@ def main() -> int:
                     help="screen passers to include in incremental mode")
     ap.add_argument("--no-resume", action="store_true",
                     help="re-pull names already fetched today (backfill)")
+    ap.add_argument("--rolling-slices", type=int, default=ROLLING_SLICES,
+                    help="incremental also pulls 1/N of the liquid universe (0 = off)")
     args = ap.parse_args()
 
     params: dict = {"mode": args.mode, "top_n": args.top_n,
-                    "resume": not args.no_resume}
+                    "resume": not args.no_resume,
+                    "rolling_slices": args.rolling_slices}
     if args.tickers:
         params["tickers"] = args.tickers
     if args.limit:

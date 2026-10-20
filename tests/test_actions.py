@@ -277,7 +277,8 @@ def test_incremental_selection_ignores_retired_book_state(con):
             [ticker],
         )
 
-    pairs, source = actions._select_universe(con, {"top_n": 0}, "incremental")
+    pairs, source = actions._select_universe(
+        con, {"top_n": 0, "rolling_slices": 0}, "incremental")
 
     assert {ticker for ticker, _ in pairs} == {*actions.CORE_ETFS, "LIVE", "PENDING"}
     assert source.startswith("active-held ∪ active-pending")
@@ -647,3 +648,138 @@ def test_rewrite_with_no_split_row_is_surfaced_for_a_human(monkeypatch, tmp_path
     finally:
         con.close()
     assert summary["warnings"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# 2026-10 split-integrity gap: coverage, rule 3 provenance, liquid break scan
+# --------------------------------------------------------------------------- #
+def test_incremental_rotates_through_the_whole_liquid_universe(con):
+    """A liquid name outside the books and the screen is still asked about: five
+    consecutive runs cover every liquid name once, non-liquid names never."""
+    db.init_schema(con)
+    liquid = [f"L{i:02d}" for i in range(40)]
+    for ticker in (*liquid, "ILLIQ"):
+        con.execute("INSERT INTO universe (ticker, yf_ticker, active, liquid) "
+                    "VALUES (?, ?, TRUE, ?)", [ticker, ticker, ticker != "ILLIQ"])
+        insert_bars(con, ticker, SESSIONS[:1], close=10.0)
+    start = SESSIONS[0]
+
+    seen: list[str] = []
+    for k in range(actions.ROLLING_SLICES):
+        pairs, source = actions._select_universe(
+            con, {"top_n": 0}, "incremental", start + timedelta(days=k))
+        seen += [ticker for ticker, _ in pairs]
+        assert source.endswith("liquid-rolling-slice")
+
+    assert sorted(seen) == liquid       # each liquid name exactly once, ILLIQ never
+
+
+def _etha_store(con, first_after_ex: bool = False) -> int:
+    """ETHA 1:3 (ex 10-06): the ex-date evening pull still served the old scale,
+    the next night's 5d re-fetch restated from 3 sessions before the ex-date. Each
+    bar was first stored on its own evening, and restamped by every later 5d
+    re-fetch, so the last old-scale bar carries the ex-date as its fetched_at."""
+    db.init_actions_schema(con)
+    con.execute("ALTER TABLE prices ADD COLUMN IF NOT EXISTS first_fetched_at TIMESTAMP")
+    brk = EX_IDX - 3
+    closes = _step(brk, 20.0, 60.0)
+    insert_bars(con, TK, SESSIONS, open_=closes, close=closes,
+                volume=[22_000_000 if k < brk else 7_000_000 for k in range(len(SESSIONS))])
+    for k, d in enumerate(SESSIONS):
+        last = SESSIONS[min(k + 4, len(SESSIONS) - 1)]
+        if k < brk:
+            last = min(last, EX)          # left the re-fetch window on the ex-date
+        first = FETCHED_AFTER_EX if first_after_ex else datetime.combine(d, time(22, 30))
+        con.execute("UPDATE prices SET fetched_at = ?, first_fetched_at = ? "
+                    "WHERE ticker = ? AND date = ?",
+                    [datetime.combine(last, time(22, 30)), first, TK, d])
+    con.execute("INSERT INTO corporate_actions VALUES (?, ?, 'split', ?, 'yfinance', now())",
+                [TK, EX, 1 / 3])
+    return brk
+
+
+def test_late_restatement_first_stored_before_ex_is_restated(con):
+    """ETHA: the bar before the break was restamped ON the ex-date by the 5d
+    re-fetch but first stored days earlier, on the old scale. Rule 3 read the
+    restamp and skipped the split (skipped_already_adjusted, rows_restated 0)."""
+    brk = _etha_store(con)
+    actions.reconcile(con)
+    outcome, brk_date, n = _verdict(con)
+    assert (outcome, brk_date, n) == ("applied", SESSIONS[brk], brk)
+    assert list(_closes(con).values()) == pytest.approx([60.0] * len(SESSIONS))
+
+
+def test_bars_first_stored_after_ex_stay_skipped(con):
+    """The guard rule 3 exists for is kept: history first stored after the
+    ex-date was already restated by the source, so the jump is not ours."""
+    _etha_store(con, first_after_ex=True)
+    before = _closes(con)
+    actions.reconcile(con)
+    assert _verdict(con)[0] == "skipped_already_adjusted"
+    assert _closes(con) == before
+
+
+def _liquid(con, ticker: str, closes: list[float], volumes: list[int]) -> None:
+    con.execute("INSERT INTO universe (ticker, yf_ticker, active, liquid) "
+                "VALUES (?, ?, TRUE, TRUE)", [ticker, ticker])
+    days = SESSIONS[-len(closes):]
+    insert_bars(con, ticker, days, open_=closes, close=closes, volume=volumes)
+
+
+def _quarantine(con) -> dict:
+    return dict(con.execute(
+        "SELECT ticker, reason FROM price_quarantine WHERE status = 'active'").fetchall())
+
+
+def test_break_scan_quarantines_unrecorded_liquid_split_and_glitch(con):
+    """IESC (2:1, no split row), ETHA (1:3, split row skipped), MNST (one bar
+    at half price) are quarantined. A real 50% drop with flat volume, a split
+    the reconciler restated, and calm names are not."""
+    db.init_schema(con)
+    db.init_actions_schema(con)
+    flat = [1_000_000] * 12
+    _liquid(con, "IESC", [685.0] * 6 + [324.0] * 6, [1_000_000] * 6 + [2_100_000] * 6)
+    _liquid(con, "ETHA", [20.0] * 6 + [60.0] * 6, [22_000_000] * 6 + [7_000_000] * 6)
+    _liquid(con, "MNST", [70.0] * 6 + [35.0] + [70.0] * 5, flat)
+    _liquid(con, "CRASH", [50.0] * 6 + [25.0] * 6, flat)
+    _liquid(con, "PEND", [90.0] * 6 + [30.0] * 6, [1_000_000] * 6 + [3_000_000] * 6)
+    _liquid(con, "CALM", [10.0] * 12, flat)
+    brk = SESSIONS[-6]
+    con.execute("INSERT INTO corporate_actions VALUES "
+                "('ETHA', ?, 'split', ?, 'yfinance', now()), "
+                "('PEND', ?, 'split', 3, 'yfinance', now())", [brk, 1 / 3, brk])
+    con.execute("INSERT INTO split_adjustments (ticker, ex_date, ratio, outcome, observed, "
+                "break_date, rows_restated, applied_at) VALUES "
+                "('ETHA', ?, ?, 'skipped_already_adjusted', 0.33, ?, 0, now())",
+                [brk, 1 / 3, brk])
+
+    warns = actions.scan_breaks(con)
+
+    assert _quarantine(con) == {"IESC": actions.QUARANTINE_SPLIT,
+                                "ETHA": actions.QUARANTINE_SPLIT,
+                                "MNST": actions.QUARANTINE_GLITCH}
+    assert len(warns) == 3
+    assert con.execute("SELECT COUNT(*) FROM audit_log WHERE actor = 'price_quarantine' "
+                       "AND action = 'activate'").fetchone()[0] == 3
+    # Idempotent, and a human's later resolution is not overridden.
+    from engine import price_quarantine
+    price_quarantine.resolve_quarantine(con, "IESC", resolution="real move, checked")
+    assert len(actions.scan_breaks(con)) == 2
+    assert set(_quarantine(con)) == {"ETHA", "MNST"}
+
+
+def test_reconcile_restating_the_split_clears_the_scan_quarantine(con):
+    db.init_schema(con)
+    db.init_actions_schema(con)
+    _liquid(con, "IESC", [685.0] * 6 + [342.5] * 6, [1_000_000] * 6 + [2_000_000] * 6)
+    con.execute("UPDATE prices SET fetched_at = ?", [FETCHED_BEFORE_EX])
+    actions.reconcile(con)
+    assert _quarantine(con) == {"IESC": actions.QUARANTINE_SPLIT}
+
+    con.execute("INSERT INTO corporate_actions VALUES ('IESC', ?, 'split', 2, "
+                "'yfinance', now())", [SESSIONS[-6]])
+    actions.reconcile(con)
+
+    assert con.execute("SELECT outcome FROM split_adjustments WHERE ticker = 'IESC'"
+                       ).fetchone()[0] == "applied"
+    assert _quarantine(con) == {}

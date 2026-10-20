@@ -20,6 +20,16 @@ Refuses a ticker with open sim_positions unless --force, because a re-scaled
 history under a live position changes its mark without any corporate-action
 record. Writes an audit_log row and flips the ticker's split_adjustments
 watermark(s) to `superseded_by_refetch` (rows are kept, never deleted).
+
+Every date the store already had keeps its first_fetched_at; only new dates are
+stamped now (DXJ, JEM, SNEX and APH lost theirs to the old DELETE + upsert). A
+promoted replacement that rescales stored bars by a split-sized ratio is
+recorded as a `split_like_rewrite` audit row (engine.actions), so the nightly
+actions fetch asks about the name and a split with no corporate_actions row is
+surfaced (DXJ's 3:1, ex 2026-10-09, was missing after its refetch). A
+split-sized replacement with no matching split row is withheld as
+basis_unverified (engine.lib.db.upsert_prices), which also keeps the name in
+the nightly actions fetch.
 """
 from __future__ import annotations
 
@@ -96,8 +106,18 @@ def refetch(con: duckdb.DuckDBPyConnection, ticker: str, *, apply: bool, force: 
               f"({s.date.min()}..{s.date.max()}); nothing written")
         return out
 
+    from engine import actions
+
     with db.transaction(con):
+        # No DELETE: upsert_prices keeps each existing date's first_fetched_at (only
+        # dates the store never had are stamped now) and, for a promoted replacement
+        # that rescales stored bars, appends the split_like_rewrite audit row before
+        # the old closes are gone. A split-sized replacement with no matching split
+        # row is withheld as basis_unverified instead, which keeps the name in the
+        # nightly actions fetch.
+        rewrites_before = len(actions._rewrites(con, ticker))
         n = db.upsert_prices(con, s)
+        out["split_like_rewrite"] = len(actions._rewrites(con, ticker)) > rewrites_before
         out["rows_written"] = n
         out["rows_after"] = con.execute(
             "SELECT COUNT(*) FROM prices WHERE ticker = ?", [ticker],
