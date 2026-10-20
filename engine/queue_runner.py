@@ -26,7 +26,11 @@ CLI:
   queue_runner.py --enqueue-nightly [--date YYYY-MM-DD | --weekday 1-7] [--dry-run]
                               the nightly's mining policy (see nightly_plan)
   queue_runner.py --run       drain pending jobs (respecting the guards); optional
-                              --run-kind K --run-params JSON limits execution
+                              --run-kind K --run-params JSON limits execution,
+                              --kinds K[,K] limits it to whole kinds,
+                              --skip-parallel-safe leaves research kinds pending
+                              (the nightly), --report-partial prints a PARTIAL:
+                              marker when selected jobs were left undone
   queue_runner.py --status    print the jobs table
 Common: --db (default store/market.duckdb), --meta (default data/_meta.json).
 
@@ -40,6 +44,13 @@ Supersede (2026-09-03): a kind flagged `supersedes` in JOB_TYPES marks older
 pending rows of the SAME kind with DIFFERENT params 'superseded' when a new one
 is enqueued (identical params still dedup as before), so a guard-tripped night
 cannot leave a stack of stale variants to drain later.
+
+Research isolation (2026-10-20): `parallel_safe` research rows run only in
+drains that select them. The weekday nightly passes --skip-parallel-safe, so a
+weekend leftover can no longer land in Monday's drain and overlap the 02:30
+scoring or 13:05 pre-open. Their children read the published snapshot
+(store/snapshots/market-latest.duckdb) when it is fresh, so they no longer hold
+a read-only handle that blocks every live writer for hours.
 """
 from __future__ import annotations
 
@@ -50,21 +61,26 @@ import os
 import shutil
 import sys
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from engine.lib import db
+import duckdb
+
+from engine.lib import db, snapshots
 from engine.lib import resources as rsc
 from engine.lib.settings import META_PATH as DEFAULT_META
 from engine.lib.settings import REPO_ROOT, STORE_DIR
+from engine.lib.util import table_exists
 
 # §12.7 caps
 # 5-min load ceiling. Kept at 28 after measurement (2026-08-20): a width-8
 # parallel batch of replay workers at 4 DuckDB threads each sustains ~2.5-3
 # cores per worker (~20-24 load incl. nightly stages), and even a deliberate
 # 16-worker burst only pushed the 5-MIN average to ~16 (1-min hit 28.4). The
-# guard EXITS the drain rather than waiting, so margin matters: tripping it on
-# a Sunday grid parks the remaining jobs until Monday's nightly. Raising it is
+# guard EXITS the drain when nothing of ours is running, so margin matters:
+# tripping it on a Sunday grid parks the remaining jobs until the next Sunday
+# (the nightly skips research rows since 2026-10-20). Inside a rolling pool it
+# only holds launches while workers run (RESOURCE_SETTLE_S). Raising it is
 # not needed for width 8 and would erode the §12.7 promise that the farm never
 # starves the nightly or the interactive API (~24 of 32 cores for the farm).
 LOAD_5MIN_MAX = 28.0
@@ -99,13 +115,27 @@ BATCH_REACQUIRE_WAIT_S = 900.0
 
 # Wall-clock ceiling for a single drain (env-tunable). Once elapsed exceeds this
 # we STOP starting new jobs and exit 0, leaving them pending for the next drain —
-# an in-flight job is never killed. Keeps a slow farm from running into the day.
+# an in-flight job is never killed (its timeout_s bounds it), so a driver's real
+# end is budget + the longest selected timeout_s.
 DRAIN_BUDGET_DEFAULT_S = 4 * 3600  # 4 hours
 
 # Per-job wall-clock ceiling when a kind declares none (see JOB_TYPES
 # `timeout_s`). 4 h = the drain budget: generous, and no kind has ever
 # legitimately needed longer except a sweep grid.
 TIMEOUT_DEFAULT_S = 4 * 3600
+# The pool's resource guard no longer latches (2026-10-20). Its own workers are
+# part of the 5-min load, so while any worker runs a tripped guard only holds
+# further launches. With the pool idle it waits this long for the 5-min average
+# to decay (~95% in 15 min) before deferring the rest. On 2026-10-19 the latch
+# left the pool idle for hours: 4 done, 4 timed out, 10 deferred.
+RESOURCE_SETTLE_S = 15 * 60
+# A parallel_safe child reads the published snapshot only when it is at most
+# this old. Four days spans a weekend plus a missed nightly; anything older
+# falls back to the live store (with a warning) rather than replay stale data.
+RESEARCH_SNAPSHOT_MAX_AGE_S = 4 * 86400
+# Line prefix the scheduled-driver log parser (server/driver_log.py) reads as
+# "the run finished but its drain left selected work undone".
+PARTIAL_MARKER = "PARTIAL: "
 WF_SCRATCH_ROOT = REPO_ROOT / "scratch"
 WF_ACTIVE_LOCK = ".active.lock"
 WF_KEEP_MARKER = ".keep"
@@ -263,8 +293,13 @@ JOB_TYPES: dict[str, dict] = {
     # as `backtest` — it writes scratch/ (deleted per job) and data/reports/,
     # never store/. Feeds the Sunday review loop (execution design §6).
     # mem_mb 4500: same measurement as `backtest` above (2026-08-20).
+    # timeout_s 7 h (2026-10-20): the 4 h default killed jobs 835-866 on
+    # 2026-10-19 ("timeout: killed after 14400s") under the v2 replay slowdown.
+    # The 2026-10-18 06:00 grid (18 books, width 8) drained in 2.8 h, so no
+    # book took longer; the slowest is ~2.3 h, and 3x ≈ 7 h. The Sunday
+    # driver's 8 h launch budget + 7 h ends by ~21:00 UTC Sunday.
     "walkforward":  {"loader": _load_walkforward,  "archive": False, "mem_mb": 4500,
-                     "parallel_safe": True},
+                     "parallel_safe": True, "timeout_s": 7 * 3600},
     "capital_sensitivity": {"loader": _load_capital_sensitivity,
                             "archive": False, "mem_mb": 4500,
                             "parallel_safe": True,
@@ -286,6 +321,34 @@ JOB_TYPES: dict[str, dict] = {
 def default_timeout_s(kind: str) -> int:
     """The kind's declared ceiling, else TIMEOUT_DEFAULT_S."""
     return int(JOB_TYPES.get(kind, {}).get("timeout_s", TIMEOUT_DEFAULT_S))
+
+
+def _is_parallel_safe(kind: str) -> bool:
+    return bool(JOB_TYPES.get(kind, {}).get("parallel_safe"))
+
+
+def supersede_stale_pending(con, kind: str, older_than_s: float, reason: str, *,
+                            dry_run: bool = False) -> list[int]:
+    """Mark pending rows of `kind` created more than `older_than_s` ago 'superseded'.
+
+    For cohort kinds whose rows differ in params per member (the walk-forward
+    grid enqueues one row per book), so `supersedes` cannot express "last
+    week's leftovers are obsolete once this week's grid is enqueued".
+    """
+    if not table_exists(con, "jobs"):  # a dry run against a fresh store
+        return []
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=older_than_s)
+    stale = [jid for (jid,) in con.execute(
+        "SELECT id FROM jobs WHERE kind = ? AND state IN ('queued', 'pending') "
+        "AND created_at < ? ORDER BY id",
+        [kind, cutoff],
+    ).fetchall()]
+    for jid in stale:
+        print(f"[queue] {'would supersede' if dry_run else 'superseded'} stale "
+              f"pending job {jid} ({kind}) — {reason}")
+        if not dry_run:
+            _set_state(con, jid, "superseded", last_error=reason)
+    return stale
 
 
 def ensure_schema(con) -> None:
@@ -555,6 +618,9 @@ def cmd_run_one(jid: int, db_path: str | None, meta_path: str | Path) -> int:
             con = None
             spec["detached_loader"]()(params, db_path=db_path, meta_path=meta_path)
         else:
+            con.close()
+            con = None
+            con = _research_connection(jid, db_path)
             spec["loader"]()(params, con, meta_path=meta_path)
         return 0
     except Exception as exc:  # noqa: BLE001
@@ -563,6 +629,37 @@ def cmd_run_one(jid: int, db_path: str | None, meta_path: str | Path) -> int:
     finally:
         if con is not None:
             con.close()
+
+
+def _research_connection(jid: int, db_path):
+    """Read-only connection for a parallel_safe child's whole run.
+
+    A read-only handle on the live store blocks every writer (accounts settle,
+    TradingView history, the P15 pre-open) for as long as the child runs: up to
+    the kind's timeout. The published snapshot is an immutable full copy, and
+    publication waits on the drain lock, so every child of one drain reads the
+    same file. Fall back to the live store only when no fresh snapshot exists.
+    """
+    live = Path(db_path) if db_path else db.DEFAULT_DB
+    info = snapshots.latest_snapshot(live)
+    if info is None:
+        reason = "no valid published snapshot"
+    else:
+        age_s = (datetime.now(timezone.utc) - info.as_of).total_seconds()
+        if age_s > RESEARCH_SNAPSHOT_MAX_AGE_S:
+            reason = f"snapshot {info.path.name} is {age_s / 3600:.0f} h old"
+        else:
+            try:
+                con = db.connect(info.path, read_only=True, wait_s=0)
+            except duckdb.Error as exc:
+                reason = f"snapshot {info.path.name} unreadable ({exc})"
+            else:
+                print(f"[queue:{jid}] reading published snapshot {info.path.name} "
+                      f"(as of {info.as_of:%Y-%m-%dT%H:%M:%SZ})")
+                return con
+    print(f"[queue:{jid}] WARN: {reason}; reading the live store read-only, "
+          "which blocks live writers while this job runs")
+    return db.connect(live, read_only=True)
 
 
 def _child_cmd(jid: int, db_path, meta_path) -> list[str]:
@@ -714,7 +811,9 @@ def _run_parallel_pool(pool, db_path, meta_path, con, *, width: int,
     path. Child outcomes are retained in memory and recorded only after every
     launched child exits, in the original job order rather than completion
     order. The return reason is ``None`` when every row launched, otherwise
-    ``budget`` or ``resources``; unlaunched rows are restored to pending.
+    ``budget`` or ``resources``; unlaunched rows are restored to pending. A
+    tripped resource guard only holds launches while a worker runs; it ends the
+    pool with ``resources`` after ``RESOURCE_SETTLE_S`` with nothing running.
     """
     import subprocess
 
@@ -737,6 +836,9 @@ def _run_parallel_pool(pool, db_path, meta_path, con, *, width: int,
     active_mem_mb = 0
     last_launch: float | None = None
     stop_reason: str | None = None
+    # When the resource guard last saw a worker running while tripped (or first
+    # tripped); None while it is clear.
+    guard_since: float | None = None
     try:
         while active or (next_index < len(pool) and stop_reason is None):
             now = _clock()
@@ -775,8 +877,22 @@ def _run_parallel_pool(pool, db_path, meta_path, con, *, width: int,
                 load5 = rsc.load_5min()
                 free_gb = rsc.free_ram_gb()
                 if load5 > LOAD_5MIN_MAX or free_gb < FREE_RAM_MIN_GB:
-                    stop_reason = "resources"
+                    # Never latch (see RESOURCE_SETTLE_S): hold launches while
+                    # our own workers run, and give an idle pool time to settle.
+                    if guard_since is None:
+                        guard_since = now
+                        print(f"[queue] resource guard holding launches (5-min load "
+                              f"{load5:.1f}, free RAM {free_gb:.1f} GiB, "
+                              f"{len(active)} running)")
+                    if active:
+                        guard_since = now
+                    elif now - guard_since >= RESOURCE_SETTLE_S:
+                        stop_reason = "resources"
                     break
+                if guard_since is not None:
+                    print(f"[queue] resource guard cleared (5-min load {load5:.1f}, "
+                          f"free RAM {free_gb:.1f} GiB)")
+                    guard_since = None
                 row = pool[next_index]
                 jid, kind, _params, mem_mb, timeout_s, _priority = row
                 declared = mem_mb or 0
@@ -806,10 +922,12 @@ def _run_parallel_pool(pool, db_path, meta_path, con, *, width: int,
                 wait_s = BATCH_POLL_S
                 if (BATCH_STAGGER_S > 0 and not launched and last_launch is not None
                         and len(active) < width):
-                    wait_s = min(
-                        wait_s,
-                        max(0.0, last_launch + BATCH_STAGGER_S - _clock()),
-                    )
+                    # Wake early only for a pending stagger slot. Anything else
+                    # holding a launch (the resource guard, the memory budget)
+                    # waits a full poll rather than spinning.
+                    stagger_left = last_launch + BATCH_STAGGER_S - _clock()
+                    if stagger_left > 0:
+                        wait_s = min(wait_s, stagger_left)
                 if wait_s > 0:
                     _sleep(wait_s)
     except BaseException:
@@ -916,7 +1034,9 @@ def acquire_drain_lock() -> bool:
 
 
 def cmd_run(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
-            run_kind: str | None = None, run_params: list[str] | None = None) -> int:
+            run_kind: str | None = None, run_params: list[str] | None = None,
+            kinds: set[str] | None = None, skip_parallel_safe: bool = False,
+            report_partial: bool = False) -> int:
     # Line-buffer the drain's own stdout. Redirected to a log it is otherwise
     # block-buffered, so a batch's children (separate processes, own buffers)
     # write through while the parent's "--- parallel batch [...] ---" line sits
@@ -956,14 +1076,26 @@ def cmd_run(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
                            "acquire_drain_lock() first")
     return _drain(
         con, meta_path, db_path=db_path, jobs=jobs,
-        run_kind=run_kind, run_params=run_params,
+        run_kind=run_kind, run_params=run_params, kinds=kinds,
+        skip_parallel_safe=skip_parallel_safe, report_partial=report_partial,
     )
 
 
 def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
-           run_kind: str | None = None, run_params: list[str] | None = None) -> int:
+           run_kind: str | None = None, run_params: list[str] | None = None,
+           kinds: set[str] | None = None, skip_parallel_safe: bool = False,
+           report_partial: bool = False) -> int:
     """The drain proper. Called ONLY by cmd_run, which holds the drain lock —
-    the precondition the orphan sweep below relies on."""
+    the precondition the orphan sweep below relies on.
+
+    kinds               only rows of these kinds are selected.
+    skip_parallel_safe  research rows stay pending for the driver that owns
+                        them (the weekday nightly, so a weekend leftover cannot
+                        run into the 02:30 scoring or the 13:05 pre-open).
+    report_partial      print a PARTIAL: marker line when any selected row was
+                        left pending, timed out or failed; the scheduled-driver
+                        monitor reports such a run 'partial', not 'ok'.
+    """
     scratch = _sweep_walkforward_orphans()
     if scratch["removed"] or scratch["held"]:
         print(f"[queue] walk-forward scratch sweep removed {scratch['removed']} "
@@ -991,12 +1123,70 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
             row for row in pending
             if row[1] == run_kind and any(_same_params(row[2], item) for item in allowed)
         ]
+    if kinds is not None:
+        pending = [row for row in pending if row[1] in kinds]
+    if skip_parallel_safe:
+        held = sorted({row[1] for row in pending if _is_parallel_safe(row[1])})
+        if held:
+            n_held = sum(1 for row in pending if _is_parallel_safe(row[1]))
+            print(f"[queue] leaving {n_held} parallel-safe research job(s) "
+                  f"({', '.join(held)}) pending for their own driver")
+        pending = [row for row in pending if not _is_parallel_safe(row[1])]
     if not pending:
         scope = f" matching authorized {run_kind} parameters" if run_kind else ""
+        if kinds is not None:
+            scope += f" of kind {', '.join(sorted(kinds))}"
+        if skip_parallel_safe:
+            scope += " outside the parallel-safe research kinds"
         print(f"[queue] no pending jobs{scope}; nothing to do")
         return 0
     print(f"[queue] {len(pending)} pending job(s)")
 
+    rc, con = _drain_rows(con, pending, meta_path, db_path=db_path, jobs=jobs)
+    outcome = _drain_outcome(con, [row[0] for row in pending])
+    print(f"[queue] drain outcome: {_format_outcome(outcome)}")
+    if report_partial and outcome["done"] < len(pending):
+        print(f"{PARTIAL_MARKER}queue drain left selected work undone "
+              f"({_format_outcome(outcome)})")
+    return rc
+
+
+def _drain_outcome(con, ids: list[int]) -> dict[str, int]:
+    """Classify the rows one drain selected by their state after it."""
+    outcome = {"selected": len(ids), "done": 0, "timed_out": 0, "failed": 0,
+               "pending": 0, "other": 0}
+    rows = con.execute(
+        "SELECT state, progress FROM jobs WHERE list_contains(?, id)", [ids]
+    ).fetchall()
+    for state, progress in rows:
+        if state == "done":
+            outcome["done"] += 1
+        elif state == "failed" and progress == "timeout":
+            outcome["timed_out"] += 1
+        elif state == "failed":
+            outcome["failed"] += 1
+        elif state == "pending":
+            outcome["pending"] += 1
+        else:
+            outcome["other"] += 1
+    return outcome
+
+
+def _format_outcome(outcome: dict[str, int]) -> str:
+    text = (f"{outcome['done']} done, {outcome['timed_out']} timed out, "
+            f"{outcome['failed']} failed, {outcome['pending']} left pending")
+    if outcome["other"]:
+        text += f", {outcome['other']} other"
+    return f"{text} of {outcome['selected']} selected"
+
+
+def _drain_rows(con, pending: list[tuple], meta_path: str | Path, *, db_path=None,
+                jobs: int = 1) -> tuple[int, object]:
+    """Run the selected rows; return (exit code, the current write connection).
+
+    A parallel pool closes and reopens the writer, so the caller must use the
+    returned connection for anything it records afterwards.
+    """
     budget_s = float(os.environ.get("TRADING_ENGINE_DRAIN_BUDGET_S",
                                     DRAIN_BUDGET_DEFAULT_S))
     drain_start = time.monotonic()
@@ -1022,7 +1212,7 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
         if elapsed > budget_s:
             print(f"[queue] drain budget exhausted after {elapsed / 3600:.1f}h — "
                   f"leaving {remaining} pending job(s) for next drain")
-            return 0
+            return 0, con
 
         # --- global resource guard: load / RAM (start nothing if tripped) ---
         load5 = rsc.load_5min()
@@ -1035,7 +1225,7 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
                 reason.append(f"free RAM {free_gb:.1f} GiB < {FREE_RAM_MIN_GB:.0f}")
             print(f"[queue] resource guard tripped ({'; '.join(reason)}); "
                   f"leaving {remaining} job(s) pending and exiting 0 (resumable)")
-            return 0
+            return 0, con
 
         # --- roll through a RUN of consecutive parallel_safe jobs --------
         # Children open their own READ-ONLY connections, so the parent must let
@@ -1083,7 +1273,7 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
                 )
                 print(f"[queue] {label} inside rolling pool — leaving "
                       f"{remaining} pending job(s)")
-                return 0
+                return 0, con
             continue
 
         # Everything below runs the job IN-PROCESS on the write connection.
@@ -1150,7 +1340,7 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
             _set_state(con, jid, "failed", last_error=str(exc)[:500])
             print(f"[queue] job {jid} ({kind}) FAILED: {exc}")
 
-    return 0
+    return 0, con
 
 
 # --------------------------------------------------------------------------- #
@@ -1193,12 +1383,29 @@ def main() -> int:
                     help="--run: execute only this job kind (requires --run-params)")
     ap.add_argument("--run-params", action="append", default=[], metavar="JSON",
                     help="--run: exact authorized params object; repeat for multiple jobs")
+    ap.add_argument("--kinds", default=None, metavar="K[,K]",
+                    help="--run: drain only rows of these job kinds (comma-separated)")
+    ap.add_argument("--skip-parallel-safe", action="store_true",
+                    help="--run: leave parallel_safe research rows pending (the "
+                         "weekday nightly; research runs only in its own driver)")
+    ap.add_argument("--report-partial", action="store_true",
+                    help="--run: print a 'PARTIAL: ' marker line when selected jobs "
+                         "were left pending, timed out or failed")
     args = ap.parse_args()
 
     if args.once and not args.enqueue:
         ap.error("--once applies only to --enqueue")
     if (args.run_kind or args.run_params) and not args.run:
         ap.error("--run-kind/--run-params apply only to --run")
+    if (args.kinds is not None or args.skip_parallel_safe or args.report_partial) \
+            and not args.run:
+        ap.error("--kinds/--skip-parallel-safe/--report-partial apply only to --run")
+    kinds = None
+    if args.kinds is not None:
+        kinds = {k.strip() for k in args.kinds.split(",") if k.strip()}
+        unknown = sorted(kinds - set(JOB_TYPES))
+        if not kinds or unknown:
+            ap.error(f"--kinds needs known job kinds (unknown: {', '.join(unknown) or 'none given'})")
     if args.run and bool(args.run_kind) != bool(args.run_params):
         ap.error("targeted --run requires both --run-kind and at least one --run-params")
     if args.run_kind and args.run_kind not in JOB_TYPES:
@@ -1219,6 +1426,9 @@ def main() -> int:
     if args.run and not acquire_drain_lock():
         print("[queue] another drain holds the drain lock — leaving all jobs "
               "pending and exiting 0 (the queue is already being worked)")
+        if args.report_partial:
+            print(f"{PARTIAL_MARKER}queue drain did not start: another drain "
+                  "holds the drain lock")
         return 0
 
     # A dry run must not take the writer or migrate the schema on the live store.
@@ -1238,7 +1448,9 @@ def main() -> int:
             return cmd_status(con)
         return cmd_run(
             con, args.meta, db_path=args.db, jobs=args.jobs,
-            run_kind=args.run_kind, run_params=args.run_params,
+            run_kind=args.run_kind, run_params=args.run_params, kinds=kinds,
+            skip_parallel_safe=args.skip_parallel_safe,
+            report_partial=args.report_partial,
         )
     finally:
         con.close()

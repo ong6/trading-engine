@@ -201,7 +201,24 @@ def test_daily_farm_section_never_fails_the_nightly(fake_repo):
     assert rc == 0
     assert "WARN: farm section had failures (enqueue-nightly=0 run=3)" in out
     assert "-m engine.queue_runner --enqueue-nightly" in argv
-    assert "-m engine.queue_runner --run --jobs 8" in argv
+    assert "-m engine.queue_runner --run --skip-parallel-safe" in argv
+
+
+def test_daily_farm_drain_leaves_research_kinds_to_their_drivers(fake_repo):
+    """A weekend leftover must not run in the weekday nightly's drain (2026-10-19:
+    walk-forward children overlapped P15 scoring and blocked the pre-open)."""
+    _, _, argv = run_driver(fake_repo, "run_daily.sh")
+    drains = [a for a in argv if a.startswith("-m engine.queue_runner --run")]
+    assert drains == ["-m engine.queue_runner --run --skip-parallel-safe"]
+
+
+def test_walkforward_drains_only_its_grid_and_reports_partial(fake_repo):
+    rc, _, argv = run_driver(fake_repo, "run_weekly_walkforward.sh")
+    assert rc == 0
+    assert ("-m engine.queue_runner --run --jobs 8 --kinds walkforward "
+            "--report-partial") in argv
+    script = (fake_repo / "engine" / "run_weekly_walkforward.sh").read_text()
+    assert 'TRADING_ENGINE_DRAIN_BUDGET_S="${TRADING_ENGINE_DRAIN_BUDGET_S:-28800}"' in script
 
 
 def test_daily_stage_order(fake_repo):
@@ -264,7 +281,7 @@ def test_sweeps_enqueues_each_grid_then_drains(fake_repo):
         in argv
     )
     assert (
-        '-m engine.queue_runner --run --jobs 8 --run-kind sweep '
+        '-m engine.queue_runner --run --jobs 8 --report-partial --run-kind sweep '
         '--run-params {"grid": "grid_a", "charter_version": "charter-a-v1"} '
         '--run-params {"grid": "grid_b", "charter_version": "charter-b-v1"}'
         in argv

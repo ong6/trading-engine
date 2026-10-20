@@ -25,6 +25,9 @@ _DRIVER_FAILED = re.compile(
     r"\((?:stage=(?P<stage>[^ ]+) )?exit (?P<exit_code>\d+)\)"
 )
 _DRIVER_FAILED_PREFIX = re.compile(r"^TODO: \S+ failed(?: |$)")
+# engine/queue_runner.py --report-partial: the run finished, but its queue drain
+# left selected jobs pending, timed out or failed.
+_DRIVER_PARTIAL_PREFIX = b"PARTIAL: "
 
 
 def _lock_table_contains(identity: str, path: Path = _PROC_LOCKS) -> bool | None:
@@ -132,9 +135,12 @@ def _terminal_fields(
     driver_name: str,
     started_at: datetime,
     checked_at: datetime,
+    partial: bool = False,
 ) -> dict:
     if terminal.re is _DRIVER_DONE:
         result = {"status": "ok", "finished_at": terminal["at"]}
+        if partial:
+            result.update(status="partial", reason="queue-drain-partial")
     else:
         result = {
             "status": "failed",
@@ -197,6 +203,7 @@ def _run_fields(
     lock_before: bool | None,
     checked_at: datetime,
     stale_after: timedelta,
+    partial: bool = False,
 ) -> dict:
     started_at, invalid_reason = _started_at(match["at"], checked_at)
     if invalid_reason is not None or started_at is None:
@@ -209,6 +216,7 @@ def _run_fields(
             driver_name=match["name"],
             started_at=started_at,
             checked_at=checked_at,
+            partial=partial,
         )
     return _unterminated_fields(
         started_at,
@@ -229,6 +237,7 @@ def _run_status(
     lock_before: bool | None,
     checked_at: datetime,
     stale_after: timedelta,
+    partial: bool = False,
 ) -> dict:
     result = {
         "name": match["name"],
@@ -245,6 +254,7 @@ def _run_status(
             lock_before=lock_before,
             checked_at=checked_at,
             stale_after=stale_after,
+            partial=partial,
         )
     )
     return result
@@ -252,11 +262,15 @@ def _run_status(
 
 def _latest_run_markers(
     handle: BinaryIO, position: int
-) -> tuple[re.Match[str] | None, re.Match[str] | None, str | None]:
+) -> tuple[re.Match[str] | None, re.Match[str] | None, str | None, bool]:
     terminal = None
     multiple_terminals = False
     malformed_terminal = False
+    partial = False
     for raw in _reverse_lines(handle, position):
+        if raw.startswith(_DRIVER_PARTIAL_PREFIX):
+            partial = True
+            continue
         if not raw.startswith((b"=== ", b"TODO: ")):
             continue
         line = raw.decode(errors="replace")
@@ -275,10 +289,10 @@ def _latest_run_markers(
                 marker_error = "multiple-terminal-markers"
             else:
                 marker_error = None
-            return match, terminal, marker_error
+            return match, terminal, marker_error, partial
         if _DRIVER_START_PREFIX.match(line):
-            return None, None, "malformed-start-marker"
-    return None, terminal, None
+            return None, None, "malformed-start-marker", False
+    return None, terminal, None, False
 
 
 def _stable_log_metadata(metadata: os.stat_result) -> tuple[int, int, int, int, int, int]:
@@ -304,8 +318,9 @@ def _read_run_status(
         before = os.fstat(handle.fileno())
         handle.seek(0, 2)
         position = handle.tell()
-        match, terminal, marker_error = (
-            (None, None, None) if position == 0 else _latest_run_markers(handle, position)
+        match, terminal, marker_error, partial = (
+            (None, None, None, False) if position == 0
+            else _latest_run_markers(handle, position)
         )
         after = os.fstat(handle.fileno())
         visible = verify_visible_regular(log_path, handle, label="log")
@@ -331,6 +346,7 @@ def _read_run_status(
         lock_before=lock_before,
         checked_at=checked_at,
         stale_after=stale_after,
+        partial=partial,
     )
 
 

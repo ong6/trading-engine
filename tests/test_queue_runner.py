@@ -680,3 +680,303 @@ def test_status_lists_superseded_rows(qcon, capsys):
     assert qr.cmd_status(qcon) == 0
     out = capsys.readouterr().out
     assert "superseded" in out and "pending" in out
+
+
+# --------------------------------------------------------------------------- #
+# drain scheduling (2026-10-20): research isolation, non-latching guard,
+# partial reporting, walk-forward ceiling, snapshot reads
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def sequential_kind(monkeypatch):
+    """A fake store-writing kind that runs in-process and records each run."""
+    ran = []
+    monkeypatch.setitem(qr.JOB_TYPES, "seqfake", {
+        "loader": lambda: (lambda params, con, meta_path=None: ran.append(params)),
+        "archive": False, "mem_mb": 10})
+    monkeypatch.setattr(qr.rsc, "load_5min", lambda: 0.0)
+    monkeypatch.setattr(qr.rsc, "free_ram_gb", lambda: 100.0)
+    monkeypatch.setattr(qr.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(qr.rsc, "root_free_gb", lambda _path: 100.0)
+    monkeypatch.setattr(qr.rsc, "update_disk_warning", lambda *_args: None)
+    return ran
+
+
+def test_nightly_drain_leaves_research_rows_pending(
+    qcon, sequential_kind, monkeypatch, tmp_path, capsys
+):
+    """Sunday leftovers must not reach Monday's 22:30 drain (2026-10-19)."""
+    qr.cmd_enqueue(qcon, "seqfake", '{"n":1}', 100, None)
+    qr.cmd_enqueue(qcon, "walkforward", '{"config_id":"a"}', 170, None)
+    qr.cmd_enqueue(qcon, "sweep", '{"grid":"x"}', 900, None)
+    qr.cmd_enqueue(qcon, "capital_sensitivity", "{}", 900, None)
+    pools = []
+    monkeypatch.setattr(qr, "_run_parallel_pool",
+                        lambda pool, *_a, **_k: pools.append(pool))
+    assert qr._drain(qcon, tmp_path / "meta.json", jobs=8,
+                     skip_parallel_safe=True) == 0
+    assert pools == []
+    assert sequential_kind == [{"n": 1}]
+    assert _rows(qcon, "kind, state") == [
+        ("seqfake", "done"), ("walkforward", "pending"),
+        ("sweep", "pending"), ("capital_sensitivity", "pending")]
+    assert "leaving 3 parallel-safe research job(s)" in capsys.readouterr().out
+
+
+def test_kinds_filter_keeps_other_research_out_of_the_walkforward_drain(
+    qcon, monkeypatch, tmp_path
+):
+    qr.cmd_enqueue(qcon, "walkforward", '{"config_id":"a"}', 170, None)
+    qr.cmd_enqueue(qcon, "backtest", '{"config_id":"a"}', 140, None)
+    qr.cmd_enqueue(qcon, "sweep", '{"grid":"x"}', 900, None)
+    pools = []
+
+    def record(pool, db_path, meta_path, con, *, width, drain_deadline):
+        pools.append([row[1] for row in pool])
+        return {}, con, None
+
+    monkeypatch.setattr(qr, "_run_parallel_pool", record)
+    monkeypatch.setattr(qr.rsc, "load_5min", lambda: 0.0)
+    monkeypatch.setattr(qr.rsc, "free_ram_gb", lambda: 100.0)
+    assert qr._drain(qcon, tmp_path / "meta.json", jobs=8,
+                     kinds={"walkforward"}) == 0
+    assert pools == [["walkforward"]]
+
+
+def test_main_rejects_unknown_kinds_and_flags_without_run(monkeypatch):
+    for argv in (["--run", "--kinds", "walkforward,nope"],
+                 ["--status", "--skip-parallel-safe"],
+                 ["--status", "--report-partial"]):
+        monkeypatch.setattr("sys.argv", ["queue_runner.py", *argv])
+        with pytest.raises(SystemExit) as exc:
+            qr.main()
+        assert exc.value.code == 2
+
+
+def test_rolling_pool_resource_guard_waits_for_its_own_load_to_clear(
+    tmp_path, monkeypatch
+):
+    """2026-10-19: the guard tripped on the pool's own load and latched,
+    leaving 10 jobs deferred while the pool sat idle for hours."""
+    clock, starts = _fake_pool_processes(monkeypatch, {1: 2.0, 2: 1.0, 3: 1.0})
+    # load is high while job 1 runs and for a second after it exits
+    monkeypatch.setattr(qr.rsc, "load_5min",
+                        lambda: 30.0 if 0.5 <= clock.now < 3.0 else 0.0)
+    dbp = tmp_path / "q.duckdb"
+    con = db.connect(dbp)
+    qr.ensure_schema(con)
+    for jid in (1, 2, 3):
+        qr.cmd_enqueue(con, "walkforward", f'{{"config_id":"b{jid}"}}', 170, 10)
+    pool = con.execute(
+        "SELECT id, kind, params, mem_mb, timeout_s, priority FROM jobs ORDER BY id"
+    ).fetchall()
+    results, con, stopped = qr._run_parallel_pool(
+        pool, str(dbp), tmp_path / "meta.json", con, width=2,
+        drain_deadline=1000.0, _clock=clock.monotonic, _sleep=clock.sleep,
+    )
+    assert stopped is None
+    assert results == {1: 0, 2: 0, 3: 0}
+    assert [jid for jid, _ in starts] == [1, 2, 3]
+    assert starts[2][1] >= 3.0
+    con.close()
+
+
+def test_rolling_pool_defers_after_idle_settle_not_at_first_trip(
+    tmp_path, monkeypatch
+):
+    clock, starts = _fake_pool_processes(monkeypatch, {1: 1.0, 2: 1.0})
+    monkeypatch.setattr(qr.rsc, "load_5min",
+                        lambda: 30.0 if clock.now >= 0.5 else 0.0)
+    monkeypatch.setattr(qr, "RESOURCE_SETTLE_S", 5.0)
+    dbp = tmp_path / "q.duckdb"
+    con = db.connect(dbp)
+    qr.ensure_schema(con)
+    for jid in (1, 2):
+        qr.cmd_enqueue(con, "walkforward", f'{{"config_id":"b{jid}"}}', 170, 10)
+    pool = con.execute(
+        "SELECT id, kind, params, mem_mb, timeout_s, priority FROM jobs ORDER BY id"
+    ).fetchall()
+    results, con, stopped = qr._run_parallel_pool(
+        pool, str(dbp), tmp_path / "meta.json", con, width=1,
+        drain_deadline=1000.0, _clock=clock.monotonic, _sleep=clock.sleep,
+    )
+    assert stopped == "resources"
+    assert results == {1: 0}
+    assert 6.0 <= clock.now < 7.0  # job 1 ends at 1.0, then a 5 s idle settle
+    assert _rows(con, "id, state") == [(1, "done"), (2, "pending")]
+    con.close()
+
+
+def test_rolling_pool_sleeps_between_polls_after_the_last_launch(
+    tmp_path, monkeypatch
+):
+    """With a launch stagger, a pool whose free slots cannot be used must still
+    sleep a full poll; it used to spin without sleeping until workers exited."""
+    clock, _starts = _fake_pool_processes(monkeypatch, {1: 50.0})
+    monkeypatch.setattr(qr, "BATCH_STAGGER_S", 4.0)
+    calls = {"n": 0}
+
+    def counted_clock():
+        calls["n"] += 1
+        if calls["n"] > 10_000:
+            raise AssertionError("pool loop spun without sleeping")
+        return clock.monotonic()
+
+    dbp = tmp_path / "q.duckdb"
+    con = db.connect(dbp)
+    qr.ensure_schema(con)
+    qr.cmd_enqueue(con, "walkforward", '{"config_id":"b1"}', 170, 10)
+    pool = con.execute(
+        "SELECT id, kind, params, mem_mb, timeout_s, priority FROM jobs"
+    ).fetchall()
+    results, con, stopped = qr._run_parallel_pool(
+        pool, str(dbp), tmp_path / "meta.json", con, width=2,
+        drain_deadline=1000.0, _clock=counted_clock, _sleep=clock.sleep,
+    )
+    assert stopped is None and results == {1: 0}
+    con.close()
+
+
+def test_drain_reports_partial_when_selected_jobs_are_left_undone(
+    qcon, sequential_kind, monkeypatch, tmp_path, capsys
+):
+    """2026-10-19: 4 done, 4 timed out, 10 deferred, and the driver said 'ok'."""
+    qr.cmd_enqueue(qcon, "walkforward", '{"config_id":"a"}', 170, None)
+    qr.cmd_enqueue(qcon, "walkforward", '{"config_id":"b"}', 170, None)
+    qr.cmd_enqueue(qcon, "walkforward", '{"config_id":"c"}', 170, None)
+
+    def pool_run(pool, db_path, meta_path, con, *, width, drain_deadline):
+        qr._set_state(con, 1, "done", progress="complete")
+        qr._set_state(con, 2, "failed", progress="timeout", last_error="timeout")
+        return {1: 0, 2: "timeout"}, con, "resources"
+
+    monkeypatch.setattr(qr, "_run_parallel_pool", pool_run)
+    assert qr._drain(qcon, tmp_path / "meta.json", jobs=8,
+                     report_partial=True) == 0
+    out = capsys.readouterr().out
+    assert ("\nPARTIAL: queue drain left selected work undone (1 done, 1 timed out, "
+            "0 failed, 1 left pending of 3 selected)\n") in out
+
+
+def test_drain_reports_partial_when_global_guard_starts_nothing(
+    qcon, sequential_kind, monkeypatch, tmp_path, capsys
+):
+    """2026-10-18 20:35: load 34.3 > 28, exit 0 after 0.65 s, status 'ok'."""
+    qr.cmd_enqueue(qcon, "walkforward", '{"config_id":"a"}', 170, None)
+    monkeypatch.setattr(qr.rsc, "load_5min", lambda: 34.3)
+    assert qr._drain(qcon, tmp_path / "meta.json", jobs=8, report_partial=True) == 0
+    assert "PARTIAL: queue drain left selected work undone" in capsys.readouterr().out
+
+
+def test_drain_complete_or_unflagged_prints_no_partial_marker(
+    qcon, sequential_kind, tmp_path, capsys
+):
+    qr.cmd_enqueue(qcon, "seqfake", "{}", 100, None)
+    assert qr._drain(qcon, tmp_path / "meta.json", report_partial=True) == 0
+    out = capsys.readouterr().out
+    assert "drain outcome: 1 done" in out and "PARTIAL:" not in out
+    qr.cmd_enqueue(qcon, "seqfake", '{"bad": 1}', 100, None, 0)
+    qr.JOB_TYPES["seqfake"]["loader"] = lambda: (lambda *_a, **_k: 1 / 0)
+    assert qr._drain(qcon, tmp_path / "meta.json") == 0
+    assert "PARTIAL:" not in capsys.readouterr().out
+
+
+def test_report_partial_drain_declined_by_drain_lock_is_partial(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["queue_runner.py", "--run", "--report-partial"])
+    monkeypatch.setattr(qr, "acquire_drain_lock", lambda: False)
+    assert qr.main() == 0
+    assert "PARTIAL: queue drain did not start" in capsys.readouterr().out
+
+
+def test_walkforward_has_an_explicit_ceiling_above_the_4h_default():
+    assert qr.default_timeout_s("walkforward") == 7 * 3600
+
+
+def test_supersede_stale_pending_drops_last_weeks_leftovers_only(qcon):
+    qr.cmd_enqueue(qcon, "walkforward", '{"config_id":"old"}', 170, None)
+    qr.cmd_enqueue(qcon, "walkforward", '{"config_id":"done"}', 170, None)
+    qr.cmd_enqueue(qcon, "walkforward", '{"config_id":"fresh"}', 170, None)
+    qr.cmd_enqueue(qcon, "sweep", '{"grid":"old"}', 900, None)
+    qcon.execute("UPDATE jobs SET created_at = created_at - INTERVAL 7 DAY "
+                 "WHERE id IN (1, 2, 4)")
+    qcon.execute("UPDATE jobs SET state = 'done' WHERE id = 2")
+    assert qr.supersede_stale_pending(qcon, "walkforward", 24 * 3600, "newer grid",
+                                      dry_run=True) == [1]
+    assert _rows(qcon, "id, state")[0] == (1, "pending")
+    assert qr.supersede_stale_pending(qcon, "walkforward", 24 * 3600,
+                                      "newer grid") == [1]
+    assert _rows(qcon, "id, state") == [
+        (1, "superseded"), (2, "done"), (3, "pending"), (4, "pending")]
+
+
+def test_walkforward_grid_enqueue_supersedes_previous_week(qcon, monkeypatch):
+    from farm.walkforward import grid
+
+    qr.cmd_enqueue(qcon, "walkforward", '{"config_id": "gone"}', 170, None)
+    qr.cmd_enqueue(qcon, "walkforward", '{"config_id": "spy"}', 170, None)
+    qcon.execute("UPDATE jobs SET created_at = created_at - INTERVAL 7 DAY")
+    monkeypatch.setattr(grid, "plan", lambda _con, _overrides=None: [
+        ("spy", 170, '{"config_id": "spy"}')])
+    assert grid.enqueue(qcon) == 0
+    assert _rows(qcon, "id, state, params") == [
+        (1, "superseded", '{"config_id": "gone"}'),
+        (2, "superseded", '{"config_id": "spy"}'),
+        (3, "pending", '{"config_id": "spy"}')]
+
+
+def _publish_fake_snapshot(live_path, *, as_of):
+    import json as _json
+    import os as _os
+
+    directory = live_path.parent / "snapshots"
+    directory.mkdir()
+    name = "market-20261018T060000000000Z.duckdb"
+    snap = directory / name
+    c = duckdb.connect(str(snap))
+    c.execute("CREATE TABLE marker AS SELECT 'snapshot' AS source")
+    c.close()
+    (directory / name).with_suffix(".json").write_text(_json.dumps({
+        "schema_version": 1, "snapshot": name, "as_of": as_of,
+        "sha256": "0" * 64, "row_counts": {"marker": 1}}))
+    _os.symlink(name, directory / "market-latest.duckdb")
+    return snap
+
+
+@pytest.fixture
+def research_kind(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(qr.rsc, "apply_niceness", lambda: None)
+    monkeypatch.setitem(qr.JOB_TYPES, "researchfake", {
+        "loader": lambda: (lambda params, con, meta_path=None: seen.append(
+            con.execute("SELECT source FROM marker").fetchone()[0])),
+        "archive": False, "mem_mb": 10, "parallel_safe": True})
+    live = tmp_path / "store" / "market.duckdb"
+    live.parent.mkdir()
+    con = db.connect(live)
+    qr.ensure_schema(con)
+    con.execute("CREATE TABLE marker AS SELECT 'live' AS source")
+    qr.cmd_enqueue(con, "researchfake", "{}", 170, None)
+    con.close()
+    return live, seen
+
+
+def test_parallel_child_reads_the_published_snapshot(research_kind, tmp_path):
+    """Live read-only handles blocked the 13:05 pre-open and weekend writers."""
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    live, seen = research_kind
+    _publish_fake_snapshot(live, as_of=_dt.now(_tz.utc).isoformat())
+    assert qr.cmd_run_one(1, str(live), tmp_path / "meta.json") == 0
+    assert seen == ["snapshot"]
+
+
+def test_parallel_child_falls_back_to_live_without_a_fresh_snapshot(
+    research_kind, tmp_path, capsys
+):
+    live, seen = research_kind
+    assert qr.cmd_run_one(1, str(live), tmp_path / "meta.json") == 0
+    _publish_fake_snapshot(live, as_of="2026-01-01T00:00:00+00:00")
+    assert qr.cmd_run_one(1, str(live), tmp_path / "meta.json") == 0
+    assert seen == ["live", "live"]
+    out = capsys.readouterr().out
+    assert "no valid published snapshot" in out and "h old" in out
