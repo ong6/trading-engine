@@ -1,0 +1,56 @@
+{
+ "schema_version": 1,
+ "exceptions": [
+  {
+   "invariant": "ohlc_geometry",
+   "class": "provisional",
+   "owner": "orchestrator",
+   "reason": "Same-night bars on the newest session are yfinance's provisional view (2026-10-19: 228 of 4,058 opens outside high/low); the next night's re-fetch replaces them and the candidate read model flags them provisional.",
+   "expires": "2027-01-20",
+   "ref": "fix/same-night-ohlc-geometry"
+  },
+  {
+   "invariant": "ohlc_geometry",
+   "class": "settled",
+   "through": "2026-10-14",
+   "owner": "orchestrator",
+   "reason": "151 vendor bars stored before the monitor existed (zero opens or lows, opens outside the range; 82 from the 2026-07-16 backfill). Never fabricated or rewritten; rejecting such bars at admission is the revision-15 price-admission work. A settled impossible bar after 2026-10-14 is a regression.",
+   "expires": "2026-11-20",
+   "ref": "r15-data price admission"
+  },
+  {
+   "invariant": "one_split_basis_per_ticker",
+   "class": "reverted_false_break",
+   "owner": "orchestrator",
+   "reason": "Ratio-sized moves near a recorded split that the 2026-09-03 repair reviewed and reverted as real moves (actions.repair_restatements); the stored series is the intended one.",
+   "expires": "2027-04-20",
+   "ref": "audit_log split_restatement_reverted 2026-09-03"
+  },
+  {
+   "invariant": "one_split_basis_per_ticker",
+   "subjects": ["CPF 1988-05-26"],
+   "owner": "orchestrator",
+   "reason": "1988 split adjudicated noop_pre_history before the pre-1988 history was backfilled; outside every backtest and walk-forward data floor.",
+   "expires": "2027-01-20",
+   "ref": "engine/actions.py rule noop_pre_history"
+  },
+  {
+   "invariant": "preopen_not_voided",
+   "class": "voided",
+   "through": "2026-10-19",
+   "owner": "orchestrator",
+   "reason": "Pre-open runs 5, 6 and 12 (2026-10-05, 10-06, 10-16) were voided whole by one keep without new evidence. Immutable history; per-decision validation lands with revision 15. A void after 2026-10-19 is a regression.",
+   "expires": "2027-04-20",
+   "ref": "fix/p15-preopen-reliability"
+  },
+  {
+   "invariant": "preopen_not_voided",
+   "class": "missed",
+   "through": "2026-10-19",
+   "owner": "orchestrator",
+   "reason": "The pre-open crashed on the store lock on 2026-10-13, 10-14 and 10-19 and left no run row while AI-book entries filled. Immutable history; the missed-run record and longer lock wait land with revision 15.",
+   "expires": "2027-04-20",
+   "ref": "fix/p15-preopen-reliability"
+  }
+ ]
+}
