@@ -406,3 +406,108 @@ def test_weekly_full_verify_keeps_its_own_metadata_key(monkeypatch, tmp_path):
     stored = json.loads(meta.read_text())
     assert stored[verify_prices.FULL_META_KEY]["sample"] == 5000
     assert stored[verify_prices.META_KEY]["sample"] == 40
+
+
+def _rows_response(symbol, rows):
+    return _response({"symbol": symbol, "tradesTable": {"rows": rows}})
+
+
+def test_etf_answer_with_no_volume_on_any_row_is_not_a_price_history(monkeypatch, con, tmp_path):
+    """Weekly 10-18: VFLO and GFLW came back under their own symbol as index levels
+    (84,130.335, volume N/A on every row), and the tax-exempt bond ETFs (VTEL,
+    VTEC, VTEI, VTES) as an untraded three-decimal series, again with no volume on
+    any row. All six disagreed, 65 of the 73 disagreements; every other ETF answer
+    (1,224) carried volumes."""
+    db.init_schema(con)
+    days = [date(2026, 10, 15), date(2026, 10, 16)]
+    for ticker in ("IDX", "BOND", "SPY", "THIN"):
+        con.execute("INSERT INTO universe(ticker,etf) VALUES (?,?)", [ticker, ticker != "THIN"])
+        for day in days:
+            con.execute("INSERT INTO prices(ticker,date,open,high,low,close,volume) "
+                        "VALUES (?,?,52.9,53.3,52.8,53.0,1000)", [ticker, day])
+
+    def row(day, price, volume):
+        return {"date": day.strftime("%m/%d/%Y"), "open": price, "high": price,
+                "low": price, "close": price, "volume": volume}
+
+    answers = {
+        "IDX": [row(d, "84,130.335", "N/A") for d in days],
+        "BOND": [row(d, "53.25", "N/A") for d in days],
+        "SPY": [row(days[0], "53.25", "N/A"), row(days[1], "53.25", "1,000")],
+        "THIN": [row(d, "$53.25", "N/A") for d in days],
+    }
+    monkeypatch.setattr(verify_prices, "fetch_nasdaq_response",
+                        lambda ticker, **_kw: _rows_response(ticker, answers[ticker]))
+    monkeypatch.setattr(verify_prices, "PER_NAME_SLEEP", 0)
+    result = verify_prices.run({"tickers": list(answers), "sessions": 2}, con,
+                               tmp_path / "meta.json")
+
+    status = {r["ticker"]: (r["status"], r.get("reason")) for r in result["name_results"]}
+    assert status["IDX"] == ("not_checked", "source_identity")
+    assert status["BOND"] == ("not_checked", "source_identity")
+    # One volume-less row is not a non-trade series, and stocks are not exempted:
+    # both are still compared and a real gap is still a disagreement.
+    assert status["SPY"] == ("disagrees", None)
+    assert status["THIN"] == ("disagrees", None)
+    assert result["not_checked_reasons"] == {"source_identity": 2}
+    assert {d["ticker"] for d in result["disagreements"]} == {"SPY", "THIN"}
+    assert "no volume" in result["not_checked_names"][0]["detail"]
+
+
+def _evidence_acc():
+    return {"as_of": "2026-10-16", "names_checked": 1,
+            "source_evidence": {"AAA": [{"body_base64": "Ym9keQ==", "body_sha256": "x"}]},
+            "store_evidence": {"AAA": {"2026-10-16": {"close": 10.0}}}}
+
+
+@pytest.mark.parametrize("extra", [[], ["--no-meta"]])
+def test_main_prints_the_summary_never_the_raw_evidence(monkeypatch, tmp_path, capsys, extra):
+    """Weekly logs grew from 0.23 MB to ~18 MB: main() printed the full accounting,
+    base64 response bodies included, before retain_evidence stripped them."""
+    import json
+    import sys
+
+    meta = tmp_path / "data" / "_meta.json"
+    meta.parent.mkdir()
+    monkeypatch.setattr(verify_prices, "run_connection_narrowed", lambda *_a, **_kw: _evidence_acc())
+    monkeypatch.setattr(sys, "argv", ["verify_prices", "--meta", str(meta), *extra])
+    assert verify_prices.main() == 0
+
+    out = capsys.readouterr().out
+    assert "body_base64" not in out and "source_evidence" not in out
+    assert "store_evidence" not in out
+    printed, _ = json.JSONDecoder().raw_decode(out[out.index("{"):])
+    assert printed["names_checked"] == 1
+    if not extra:
+        receipt = printed["evidence_receipt"]
+        stored = json.loads((meta.parent / receipt["path"]).read_text())
+        assert stored["source_evidence"]["AAA"][0]["body_base64"] == "Ym9keQ=="
+
+
+def test_old_unreferenced_receipts_are_pruned(monkeypatch, tmp_path):
+    """data/price-verify had no retention: 66 MB in two weeks, ~15 MB per weekly pass."""
+    import json
+    import sys
+
+    meta = tmp_path / "data" / "_meta.json"
+    receipts = meta.parent / "price-verify"
+    receipts.mkdir(parents=True)
+    old = time.time() - (verify_prices.RECEIPT_RETENTION_DAYS + 1) * 86_400
+    names = {kind: f"{kind[0] * 64}.json" for kind in ("aged", "cited", "fresh")}
+    for kind, name in names.items():
+        (receipts / name).write_text("{}")
+        if kind != "fresh":
+            os.utime(receipts / name, (old, old))
+    for other in (".receipt-partial", "notes.json"):
+        (receipts / other).write_text("{}")
+        os.utime(receipts / other, (old, old))
+    cited = {"evidence_receipt": {"sha256": "c" * 64, "path": f"price-verify/{'c' * 64}.json"}}
+    meta.write_text(json.dumps({verify_prices.FULL_META_KEY: cited}))
+    monkeypatch.setattr(verify_prices, "run_connection_narrowed", lambda *_a, **_kw: _evidence_acc())
+    monkeypatch.setattr(sys, "argv", ["verify_prices", "--meta", str(meta)])
+    assert verify_prices.main() == 0
+
+    left = {p.name for p in receipts.iterdir()}
+    written = json.loads(meta.read_text())[verify_prices.META_KEY]["evidence_receipt"]["sha256"]
+    assert left == {names["cited"], names["fresh"], f"{written}.json",
+                    ".receipt-partial", "notes.json"}
