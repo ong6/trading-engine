@@ -65,6 +65,26 @@ cancelled three FBRX sell orders (1005, 1017, 1029) that had remained pending af
 the positions were settled; the audit row preserves the exact order ids. The live stale-
 exposure projection then returned zero positions and zero pending orders.
 
+## 0. Deploy gate
+
+Before any code reaches the live checkout (a settlement fix, a deployment in the P22 section
+below, or any pull), run the gate on the exact candidate checkout, committed and clean:
+
+```bash
+CANDIDATE="$HOME/engine-lanes/<lane>"  # the committed, clean candidate checkout
+.venv/bin/python -m tools.deploy_gate --check "$CANDIDATE"
+```
+
+It runs the contract tests, `schedule_contract_check --static`, the provider-contract replay
+and `env-check`, the registration identity test (a pinned file changed without a registration
+revision in the same diff refuses), the live-store path lint and the shadow invariant result,
+all with the candidate's own code, and writes
+`~/.local/state/trading-engine/deploy-gate/<tree-sha>.json`. Deploy only a tree whose receipt
+says `"verdict": "pass"`, and check that `git rev-parse HEAD^{tree}` in the live checkout
+matches the receipt name after the pull. Invariant warnings are shadow-only: read them, they
+do not block. Exit 2 is a refusal (the receipt lists `refused_by`); exit 3 means the checkout
+was dirty or moved, and nothing was vouched for.
+
 ## 1. Look up the terms
 
 For each name, find the primary document and note four things: kind (cash / stock /
