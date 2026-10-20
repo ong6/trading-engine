@@ -3902,4 +3902,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +79, tools +240, farm 0, tests +340 lines.
 - **Next:** re-pin P15 registration (model identities and file hashes) in the next revision.
 
+## 2026-10-20 — Integrate revision 15 with the reviewed fixes on the rewritten main
+
+- **Why:** revision 15 (built on the pre-deploy P22 base) and the 17 reviewed engine fix branches must land as one numbered release after the history rewrite, with one re-pin.
+- **What:** r15/integrate's 36 commits are carried over tree-identical and re-parented onto main's equivalent P22 commits; then the test-speed round 2 lane and the 17 fixes in stack order. Combined where two changes met: refetch keeps admission's no-DELETE upsert (stamps kept, rewrite row once); provisional same-night bars use the shared validator and the screen quality count agrees; replay steps take deferred reports and no live accounts; the ops digest carries receipts, contract, invariants and gateway; history publishes at most daily and failures propagate. New tests cover the refetch and quality combinations.
+  One re-pin: E1 v8, sector v12 and XS v23 hashes amended (versions unchanged, same revision-14 checkpoints); registration revision 15 pins 166 files (adds engine/price_quarantine.py), schema-4 model identities, source_commit d5d5da84, registration_sha256 b0a49367.
+- **Evidence:** full suites 5,675 passed under UTC and Asia/Singapore with warnings as errors; ruff blocking selections pass; UI 73 tests and build pass; deploy gate passes (invariants shadow warning only); release dry run plans the revision-15 adapter set but refuses the workspace (101.6 GB free, 109.9 GB required).
+- **Metrics:** integration and reconciliation only; no new product feature.
+- **Next:** orchestrator frees snapshot space, accepts the landing SHA and runs R15.1–R15.3 with the October 20 amendment.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
