@@ -187,6 +187,8 @@ def test_p15_scoring_unit_is_registered_and_autostarted():
         ".venv/bin/python -m farm.p15_event_runner --mature-labels"
     ) < runner.index(
         ".venv/bin/python -m server.agent_evaluation_reporting"
+    ) < runner.index(
+        ".venv/bin/python -m engine.sync --driver run_p15_scoring"
     ) < runner.index("tools.publish_snapshot")
     assert "RestartPreventExitStatus=75" in service
     assert "report_status" in runner and "restart suppressed" in runner

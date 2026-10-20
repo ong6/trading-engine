@@ -63,7 +63,9 @@ The AI work comes later. First the engine retains inputs and source receipts. Th
 opportunity agent runs. Half an hour later, candidate-wide scoring runs with matched rule scores and
 refreshes the paper-book and evaluation views. Scoring re-renders the league before it validates
 evidence. Evidence failure exits 75 after that render, and the service does not restart on that
-status. Keeping these jobs separate makes their information cutoffs and failure states visible.
+status. Scoring then commits the re-rendered reports under its own name, whatever the report
+status, so the committed reports match the session that was just scored. Keeping these jobs
+separate makes their information cutoffs and failure states visible.
 
 The historical research archive also runs in bounded slices. On weekdays it has five fixed-UTC
 slots; on weekends it has six four-hourly slots. A caught-up TradingView symbol waits for two to
