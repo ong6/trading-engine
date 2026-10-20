@@ -165,6 +165,8 @@ def test_tradingview_archive_timer_is_bounded_and_queue_owned():
     assert "--enqueue tradingview_history" in runner
     assert "--run --run-kind tradingview_history" in runner
     assert "tools.publish_snapshot" in runner and "|| echo" in runner
+    # Each archive slice must not republish the full-database snapshot.
+    assert "tools.publish_snapshot --min-age-minutes 1440" in runner
     assert '"max_chunks":50' in runner and "official_quote_source" not in runner
 
 

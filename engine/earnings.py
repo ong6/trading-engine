@@ -361,7 +361,7 @@ def _pull_pending(
         time.sleep(PER_NAME_SLEEP)
     _flush()
 
-    store_gb = rsc.dir_size_gb(STORE_DIR)
+    store_gb = rsc.live_store_gb(STORE_DIR)
     total_rows = count_rows()
     accounting = {
         "last_run": datetime.now(timezone.utc).isoformat(),
@@ -380,7 +380,7 @@ def _pull_pending(
         "store_gb": round(store_gb, 2),
     }
     rsc.merge_meta(meta_path, {"earnings": accounting})
-    rsc.update_disk_warning(meta_path, store_gb)
+    rsc.update_disk_warning(meta_path, store_gb, snapshots_gb=rsc.snapshots_gb(STORE_DIR))
 
     log.info(f"[earnings] DONE as_of={as_of} pulled={len(pending)} with_date={with_date} "
           f"no_date={no_date} failed={failed} inserted={inserted} "

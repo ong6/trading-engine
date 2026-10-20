@@ -17,11 +17,16 @@ from pathlib import Path
 
 import duckdb
 
+from engine.lib import resources
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
-from engine.lib.snapshots import LATEST_NAME, latest_snapshot, snapshot_directory
+from engine.lib.snapshots import (
+    KEEP_PREVIOUS_SNAPSHOTS,
+    LATEST_NAME,
+    latest_snapshot,
+    retention_plan,
+    snapshot_directory,
+)
 from tools import backup_database
-
-KEEP_SNAPSHOTS = 2
 
 
 class SnapshotError(RuntimeError):
@@ -133,15 +138,43 @@ def _swap_latest(directory: Path, destination: Path) -> None:
             pass
 
 
-def _retain_newest(directory: Path) -> None:
-    snapshots = sorted(
-        path for path in directory.glob("market-*.duckdb")
-        if path.name != LATEST_NAME and not path.is_symlink()
-    )
-    for old in snapshots[:-KEEP_SNAPSHOTS]:
+def _retain_newest(directory: Path, keep_previous: int = KEEP_PREVIOUS_SNAPSHOTS) -> None:
+    """Delete snapshots outside the latest-plus-``keep_previous`` retention plan."""
+    for old in retention_plan(directory, keep_previous).delete:
         old.unlink(missing_ok=True)
         old.with_suffix(".json").unlink(missing_ok=True)
     _sync_directory(directory)
+
+
+def retention_listing(
+    source: Path, keep_previous: int = KEEP_PREVIOUS_SNAPSHOTS,
+) -> dict:
+    """Describe retention and disk accounting without deleting or opening a database."""
+    directory = snapshot_directory(source)
+    plan = retention_plan(directory, keep_previous)
+    unverified = set(plan.unverified)
+
+    def describe(path: Path) -> dict:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = None
+        return {"snapshot": path.name, "size_bytes": size, "verified": path not in unverified}
+
+    store_dir = Path(source).absolute().parent
+    live_gb = resources.live_store_gb(store_dir)
+    snapshot_gb = resources.snapshots_gb(store_dir)
+    return {
+        "status": "dry-run",
+        "keep_previous": keep_previous,
+        "latest": plan.latest.name if plan.latest is not None else None,
+        "keep": [describe(path) for path in plan.keep],
+        "delete": [describe(path) for path in plan.delete],
+        "store_gb_excluding_snapshots": round(live_gb, 2),
+        "store_soft_cap_gb": resources.STORE_SOFT_GB,
+        "snapshots_gb": round(snapshot_gb, 2),
+        "snapshot_soft_cap_gb": resources.SNAPSHOT_SOFT_GB,
+    }
 
 
 def publish_snapshot(
@@ -152,7 +185,7 @@ def publish_snapshot(
     held_locks: frozenset[str] = frozenset(),
     min_age_minutes: float | None = None,
 ) -> dict:
-    """Copy, fsync, atomically publish, and retain two database snapshots."""
+    """Copy, fsync, atomically publish, and retain latest plus one verified snapshot."""
     repo_root = repo_root.resolve()
     source = source.resolve(strict=True)
     checked_at = datetime.now(timezone.utc)
@@ -235,6 +268,12 @@ def main(argv: list[str] | None = None) -> int:
         help="skip successfully when the latest snapshot is newer than N minutes",
     )
     parser.add_argument(
+        "--retention-dry-run",
+        action="store_true",
+        help="list what retention would keep and delete, and the disk accounting; "
+        "publishes and deletes nothing",
+    )
+    parser.add_argument(
         "--held-lock",
         action="append",
         default=[],
@@ -244,6 +283,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     repo_root = args.repo_root.resolve()
     source = args.source if args.source.is_absolute() else repo_root / args.source
+    if args.retention_dry_run:
+        print(json.dumps(retention_listing(source), sort_keys=True))
+        return 0
     try:
         result = publish_snapshot(
             repo_root,

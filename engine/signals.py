@@ -932,11 +932,11 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     mode = params.get("mode", "incremental")
     acc = collect(con, params, mode)
 
-    store_gb = rsc.dir_size_gb(STORE_DIR)
+    store_gb = rsc.live_store_gb(STORE_DIR)
     acc["last_run"] = datetime.now(timezone.utc).isoformat()
     acc["store_gb"] = round(store_gb, 2)
     rsc.merge_meta(meta_path, {f"signals_{mode}": acc})
-    rsc.update_disk_warning(meta_path, store_gb)
+    rsc.update_disk_warning(meta_path, store_gb, snapshots_gb=rsc.snapshots_gb(STORE_DIR))
     return acc
 
 
@@ -989,11 +989,11 @@ def run_connection_narrowed(
             read_con.close()
 
     acc = _collect(params, mode, fetch_source, insert_rows, read_totals)
-    store_gb = rsc.dir_size_gb(STORE_DIR)
+    store_gb = rsc.live_store_gb(STORE_DIR)
     acc["last_run"] = datetime.now(timezone.utc).isoformat()
     acc["store_gb"] = round(store_gb, 2)
     rsc.merge_meta(meta_path, {f"signals_{mode}": acc})
-    rsc.update_disk_warning(meta_path, store_gb)
+    rsc.update_disk_warning(meta_path, store_gb, snapshots_gb=rsc.snapshots_gb(STORE_DIR))
     return acc
 
 

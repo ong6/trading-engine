@@ -92,7 +92,7 @@ def test_connection_narrowed_run_releases_db_and_appends_batches(monkeypatch, tm
     monkeypatch.setattr(intraday, "_yf_map", lambda _con, _tickers: {"AAA": "AAA"})
     monkeypatch.setattr(intraday, "_download", download_while_reading)
     monkeypatch.setattr(intraday, "BATCH_SLEEP", 0)
-    monkeypatch.setattr(intraday.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(intraday.rsc, "dir_size_gb", lambda _path, **_kwargs: 0.0)
 
     result = intraday.run_connection_narrowed(
         {}, db_path=db_path, meta_path=tmp_path / "meta.json"
@@ -121,7 +121,7 @@ def test_limit_zero_makes_no_http_request(monkeypatch, tmp_path):
         raise AssertionError("limit=0 must not make an HTTP request")
 
     monkeypatch.setattr(intraday, "_download", unexpected_download)
-    monkeypatch.setattr(intraday.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(intraday.rsc, "dir_size_gb", lambda _path, **_kwargs: 0.0)
     result = intraday.run_connection_narrowed(
         {"limit": 0}, db_path=db_path, meta_path=tmp_path / "meta.json"
     )

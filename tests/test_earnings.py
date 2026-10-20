@@ -25,7 +25,7 @@ def _run(monkeypatch, con, tmp_path, pairs, responses):
     monkeypatch.setattr(earnings, "_select_universe", lambda _con, _params: (pairs, "test"))
     monkeypatch.setattr(earnings, "_fetch_calendar", lambda _ticker: next(remaining))
     monkeypatch.setattr(earnings, "PER_NAME_SLEEP", 0)
-    monkeypatch.setattr(earnings.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(earnings.rsc, "dir_size_gb", lambda _path, **_kwargs: 0.0)
     return earnings.run({}, con, meta_path=tmp_path / "meta.json")
 
 
@@ -286,7 +286,7 @@ def test_connection_narrowed_run_releases_db_during_fetch(monkeypatch, tmp_path)
 
     monkeypatch.setattr(earnings, "_fetch_calendar", fetch_while_reading)
     monkeypatch.setattr(earnings, "PER_NAME_SLEEP", 0)
-    monkeypatch.setattr(earnings.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(earnings.rsc, "dir_size_gb", lambda _path, **_kwargs: 0.0)
     result = earnings.run_connection_narrowed(
         {"tickers": ["AAA"]}, db_path=db_path, meta_path=tmp_path / "meta.json"
     )

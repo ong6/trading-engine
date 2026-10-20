@@ -236,7 +236,7 @@ def _pull_batches(
     failed = requested - with_data
 
     # honest accounting -> _meta.json under the 'intraday' key (merge!)
-    store_gb = rsc.dir_size_gb(STORE_DIR)
+    store_gb = rsc.live_store_gb(STORE_DIR)
     accounting = {
         "last_run": datetime.now(timezone.utc).isoformat(),
         "tickers_requested": requested,
@@ -249,7 +249,7 @@ def _pull_batches(
     }
     rsc.merge_meta(meta_path, {"intraday": accounting})
     # keep the top-level disk_warning honest on every intraday run too
-    rsc.update_disk_warning(meta_path, store_gb)
+    rsc.update_disk_warning(meta_path, store_gb, snapshots_gb=rsc.snapshots_gb(STORE_DIR))
 
     log.info(f"[intraday] DONE requested={requested} with_data={with_data} "
           f"failed={failed} new_1m={new_rows['1m']} new_5m={new_rows['5m']} "

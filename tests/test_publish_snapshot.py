@@ -43,7 +43,7 @@ def _repo(tmp_path: Path) -> tuple[Path, Path]:
     return root, source
 
 
-def test_publish_is_atomic_retains_two_and_records_manifest(tmp_path):
+def test_publish_is_atomic_retains_latest_plus_one_and_records_manifest(tmp_path):
     root, source = _repo(tmp_path)
     manifests = [
         publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=index))
@@ -210,3 +210,126 @@ def test_latest_snapshot_requires_publication_after_database_write(tmp_path):
 
     assert snapshots.latest_snapshot(source) is not None
     assert snapshots.latest_snapshot(source, newer_than_database=True) is None
+
+
+def _fake_snapshot(directory: Path, stamp: str, *, size: int = 8, manifest: bool = True,
+                   recorded_size: int | None = None) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"market-{stamp}.duckdb"
+    path.write_bytes(b"x" * size)
+    if manifest:
+        path.with_suffix(".json").write_text(json.dumps({
+            "schema_version": 1,
+            "snapshot": path.name,
+            "source_database": "store/market.duckdb",
+            "source_data_commit": None,
+            "as_of": NOW.isoformat(),
+            "size_bytes": size if recorded_size is None else recorded_size,
+            "sha256": "0" * 64,
+            "row_counts": {"main.prices": 1},
+        }))
+    return path
+
+
+def _point_latest(directory: Path, snapshot: Path) -> None:
+    os.symlink(snapshot.name, directory / snapshots.LATEST_NAME)
+
+
+def test_retention_skips_unverified_copies_when_counting_previous(tmp_path):
+    directory = tmp_path / "store" / "snapshots"
+    verified = _fake_snapshot(directory, "20261001T000000000000Z")
+    truncated = _fake_snapshot(directory, "20261002T000000000000Z", recorded_size=99)
+    orphan = _fake_snapshot(directory, "20261003T000000000000Z", manifest=False)
+    latest = _fake_snapshot(directory, "20261004T000000000000Z")
+    _point_latest(directory, latest)
+
+    publish_snapshot._retain_newest(directory)
+
+    assert verified.exists() and latest.exists()
+    assert not truncated.exists() and not truncated.with_suffix(".json").exists()
+    assert not orphan.exists()
+    assert os.readlink(directory / snapshots.LATEST_NAME) == latest.name
+
+
+def test_retention_never_deletes_the_snapshot_market_latest_names(tmp_path):
+    directory = tmp_path / "store" / "snapshots"
+    oldest = _fake_snapshot(directory, "20261001T000000000000Z")
+    previous = _fake_snapshot(directory, "20261002T000000000000Z")
+    # market-latest names an unverified copy that is older than a newer file
+    # (a publication in flight); both stay, with one verified previous copy.
+    latest = _fake_snapshot(directory, "20261003T000000000000Z", recorded_size=1)
+    in_flight = _fake_snapshot(directory, "20261004T000000000000Z", manifest=False)
+    _point_latest(directory, latest)
+
+    plan = snapshots.retention_plan(directory, keep_previous=1)
+
+    assert plan.latest == latest
+    assert plan.keep == (previous, latest, in_flight)
+    assert plan.delete == (oldest,)
+    publish_snapshot._retain_newest(directory, keep_previous=0)
+    assert sorted(path.name for path in directory.glob("market-2*.duckdb")) == [
+        latest.name, in_flight.name,
+    ]
+
+
+def test_retention_deletes_nothing_without_a_valid_latest(tmp_path):
+    directory = tmp_path / "store" / "snapshots"
+    first = _fake_snapshot(directory, "20261001T000000000000Z")
+    second = _fake_snapshot(directory, "20261002T000000000000Z")
+    third = _fake_snapshot(directory, "20261003T000000000000Z")
+
+    publish_snapshot._retain_newest(directory)
+    assert first.exists() and second.exists() and third.exists()
+
+    os.symlink("../market.duckdb", directory / snapshots.LATEST_NAME)
+    assert snapshots.retention_plan(directory).delete == ()
+
+
+def test_retention_orders_same_microsecond_suffixes_after_the_base_name(tmp_path):
+    directory = tmp_path / "store" / "snapshots"
+    base = _fake_snapshot(directory, "20261001T000000000000Z")
+    suffixed = _fake_snapshot(directory, "20261001T000000000000Z-1")
+    newest = _fake_snapshot(directory, "20261001T000000000001Z")
+    _point_latest(directory, newest)
+
+    plan = snapshots.retention_plan(directory, keep_previous=1)
+
+    assert plan.keep == (suffixed, newest) and plan.delete == (base,)
+
+
+def test_retention_dry_run_lists_without_publishing_deleting_or_opening(
+    tmp_path, monkeypatch, capsys,
+):
+    root = tmp_path / "repo"
+    source = root / "store" / "market.duckdb"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"d" * 32)
+    directory = source.parent / "snapshots"
+    oldest = _fake_snapshot(directory, "20261001T000000000000Z", size=16)
+    previous = _fake_snapshot(directory, "20261002T000000000000Z", size=16)
+    latest = _fake_snapshot(directory, "20261003T000000000000Z", size=16)
+    _point_latest(directory, latest)
+    monkeypatch.setattr(
+        publish_snapshot.duckdb, "connect",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("database opened")),
+    )
+    monkeypatch.setattr(
+        publish_snapshot, "_unique_destination",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("publication attempted")),
+    )
+
+    status = publish_snapshot.main([
+        "--repo-root", str(root), "--source", str(source), "--retention-dry-run",
+    ])
+
+    output = json.loads(capsys.readouterr().out)
+    assert status == 0 and output["status"] == "dry-run"
+    assert output["latest"] == latest.name
+    assert [item["snapshot"] for item in output["keep"]] == [previous.name, latest.name]
+    assert output["delete"] == [
+        {"snapshot": oldest.name, "size_bytes": 16, "verified": True},
+    ]
+    assert output["snapshot_soft_cap_gb"] == publish_snapshot.resources.SNAPSHOT_SOFT_GB
+    assert output["store_soft_cap_gb"] == publish_snapshot.resources.STORE_SOFT_GB
+    assert {"snapshots_gb", "store_gb_excluding_snapshots"} <= output.keys()
+    assert oldest.exists() and previous.exists()

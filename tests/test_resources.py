@@ -200,6 +200,39 @@ def test_dir_size_gb(tmp_path):
     assert rsc.dir_size_gb(tmp_path) * 1024 == 2.0
 
 
+def test_live_store_size_excludes_snapshots(tmp_path):
+    mib = 1024 ** 2
+    (tmp_path / "market.duckdb").write_bytes(b"x" * mib)
+    (tmp_path / "pit").mkdir()
+    (tmp_path / "pit" / "a.duckdb").write_bytes(b"y" * mib)
+    (tmp_path / "snapshots").mkdir()
+    (tmp_path / "snapshots" / "market-1.duckdb").write_bytes(b"z" * 3 * mib)
+    (tmp_path / "pit" / "snapshots").mkdir()                 # only top level is excluded
+    (tmp_path / "pit" / "snapshots" / "b.bin").write_bytes(b"w" * mib)
+
+    assert rsc.live_store_gb(tmp_path) * 1024 == 3.0
+    assert rsc.snapshots_gb(tmp_path) * 1024 == 3.0
+    assert rsc.dir_size_gb(tmp_path) * 1024 == 6.0
+
+
+def test_snapshots_alone_do_not_trip_the_store_soft_cap(tmp_path):
+    p = tmp_path / "_meta.json"
+    rsc.update_disk_warning(p, 46.0, soft_gb=60.0, snapshots_gb=21.6)
+    got = json.loads(p.read_text())
+    assert got["disk_warning"] is None and got["snapshot_disk_warning"] is None
+
+    rsc.update_disk_warning(p, 61.0, soft_gb=60.0, snapshots_gb=40.0, snapshot_soft_gb=35.0)
+    got = json.loads(p.read_text())
+    assert "excluding snapshots/" in got["disk_warning"]["message"]
+    w = got["snapshot_disk_warning"]
+    assert w["snapshots_gb"] == 40.0 and w["soft_cap_gb"] == 35.0
+    assert "over the 35 GiB snapshot cap" in w["message"]
+
+    rsc.update_disk_warning(p, 10.0)                         # no snapshot reading
+    got = json.loads(p.read_text())
+    assert got["disk_warning"] is None and got["snapshot_disk_warning"] is not None
+
+
 def test_readings_never_block_on_unknown(monkeypatch):
     monkeypatch.setattr(rsc.os, "getloadavg", lambda: (_ for _ in ()).throw(OSError()))
     assert rsc.load_5min() == 0.0

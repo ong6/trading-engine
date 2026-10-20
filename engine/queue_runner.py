@@ -16,8 +16,10 @@ Before starting ANY job the runner enforces the §12.7 guards and logs honestly:
   * a job whose declared memory need > 48 GiB would blow the engine budget
     -> refuse that job with an error; parallel batch width is also reduced to
     keep the sum of declared worker memory within 48 GiB;
-  * disk watchdog: store/ > 60 GiB soft -> set _meta.json disk_warning (merge);
-    store/ > 80 GiB hard OR root free < 10 GiB -> refuse archive-type jobs
+  * disk watchdog: store/ excluding snapshots/ > 60 GiB soft -> set _meta.json
+    disk_warning (merge), and snapshots/ over its own cap -> snapshot_disk_warning;
+    store/ including snapshots > 80 GiB hard OR root free < 10 GiB -> refuse
+    archive-type jobs
     (EOD collection is the last thing to stop; here we only gate archive jobs).
 
 CLI:
@@ -70,8 +72,8 @@ from engine.lib.settings import REPO_ROOT, STORE_DIR
 LOAD_5MIN_MAX = 28.0
 FREE_RAM_MIN_GB = 8.0       # refuse to start below this much free RAM
 ENGINE_RAM_BUDGET_MB = 48000  # one in-process job or combined parallel batch
-STORE_SOFT_GB = 60.0        # soft cap -> warn in _meta.json
-STORE_HARD_GB = 80.0        # hard cap -> refuse archive jobs
+STORE_SOFT_GB = rsc.STORE_SOFT_GB  # soft cap on store/ minus snapshots/ -> warn
+STORE_HARD_GB = 80.0        # hard cap on all of store/ -> refuse archive jobs
 ROOT_FREE_MIN_GB = 10.0     # refuse archive jobs below this root free space
 # Concurrency for `parallel_safe` job kinds ONLY (see JOB_TYPES). Default 1 =
 # the historical strictly-sequential drain; nothing changes unless --jobs is
@@ -1101,13 +1103,17 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
             continue
 
         # --- disk watchdog (always refresh the soft warning) ---
-        store_gb = rsc.dir_size_gb(STORE_DIR)
+        # Snapshots have their own retention and cap, so the soft cap reads the
+        # live store; the hard cap still guards the whole of store/.
+        store_gb = rsc.live_store_gb(STORE_DIR)
+        snapshot_gb = rsc.snapshots_gb(STORE_DIR)
+        total_gb = store_gb + snapshot_gb
         root_free = rsc.root_free_gb("/")
-        rsc.update_disk_warning(meta_path, store_gb, STORE_SOFT_GB)
+        rsc.update_disk_warning(meta_path, store_gb, STORE_SOFT_GB, snapshots_gb=snapshot_gb)
         is_archive = JOB_TYPES.get(kind, {}).get("archive", False)
-        if is_archive and (store_gb > STORE_HARD_GB or root_free < ROOT_FREE_MIN_GB):
-            why = (f"store/ {store_gb:.1f} GiB > {STORE_HARD_GB:.0f} hard"
-                   if store_gb > STORE_HARD_GB
+        if is_archive and (total_gb > STORE_HARD_GB or root_free < ROOT_FREE_MIN_GB):
+            why = (f"store/ {total_gb:.1f} GiB > {STORE_HARD_GB:.0f} hard"
+                   if total_gb > STORE_HARD_GB
                    else f"root free {root_free:.1f} GiB < {ROOT_FREE_MIN_GB:.0f}")
             print(f"[queue] disk watchdog: refusing archive job {jid} ({kind}): {why}; "
                   f"leaving it pending")

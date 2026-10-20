@@ -32,7 +32,7 @@ def test_connection_narrowed_external_source_releases_db(monkeypatch, tmp_path):
 
     monkeypatch.setattr(signals, "SOURCES", {"external": fetch_while_reading})
     monkeypatch.setattr(signals, "DB_READ_SOURCES", frozenset())
-    monkeypatch.setattr(signals.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(signals.rsc, "dir_size_gb", lambda _path, **_kwargs: 0.0)
 
     result = signals.run_connection_narrowed(
         {"mode": "incremental"},
@@ -62,7 +62,7 @@ def test_connection_narrowed_db_source_gets_read_only_lease(monkeypatch, tmp_pat
 
     monkeypatch.setattr(signals, "SOURCES", {"breadth": fetch_from_db})
     monkeypatch.setattr(signals, "DB_READ_SOURCES", frozenset({"breadth"}))
-    monkeypatch.setattr(signals.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(signals.rsc, "dir_size_gb", lambda _path, **_kwargs: 0.0)
 
     result = signals.run_connection_narrowed(
         {"only": "breadth"},
