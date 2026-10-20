@@ -48,6 +48,34 @@ def test_driver_data_commit_is_titled_by_its_driver(monkeypatch, tmp_path):
     assert metrics_snapshot.SCREEN_COMMIT.match(title)
 
 
+def test_scoring_driver_commits_its_post_scoring_report_re_render(monkeypatch, tmp_path):
+    # Production 2026-10-20: the 02:30 UTC scoring unit re-rendered the P15 and league
+    # reports after the nightly sync, so nothing committed them and the checkout stayed dirty.
+    repo = _git_repo(tmp_path)
+    reports = repo / "data" / "reports"
+    (reports / "agent-eval").mkdir(parents=True)
+    for name in ("agent-eval/p15.md", "agent-evaluation.json", "league.csv", "league.md"):
+        (reports / name).write_text(f"{name} re-rendered\n")
+    (repo / "README.md").write_text("operator edit\n")
+    monkeypatch.setattr(sync, "REPO_ROOT", repo)
+    monkeypatch.setattr(sync, "META_PATH", repo / "data" / "missing-meta.json")
+    monkeypatch.setattr(sync, "_utc_today", lambda: date(2026, 10, 20))
+    monkeypatch.setattr("sys.argv", ["sync.py", "--driver", "run_p15_scoring"])
+
+    assert sync.main() == 0
+    title = _git(repo, "log", "-1", "--format=%s")
+    assert title == "run_p15_scoring: 2026-10-20 (4 data files)"
+    assert metrics_snapshot.SCREEN_COMMIT.match(title)
+    assert _git(repo, "show", "--name-only", "--format=", "HEAD").splitlines() == [
+        "data/reports/agent-eval/p15.md",
+        "data/reports/agent-evaluation.json",
+        "data/reports/league.csv",
+        "data/reports/league.md",
+    ]
+    assert _git(repo, "status", "--porcelain", "--", "data/") == ""
+    assert _git(repo, "diff", "--name-only") == "README.md"
+
+
 @pytest.mark.parametrize("driver", ["", "Run Daily", "screen: 2026-10-09", "x" * 65])
 def test_sync_rejects_a_malformed_driver_name(monkeypatch, driver):
     monkeypatch.setattr("sys.argv", ["sync.py", "--driver", driver])
