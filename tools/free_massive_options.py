@@ -248,6 +248,7 @@ def _store_contract_page(
             options.record_receipt(
                 con, request_key=_request_key(url), url=url, source_sha256=source_sha,
                 fetched_at=fetched_at, row_count=result["row_count"],
+                provider_status=result["provider_status"],
             )
         return result
     finally:
@@ -272,6 +273,7 @@ def _store_daily_page(
             options.record_receipt(
                 con, request_key=_request_key(url), url=url, source_sha256=source_sha,
                 fetched_at=fetched_at, row_count=result["row_count"],
+                provider_status=result["provider_status"],
             )
         return result
     finally:
