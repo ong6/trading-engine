@@ -288,3 +288,87 @@ def test_daily_contract_cap_is_equal_and_prefers_31_to_60_dte_then_atm():
         "QQQ-PREFERRED-ATM", "QQQ-PREFERRED-FAR",
         "IWM-PREFERRED-ATM", "IWM-PREFERRED-FAR",
     ]
+
+
+DELAYED_DAILY = json.dumps({
+    "ticker": f"O:{OCC}", "queryCount": 1, "resultsCount": 1, "adjusted": True,
+    "results": [{
+        "v": 928, "vw": 15.9404, "o": 20.23, "c": 15.28, "h": 20.23, "l": 15.0,
+        "t": int(datetime(2026, 10, 5, tzinfo=timezone.utc).timestamp() * 1000), "n": 77,
+    }],
+    "status": "DELAYED", "request_id": "recorded-delayed-daily", "count": 1,
+}, separators=(",", ":")).encode()
+
+
+class DelayedSession(Session):
+    def get(self, url, **_kwargs):
+        self.urls.append(url)
+        return Response(CONTRACTS if "/v3/reference/" in url else DELAYED_DAILY)
+
+
+def test_free_tier_delayed_daily_page_loads_and_receipt_records_status(tmp_path):
+    database, data_dir = tmp_path / "options.duckdb", tmp_path / "raw"
+
+    result = capture.capture(
+        database=database, data_dir=data_dir, daily_database=tmp_path / "unused.duckdb",
+        api_key="fixture-key", session=DelayedSession(), now=lambda: NOW, as_of=AS_OF,
+        selected_underlyings=("SPY",), rate_limit=lambda: None,
+        close_overrides={"SPY": 500.0},
+    )
+    con = duckdb.connect(str(database), read_only=True)
+    try:
+        bar = con.execute("SELECT occ,date,c,v,n FROM option_daily_bars").fetchone()
+        statuses = con.execute(
+            "SELECT url LIKE '%/v3/reference/%', provider_status "
+            "FROM option_capture_receipts ORDER BY 1"
+        ).fetchall()
+    finally:
+        con.close()
+
+    assert result["daily_requests"] == 1 and result["daily_bars"] == 1
+    assert bar == (OCC, date(2026, 10, 5), 15.28, 928.0, 77)
+    assert statuses == [(False, "DELAYED"), (True, "OK")]
+
+
+def test_delayed_status_is_accepted_only_for_option_daily_bars():
+    delayed_contracts = CONTRACTS.replace(b'"status":"OK"', b'"status":"DELAYED"')
+    with pytest.raises(free_sources.FreeSourceError, match="contracts response status"):
+        options.parse_contracts_page(
+            delayed_contracts, underlying="SPY", expiry_min=date(2026, 10, 26),
+            expiry_max=date(2026, 12, 5), strike_min=475.0, strike_max=525.0,
+        )
+    for status in ("ERROR", "delayed", None):
+        body = json.dumps({**json.loads(DELAYED_DAILY), "status": status}).encode()
+        with pytest.raises(free_sources.FreeSourceError, match="daily bars response status"):
+            options.parse_daily_bars_page(
+                body, occ=OCC, start=date(2026, 10, 1), end=AS_OF,
+            )
+
+
+def test_legacy_receipts_table_gains_provider_status_column():
+    con = duckdb.connect()
+    try:
+        con.execute(
+            """CREATE TABLE option_capture_receipts (
+            request_key VARCHAR PRIMARY KEY, url VARCHAR, http_status INTEGER,
+            source_sha256 VARCHAR, fetched_at TIMESTAMP, row_count BIGINT)"""
+        )
+        con.execute(
+            "INSERT INTO option_capture_receipts VALUES ('old', 'u', 200, 's', ?, 1)",
+            [NOW.replace(tzinfo=None)],
+        )
+        loaded = options.load_daily_bars_page(
+            con, DELAYED_DAILY, occ=OCC, start=date(2026, 10, 1), end=AS_OF,
+            fetched_at=NOW,
+        )
+        options.record_receipt(
+            con, request_key="new", url="u2", source_sha256="s2", fetched_at=NOW,
+            row_count=loaded["row_count"], provider_status=loaded["provider_status"],
+        )
+        rows = con.execute(
+            "SELECT request_key, provider_status FROM option_capture_receipts ORDER BY 1"
+        ).fetchall()
+    finally:
+        con.close()
+
+    assert rows == [("new", "DELAYED"), ("old", None)]

@@ -19,6 +19,9 @@ DAILY_SOURCE = "massive_option_daily"
 OCC = re.compile(r"^[A-Z0-9.]{1,6}[0-9]{6}[CP][0-9]{8}$")
 MAX_CONTRACT_RESULTS = 1_000
 MAX_DAILY_RESULTS = 64
+# The free tier serves option aggregates as DELAYED; reference contracts stay OK-only.
+CONTRACT_STATUSES = frozenset({"OK"})
+DAILY_STATUSES = frozenset({"OK", "DELAYED"})
 
 
 def _configured_path(name: str, default: Path) -> Path:
@@ -60,11 +63,15 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(
         """CREATE TABLE IF NOT EXISTS option_capture_receipts (
         request_key VARCHAR PRIMARY KEY, url VARCHAR, http_status INTEGER,
-        source_sha256 VARCHAR, fetched_at TIMESTAMP, row_count BIGINT)"""
+        source_sha256 VARCHAR, fetched_at TIMESTAMP, row_count BIGINT,
+        provider_status VARCHAR)"""
+    )
+    con.execute(
+        "ALTER TABLE option_capture_receipts ADD COLUMN IF NOT EXISTS provider_status VARCHAR"
     )
 
 
-def _body(payload: bytes, label: str) -> dict:
+def _body(payload: bytes, label: str, statuses: frozenset[str]) -> dict:
     if not isinstance(payload, bytes) or not 0 < len(payload) <= free_sources.MAX_RESPONSE_BYTES:
         raise free_sources.FreeSourceError(f"Massive option {label} response size is invalid")
     try:
@@ -73,7 +80,7 @@ def _body(payload: bytes, label: str) -> dict:
         raise free_sources.FreeSourceError(
             f"Massive option {label} response is not valid JSON"
         ) from exc
-    if not isinstance(decoded, dict) or decoded.get("status") != "OK":
+    if not isinstance(decoded, dict) or decoded.get("status") not in statuses:
         raise free_sources.FreeSourceError(f"Massive option {label} response status is invalid")
     return decoded
 
@@ -124,7 +131,7 @@ def parse_contracts_page(
     body: bytes, *, underlying: str, expiry_min: date, expiry_max: date,
     strike_min: float, strike_max: float,
 ) -> tuple[list[dict], str | None]:
-    payload = _body(body, "contracts")
+    payload = _body(body, "contracts", CONTRACT_STATUSES)
     results = payload.get("results", [])
     next_url = payload.get("next_url")
     if (
@@ -198,13 +205,16 @@ def load_contracts_page(
     after = con.execute(
         "SELECT COUNT(*) FROM option_contracts WHERE as_of=?", [as_of]
     ).fetchone()[0]
-    return {"row_count": len(rows), "inserted": after - before, "next_url": next_url}
+    return {
+        "row_count": len(rows), "inserted": after - before, "next_url": next_url,
+        "provider_status": json.loads(body)["status"],
+    }
 
 
 def parse_daily_bars_page(
     body: bytes, *, occ: str, start: date, end: date,
 ) -> tuple[list[dict], str | None]:
-    payload = _body(body, "daily bars")
+    payload = _body(body, "daily bars", DAILY_STATUSES)
     results = payload.get("results", [])
     next_url = payload.get("next_url")
     if (
@@ -272,15 +282,20 @@ def load_daily_bars_page(
     after = con.execute(
         "SELECT COUNT(*) FROM option_daily_bars WHERE occ=?", [occ]
     ).fetchone()[0]
-    return {"row_count": len(rows), "inserted": after - before, "next_url": next_url}
+    return {
+        "row_count": len(rows), "inserted": after - before, "next_url": next_url,
+        "provider_status": json.loads(body)["status"],
+    }
 
 
 def record_receipt(
     con: duckdb.DuckDBPyConnection, *, request_key: str, url: str,
-    source_sha256: str, fetched_at: datetime, row_count: int,
+    source_sha256: str, fetched_at: datetime, row_count: int, provider_status: str,
 ) -> None:
     init_schema(con)
     con.execute(
-        "INSERT OR IGNORE INTO option_capture_receipts VALUES (?, ?, 200, ?, ?, ?)",
-        [request_key, url, source_sha256, _utc_naive(fetched_at), row_count],
+        """INSERT OR IGNORE INTO option_capture_receipts
+        (request_key, url, http_status, source_sha256, fetched_at, row_count, provider_status)
+        VALUES (?, ?, 200, ?, ?, ?, ?)""",
+        [request_key, url, source_sha256, _utc_naive(fetched_at), row_count, provider_status],
     )
