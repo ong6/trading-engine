@@ -3911,4 +3911,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** integration and reconciliation only; no new product feature.
 - **Next:** orchestrator frees snapshot space, accepts the landing SHA and runs R15.1–R15.3 with the October 20 amendment.
 
+## 2026-10-20 — Admit same-night bars whose only fault is the open
+
+- **Why:** on 2026-10-19 the nightly stored 228 of 4,058 same-session yfinance bars with the open outside [low, high] and every close inside (settled re-fetches show 0-2). Revision-15 admission rejected them, so those names would get no same-night close until a later re-fetch and the rejects would count against retained-bar quality.
+- **What:** binding orchestrator ruling. Ingest admits a daily bar whose only fault is the open's geometry while it is provisional (fetched on or before its New York session date, the shared `bar_is_provisional` rule); with the open at the close every other invariant must hold, and the open is stored unclamped. Other faults, the same fault on a settled bar, and a newcomer that would displace a stored bar with complete geometry stay rejected; the settled re-fetch replaces it through the normal upsert. Validator `price-admission-v15.2`.
+  No path consumes that open: fills and P15 limit-on-open already wait as `untrusted_bar`; labels and the opportunity gap return exclude an admitted provisional open fault (SQL twin `provisional_open_fault_sql`), so they behave as if it had not been admitted. Retained-bar quality does not count it; the cleanup keeps it (`provisional_kept`); the price verifier ignores the store's provisional open.
+  Re-pin: E1 v8, sector v12 and XS v23 hashes amended (versions unchanged); registration revision 15 re-pins 9 of 166 files, source_commit 7c69785a, registration_sha256 c6c7bb47.
+- **Evidence:** snapshot replay of the 2026-10-19 rows into a temp store: 227 of 228 open faults admitted (FMC held by the existing basis gate), 3 rejects instead of 230, settled days 10-13..10-16 identical to the previous rule; full suites 5,751 passed under UTC and Asia/Singapore with warnings as errors; ruff passes.
+- **Metrics:** engine +121, server -8, tests +295 lines (net).
+- **Next:** reviewer pass; the R15.2 cleanup dry run now reports `provisional_kept`.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
