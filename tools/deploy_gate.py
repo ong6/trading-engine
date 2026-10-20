@@ -66,14 +66,14 @@ def _git(worktree: Path, *args: str) -> str:
     done = subprocess.run(["git", "-C", str(worktree), *args], capture_output=True, text=True)
     if done.returncode != 0:
         raise CannotCheck(f"git {' '.join(args)}: {done.stderr.strip()}")
-    return done.stdout.strip()
+    return done.stdout.rstrip("\n")
 
 
 def tree_identity(worktree: Path) -> dict:
     """HEAD, its tree SHA and the clean-tree proof, or CannotCheck."""
     dirty = _git(worktree, "status", "--porcelain", "--untracked-files=normal")
     if dirty:
-        listed = ", ".join(line[3:] for line in dirty.splitlines()[:5])
+        listed = ", ".join(line[3:] for line in dirty.splitlines()[:5])  # "XY path"
         raise CannotCheck(f"uncommitted or untracked changes: {listed}")
     return {"head_commit": _git(worktree, "rev-parse", "HEAD"),
             "tree_sha": _git(worktree, "rev-parse", "HEAD^{tree}")}

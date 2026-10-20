@@ -94,7 +94,7 @@ def test_checks_run_with_a_private_removed_tmpdir(repo, tmp_path, monkeypatch):
 
 def test_a_dirty_tree_cannot_be_checked(repo, tmp_path, monkeypatch):
     (repo / "README.md").write_text("edited\n")
-    with pytest.raises(deploy_gate.CannotCheck, match="uncommitted"):
+    with pytest.raises(deploy_gate.CannotCheck, match="changes: README.md$"):
         _gate(repo, tmp_path, monkeypatch, [_exits("contract_tests", 0)])
     (repo / "README.md").write_text("candidate\n")
     (repo / "new.py").write_text("")
