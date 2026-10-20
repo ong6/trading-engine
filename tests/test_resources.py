@@ -209,6 +209,8 @@ def test_live_store_size_excludes_snapshots(tmp_path):
     (tmp_path / "snapshots" / "market-1.duckdb").write_bytes(b"z" * 3 * mib)
     (tmp_path / "pit" / "snapshots").mkdir()                 # only top level is excluded
     (tmp_path / "pit" / "snapshots" / "b.bin").write_bytes(b"w" * mib)
+    # market-latest is a symlink to a retained copy; it must not count twice
+    (tmp_path / "snapshots" / "market-latest.duckdb").symlink_to("market-1.duckdb")
 
     assert rsc.live_store_gb(tmp_path) * 1024 == 3.0
     assert rsc.snapshots_gb(tmp_path) * 1024 == 3.0

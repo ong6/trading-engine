@@ -102,7 +102,8 @@ SNAPSHOT_SOFT_GB = 35.0
 def dir_size_gb(path: str | Path, *, exclude: tuple[str, ...] = ()) -> float:
     """Total on-disk size of a directory tree, in GiB.
 
-    ``exclude`` names top-level children of ``path`` that are left out.
+    ``exclude`` names top-level children of ``path`` that are left out. Symlinks
+    are not followed, so snapshots/market-latest does not count its target twice.
     """
     path = Path(path)
     if not path.exists():
@@ -114,9 +115,11 @@ def dir_size_gb(path: str | Path, *, exclude: tuple[str, ...] = ()) -> float:
             files = [name for name in files if name not in exclude]
         for name in files:
             try:
-                total += os.path.getsize(os.path.join(root, name))
+                info = os.lstat(os.path.join(root, name))
             except OSError:
                 continue
+            if not stat.S_ISLNK(info.st_mode):
+                total += info.st_size
     return total / (1024 ** 3)
 
 
