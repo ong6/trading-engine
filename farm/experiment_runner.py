@@ -51,6 +51,7 @@ from pathlib import Path
 
 from engine.lib import db as enginedb  # engine/lib/db.py — the lock-retrying connect factory
 from engine.lib import resources
+from engine.lib.data_quality import provisional_open_fault_sql
 from engine.lib.log import get_logger
 from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
@@ -234,9 +235,12 @@ def ensure_forward_columns(con) -> None:
 # --------------------------------------------------------------------------- #
 def _mondays(con, ticker: str, weekday: int, start: date, end: date | None):
     """Real stored bars for the target weekday in [start, end]. Never fabricates:
-    a bar must have a positive open and a non-null close to be tradeable."""
+    a bar must have a positive open and a non-null close to be tradeable. A
+    never-settled bar whose open lies outside its range is not a bar yet (the
+    same-night admission keeps it only for its close)."""
     sql = ("SELECT date, open, close FROM prices WHERE ticker = ? AND date >= ? "
-           "AND open IS NOT NULL AND close IS NOT NULL AND open > 0 ")
+           "AND open IS NOT NULL AND close IS NOT NULL AND open > 0 "
+           f"AND NOT {provisional_open_fault_sql()} ")
     args: list = [ticker, start]
     if end is not None:
         sql += "AND date <= ? "

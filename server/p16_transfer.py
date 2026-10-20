@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 
 import numpy as np
 
+from engine.lib.data_quality import trusted_bar_sql
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
@@ -330,7 +331,8 @@ def _holding_marks(con, positions: dict, holding_date: date, cutoff: datetime) -
     for ticker in positions:
         mark = con.execute(
             f"SELECT open FROM prices WHERE ticker=? AND date=? AND open>0 "
-            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
+            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
+            f"AND {trusted_bar_sql()}",
             [ticker, holding_date, cutoff],
         ).fetchone()
         if mark is None:

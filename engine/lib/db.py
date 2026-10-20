@@ -24,6 +24,7 @@ import pandas as pd
 from engine.lib import settings
 from engine.lib.data_quality import (
     PRICE_VALIDATOR_VERSION,
+    PROVISIONAL_REPLACEMENT_SKIPPED,
     observation_reasons,
     price_bar_sql,
     provisional_open_only_fault,
@@ -206,7 +207,11 @@ def connect(path: str | Path | None = None, *,
     tries = max(1, math.ceil(wait_s / _LOCK_RETRY_S)) if wait_s > 0 else 1
     for attempt in range(1, tries + 1):
         try:
-            return duckdb.connect(str(path), read_only=read_only)
+            con = duckdb.connect(str(path), read_only=read_only)
+            # Naive TIMESTAMP columns hold UTC: a timezone-aware value (fetch stamps)
+            # must not be cast through the host's local zone on a non-UTC host.
+            con.execute("SET TimeZone='UTC'")
+            return con
         except Exception as exc:  # duckdb.IOException et al.
             if not is_lock_error(exc) or attempt >= tries:
                 raise
@@ -1037,11 +1042,16 @@ def _admit_provisional_open_faults(con, rows: list[dict], reasons: list[list[str
 
     The bar is stored exactly as fetched (no clamping) and stays provisional by its
     `fetched_at`; the next night's settled re-fetch replaces it through the normal
-    path. It never displaces a stored bar whose own geometry is complete, so a
-    settled (or fully valid same-night) bar is kept and the newcomer is rejected.
+    path. A bar dated before the store's newest session is stale, so it is judged as
+    settled and stays rejected. It never displaces a stored bar whose own geometry is
+    complete: that newcomer is retained as `provisional_replacement_skipped`, which
+    is evidence, not an invalid date.
     """
+    has_prices = con.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name='prices'").fetchone()
+    latest = con.execute("SELECT MAX(date) FROM prices").fetchone()[0] if has_prices else None
     candidates = [i for i, row in enumerate(rows)
-                  if provisional_open_only_fault(row, reasons[i])]
+                  if provisional_open_only_fault(row, reasons[i], latest)]
     if not candidates:
         return
     keys = pd.DataFrame({
@@ -1049,15 +1059,15 @@ def _admit_provisional_open_faults(con, rows: list[dict], reasons: list[list[str
         "date": [pd.Timestamp(rows[i]["date"]).date() for i in candidates],
     })
     complete = set()
-    if con.execute("SELECT 1 FROM information_schema.tables WHERE table_name='prices'").fetchone():
+    if has_prices:
         with registered_frame(con, "_provisional_keys", keys):
             complete = {(ticker, day) for ticker, day in con.execute(
                 "SELECT p.ticker,p.date FROM prices p JOIN _provisional_keys k "
                 f"ON p.ticker=k.ticker AND p.date=k.date WHERE {price_bar_sql()}"
             ).fetchall()}
     for i, key in zip(candidates, keys.itertuples(index=False), strict=True):
-        if (key.ticker, key.date) not in complete:
-            reasons[i] = []
+        reasons[i] = ([PROVISIONAL_REPLACEMENT_SKIPPED]
+                      if (key.ticker, key.date) in complete else [])
 
 
 def _validated_observations(con, df, *, intraday: bool, now, batch_id: str):
@@ -1100,7 +1110,7 @@ def _validated_observations(con, df, *, intraday: bool, now, batch_id: str):
                                       batch_id=batch_id, recorded_at=now)
     df.attrs["rejected_tickers"] = {
         row["ticker"] for row, invalid in zip(rows, reasons, strict=True)
-        if invalid and invalid != ["identical_duplicate"]
+        if invalid and not set(invalid) <= {"identical_duplicate", PROVISIONAL_REPLACEMENT_SKIPPED}
     }
     return frame.iloc[[i for i, r in enumerate(reasons) if not r]].copy()
 

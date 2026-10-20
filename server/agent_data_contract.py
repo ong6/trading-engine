@@ -25,6 +25,10 @@ REVISION_POLICY = LEGACY_REVISION_POLICY
 AVAILABILITY_POLICY = "usable_no_earlier_than_latest_ingestion"
 IMMUTABLE_AVAILABILITY_POLICY = "usable_no_earlier_than_immutable_observation"
 QUALITY_STATUS = "limited"
+# A never-settled same-night bar whose open lies outside [low, high] is shown to a
+# model with the open withheld (null) and this reason; its close and range stay.
+OPEN_WITHHELD_PROVISIONAL = "provisional_open_fault"
+OPEN_WITHHELD_REASONS = frozenset({OPEN_WITHHELD_PROVISIONAL})
 USAGE_AUTHORITY = "shadow_context_only"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 PROVIDER_EVIDENCE_RELATIONSHIP = "later_exact_value_corroboration"
@@ -243,6 +247,7 @@ def daily_price_fact(
     fetched_at: object,
     immutable_observation: object = None,
     provider_evidence: object = None,
+    open_withheld: str | None = None,
 ) -> dict:
     """Return an honest immutable envelope around one selected daily bar.
 
@@ -252,11 +257,18 @@ def daily_price_fact(
     provider publication/version metadata remain unavailable.
     """
     ticker, ingested_at = _price_identity(ticker, market_date, source, fetched_at)
+    if open_withheld is not None and (
+        open_withheld not in OPEN_WITHHELD_REASONS
+        or open_price is not None
+        or immutable_observation is not None
+        or provider_evidence is not None
+    ):
+        raise DataContractError("withheld price open is invalid")
 
     normalized_record = {
         "ticker": ticker,
         "market_date": market_date.isoformat(),
-        "open": _positive_number(open_price, "open"),
+        "open": None if open_withheld else _positive_number(open_price, "open"),
         "high": _positive_number(high, "high"),
         "low": _positive_number(low, "low"),
         "close": _positive_number(close, "close"),
@@ -264,16 +276,21 @@ def daily_price_fact(
         "source": source,
         "latest_ingested_at": ingested_at,
     }
+    if open_withheld:
+        normalized_record["open_withheld"] = open_withheld
+    geometry_open = (
+        normalized_record["close"] if open_withheld else normalized_record["open"]
+    )
     if (
         normalized_record["low"]
         > min(
-            normalized_record["open"],
+            geometry_open,
             normalized_record["close"],
             normalized_record["high"],
         )
         or normalized_record["high"]
         < max(
-            normalized_record["open"],
+            geometry_open,
             normalized_record["close"],
             normalized_record["low"],
         )
@@ -1035,7 +1052,7 @@ def validate_daily_price_fact(value: object) -> None:
         or set(record)
         != {"normalized", "normalized_sha256", "raw_sha256", "raw_retained"}
         or not isinstance(record["normalized"], dict)
-        or set(record["normalized"])
+        or set(record["normalized"]) - {"open_withheld"}
         != {
             "ticker",
             "market_date",
@@ -1102,7 +1119,14 @@ def validate_daily_price_fact(value: object) -> None:
             if immutable
             else None
         )
-        _positive_number(normalized["open"], "open")
+        withheld = "open_withheld" in normalized
+        if withheld:
+            if (normalized["open_withheld"] not in OPEN_WITHHELD_REASONS
+                    or normalized["open"] is not None or immutable):
+                raise ValueError("withheld open is invalid")
+        else:
+            _positive_number(normalized["open"], "open")
+        geometry_open = normalized["close"] if withheld else normalized["open"]
         _positive_number(normalized["high"], "high")
         _positive_number(normalized["low"], "low")
         _positive_number(normalized["close"], "close")
@@ -1121,9 +1145,9 @@ def validate_daily_price_fact(value: object) -> None:
             and immutable_observed_at < ingested_at
         )
         or normalized["low"]
-        > min(normalized["open"], normalized["close"], normalized["high"])
+        > min(geometry_open, normalized["close"], normalized["high"])
         or normalized["high"]
-        < max(normalized["open"], normalized["close"], normalized["low"])
+        < max(geometry_open, normalized["close"], normalized["low"])
     ):
         raise DataContractError("daily price data contract is invalid")
     if immutable:

@@ -7,7 +7,11 @@ from datetime import date
 
 import duckdb
 
-from engine.lib.data_quality import bar_is_provisional, price_bar_reasons
+from engine.lib.data_quality import (
+    PROVISIONAL_REPLACEMENT_SKIPPED,
+    bar_is_provisional,
+    price_bar_reasons,
+)
 from engine.lib.db import (
     MARKET_DATE_MIN_COVERAGE,
     MARKET_DATE_MIN_NAMES,
@@ -370,8 +374,10 @@ def _candidate_bars(
             [ticker, market_date, limit],
         )
     )
+    # A provisional bar dated before the market date was never re-fetched: stale,
+    # judged as settled (the cleanup and ingest rule).
     for bar in bars:
-        bar["provisional"] = bar_is_provisional(bar["date"], bar.pop("fetched_at"))
+        bar["provisional"] = bar_is_provisional(bar["date"], bar.pop("fetched_at"), market_date)
     return bars
 
 
@@ -454,7 +460,8 @@ def retained_bar_quality(
             " UNION ALL SELECT ticker, date, NULL, NULL, NULL, NULL, NULL, MIN(reason), NULL "
             "FROM price_observation_rejects WHERE ticker = ANY(?) AND date <= ? "
             "AND interval = '1d' AND reason NOT IN "
-            "('replacement_predecessor', 'split_restatement_predecessor', 'intraday_existing_key', 'identical_duplicate') GROUP BY ticker, date"
+            "('replacement_predecessor', 'split_restatement_predecessor', 'intraday_existing_key', 'identical_duplicate', "
+            f"'{PROVISIONAL_REPLACEMENT_SKIPPED}') GROUP BY ticker, date"
         )
     observations = rows(con.execute(
         "WITH observations AS (SELECT ticker, date, open, high, low, close, volume, "
@@ -469,7 +476,7 @@ def retained_bar_quality(
     for bar in observations:
         ticker = require_public_ticker(bar["ticker"])
         dates[ticker].add(bar["date"])
-        bar["provisional"] = bar_is_provisional(bar["date"], bar.pop("fetched_at"))
+        bar["provisional"] = bar_is_provisional(bar["date"], bar.pop("fetched_at"), as_of)
         reason = bar["reason"] or _candidate_price_reason(bar)
         if reason is not None:
             invalid[ticker][bar["date"]] = reason

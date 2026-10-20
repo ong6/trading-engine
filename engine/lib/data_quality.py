@@ -21,6 +21,9 @@ PRICE_VALIDATOR_VERSION = "price-admission-v15.2"
 OHLC = ("open", "high", "low", "close")
 NEW_YORK = ZoneInfo("America/New_York")
 GEOMETRY_REASONS = frozenset({"high_geometry", "low_geometry"})
+# A same-night open-fault newcomer that would displace a stored bar with complete
+# geometry is retained as evidence under this reason; it is not an invalid date.
+PROVISIONAL_REPLACEMENT_SKIPPED = "provisional_replacement_skipped"
 COMMON_SPLIT_FACTORS = (1.5, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 50, 100, 200, 500, 1000)
 
 
@@ -106,12 +109,14 @@ def observation_reasons(bar, *, intraday: bool = False) -> list[str]:
     return reasons
 
 
-def bar_is_provisional(bar_date, fetched_at) -> bool:
+def bar_is_provisional(bar_date, fetched_at, latest_session=None) -> bool:
     """True while a daily bar's last fetch fell on or before its New York session date.
 
     The nightly collect (~18:30 New York) stores yfinance's same-session bar; the
     next night's re-fetch rewrites it and moves ``fetched_at``, which clears the
     flag. A naive ``fetched_at`` is UTC as stored; unknown is not provisional.
+    With ``latest_session`` (the store's newest session), a bar dated before it was
+    never re-fetched: it is stale and treated as settled.
     """
     if fetched_at is None or fetched_at is pd.NA or bar_date is None:
         return False
@@ -121,6 +126,8 @@ def bar_is_provisional(bar_date, fetched_at) -> bool:
     except (TypeError, ValueError, OverflowError):
         return False
     if pd.isna(stamp) or pd.isna(day):
+        return False
+    if latest_session is not None and day.date() < pd.Timestamp(latest_session).date():
         return False
     stamp = stamp.tz_localize("UTC") if stamp.tzinfo is None else stamp.tz_convert("UTC")
     return stamp.tz_convert(NEW_YORK).date() <= day.date()
@@ -138,23 +145,35 @@ def open_fault_only(bar, reasons: list[str]) -> bool:
     return not price_bar_reasons({**bar, "open": bar.get("close")}, check_volume=False)
 
 
-def provisional_open_only_fault(bar, reasons: list[str]) -> bool:
+def provisional_open_only_fault(bar, reasons: list[str], latest_session=None) -> bool:
     """A provisional daily bar whose only fault is its open's geometry.
 
     yfinance's same-session open can sit outside its own range until the next
     night's re-fetch settles it (2026-10-19: 228 of 4,058 bars, every close inside).
     Such a bar is admissible as fetched, with no clamping; the same fault on a
-    settled bar, or any other fault, stays rejected.
+    settled bar (including a stale one dated before ``latest_session``, the store's
+    newest session), or any other fault, stays rejected.
     """
     return open_fault_only(bar, reasons) and bar_is_provisional(
-        bar.get("date"), bar.get("fetched_at"))
+        bar.get("date"), bar.get("fetched_at"), latest_session)
+
+
+def provisional_open_fault(bar_date, open_, high, low, fetched_at) -> bool:
+    """Python twin of ``provisional_open_fault_sql``: a never-settled bar whose open
+    lies outside [low, high]. Stale or not, its open is never consumed."""
+    try:
+        inside = float(low) <= float(open_) <= float(high)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return not inside and bar_is_provisional(bar_date, fetched_at)
 
 
 def provisional_open_fault_sql(table: str = "") -> str:
-    """SQL twin of an admitted provisional bar whose open lies outside [low, high].
+    """SQL twin of a never-settled bar whose open lies outside [low, high].
 
     Paths that consume a daily OPEN exclude it (``AND NOT ...``) so they behave exactly
-    as if the bar had not been admitted until the settled re-fetch replaces it.
+    as if the bar had not been admitted until the settled re-fetch replaces it. It is
+    fetch-based only: a stale admitted bar (never re-fetched) stays excluded too.
     ``fetched_at`` is naive UTC as stored (``bar_is_provisional``).
     """
     p = f"{table}." if table else ""

@@ -8,7 +8,12 @@ P15 limit-on-open, labels, the opportunity gap return) to wait for the settled b
 """
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -16,12 +21,20 @@ import pytest
 from engine import daily_opportunities, price_quarantine
 from engine.lib import db
 from engine.lib.data_quality import (
+    PROVISIONAL_REPLACEMENT_SKIPPED,
     bar_is_provisional,
     observation_reasons,
     provisional_open_fault_sql,
     provisional_open_only_fault,
 )
-from server import agent_evaluation, market_read_models
+from farm import experiment_runner
+from server import (
+    agent_context,
+    agent_data_contract,
+    agent_evaluation,
+    market_read_models,
+    p16_transfer,
+)
 from sim import fills, p15_fills
 from tests.conftest import insert_bars
 from tests.test_daily_opportunities import MARKET_DATE, _database
@@ -127,9 +140,14 @@ def test_a_provisional_open_fault_never_displaces_a_complete_bar(con):
     complete = {**SETTLED, "fetched_at": SAME_NIGHT}
     assert db.upsert_prices(con, frame(complete)) == 1
     later = {**GAP_UP, "fetched_at": SAME_NIGHT + timedelta(minutes=30)}
-    assert db.upsert_prices(con, frame(later)) == 0
+    incoming = frame(later)
+    assert db.upsert_prices(con, incoming) == 0
     assert stored(con)[:5] == (10.1, 10.7, 9.8, 10.45, 1200)
-    assert reject_reasons(con) == ["high_geometry"]
+    # Retained as evidence of a skipped replacement, not as an invalid date.
+    assert reject_reasons(con) == [PROVISIONAL_REPLACEMENT_SKIPPED]
+    assert incoming.attrs["rejected_tickers"] == set()
+    quality = market_read_models.retained_bar_quality(con, ["AAA"], DAY)["AAA"]
+    assert (quality["retained_count"], quality["invalid_count"]) == (1, 0)
     # A newer same-night observation may still replace an admitted provisional one.
     con.execute("DELETE FROM prices")
     con.execute("DELETE FROM price_observation_rejects")
@@ -260,3 +278,155 @@ def test_cleanup_keeps_an_admissible_provisional_bar(con):
     applied = price_quarantine.cleanup_hard_invalid_prices(con, dry_run=False)
     assert applied["moved"] == 1
     assert con.execute("SELECT ticker FROM prices").fetchall() == [("AAA",)]
+
+
+# --------------------------------------------------------------------------- round 2
+MONDAY = date(2026, 10, 26)
+MONDAY_NIGHT = datetime(2026, 10, 26, 22, 30)
+
+
+def _spy_monday(con, *, fetched_at, open_=780.0):
+    con.execute(
+        "INSERT INTO prices(ticker,date,open,high,low,close,volume,fetched_at) "
+        "VALUES ('SPY',?,?,775.0,765.0,770.0,1000000,?)", [MONDAY, open_, fetched_at])
+
+
+def test_e1_never_trades_an_admitted_provisional_monday_open(con):
+    """Reviewer reproduction: candidate (2026-10-26, 780.0, 770.0) existed only after
+    admission; E1's candidates must equal the store without the admitted bar."""
+    start = date(2026, 10, 1)
+    insert_bars(con, "SPY", [date(2026, 10, 19)], open_=760, high=770, low=755, close=765)
+    without = experiment_runner._mondays(con, "SPY", 0, start, None)
+    _spy_monday(con, fetched_at=MONDAY_NIGHT)
+    assert experiment_runner._mondays(con, "SPY", 0, start, None) == without
+    assert (MONDAY, 780.0, 770.0) not in experiment_runner._mondays(con, "SPY", 0, start, None)
+    # The settled re-fetch (open inside its range) is a normal tradeable Monday.
+    con.execute("UPDATE prices SET open=768.0, fetched_at=? WHERE date=?",
+                [MONDAY_NIGHT + timedelta(days=1), MONDAY])
+    assert experiment_runner._mondays(con, "SPY", 0, start, None)[-1] == (MONDAY, 768.0, 770.0)
+
+
+def test_p16_holding_marks_skip_an_admitted_provisional_open(con):
+    _spy_monday(con, fetched_at=MONDAY_NIGHT)
+    cutoff = MONDAY_NIGHT + timedelta(hours=2)
+    assert p16_transfer._holding_marks(con, {"SPY": {}}, MONDAY, cutoff) == {}
+    con.execute("UPDATE prices SET open=768.0")
+    assert p16_transfer._holding_marks(con, {"SPY": {}}, MONDAY, cutoff) == {"SPY": 768.0}
+
+
+ROW = (MONDAY, 780.0, 775.0, 765.0, 770.0, 1_000_000, "yfinance", MONDAY_NIGHT)
+
+
+def test_agent_price_fact_withholds_a_provisional_open(con):
+    fact = agent_context._price_fact(con, "SPY", ROW)
+    normalized = fact["record"]["normalized"]
+    assert normalized["open"] is None
+    assert normalized["open_withheld"] == "provisional_open_fault"
+    assert (normalized["high"], normalized["low"], normalized["close"]) == (775.0, 765.0, 770.0)
+    assert "780" not in json.dumps(fact)
+    agent_data_contract.validate_daily_price_fact(fact)
+    # A forged or immutable-bound withheld record never validates.
+    forged = json.loads(json.dumps(fact))
+    forged["record"]["normalized"]["open_withheld"] = "other"
+    with pytest.raises(agent_data_contract.DataContractError):
+        agent_data_contract.validate_daily_price_fact(forged)
+    # The same geometry on a settled bar is still refused, never withheld.
+    settled = (*ROW[:7], MONDAY_NIGHT + timedelta(days=1))
+    with pytest.raises(agent_context.ContextError):
+        agent_context._price_fact(con, "SPY", settled)
+    # An ordinary provisional bar keeps its open.
+    inside = (MONDAY, 768.0, *ROW[2:])
+    assert agent_context._price_fact(con, "SPY", inside)["record"]["normalized"]["open"] == 768.0
+
+
+def test_agent_instrument_quote_withholds_a_provisional_open(con):
+    con.execute("CREATE TABLE universe (ticker VARCHAR, active BOOLEAN, liquid BOOLEAN, "
+                "etf BOOLEAN)")
+    con.execute("INSERT INTO universe VALUES ('SPY', TRUE, TRUE, TRUE)")
+    _spy_monday(con, fetched_at=MONDAY_NIGHT)
+    con.execute("UPDATE prices SET source='yfinance'")
+    record = agent_context._instrument(con, "SPY", MONDAY)
+    normalized = record["data_contract"]["record"]["normalized"]
+    assert record["close"] == 770.0
+    assert normalized["open"] is None and normalized["open_withheld"] == "provisional_open_fault"
+
+
+# The live 2026-10-19 store held three stale same-night open faults never re-fetched.
+STALE = [
+    ("DDS", date(2026, 10, 12), 648.7000122070312, 648.5399780273438, 618.6400146484375,
+     642.2899780273438, 129097, datetime(2026, 10, 12, 22, 30, 44)),
+    ("SUNC", date(2026, 10, 12), 74.45999908447266, 75.875, 74.68499755859375,
+     74.83000183105469, 243610, datetime(2026, 10, 12, 22, 31, 52)),
+    ("CIB", date(2026, 10, 16), 95.97000122070312, 98.12999725341797, 96.87000274658203,
+     97.91000366210938, 183418, datetime(2026, 10, 16, 22, 30, 49)),
+]
+
+
+def _insert_stale(con):
+    con.executemany(
+        "INSERT INTO prices(ticker,date,open,high,low,close,volume,fetched_at) "
+        "VALUES (?,?,?,?,?,?,?,?)", STALE)
+    con.execute("INSERT INTO prices(ticker,date,open,high,low,close,volume,fetched_at) "
+                "VALUES ('SPY',?,700,705,695,701,1000,?)", [DAY, SAME_NIGHT.replace(tzinfo=None)])
+
+
+def test_stale_provisional_open_faults_are_judged_as_settled(con):
+    _insert_stale(con)
+    # Cleanup moves them like any other hard-invalid bar; the newest session is kept.
+    con.execute("INSERT INTO prices(ticker,date,open,high,low,close,volume,fetched_at) "
+                "VALUES ('AAA',?,10.8,10.6,9.9,10.4,1000,?)", [DAY, SAME_NIGHT.replace(tzinfo=None)])
+    report = price_quarantine.cleanup_hard_invalid_prices(con)
+    assert (report["invalid_rows"], report["provisional_kept"]) == (3, 1)
+    assert report["by_date"] == {"2026-10-12": 2, "2026-10-16": 1}
+    # Until then, retained-bar quality counts them invalid (stale is not provisional).
+    quality = market_read_models.retained_bar_quality(con, ["DDS", "CIB"], DAY)
+    assert quality["DDS"]["invalid_count"] == 1 and quality["CIB"]["invalid_count"] == 1
+    # Open consumers keep excluding them, stale or not.
+    assert con.execute(f"SELECT count(*) FROM prices WHERE {provisional_open_fault_sql()}"
+                       ).fetchone() == (4,)
+    applied = price_quarantine.cleanup_hard_invalid_prices(con, dry_run=False)
+    assert applied["moved"] == 3
+    assert price_quarantine.cleanup_hard_invalid_prices(con)["invalid_rows"] == 0
+
+
+def test_a_stale_same_night_open_fault_is_not_admitted(con):
+    insert_bars(con, "SPY", [DAY], open_=700, high=705, low=695, close=701)
+    ticker, day, open_, high, low, close, volume, fetched = STALE[0]
+    bar = dict(ticker=ticker, date=day, open=open_, high=high, low=low, close=close,
+               volume=volume, source="yfinance", fetched_at=fetched)
+    assert db.upsert_prices(con, frame(bar)) == 0
+    assert reject_reasons(con) == ["high_geometry"]
+    # A valid settled re-fetch replaces nothing and is simply admitted.
+    assert db.upsert_prices(con, frame({**bar, "open": 640.0,
+                                        "fetched_at": datetime(2026, 10, 20, 22)})) == 1
+
+
+_TZ_PROBE = """
+import json, os, sys
+from datetime import date, datetime, timezone
+import pandas as pd
+from engine.lib import db
+from engine.lib.data_quality import provisional_open_fault_sql
+from server import market_read_models
+con = db.connect(sys.argv[1])
+db.init_schema(con)
+bar = dict(ticker="AAA", date=date(2026, 10, 19), open=10.8, high=10.6, low=9.9, close=10.4,
+           volume=1000, source="fixture",
+           fetched_at=datetime(2026, 10, 19, 22, 30, tzinfo=timezone.utc))
+admitted = db.upsert_prices(con, pd.DataFrame([bar], dtype=object))
+stamp, fault = con.execute(f"SELECT fetched_at, {provisional_open_fault_sql()} FROM prices").fetchone()
+quality = market_read_models.retained_bar_quality(con, ["AAA"], date(2026, 10, 19))["AAA"]
+print(json.dumps({"admitted": admitted, "stamp": stamp.isoformat(), "fault": fault,
+                  "invalid": quality["invalid_count"]}))
+"""
+
+
+@pytest.mark.parametrize("zone", ["Asia/Singapore", "America/Los_Angeles"])
+def test_ingest_and_reads_agree_on_a_non_utc_host(tmp_path, zone):
+    root = Path(__file__).resolve().parents[1]
+    done = subprocess.run(
+        [sys.executable, "-c", _TZ_PROBE, str(tmp_path / "store.duckdb")],
+        env={**os.environ, "TZ": zone, "PYTHONPATH": str(root)}, cwd=root,
+        capture_output=True, text=True, check=True)
+    assert json.loads(done.stdout.strip().splitlines()[-1]) == {
+        "admitted": 1, "stamp": "2026-10-19T22:30:00", "fault": True, "invalid": 0}

@@ -52,7 +52,11 @@ def cleanup_hard_invalid_prices(con, *, dry_run: bool = True) -> dict:
         raise ValueError("cleanup SQL and validator disagree; no rows moved")
     # A same-night bar whose only fault is its open is admissible as fetched, so the
     # cleanup leaves it for the next night's settled re-fetch, exactly as ingest does.
-    kept = [provisional_open_only_fault(row, reason) for row, reason in zip(originals, reasons, strict=True)]
+    # A stale one (dated before the newest stored session, never re-fetched) is
+    # judged as settled and moves like any other hard-invalid bar.
+    latest = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+    kept = [provisional_open_only_fault(row, reason, latest)
+            for row, reason in zip(originals, reasons, strict=True)]
     originals = [row for row, keep in zip(originals, kept, strict=True) if not keep]
     reasons = [reason for reason, keep in zip(reasons, kept, strict=True) if not keep]
     report = {

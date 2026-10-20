@@ -9,7 +9,7 @@ from pathlib import Path
 
 import duckdb
 
-from engine.lib.data_quality import data_snapshot, quarantine_reason
+from engine.lib.data_quality import data_snapshot, provisional_open_fault, quarantine_reason
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256, runtime_source_hash
 from engine.lib.settings import REPO_ROOT
@@ -258,12 +258,35 @@ def _action_coverage(
     return {**record, "record_sha256": canonical_sha256(record)}
 
 
+def _open_withheld(row: tuple) -> str | None:
+    """Withhold a never-settled bar's open when it lies outside [low, high].
+
+    ``row`` is (date, open, high, low, close, volume, source, fetched_at). The model
+    sees the close and range with ``open: null`` and the explicit reason.
+    """
+    if provisional_open_fault(row[0], row[1], row[2], row[3], row[7]):
+        return agent_data_contract.OPEN_WITHHELD_PROVISIONAL
+    return None
+
+
+def _withheld_price_fact(ticker: str, row: tuple, reason: str) -> dict:
+    # No immutable observation can bind a value whose open is withheld.
+    return agent_data_contract.daily_price_fact(
+        ticker=ticker, market_date=row[0], open_price=None, high=row[2], low=row[3],
+        close=row[4], volume=row[5], source=row[6], fetched_at=row[7],
+        open_withheld=reason,
+    )
+
+
 def _price_fact(
     con: duckdb.DuckDBPyConnection,
     ticker: str,
     row: tuple,
 ) -> dict:
     try:
+        withheld = _open_withheld(row)
+        if withheld:
+            return _withheld_price_fact(ticker, row, withheld)
         observation_row = (ticker, *row)
         value = {
             "ticker": ticker,
@@ -535,6 +558,13 @@ def _instrument(
     if quarantine:
         raise ContextError(f"instrument is quarantined: {quarantine}")
     try:
+        withheld = _open_withheld(quote)
+    except (TypeError, ValueError) as exc:
+        raise ContextError("instrument quote is invalid") from exc
+    try:
+        if withheld:
+            data_contract = _withheld_price_fact(ticker, quote, withheld)
+            return _instrument_record(ticker, quote, close, source, fetched_at, data_contract)
         value = {
             "ticker": ticker,
             "market_date": quote[0].isoformat(),
@@ -593,6 +623,10 @@ def _instrument(
         agent_provider_responses.ProviderResponseError,
     ) as exc:
         raise ContextError(str(exc)) from exc
+    return _instrument_record(ticker, quote, close, source, fetched_at, data_contract)
+
+
+def _instrument_record(ticker, quote, close, source, fetched_at, data_contract) -> dict:
     return {
         "ticker": ticker,
         "active": True,
