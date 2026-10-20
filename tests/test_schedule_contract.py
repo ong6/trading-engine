@@ -377,8 +377,9 @@ def test_public_status_is_bounded_path_free_and_ages(tmp_path):
                   *({"rule": "failed", "subject": f"u{n}.service", "detail": {}}
                     for n in range(25)),
                   {"rule": "lane-path", "subject": "/srv/engine-lanes/x", "detail": {}}]
-    sc.write_result(path, {"status": "violations", "checked_at": "2026-10-20T07:08:00+00:00",
-                           "violations": violations})
+    path.write_text(json.dumps({"status": "violations",
+                                "checked_at": "2026-10-20T07:08:00+00:00",
+                                "violations": violations}))
     now = datetime(2026, 10, 20, 7, 20, tzinfo=UTC)
 
     public = sc.public_status(path, now=now)

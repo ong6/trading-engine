@@ -606,7 +606,8 @@ def collect_hour(
         collect_files(db, logs_dir, ops_dir, signals)
         # Before the /meta probe, so this hour's /meta shows this hour's contract.
         contract = (contract_check or contract_probe)(now)
-        schedule_contract.write_result(ops_dir / CONTRACT_RESULT, contract)
+        write_text_atomic(ops_dir / CONTRACT_RESULT,
+                          json.dumps(contract, indent=1, sort_keys=True) + "\n")
         if contract["errors"]:
             gaps.append("schedule contract probe: " + "; ".join(contract["errors"]))
         probes, sections = probe(fetch)

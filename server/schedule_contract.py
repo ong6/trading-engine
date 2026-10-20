@@ -793,13 +793,6 @@ def exit_code(result: dict) -> int:
     return {"ok": 0, "violations": 2}.get(result["status"], 3)
 
 
-def write_result(path: Path, result: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}")
-    temporary.write_text(json.dumps(result, indent=1, sort_keys=True) + "\n")
-    os.replace(temporary, path)
-
-
 def _public_subject(value: object) -> str:
     text = str(value)
     return text if len(text) <= 255 and text.isprintable() and "/" not in text else "redacted"
