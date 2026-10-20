@@ -31,6 +31,9 @@ _DATA_SOURCE_STATE: ContextVar[dict[str, str | None] | None] = ContextVar(
 _EVIDENCE_SNAPSHOT_REQUIRED: ContextVar[bool] = ContextVar(
     "evidence_snapshot_required", default=False
 )
+_CURRENT_SNAPSHOT_PREFERRED: ContextVar[bool] = ContextVar(
+    "current_snapshot_preferred", default=False
+)
 
 
 def db_path() -> Path:
@@ -50,8 +53,29 @@ def _connect(read_only: bool) -> duckdb.DuckDBPyConnection:
         raise
 
 
+def _mark_snapshot(snapshot) -> None:
+    state = _DATA_SOURCE_STATE.get()
+    if state is not None:
+        state.update(source="snapshot", snapshot_as_of=snapshot.as_of.isoformat())
+
+
 def read_con() -> duckdb.DuckDBPyConnection:
-    """Open the primary read-only, falling back only on lock contention."""
+    """Open the primary read-only, falling back only on lock contention.
+
+    Under `prefer_current_snapshot()` a snapshot published after the live database's
+    last write (so identical to it) is opened first, keeping slow reads off the
+    primary's lock; the primary remains the fallback.
+    """
+    if _CURRENT_SNAPSHOT_PREFERRED.get():
+        snapshot = latest_snapshot(db_path(), newer_than_database=True)
+        if snapshot is not None:
+            try:
+                connection = engine_db.connect(snapshot.path, read_only=True, wait_s=0)
+            except Exception:  # an unreadable snapshot falls back to the primary
+                pass
+            else:
+                _mark_snapshot(snapshot)
+                return connection
     try:
         return _connect(read_only=True)
     except DBBusyError as primary_error:
@@ -64,12 +88,7 @@ def read_con() -> duckdb.DuckDBPyConnection:
             connection = engine_db.connect(snapshot.path, read_only=True, wait_s=0)
         except Exception as snapshot_error:
             raise primary_error from snapshot_error
-        state = _DATA_SOURCE_STATE.get()
-        if state is not None:
-            state.update(
-                source="snapshot",
-                snapshot_as_of=snapshot.as_of.isoformat(),
-            )
+        _mark_snapshot(snapshot)
         return connection
 
 
@@ -97,3 +116,13 @@ def require_fresh_evidence_snapshot() -> Iterator[None]:
         yield
     finally:
         _EVIDENCE_SNAPSHOT_REQUIRED.reset(token)
+
+
+@contextmanager
+def prefer_current_snapshot() -> Iterator[None]:
+    """Serve slow read-only routes from a snapshot identical to the live database."""
+    token = _CURRENT_SNAPSHOT_PREFERRED.set(True)
+    try:
+        yield
+    finally:
+        _CURRENT_SNAPSHOT_PREFERRED.reset(token)

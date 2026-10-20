@@ -419,8 +419,13 @@ def p15_markdown(report: dict) -> str:
     for item in books["comparisons"]:
         lines.append(f"- {item['challenger']} vs control: {item['paired_return_count']} pairs, "
                      f"positive lower bound {item['positive_lower_bound']}")
+    coverage = preopen.get("coverage")
     lines.extend(["", "## Pre-open", "", f"Status: {preopen['status']}; runs: "
-                  f"{preopen['run_count']}"])
+                  f"{preopen['run_count']}" + ("" if coverage is None else
+                  f"; reviewed sessions: {coverage['reviewed_session_count']} of "
+                  f"{coverage['ai_entry_session_count']} with AI-book entries")])
+    if coverage and coverage["unreviewed_sessions"]:
+        lines.append("- unreviewed sessions: " + ", ".join(coverage["unreviewed_sessions"]))
     for item in preopen["books"]:
         lines.append(f"- {item['portfolio_id']}: {item['mature_effective_cancel_count']} mature "
                      f"effective cancels, hit rate {item['cancel_hit_rate']}, pending/other "

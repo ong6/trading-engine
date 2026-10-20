@@ -188,6 +188,22 @@ def validate_preopen(con: duckdb.DuckDBPyConnection, generated_at: datetime, err
             None, "cancelled_would_fill", "cancelled_limit_not_reached"
         } or (closed and outcome is None):
             raise error_type(f"P15 cancelled intent {intent_id} evidence differs")
+    unreviewed = con.execute(
+        "SELECT a.attempt_date,i.id FROM p15_limit_attempts a "
+        "JOIN p15_order_intents i ON i.id=a.intent_id "
+        "WHERE i.order_role='entry' AND i.status<>'cancelled' "
+        "AND i.portfolio_id IN ('p15_ai_ranked','p15_hybrid_veto') "
+        "AND NOT EXISTS (SELECT 1 FROM p15_preopen_decisions d "
+        "JOIN p15_preopen_runs r ON r.id=d.run_id WHERE r.policy_id=? "
+        "AND r.session_date=a.attempt_date AND r.status<>'running' "
+        "AND d.intent_id=i.id) ORDER BY a.attempt_date,i.id LIMIT 1",
+        [p15_preopen.POLICY_ID],
+    ).fetchone()
+    if unreviewed is not None:
+        raise error_type(
+            f"P15 AI-book entry {unreviewed[1]} met the {unreviewed[0]} open with no "
+            "pre-open run"
+        )
 
 
 def validate_book_links(con: duckdb.DuckDBPyConnection, error_type) -> dict:

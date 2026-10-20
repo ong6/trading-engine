@@ -29,6 +29,12 @@ NIGHTLY_LOCK = REPO_ROOT / ".nightly.lock"
 ET = ZoneInfo("America/New_York")
 START = time(9, 5)
 DEADLINE = time(9, 25)
+INVALID_DECISION_REASON = "invalid pre-open decision kept"
+MISSED_REASON = "no pre-open run was recorded before the session opened"
+# Seconds kept free between the end of the store wait and the deadline for news, the
+# proxy status checks and the model call (news retains its own per-ticker timeout).
+STORE_WAIT_RESERVE_S = (60.0 + 4 * agent_model_client.STATUS_TIMEOUT_SECONDS
+                        + agent_model_client.GENERATION_TIMEOUT_SECONDS)
 
 
 class PreopenError(ValueError):
@@ -125,33 +131,52 @@ def _facts(con, ticker: str, decision_at: datetime, cutoff: datetime) -> list[di
     } for row in rows]
 
 
+def _decision_error(item: dict, allowed: set[str]) -> str | None:
+    """Name what makes one decision unusable; an unusable decision is kept."""
+    evidence = item["evidence_ids"]
+    if item["decision"] not in {"keep", "cancel"}:
+        return "decision"
+    if not isinstance(item["reason"], str) or not item["reason"].strip() \
+            or len(item["reason"]) > 500:
+        return "reason"
+    # A keep changes nothing, so it may cite no new evidence; a cancel must cite some.
+    if not isinstance(evidence, list) or (item["decision"] == "cancel" and not evidence) \
+            or any(not isinstance(value, str) for value in evidence) \
+            or len(evidence) != len(set(evidence)) or not set(evidence) <= allowed:
+        return "evidence"
+    return None
+
+
 def _validate(output: object, allowed: dict[int, set[str]]) -> list[dict]:
+    """Validate each decision on its own: one unusable or missing decision is kept
+    without voiding its valid siblings. Only an output whose decisions cannot be
+    matched to intents (shape, unknown or repeated identity) is rejected whole."""
     if not isinstance(output, dict) or set(output) != {"schema_version", "decisions"} \
             or type(output.get("schema_version")) is not int \
             or output["schema_version"] != 1 or not isinstance(output["decisions"], list):
         raise PreopenError("pre-open output shape is invalid")
-    decisions, seen = [], set()
+    decisions = {}
     for item in output["decisions"]:
         if not isinstance(item, dict) or set(item) != {
             "intent_id", "decision", "reason", "evidence_ids"
         }:
             raise PreopenError("pre-open decision shape is invalid")
-        intent_id, evidence = item["intent_id"], item["evidence_ids"]
-        if type(intent_id) is not int or intent_id not in allowed or intent_id in seen \
-                or item["decision"] not in {"keep", "cancel"}:
+        intent_id = item["intent_id"]
+        if type(intent_id) is not int or intent_id not in allowed or intent_id in decisions:
             raise PreopenError("pre-open decision identity is invalid")
-        if not isinstance(item["reason"], str) or not item["reason"].strip() or len(item["reason"]) > 500:
-            raise PreopenError("pre-open reason is invalid")
-        if not isinstance(evidence, list) or not evidence \
-                or any(not isinstance(value, str) for value in evidence) \
-                or len(evidence) != len(set(evidence)) \
-                or not set(evidence) <= allowed[intent_id]:
-            raise PreopenError("pre-open evidence is invalid")
-        seen.add(intent_id)
-        decisions.append(item)
-    if seen != set(allowed):
-        raise PreopenError("pre-open output does not cover every intent")
-    return decisions
+        error = _decision_error(item, allowed[intent_id])
+        decisions[intent_id] = item if error is None else {
+            "intent_id": intent_id, "decision": "keep",
+            "reason": f"{INVALID_DECISION_REASON}: {error}",
+            "evidence_ids": sorted(allowed[intent_id]),
+        }
+    for intent_id in allowed:
+        decisions.setdefault(intent_id, {
+            "intent_id": intent_id, "decision": "keep",
+            "reason": f"{INVALID_DECISION_REASON}: missing",
+            "evidence_ids": sorted(allowed[intent_id]),
+        })
+    return list(decisions.values())
 
 
 def _validate_identity(result: agent_model_client.ConnectorResult, payload: dict) -> None:
@@ -366,6 +391,57 @@ def _resume_preopen(con, existing, started):
         )
 
 
+def record_missed_sessions(
+    con: duckdb.DuckDBPyConnection, *, before: date, recorded_at: datetime,
+) -> int:
+    """Record a 'missed' run for each past session whose AI-book entries met the open
+    with no pre-open run (the store was unavailable or the run crashed first).
+
+    Sessions come from the retained entry attempts, so only sessions the books really
+    executed are recorded; every such intent was kept, which is what happened.
+    """
+    if not table_exists(con, "p15_limit_attempts"):
+        return 0
+    recorded = _utc(recorded_at)
+    rows = con.execute(
+        "SELECT a.attempt_date,i.id,i.portfolio_id,i.ticker FROM p15_limit_attempts a "
+        "JOIN p15_order_intents i ON i.id=a.intent_id "
+        "WHERE i.order_role='entry' AND i.status<>'cancelled' AND a.attempt_date<? "
+        "AND i.portfolio_id IN (?,?,?) AND NOT EXISTS (SELECT 1 FROM p15_preopen_runs r "
+        "WHERE r.policy_id=? AND r.session_date=a.attempt_date) "
+        "ORDER BY a.attempt_date,i.id",
+        [before, *p15_books.BOOK_IDS, POLICY_ID],
+    ).fetchall()
+    sessions: dict[date, list[dict]] = {}
+    for session_date, intent_id, book_id, ticker in rows:
+        sessions.setdefault(session_date, []).append(
+            {"intent_id": int(intent_id), "portfolio_id": book_id, "ticker": ticker}
+        )
+    count = 0
+    for session_date, intents in sessions.items():
+        if not any(item["portfolio_id"] in BOOK_IDS for item in intents):
+            continue
+        payload = {"schema_version": 1, "policy_id": POLICY_ID,
+                   "session_date": session_date.isoformat(), "cutoff_at": None,
+                   "execution_authority": "cancel_only",
+                   "intents": [item for item in intents if item["portfolio_id"] in BOOK_IDS],
+                   "control_noops": [item for item in intents
+                                     if item["portfolio_id"] not in BOOK_IDS],
+                   "receipt_sha256s": []}
+        decisions = [{**item, "decision": "keep",
+                      "reason": "missed_preopen_run" if item["portfolio_id"] in BOOK_IDS
+                      else "rule_control_noop", "evidence_ids": []} for item in intents]
+        run_id = _start_run(
+            con, session_date=session_date, payload=payload, receipts=[], started=recorded,
+        )
+        _finish_run(
+            con, run_id=run_id, status="missed", reason=MISSED_REASON, response=None,
+            decisions=decisions, completed=recorded,
+        )
+        count += 1
+    return count
+
+
 def _preopen_decisions(started, cutoff, model_intents, payload, allowed, generate, clock):
     response, status, reason, model_decisions = None, "completed", None, []
     completed = started
@@ -383,6 +459,10 @@ def _preopen_decisions(started, cutoff, model_intents, payload, allowed, generat
                 status, reason = "late", "pre-open response missed deadline"
             else:
                 model_decisions = _validate(response["output"], allowed)
+                invalid = sum(item["reason"].startswith(INVALID_DECISION_REASON)
+                              for item in model_decisions)
+                if invalid:
+                    reason = f"{invalid} invalid pre-open decision(s) kept"
         except (agent_model_client.ConnectorError, PreopenError, TypeError, ValueError) as exc:
             status, reason = "unavailable", str(exc)[:500]
             completed = _utc(clock())
@@ -411,6 +491,8 @@ def run(
     init_schema(con)
     if p15_books.activation_state(con) != "active":
         return {"status": "inactive", "decision_count": 0, "cancelled": 0}
+    with db.transaction(con):
+        record_missed_sessions(con, before=session_date, recorded_at=started)
     existing = con.execute(
         "SELECT id,status FROM p15_preopen_runs WHERE policy_id=? AND session_date=?",
         [POLICY_ID, session_date],
@@ -492,13 +574,24 @@ def run(
     return _commit_preopen(con, run_id, status, reason, response, decisions, completed, clock)
 
 
+def store_wait_s(observed: datetime) -> float:
+    """Retry the store until the deadline less the model's reserve, at least the default."""
+    local = observed.astimezone(ET)
+    wait_until = datetime.combine(local.date(), DEADLINE, ET)
+    return max(0.0, (wait_until - local).total_seconds() - STORE_WAIT_RESERVE_S)
+
+
 def run_database(database: Path = DEFAULT_DB, *, now: datetime | None = None, **kwargs) -> dict:
     observed = _utc(now or datetime.now(timezone.utc))
     with advisory_file_lock(LOCK_PATH), advisory_file_lock(NIGHTLY_LOCK):
-        # The default lock-retry window (60 s): a reader elsewhere refuses writers until it
-        # closes. Lateness is judged on the clock after it, so a wait cannot cancel late.
-        con = db.connect(database)
+        # A reader elsewhere refuses writers until it closes, and API reads can take
+        # minutes, so retry until the deadline less the model reserve (never below the
+        # default window). The run starts on the clock after the wait, so a long wait
+        # records a late run that keeps every intent rather than no run at all.
+        con = db.connect(database, wait_s=store_wait_s(observed) or None)
         try:
+            if now is None:
+                observed = _utc(datetime.now(timezone.utc))
             p15_books.init_schema(con)
             init_schema(con)
             return run(con, session_date=observed.astimezone(ET).date(), now=observed, **kwargs)
@@ -509,8 +602,11 @@ def run_database(database: Path = DEFAULT_DB, *, now: datetime | None = None, **
 def capture_after_open(
     con: duckdb.DuckDBPyConnection, fill_date: date, *, captured_at: datetime,
 ) -> dict:
-    """Record cancelled hypotheticals and terminal order execution quality."""
+    """Record cancelled hypotheticals, missed pre-open sessions and execution quality."""
     init_schema(con)
+    record_missed_sessions(
+        con, before=nyse.next_session(fill_date), recorded_at=captured_at,
+    )
     cancelled = con.execute(
         "SELECT id,portfolio_id,ticker,qty,signal_date,limit_px FROM p15_order_intents i "
         "WHERE status='cancelled' AND order_role='entry' AND signal_date<? "

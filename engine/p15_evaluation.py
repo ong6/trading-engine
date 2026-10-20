@@ -1093,8 +1093,22 @@ def preopen(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
                        "mature_effective_cancel_count": len(saved),
                        "cancel_hit_rate": _mean([float(value > 0) for value in saved]),
                        "mean_saved_bp": _mean(saved)})
+    sessions = {row[0]: row[1] for row in con.execute(
+        "SELECT a.attempt_date,MAX(CASE WHEN r.status='completed' AND r.completed_at<=? "
+        "THEN 1 ELSE 0 END) FROM p15_limit_attempts a "
+        "JOIN p15_order_intents i ON i.id=a.intent_id "
+        "LEFT JOIN p15_preopen_runs r ON r.session_date=a.attempt_date "
+        "WHERE i.order_role='entry' AND i.portfolio_id IN (?,?) "
+        "AND (i.status<>'cancelled' OR r.status='completed') AND a.attempt_date<=? "
+        "GROUP BY a.attempt_date ORDER BY a.attempt_date",
+        [cutoff, BOOK_IDS[0], BOOK_IDS[2], generated_at.date()],
+    ).fetchall()} if table_exists(con, "p15_order_intents") else {}
     return {"status": "collecting" if run_count else "waiting",
-            "run_count": run_count, "books": output}
+            "run_count": run_count, "books": output,
+            "coverage": {"ai_entry_session_count": len(sessions),
+                         "reviewed_session_count": sum(sessions.values()),
+                         "unreviewed_sessions": [day.isoformat() for day, reviewed
+                                                 in sessions.items() if not reviewed]}}
 
 
 def _event_basis(rows: list[tuple]) -> dict:

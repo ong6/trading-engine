@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 import duckdb
 import pytest
@@ -515,8 +515,8 @@ def test_run_database_waits_out_a_concurrent_store_reader(tmp_path, monkeypatch)
 
 
 def test_store_wait_leaves_the_preopen_inside_its_deadline_and_unit_timeout():
-    # Worst case before the model answers: the timer's default one-minute accuracy, the whole
-    # lock-retry window, two proxy status checks of two requests each and the generation
+    # Worst case before the model answers: the store wait, which retries until the deadline
+    # less its reserve, then two proxy status checks of two requests each and the generation
     # timeout. Slow news cannot cancel late: the run records "late" and keeps every intent.
     unit = settings.REPO_ROOT / "server" / "trading-engine-p15-preopen"
     timer = unit.with_suffix(".timer").read_text()
@@ -524,8 +524,166 @@ def test_store_wait_leaves_the_preopen_inside_its_deadline_and_unit_timeout():
     assert "AccuracySec" not in timer
     service = unit.with_suffix(".service").read_text()
     timeout_s = 60 * int(re.search(r"^TimeoutStartSec=(\d+)min$", service, re.M)[1])
-    worst_s = (60 + settings.LOCK_WAIT_DEFAULT_S + 4 * agent_model_client.STATUS_TIMEOUT_SECONDS
-               + agent_model_client.GENERATION_TIMEOUT_SECONDS)
+    start = datetime.combine(date(2024, 7, 17), p15_preopen.START, p15_preopen.ET)
+    model_s = 4 * agent_model_client.STATUS_TIMEOUT_SECONDS \
+        + agent_model_client.GENERATION_TIMEOUT_SECONDS
+    worst_s = p15_preopen.store_wait_s(start) + model_s
     window_s = (datetime.combine(date.min, p15_preopen.DEADLINE)
                 - datetime.combine(date.min, p15_preopen.START)).total_seconds()
+    assert model_s < p15_preopen.STORE_WAIT_RESERVE_S
     assert worst_s < window_s and worst_s < timeout_s
+    late = datetime.combine(date(2024, 7, 17), time(9, 24), p15_preopen.ET)
+    assert p15_preopen.store_wait_s(late) == 0.0
+
+
+# Stored run 6 (session 2026-10-06): the model cancelled STX (intent 42) with allowlisted
+# evidence and kept CYPH (intent 44) citing no new evidence. Requiring evidence on the keep
+# voided the whole run, so the cancel was lost and intent 42 filled at 856.62.
+RUN_6_ALLOWED = {
+    41: {"c752f75184c5fa70e1e8869bb19323912b387241716aab149f732cdb8f45b4c0",
+         "cec4bad5afa6c5050a8e8213aba0a7168404dca000c0cd9aeea267877b26e756"},
+    42: {"f39719abb03dd8054e25ab9878e32359bb671b0da87056487f45e9cc2c601d37",
+         "aa6786c75229c0ae98692fba9defd940173c8045a8da7c02e8eb8e2bcd1f4c82",
+         "cec4bad5afa6c5050a8e8213aba0a7168404dca000c0cd9aeea267877b26e756"},
+    44: {"b1f8205a923b572698739ce8aa5530d2660f8d72abd7b3b1f4a3e19f1dc98bf5",
+         "cec4bad5afa6c5050a8e8213aba0a7168404dca000c0cd9aeea267877b26e756"},
+}
+RUN_6_OUTPUT = {"schema_version": 1, "decisions": [
+    {"decision": "keep", "intent_id": 41,
+     "evidence_ids": ["c752f75184c5fa70e1e8869bb19323912b387241716aab149f732cdb8f45b4c0"],
+     "reason": "New coverage reiterates the known positive Phase III catalyst without "
+               "disclosing an invalidating qualification."},
+    {"decision": "cancel", "intent_id": 42,
+     "evidence_ids": ["f39719abb03dd8054e25ab9878e32359bb671b0da87056487f45e9cc2c601d37",
+                      "aa6786c75229c0ae98692fba9defd940173c8045a8da7c02e8eb8e2bcd1f4c82"],
+     "reason": "New reporting identifies Toshiba competition as a significant adverse issue "
+               "and says the shares are falling, undermining the expected follow-through."},
+    {"decision": "keep", "intent_id": 44, "evidence_ids": [],
+     "reason": "No new headline or event fact is available to establish an overnight "
+               "invalidation."},
+]}
+
+
+def test_stored_run_6_keep_without_new_evidence_no_longer_voids_its_cancel():
+    decisions = {item["intent_id"]: item for item in p15_preopen._validate(
+        RUN_6_OUTPUT, RUN_6_ALLOWED
+    )}
+    assert decisions[42]["decision"] == "cancel"
+    assert decisions[44] == RUN_6_OUTPUT["decisions"][2]
+    assert decisions[41] == RUN_6_OUTPUT["decisions"][0]
+
+
+def test_unusable_decision_is_kept_without_voiding_valid_siblings():
+    allowed = {1: {"a" * 64}, 2: {"b" * 64}, 3: {"c" * 64}}
+    decisions = {item["intent_id"]: item for item in p15_preopen._validate(
+        {"schema_version": 1, "decisions": [
+            {"intent_id": 1, "decision": "cancel", "reason": "Adverse filing.",
+             "evidence_ids": ["a" * 64]},
+            {"intent_id": 2, "decision": "cancel", "reason": "Foreign evidence.",
+             "evidence_ids": ["a" * 64]},
+        ]}, allowed,
+    )}
+    assert decisions[1]["decision"] == "cancel"
+    assert decisions[2] == {"intent_id": 2, "decision": "keep",
+                            "reason": f"{p15_preopen.INVALID_DECISION_REASON}: evidence",
+                            "evidence_ids": ["b" * 64]}
+    assert decisions[3]["decision"] == "keep"
+    assert decisions[3]["reason"] == f"{p15_preopen.INVALID_DECISION_REASON}: missing"
+    # A cancel must still cite allowlisted evidence; without it the intent is kept.
+    assert p15_preopen._validate({"schema_version": 1, "decisions": [
+        {"intent_id": 1, "decision": "cancel", "reason": "No basis.", "evidence_ids": []},
+    ]}, {1: set()}) == [{"intent_id": 1, "decision": "keep",
+                         "reason": f"{p15_preopen.INVALID_DECISION_REASON}: evidence",
+                         "evidence_ids": []}]
+
+
+def test_cancel_applies_beside_a_keep_that_cites_no_new_evidence(con):
+    _signal_date, session_date = _setup(con)
+    now = datetime(2024, 7, 17, 13, 10, tzinfo=timezone.utc)
+
+    def mixed(payload):
+        first, second = payload["intents"]
+        return _result({"schema_version": 1, "decisions": [
+            {"intent_id": first["intent_id"], "decision": "cancel",
+             "reason": "Adverse update.", "evidence_ids": [first["allowed_evidence_ids"][0]]},
+            {"intent_id": second["intent_id"], "decision": "keep",
+             "reason": "Nothing new.", "evidence_ids": []},
+        ]}, payload)
+
+    result = p15_preopen.run(
+        con, session_date=session_date, now=now, generate=mixed,
+        fetch_news=_news, clock=lambda: now + timedelta(seconds=2),
+    )
+    assert result["status"] == "completed" and result["cancelled"] == 1
+    assert con.execute(
+        "SELECT reason FROM p15_preopen_runs WHERE session_date=?", [session_date]
+    ).fetchone() == (None,)
+
+
+def test_session_without_a_preopen_run_is_recorded_missed_and_flagged(con):
+    from engine import p15_evaluation
+    from tools import p15_evidence_validation
+
+    _signal_date, session_date = _setup(con)
+    p15_preopen.init_schema(con)
+    # The pre-open crashed on the store lock: the books still executed the entries.
+    assert p15_books.process_pending(con, session_date)["filled"]
+    generated_at = datetime(2024, 7, 18, 2, 30, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match="no pre-open run"):
+        p15_evidence_validation.validate_preopen(con, generated_at, ValueError)
+
+    p15_preopen.capture_after_open(con, session_date, captured_at=generated_at)
+    p15_preopen.capture_after_open(con, session_date, captured_at=generated_at)
+
+    assert con.execute(
+        "SELECT session_date,status,reason FROM p15_preopen_runs"
+    ).fetchall() == [(session_date, "missed", p15_preopen.MISSED_REASON)]
+    assert sorted(con.execute(
+        "SELECT portfolio_id,decision,reason FROM p15_preopen_decisions"
+    ).fetchall()) == [("p15_ai_ranked", "keep", "missed_preopen_run"),
+                      ("p15_hybrid_veto", "keep", "missed_preopen_run"),
+                      ("p15_rule_control", "keep", "rule_control_noop")]
+    p15_evidence_validation.validate_preopen(con, generated_at, ValueError)
+    coverage = p15_evaluation.preopen(con, generated_at)["coverage"]
+    assert coverage == {"ai_entry_session_count": 1, "reviewed_session_count": 0,
+                        "unreviewed_sessions": [session_date.isoformat()]}
+
+
+def test_reviewed_session_counts_toward_preopen_coverage(con):
+    from engine import p15_evaluation
+
+    _signal_date, session_date = _setup(con)
+    now = datetime(2024, 7, 17, 13, 10, tzinfo=timezone.utc)
+    p15_preopen.run(
+        con, session_date=session_date, now=now,
+        generate=lambda payload: _result({"schema_version": 1, "decisions": [
+            {"intent_id": item["intent_id"], "decision": "keep", "reason": "Nothing new.",
+             "evidence_ids": []} for item in payload["intents"]
+        ]}, payload),
+        fetch_news=_news, clock=lambda: now + timedelta(seconds=2),
+    )
+    p15_books.process_pending(con, session_date)
+    generated_at = datetime(2024, 7, 18, 2, 30, tzinfo=timezone.utc)
+    p15_preopen.capture_after_open(con, session_date, captured_at=generated_at)
+    assert con.execute("SELECT COUNT(*) FROM p15_preopen_runs").fetchone() == (1,)
+    assert p15_evaluation.preopen(con, generated_at)["coverage"] == {
+        "ai_entry_session_count": 1, "reviewed_session_count": 1, "unreviewed_sessions": [],
+    }
+
+
+def test_run_database_retries_the_store_until_the_deadline_reserve(tmp_path, monkeypatch):
+    waits = []
+    real_connect = p15_preopen.db.connect
+
+    def connect(path, **kwargs):
+        waits.append(kwargs.get("wait_s"))
+        return real_connect(path, **kwargs)
+
+    store = tmp_path / "market.duckdb"
+    duckdb.connect(str(store)).close()
+    monkeypatch.setattr(p15_preopen, "LOCK_PATH", tmp_path / "preopen.lock")
+    monkeypatch.setattr(p15_preopen, "NIGHTLY_LOCK", tmp_path / "nightly.lock")
+    monkeypatch.setattr(p15_preopen.db, "connect", connect)
+    p15_preopen.run_database(store, now=datetime(2024, 7, 17, 13, 5, tzinfo=timezone.utc))
+    assert waits == [20 * 60 - p15_preopen.STORE_WAIT_RESERVE_S]
+    assert waits[0] > 10 * settings.LOCK_WAIT_DEFAULT_S
