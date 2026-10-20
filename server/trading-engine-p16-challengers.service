@@ -13,6 +13,8 @@ Environment=PYTHONUNBUFFERED=1
 Nice=19
 IOSchedulingClass=idle
 TimeoutStartSec=9h
+# systemd 241 stops applying TimeoutStartSec to Type=exec once exec succeeds.
+RuntimeMaxSec=9h
 PrivateTmp=true
 ProtectSystem=full
 ProtectControlGroups=true

@@ -220,6 +220,41 @@ def test_clean_stop_that_systemd_reports_as_success_is_not_a_failed_run(tmp_path
     assert "| trading-engine-api | `—` | ? | 1 | 0 | 0 | ? | schedule unknown |" in report
 
 
+def _backup_journal(*messages: str) -> dict[str, str]:
+    unit = "trading-data-backup.service"
+    lines = [("Starting Back up the trading engine store...", "systemd"),
+             *((message, "python") for message in messages),
+             (f"{unit}: Succeeded.", "systemd"), ("Started Back up the trading engine store.",
+                                                  "systemd")]
+    return {unit: "\n".join(_entry("2026-10-10T02:34:53+00:00", *line) for line in lines)}
+
+
+def test_backup_that_exits_75_on_busy_locks_is_reported_as_skipped(tmp_path):
+    # 2026-10-19 04:34 and 10:33: backup.py exited 75 (SuccessExitStatus=75), systemd logged
+    # "Succeeded." and the digest said success although nothing was backed up.
+    journal = _backup_journal(
+        "2026-10-19T04:34:53Z push preflight passed",
+        "2026-10-19T04:34:53Z engine locks busy: active process holds .queue-drain.lock; "
+        "backup not started",
+    )
+
+    [hour] = _collect(tmp_path, journal)
+
+    assert hour["status"] == "WARN" and "0 failed run(s)" in hour["text"]
+    assert "| trading-data-backup | 02:34:53 | 02:34:53 | 0s | — | skipped/retry (exit 75) |" in (
+        hour["text"])
+    assert "success" not in hour["text"].split("## Unit runs")[1].split("\n\n")[1]
+
+
+def test_backup_that_completes_is_still_a_success(tmp_path):
+    journal = _backup_journal("2026-10-10T02:34:53Z backup 20261010T023300Z: 6 tables changed")
+
+    [hour] = _collect(tmp_path, journal)
+
+    assert hour["status"] == "OK"
+    assert "| trading-data-backup | 02:34:53 | 02:34:53 | 0s | — | success |" in hour["text"]
+
+
 def test_failure_whose_result_lands_in_the_next_hour_keeps_its_exit_code(tmp_path):
     # The exit line falls in hour 02 and systemd's result line in hour 03. Storing hour 03
     # overwrote the run's exit status with NULL, so the report said "exit None".

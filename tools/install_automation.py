@@ -97,24 +97,13 @@ UNIT_SOURCES = {
         "server/trading-engine-accounts-settle.timer"
     ),
 }
-AUTOSTART_UNITS = frozenset(
-    {
-        "trading-engine-agent-data-capture.timer",
-        "trading-engine-agent-shadow.timer",
-        "trading-engine-daily-opportunity.timer",
-        "trading-engine-hourly-opportunity.timer",
-        "trading-engine-four-hour-opportunity.timer",
-        "trading-engine-tradingview-history.timer",
-        "trading-engine-p15-scoring.timer",
-        "trading-engine-p15-preopen.timer",
-        "trading-engine-p15-events.timer",
-        "massive-options-daily.timer",
-        "trading-engine-accounts-settle.timer",
-        "trading-engine-ops-digest.timer",
-        "trading-engine-api.service",
-        "trading-engine-ui.service",
-    }
-)
+# Enabled, started and verified by --apply. A held unit is installed but its
+# enablement is left alone; see scheduler_monitor.HELD_UNITS for each blocker.
+AUTOSTART_UNITS = scheduler_monitor.AUTOSTART_UNITS
+HELD_UNITS = scheduler_monitor.HELD_UNITS
+# A failed old unit or a stale backup must not make an install fail; cron and unit
+# enablement are verified directly before this status is read.
+POST_INSTALL_SCHEDULER_STATUSES = frozenset({"ok", "degraded"})
 MAX_AUTOMATION_SOURCE_BYTES = 1_048_576
 
 
@@ -726,6 +715,7 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
         "errors": errors,
         "changes": changes,
         "service_units": units,
+        "held_units": sorted(HELD_UNITS),
         "launch_sources": launch_sources,
         "linger": linger,
         "host": host,
@@ -771,7 +761,7 @@ def _verify_applied(repo_root: Path, home: Path, units: list[str]) -> tuple[dict
     if linger != "yes":
         raise RuntimeError(f"user lingering is not enabled: {linger}")
     scheduler = scheduler_monitor.status(repo_root=repo_root)
-    if scheduler["status"] != "ok":
+    if scheduler["status"] not in POST_INSTALL_SCHEDULER_STATUSES:
         raise RuntimeError(f"post-install scheduler verification failed: {scheduler['status']}")
     return scheduler, installed, linger
 

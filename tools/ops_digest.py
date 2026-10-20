@@ -98,6 +98,14 @@ SYSTEMD_EXIT_RE = re.compile(
     r"^(?P<unit>\S+): Main process exited, code=(?P<kind>\w+), status=(?P<status>\d+)"
 )
 SYSTEMD_FAIL_RE = re.compile(r"^(?P<unit>\S+): Failed with result '(?P<result>[^']+)'")
+# The data backup exits 75 when engine locks are busy and its unit maps 75 to success
+# (SuccessExitStatus=75), so systemd logs "Succeeded." for a run that backed up nothing.
+SKIPPED_RESULT = "skipped/retry"
+SKIPPED_RUN_RE = {
+    "trading-data-backup.service": re.compile(
+        r"\b(engine|research) locks busy: |\banother backup is running\b"
+    ),
+}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -247,6 +255,8 @@ def parse_journal(
     """Pair systemd start/finish messages into runs; classify the unit's own output."""
     runs: list[UnitRun] = []
     current: UnitRun | None = None
+    skipped_re = SKIPPED_RUN_RE.get(unit)
+    skipped = False
     for line in raw.splitlines():
         try:
             entry = json.loads(line)
@@ -258,11 +268,13 @@ def parse_journal(
         stamp = _iso(datetime.fromtimestamp(int(entry["__REALTIME_TIMESTAMP"]) / 1e6, UTC))
         if entry.get("SYSLOG_IDENTIFIER") != "systemd":
             signals.add(message)
+            skipped = skipped or bool(skipped_re and skipped_re.search(message))
             continue
         if SYSTEMD_START_RE.match(message):
             if current is not None:
                 runs.append(current)
             current = UnitRun(unit, stamp)
+            skipped = False
             continue
         exited = SYSTEMD_EXIT_RE.match(message)
         failed = SYSTEMD_FAIL_RE.match(message)
@@ -274,12 +286,14 @@ def parse_journal(
             current.exit_code = int(exited["status"])
             current.termination_kind = exited["kind"]
             continue
-        current.result = failed["result"] if failed else "success"
+        current.result = failed["result"] if failed else (
+            SKIPPED_RESULT if skipped else "success")
         if current.exit_code is None and not failed:
-            current.exit_code = 0
+            current.exit_code = 75 if skipped else 0
         current.ended = stamp
         runs.append(current)
         current = None
+        skipped = False
     if current is not None:
         runs.append(current)
     return runs
@@ -628,14 +642,15 @@ def collect_hour(
     changes = {k for k, v in sections.items() if previous and previous.get(k) != v}
     # systemd's result decides, not the exit status: a SIGTERM stop logs status=15, then
     # "Succeeded.", and a failure's result follows its exit line even across an hour.
-    failed = [r for r in runs if r["result"] not in ("success", "running")]
+    failed = [r for r in runs if r["result"] not in ("success", "running", SKIPPED_RESULT)]
     failed_stages = [row for row in stages if row["exit"] != 0]
     errors = sum(sig.counts["error"] for sig in signals.values())
     warns = sum(sig.counts["warn"] for sig in signals.values())
     health = next((p for p in probes if p["target"] == "/health"), None)
     if failed or failed_stages or (health and health["http_status"] != 200):
         status = "FAIL"
-    elif errors or warns or degraded or any(r.get("slow") for r in runs) or any(
+    elif errors or warns or degraded or any(
+            r.get("slow") or r["result"] == SKIPPED_RESULT for r in runs) or any(
             p["ms"] > SLOW_PROBE_MS for p in probes):
         status = "WARN"
     else:

@@ -3,6 +3,7 @@
 import os
 from contextlib import contextmanager
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,30 @@ def _installed_crontab(repo_root):
             *scheduler_monitor.expected_auxiliary_cron_entries(repo_root).values(),
         )
     )
+
+
+def _recent_utc(hours=1.0):
+    moment = datetime.now(UTC) - timedelta(hours=hours)
+    return moment.isoformat(timespec="seconds")
+
+
+def _healthy_unit_and_backup_probes(
+    monkeypatch, *, disabled=(), failed=(), state=("ok", None), commit_at=None
+):
+    host = scheduler_monitor.scheduler_host
+    monkeypatch.setattr(
+        host,
+        "user_unit_enablement",
+        lambda units: {unit: "disabled" if unit in disabled else "enabled" for unit in units},
+    )
+    monkeypatch.setattr(host, "failed_user_units", lambda: tuple(failed))
+    status, at = state
+    monkeypatch.setattr(
+        host,
+        "backup_state",
+        lambda _path: (status, _recent_utc() if at is None and status == "ok" else at),
+    )
+    monkeypatch.setattr(host, "last_backup_commit", lambda _repository: commit_at)
 
 
 def test_scheduler_status_runs_inside_one_command_budget(monkeypatch, tmp_path):
@@ -909,6 +934,7 @@ def test_scheduler_status_fails_closed_when_crontab_is_unreadable(tmp_path, monk
         "read_user_crontab",
         lambda: (None, "crontab-unreadable"),
     )
+    _healthy_unit_and_backup_probes(monkeypatch)
     monkeypatch.setattr(
         scheduler_monitor.scheduler_host, "cron_service", lambda: ("active", "cron")
     )
@@ -942,6 +968,19 @@ def test_scheduler_status_fails_closed_when_crontab_is_unreadable(tmp_path, monk
         "unexecutable_drivers": [],
         "unsafe_log_targets": [],
         "log_directory_writable": True,
+        "user_units": {
+            "status": "ok",
+            "autostart_expected": len(scheduler_monitor.AUTOSTART_UNITS),
+            "autostart_not_enabled": [],
+            "failed": [],
+        },
+        "backup": {
+            "status": "current",
+            "state": "ok",
+            "last_success_at": result["backup"]["last_success_at"],
+            "age_hours": result["backup"]["age_hours"],
+            "stale_after_hours": 26,
+        },
     }
 
 
@@ -967,9 +1006,251 @@ def test_invalid_scheduler_status_has_complete_safe_defaults():
         "unexecutable_drivers": [],
         "unsafe_log_targets": [],
         "log_directory_writable": False,
+        "user_units": {
+            "status": "unknown",
+            "autostart_expected": len(scheduler_monitor.AUTOSTART_UNITS),
+            "autostart_not_enabled": [],
+            "failed": [],
+        },
+        "backup": {
+            "status": "unknown",
+            "state": "unknown",
+            "last_success_at": None,
+            "age_hours": None,
+            "stale_after_hours": 26,
+        },
     }
 
 
 def test_invalid_scheduler_status_rejects_undocumented_reason():
     with pytest.raises(ValueError, match="unknown scheduler invalid reason"):
         scheduler_monitor.invalid_status("invented")
+
+
+def _healthy_cron(monkeypatch, tmp_path):
+    host = scheduler_monitor.scheduler_host
+    monkeypatch.setattr(host, "read_user_crontab", lambda: (_installed_crontab(tmp_path), None))
+    monkeypatch.setattr(host, "cron_service", lambda: ("active", "cron"))
+    monkeypatch.setattr(host, "service_enabled", lambda _unit: "enabled")
+    monkeypatch.setattr(host, "system_timezone", lambda: "Etc/UTC")
+    monkeypatch.setattr(
+        scheduler_monitor, "_launch_prerequisites", lambda _root: ((), (), (), True, ())
+    )
+
+
+def test_scheduler_is_ok_only_with_enabled_units_and_a_current_backup(monkeypatch, tmp_path):
+    _healthy_cron(monkeypatch, tmp_path)
+    _healthy_unit_and_backup_probes(monkeypatch)
+
+    result = scheduler_monitor.status(repo_root=tmp_path)
+
+    assert result["status"] == "ok"
+    assert result["user_units"]["status"] == "ok"
+    assert result["backup"]["status"] == "current"
+
+
+def test_scheduler_degrades_on_failed_units_and_disabled_autostart(monkeypatch, tmp_path):
+    _healthy_cron(monkeypatch, tmp_path)
+    _healthy_unit_and_backup_probes(
+        monkeypatch,
+        disabled=("trading-engine-p15-scoring.timer",),
+        failed=(
+            "trading-engine-p15-preopen.service",
+            "massive-options-daily.service",
+            "p22-rb-massive-options-daily.service",
+        ),
+    )
+
+    result = scheduler_monitor.status(repo_root=tmp_path)
+
+    assert result["status"] == "degraded"
+    assert result["matched_entries"] == result["expected_entries"]
+    assert result["user_units"] == {
+        "status": "degraded",
+        "autostart_expected": len(scheduler_monitor.AUTOSTART_UNITS),
+        "autostart_not_enabled": ["trading-engine-p15-scoring.timer"],
+        "failed": [
+            "massive-options-daily.service",
+            "p22-rb-massive-options-daily.service",
+            "trading-engine-p15-preopen.service",
+        ],
+    }
+
+
+def test_scheduler_checks_only_autostart_units_for_enablement(monkeypatch, tmp_path):
+    _healthy_cron(monkeypatch, tmp_path)
+    _healthy_unit_and_backup_probes(monkeypatch)
+    asked = []
+    monkeypatch.setattr(
+        scheduler_monitor.scheduler_host,
+        "user_unit_enablement",
+        lambda units: asked.append(units) or {unit: "enabled" for unit in units},
+    )
+
+    assert scheduler_monitor.status(repo_root=tmp_path)["status"] == "ok"
+    assert asked and set(asked[0]) == scheduler_monitor.AUTOSTART_UNITS
+    assert not scheduler_monitor.HELD_UNITS & set(asked[0])
+
+
+def test_scheduler_degrades_when_backup_only_retried(monkeypatch, tmp_path):
+    # 2026-10-19: both timer slots exited 75 (state retry, unit "Succeeded"); the last
+    # backup commit was a manual run more than a day earlier.
+    _healthy_cron(monkeypatch, tmp_path)
+    _healthy_unit_and_backup_probes(
+        monkeypatch,
+        state=("retry", _recent_utc(1)),
+        commit_at=_recent_utc(38),
+    )
+
+    result = scheduler_monitor.status(repo_root=tmp_path)
+
+    assert result["status"] == "degraded"
+    assert result["backup"]["status"] == "stale"
+    assert result["backup"]["state"] == "retry"
+    assert result["backup"]["age_hours"] == pytest.approx(38, abs=0.2)
+
+
+def test_scheduler_degrades_when_unit_or_backup_probes_are_unreadable(monkeypatch, tmp_path):
+    _healthy_cron(monkeypatch, tmp_path)
+    _healthy_unit_and_backup_probes(monkeypatch, state=("absent", None))
+    monkeypatch.setattr(scheduler_monitor.scheduler_host, "failed_user_units", lambda: None)
+
+    result = scheduler_monitor.status(repo_root=tmp_path)
+
+    assert result["status"] == "degraded"
+    assert result["user_units"]["status"] == "unknown"
+    assert result["backup"]["status"] == "unknown"
+    assert result["backup"]["state"] == "absent"
+
+
+def test_cron_problems_keep_precedence_over_degraded(monkeypatch, tmp_path):
+    _healthy_cron(monkeypatch, tmp_path)
+    _healthy_unit_and_backup_probes(monkeypatch, failed=("x.service",))
+    monkeypatch.setattr(scheduler_monitor.scheduler_host, "system_timezone", lambda: "Asia/Tokyo")
+
+    assert scheduler_monitor.status(repo_root=tmp_path)["status"] == "misconfigured"
+
+
+@pytest.mark.parametrize(
+    ("state", "state_hours", "commit_hours", "expected", "age"),
+    [
+        ("ok", 2, 30, "current", 2),
+        ("ok", None, 25.9, "current", 25.9),
+        ("retry", 1, 26.2, "stale", 26.2),
+        ("failed", 1, None, "unknown", None),
+        ("ok", 27, None, "stale", 27),
+    ],
+)
+def test_backup_age_counts_only_clean_runs_and_backup_commits(
+    state, state_hours, commit_hours, expected, age
+):
+    now = datetime(2026, 10, 20, 12, tzinfo=UTC)
+
+    def at(hours):
+        return None if hours is None else (now - timedelta(hours=hours)).isoformat()
+
+    result = scheduler_monitor.backup_status(
+        state, at(state_hours), at(commit_hours), now=now
+    )
+
+    assert result["status"] == expected
+    assert result["age_hours"] == age
+    assert result["state"] == state
+
+
+class _Completed:
+    def __init__(self, stdout, returncode=0, stderr=""):
+        self.stdout = stdout
+        self.returncode = returncode
+        self.stderr = stderr
+
+
+def test_user_unit_enablement_parses_one_show_query(monkeypatch):
+    calls = []
+
+    def run(args):
+        calls.append(args)
+        return _Completed(
+            "Id=a.timer\nUnitFileState=enabled\n\n"
+            "Id=b.timer\nUnitFileState=disabled\n\n"
+            "Id=c.timer\nUnitFileState=\n"
+        )
+
+    monkeypatch.setattr(scheduler_monitor.scheduler_host, "run_bounded", run)
+
+    states = scheduler_monitor.scheduler_host.user_unit_enablement(
+        ("a.timer", "b.timer", "c.timer")
+    )
+
+    assert states == {"a.timer": "enabled", "b.timer": "disabled", "c.timer": "not-found"}
+    assert len(calls) == 1 and calls[0][:2] == ["systemctl", "--user"]
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        "Id=a.timer\nUnitFileState=enabled\n",
+        "Id=a.timer\nUnitFileState=enabled\n\nId=other.timer\nUnitFileState=enabled\n",
+        "Id=a.timer\nUnitFileState=enabled\nExtra=1\n\nId=b.timer\nUnitFileState=enabled\n",
+    ],
+)
+def test_user_unit_enablement_fails_closed_on_unexpected_output(monkeypatch, stdout):
+    monkeypatch.setattr(
+        scheduler_monitor.scheduler_host, "run_bounded", lambda _args: _Completed(stdout)
+    )
+
+    assert scheduler_monitor.scheduler_host.user_unit_enablement(("a.timer", "b.timer")) is None
+
+
+def test_failed_user_units_reads_plain_list(monkeypatch):
+    stdout = (
+        "massive-options-daily.service        loaded    failed failed Capture\n"
+        "p22-rb-massive-options-daily.service not-found failed failed p22-rb\n"
+    )
+    monkeypatch.setattr(
+        scheduler_monitor.scheduler_host, "run_bounded", lambda _args: _Completed(stdout)
+    )
+
+    assert scheduler_monitor.scheduler_host.failed_user_units() == (
+        "massive-options-daily.service",
+        "p22-rb-massive-options-daily.service",
+    )
+
+
+def test_failed_user_units_fails_closed(monkeypatch):
+    host = scheduler_monitor.scheduler_host
+    monkeypatch.setattr(host, "run_bounded", lambda _args: None)
+    assert host.failed_user_units() is None
+    monkeypatch.setattr(host, "run_bounded", lambda _args: _Completed("● bad unit\n"))
+    assert host.failed_user_units() is None
+
+
+def test_backup_state_reads_the_backup_script_record(tmp_path):
+    host = scheduler_monitor.scheduler_host
+    path = tmp_path / "trading-data-backup.json"
+    assert host.backup_state(path) == ("absent", None)
+    path.write_text(
+        '{"at": "2026-10-19T10:33:46+00:00", "status": "retry", "stamp": "x", '
+        '"reason": "active process holds .queue-drain.lock"}\n'
+    )
+    assert host.backup_state(path) == ("retry", "2026-10-19T10:33:46+00:00")
+    path.write_text('{"status": "invented"}')
+    assert host.backup_state(path) == ("unknown", None)
+    path.write_text("not json")
+    assert host.backup_state(path) == ("unknown", None)
+
+
+def test_last_backup_commit_normalizes_git_time(monkeypatch, tmp_path):
+    host = scheduler_monitor.scheduler_host
+    calls = []
+
+    def run(args):
+        calls.append(args)
+        return _Completed("2026-10-18T21:20:08+08:00\n")
+
+    monkeypatch.setattr(host, "run_bounded", run)
+
+    assert host.last_backup_commit(tmp_path) == "2026-10-18T13:20:08+00:00"
+    assert calls[0][:4] == ["git", "-C", str(tmp_path), "log"]
+    monkeypatch.setattr(host, "run_bounded", lambda _args: _Completed("", returncode=128))
+    assert host.last_backup_commit(tmp_path) is None

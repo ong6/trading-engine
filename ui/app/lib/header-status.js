@@ -81,5 +81,16 @@ export function schedulerLabel(scheduler) {
   if (scheduler.cron_service_enabled !== "enabled") {
     problems.push(`boot ${scheduler.cron_service_enabled || "unknown"}`);
   }
+  const units = scheduler.user_units;
+  if (units?.status === "unknown") problems.push("units unknown");
+  if (units?.autostart_not_enabled?.length) {
+    problems.push(`not enabled ${units.autostart_not_enabled.join(", ")}`);
+  }
+  if (units?.failed?.length) problems.push(`failed ${units.failed.join(", ")}`);
+  const backup = scheduler.backup;
+  if (backup && backup.status !== "current") {
+    const age = backup.age_hours === null ? "" : ` ${backup.age_hours}h`;
+    problems.push(`backup ${backup.status}${age} (${backup.state})`);
+  }
   return `${scheduler.status} ${count}${problems.length ? ` · ${problems.join(" · ")}` : ""}`;
 }

@@ -261,6 +261,37 @@ def test_p15_and_p16_units_pass_host_systemd_verification():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def _directive(unit: str, name: str) -> str | None:
+    values = [
+        line.partition("=")[2]
+        for line in unit.splitlines()
+        if line.partition("=")[0].strip() == name
+    ]
+    return values[-1] if values else None
+
+
+def test_timer_driven_exec_units_bound_their_runtime():
+    # systemd 241 applies TimeoutStartSec to Type=exec only until execve succeeds, so
+    # without RuntimeMaxSec a run blocked on an engine lock would never be stopped.
+    # Type=oneshot is not an option: before 244 it rejects Restart=on-failure.
+    timer_driven = {
+        name.removesuffix(".timer") + ".service"
+        for name in install_automation.UNIT_SOURCES
+        if name.endswith(".timer")
+    }
+    bounded = {}
+    for name in sorted(timer_driven):
+        unit = _unit(install_automation.UNIT_SOURCES[name].as_posix())
+        if _directive(unit, "Type") == "exec":
+            bounded[name] = _directive(unit, "RuntimeMaxSec")
+    assert bounded == {
+        "trading-engine-agent-shadow.service": "5min",
+        "trading-engine-daily-opportunity.service": "10min",
+        "trading-engine-p15-scoring.service": "9h",
+        "trading-engine-p16-challengers.service": "9h",
+    }
+
+
 def test_league_ui_does_not_present_operational_rank_as_research_evidence():
     league = _unit("ui/app/league/page.js")
     standings = _unit("ui/app/components/LeagueStandings.js")

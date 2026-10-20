@@ -740,5 +740,18 @@ def test_meta_isolates_scheduler_projection_failure(tmp_path, monkeypatch):
         "unexecutable_drivers": [],
         "unsafe_log_targets": [],
         "log_directory_writable": False,
+        "user_units": {
+            "status": "unknown",
+            "autostart_expected": len(scheduler_monitor.AUTOSTART_UNITS),
+            "autostart_not_enabled": [],
+            "failed": [],
+        },
+        "backup": {
+            "status": "unknown",
+            "state": "unknown",
+            "last_success_at": None,
+            "age_hours": None,
+            "stale_after_hours": 26,
+        },
     }
     assert result["queue"] == {"counts": {}}
