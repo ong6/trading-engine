@@ -1301,3 +1301,37 @@ at most 300 seconds, matching the bounded UI build timeout. The full UTC and Sin
 suites each pass 5,376 tests, UI 70 tests and build pass, and the registered source and
 required lint checks pass. The orchestrator still accepts the exact landing SHA and
 executes the production blocks; development rehearsal grants no live-service authority.
+
+## Revision-15 integration amendment — October 20
+
+Revision 15 now lands on the rewritten history (main `b0e14b4`) together with the reviewed
+fixes of October 19–20. The registration stays revision 15; `registration_sha256` is
+`b0a493678e2d68309e1f288a32d14b2d622633176db0e1e8676053e444522d10` and `source_commit`
+`d5d5da845c27a557b6c7823c87f255a2dcd86a92`, an ancestor of the approved SHA. E1 v8, sector
+v12 and XS v23 keep their versions and migrate the exact revision-14 v7/v11/v22 reports, so
+R15.2's three `--migrate-runtime-contract` calls are unchanged. A changed published prefix
+still fails closed and leaves triggers stopped.
+
+What the integration adds to R15.1–R15.3, in order:
+
+- Before R15.1, run the deploy gate on the release checkout and keep its receipt; it refuses a
+  dirty tree. The unit and cron set the deploy may touch is `server/schedule-contract.json`.
+- After R15.3 installs the history timer and before releasing producers, install the bounded
+  services from the manifest. `--audit` must list only `trading-engine-agent-shadow`,
+  `-daily-opportunity`, `-p15-scoring` and `-p16-challengers` (RuntimeMaxSec) plus the
+  history timer, and `massive-options-daily.timer` must stay held (installed, not enabled).
+- The model client accepts both reviewed CLI builds by hash. The proxy keeps reporting the
+  build it started with until its own next restart; the deploy never restarts it. Check it
+  with the GET-only preflight.
+- The history runner now publishes a snapshot at most once a day; nightly and P15 publishers
+  keep `market-latest` current. Expect `skipped` publication lines between slices.
+
+```bash
+.venv/bin/python -m tools.deploy_gate --check "$P22_ROOT" --json > "$P22_STATE/deploy-gate.json"
+.venv/bin/python -m tools.install_automation --audit > "$P22_STATE/automation-audit.json"
+.venv/bin/python -m tools.install_automation --apply > "$P22_STATE/automation-apply.json"
+.venv/bin/python -m tools.model_gateway_check > "$P22_STATE/model-gateway.json"
+```
+
+Rollback R15.4–R15.5 is unchanged: restoring `predeploy-units` reinstates the revision-14
+unit files, and the restored revision-14 source accepts the proxy's startup build.
