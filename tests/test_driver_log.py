@@ -503,3 +503,41 @@ def test_driver_status_rejects_incoherent_terminal_marker(tmp_path, terminal, no
     status = driver_log.driver_status(log, now=now)
     assert status["status"] == "invalid"
     assert status["reason"] == reason
+
+
+def test_driver_status_reports_partial_drain_marker(tmp_path):
+    log = tmp_path / "walkforward-cron.log"
+    log.write_text(
+        "=== run_weekly_walkforward 2026-10-18T06:00:01Z ===\n"
+        "PARTIAL: queue drain left selected work undone (old run)\n"
+        "=== done 2026-10-18T08:48:44Z ===\n"
+        "=== run_weekly_walkforward 2026-10-19T02:53:37Z ===\n"
+        "[queue] resource guard tripped inside rolling pool\n"
+        "PARTIAL: queue drain left selected work undone (4 done, 4 timed out, "
+        "0 failed, 10 left pending of 18 selected)\n"
+        "=== done 2026-10-19T06:54:13Z ===\n"
+    )
+    assert driver_log.driver_status(
+        log, now=datetime(2026, 10, 20, tzinfo=timezone.utc)
+    ) == {
+        "name": "run_weekly_walkforward",
+        "started_at": "2026-10-19T02:53:37Z",
+        "status": "partial",
+        "reason": "queue-drain-partial",
+        "log": str(log),
+        "finished_at": "2026-10-19T06:54:13Z",
+    }
+
+
+def test_driver_status_does_not_carry_an_older_partial_marker(tmp_path):
+    log = tmp_path / "walkforward-cron.log"
+    log.write_text(
+        "=== run_weekly_walkforward 2026-10-18T06:00:01Z ===\n"
+        "PARTIAL: queue drain left selected work undone\n"
+        "=== done 2026-10-18T08:48:44Z ===\n"
+        "=== run_weekly_walkforward 2026-10-25T06:00:01Z ===\n"
+        "=== done 2026-10-25T09:00:00Z ===\n"
+    )
+    assert driver_log.driver_status(
+        log, now=datetime(2026, 10, 26, tzinfo=timezone.utc)
+    )["status"] == "ok"

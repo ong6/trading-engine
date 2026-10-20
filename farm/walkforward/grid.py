@@ -37,6 +37,10 @@ log = get_logger("wf-grid")
 # 2,308 MB (1s RSS sampling; peak = build_scratch parquet export). 4500 =
 # worst case +32% headroom. Must match JOB_TYPES["walkforward"]["mem_mb"].
 MEM_MB = 4500
+# Pending walk-forward rows older than this are superseded when the grid is
+# enqueued again (see enqueue). 24 h keeps a same-day or next-morning re-run's
+# rows and drops the previous Sunday's.
+LEFTOVER_MAX_AGE_S = 24 * 3600
 DEFAULT_PRIORITY = 174
 PRIORITY_BY_STRATEGY = {
     "spy_benchmark": 170, "dual_momentum": 170, "sector_momentum": 170,
@@ -67,6 +71,13 @@ def enqueue(con, overrides: dict | None = None, dry_run: bool = False) -> int:
     if not rows:
         log.info("[wf-grid] no eligible active books — nothing to enqueue")
         return 1
+    # A previous week's leftovers are obsolete once this week's grid exists:
+    # superseding them gives the week one fresh, exactly-timed cohort instead
+    # of a mix of old rows reused by dedup. A same-day re-run keeps them.
+    qr.supersede_stale_pending(
+        con, "walkforward", LEFTOVER_MAX_AGE_S,
+        "superseded by a newer weekly walk-forward grid", dry_run=dry_run,
+    )
     n = 0
     for _cid, prio, params in rows:
         if dry_run:

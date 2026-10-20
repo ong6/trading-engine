@@ -33,10 +33,15 @@ DRIVER_LOG_PREFIX=sweeps
 DRIVER_STAGE_FILE=logs/.last_stage_sweeps
 source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 
-# Saturday is completely free — the nightly is Mon-Fri 22:30 and the
-# walk-forward is Sunday 06:00 — so the drain gets a 12 h window instead of the
-# 4 h default. A grid that still does not finish is left pending and picked up
-# by the next drain; jobs are resumable and nothing is killed mid-flight.
+# Saturday has no nightly (Mon-Fri 22:30), but it is not free of live-store
+# writers: accounts settle runs at 07:45 and 11:55, and TradingView history at
+# 03/07/11/15/19/23:40. Sweep children therefore read the published snapshot,
+# not the live store (engine/queue_runner.py _research_connection). The drain
+# gets a 12 h launch window instead of the 4 h default; a launched grid runs to
+# its 14 h timeout_s. A grid that does not start is left pending for the next
+# Saturday's targeted drain (the nightly skips research kinds). A grid still
+# running at Sunday 06:00 holds the queue-drain lock, and the walk-forward
+# driver then reports its run 'partial' instead of draining.
 export TRADING_ENGINE_DRAIN_BUDGET_S="${TRADING_ENGINE_DRAIN_BUDGET_S:-43200}"
 
 # Priority 900 keeps sweeps BELOW every other farm workload (nightly miners
@@ -93,7 +98,7 @@ body() {
   # budget; sustained load ~20-24 of 32 cores under LOAD_5MIN_MAX=28. There
   # Real width is min(8, the number of explicitly open grids).
   stage drain
-  "${PY}" -m engine.queue_runner --run --jobs 8 \
+  "${PY}" -m engine.queue_runner --run --jobs 8 --report-partial \
     --run-kind sweep "${RUN_ARGS[@]}"
 
   # Commit under this driver's name, not the nightly screen's (engine/sync.py --driver).

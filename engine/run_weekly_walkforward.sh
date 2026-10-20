@@ -16,10 +16,13 @@
 #
 # Its Saturday sibling is engine/run_weekend_sweeps.sh (parameter grids).
 #
-# Sunday 06:00 UTC is clear of everything: the nightly is 22:30 Mon-Fri, the
-# news analyst is 11:00 Mon-Fri, and the full grid measures at roughly 3-4 h,
-# so it lands long before Monday's nightly. It can also be run by hand on any
-# day — it re-anchors to the latest session in the store, so an off-day run is
+# Sunday 06:00 UTC: the nightly is 22:30 Mon-Fri and the P15 timers run
+# Tue-Sat. TradingView history still runs on Sunday (03/07/11/15/19/23:40) and
+# writes the live store, so the children read the published snapshot instead
+# (engine/queue_runner.py _research_connection). The pre-v2 grid took 2.8 h.
+# It can also be run by hand, but on a weekday only outside 22:30-13:05 UTC: the
+# drain holds the queue-drain lock, so an overlapping nightly skips its mining
+# drain. It re-anchors to the latest session in the store, so an off-day run is
 # simply a re-validation as of that day.
 set -euo pipefail
 
@@ -33,15 +36,24 @@ DRIVER_LOG_PREFIX=walkforward
 DRIVER_STAGE_FILE=logs/.last_stage_walkforward
 source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 
+# Launch window 8 h (default 4 h): the budget only stops NEW launches, and each
+# walkforward job is killed at its 7 h timeout_s, so the drain ends by about
+# 06:00 + 8 h + 7 h = 21:00 UTC Sunday, clear of Monday's 22:30 nightly.
+export TRADING_ENGINE_DRAIN_BUDGET_S="${TRADING_ENGINE_DRAIN_BUDGET_S:-28800}"
+
 body() {
-  # Enqueue is idempotent: queue_runner dedups an identical pending
-  # (kind, params), so a re-run after a partial drain adds nothing.
+  # Enqueue is idempotent within a day: queue_runner dedups an identical
+  # pending (kind, params), so a re-run after a partial drain adds nothing.
+  # Pending rows older than 24 h (last week's leftovers) are superseded.
   stage enqueue
   "${PY}" -m farm.walkforward.grid --enqueue
 
   # The drain honours every §12.7 cap (nice 19 + ionice idle, load/RAM guard,
-  # per-job memory budget, wall-clock drain budget). Jobs left pending by the
-  # budget are picked up by the next drain — including the nightly's.
+  # per-job memory budget, wall-clock drain budget). --kinds walkforward: this
+  # driver runs only its own grid. Jobs left pending stay for the next Sunday
+  # (the nightly skips research kinds), when this week's enqueue supersedes
+  # them. --report-partial: a drain that left jobs pending, timed out or
+  # failed prints a PARTIAL: line, and /meta reports the run 'partial'.
   # --jobs 8: walkforward is `parallel_safe` (read-only on the store, writes only
   # its own scratch), so the per-book jobs batch. Width 4 -> 8 (2026-08-20,
   # measured on a fixed unit of 8 identical 1-fold replays): 355 jobs/h at
@@ -51,7 +63,7 @@ body() {
   # sustained load ~20-24 of 32 cores stays under LOAD_5MIN_MAX=28. A batch is
   # still bounded by its SLOWEST member.
   stage drain
-  "${PY}" -m engine.queue_runner --run --jobs 8
+  "${PY}" -m engine.queue_runner --run --jobs 8 --kinds walkforward --report-partial
 
   # Compose the read-only one-page operator view from the evidence now on disk.
   stage operator_digest

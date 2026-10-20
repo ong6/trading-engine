@@ -12,6 +12,9 @@ from server.json_utils import loads_object
 from server.status_validation import iso_timestamp
 
 JOB_SCAN_BATCH_SIZE = 256
+# A failed run, or a partial one (its drain left jobs pending, timed out or
+# failed), is recovered by a newer cohort that completes.
+RECOVERABLE_STATUSES = frozenset({"failed", "partial"})
 
 
 def eligible_walkforward_ids(con: duckdb.DuckDBPyConnection) -> set[str]:
@@ -96,7 +99,7 @@ def _base_batch_projection(status: dict, batch: list[tuple]) -> dict:
         "refresh_job_count": len(batch),
         "refresh_job_counts": counts,
     }
-    if status.get("status") == "failed":
+    if status.get("status") in RECOVERABLE_STATUSES:
         projected.update(recovery_job_count=len(batch), recovery_job_counts=counts)
     return projected
 
@@ -118,13 +121,13 @@ def _project_batch(status: dict, batch: list[tuple]) -> dict:
     if _completed_batch(batch):
         refreshed_at = max(row[6] for row in batch).isoformat()
         projected["refreshed_at"] = refreshed_at
-        if status.get("status") == "failed":
+        if status.get("status") in RECOVERABLE_STATUSES:
             projected.update(status="recovered", recovered_at=refreshed_at)
         return projected
     if _healthy_batch(batch):
         refresh_started_at = min(row[5] for row in batch).isoformat()
         projected.update(status="updating", refresh_started_at=refresh_started_at)
-        if status.get("status") == "failed":
+        if status.get("status") in RECOVERABLE_STATUSES:
             projected["recovery_started_at"] = refresh_started_at
     return projected
 
@@ -137,7 +140,8 @@ def reconcile_driver_status(
 
     The newest exact eligible cohort wins: it is ``updating`` while healthy jobs
     remain pending/running. A failed driver becomes ``recovered`` only after every
-    job completes; successful/running drivers retain their terminal/base status.
+    job completes (a partial driver likewise); successful/running drivers retain
+    their terminal/base status.
     """
     if (
         status is None

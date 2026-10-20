@@ -177,20 +177,15 @@ body() {
     # rather than expressed in bash. Every job is attempted even if one refuses.
     "${PY}" -m engine.queue_runner --enqueue-nightly
     en=$?
-    # --jobs 8: `parallel_safe` kinds (walkforward, backtest, sweep) run as
-    # read-only children while the parent DROPS the write lock; store-writing
-    # kinds (intraday, signals, earnings, fundamentals, actions) are never
-    # batched and keep the single writer to themselves. Batches form only from
-    # jobs already adjacent in priority order, so the three mining jobs above
-    # still run first. Without this a sweep landing in the nightly's drain pins
-    # the writer for hours and the API/UI answer 503 all through the next
-    # session (measured 2026-08-20: 7.5 h, load 2.9 on a 32-core box).
-    # Width 4 -> 8 (2026-08-20, measured): a fixed unit of 8 identical 1-fold
-    # replays ran 355 jobs/h at 4 workers x 4 threads vs 523 at 8x4 (+47%);
-    # peak RSS per worker is 3.4 GB measured (declared 4.5 GB, 8 x 4.5 = 36 GB
-    # inside the 48 GB engine budget), and sustained load stays ~20-24 of 32
-    # cores, under the LOAD_5MIN_MAX=28 guard.
-    "${PY}" -m engine.queue_runner --run --jobs 8
+    # --skip-parallel-safe (2026-10-20): the nightly drains only the
+    # store-writing kinds (intraday, signals, earnings, fundamentals,
+    # TradingView history, manual actions backfills). Research kinds
+    # (walkforward, backtest, sweep, capital_sensitivity) stay pending for the
+    # driver that owns them. Before this, weekend leftovers ran here: walk-
+    # forward children until ~07:00 over the 02:30 P15 scoring, and on
+    # 2026-10-19 a child's live-store handle failed the 13:05 pre-open.
+    # Store-writing kinds always run one at a time, so no --jobs width.
+    "${PY}" -m engine.queue_runner --run --skip-parallel-safe
     rn=$?
     if [ "${en}" -ne 0 ] || [ "${rn}" -ne 0 ]; then
       echo "WARN: farm section had failures (enqueue-nightly=${en} run=${rn})" \

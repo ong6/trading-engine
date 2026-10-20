@@ -113,3 +113,15 @@ def test_active_exact_cohort_is_visible_after_nonfailed_driver(con, base_status)
     assert result["refresh_job_count"] == 2
     assert result["refresh_job_counts"] == {"done": 1, "running": 1}
     assert "recovery_job_count" not in result
+
+
+def test_weekly_partial_is_reconciled_by_complete_later_cohort(con):
+    setup_walkforward_recovery(con)
+    status = {**failed_weekly_status(), "status": "partial",
+              "reason": "queue-drain-partial"}
+    status.pop("exit_code", None)
+    status.pop("stage", None)
+    result = walkforward_recovery.reconcile_driver_status(status, con)
+    assert result["status"] == "recovered"
+    assert result["previous_status"] == "partial"
+    assert result["recovery_job_counts"] == {"done": 2}
