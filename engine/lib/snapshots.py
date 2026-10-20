@@ -147,7 +147,8 @@ class RetentionPlan:
 
 def _publication_order(path: Path) -> tuple[str, int]:
     match = SNAPSHOT_PATTERN.fullmatch(path.name)
-    assert match is not None
+    if match is None:
+        raise ValueError(f"not a published snapshot name: {path.name}")
     return match.group(1), int(match.group(2) or 0)
 
 

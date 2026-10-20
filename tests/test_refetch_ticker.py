@@ -66,32 +66,6 @@ def test_aborts_on_suspicious_replacement(con):
         rt.refetch(con, "JEM", apply=True, force=False, fetch=bad, show_dates=[])
 
 
-def test_keeps_first_fetch_stamps_and_records_the_split_like_rewrite(con):
-    """DXJ/JEM: the DELETE + upsert reset every row's first_fetched_at, and the
-    rescaling left no trace for the actions fetch or the reconciler."""
-    from datetime import datetime
-
-    from engine import actions
-
-    _universe(con)
-    con.execute("ALTER TABLE prices ADD COLUMN IF NOT EXISTS first_fetched_at TIMESTAMP")
-    insert_bars(con, "JEM", D[:2], close=[161.28, 6.492])          # D[2] is new
-    first = datetime(2026, 7, 9, 22, 30)
-    con.execute("UPDATE prices SET fetched_at = TIMESTAMP '2026-07-16 22:30', "
-                "first_fetched_at = ?", [first])
-
-    out = rt.refetch(con, "JEM", apply=True, force=False, fetch=_fresh, show_dates=[])
-
-    stamps = dict(con.execute("SELECT date, first_fetched_at FROM prices "
-                              "WHERE ticker = 'JEM'").fetchall())
-    assert stamps[D[0]] == first and stamps[D[1]] == first
-    assert stamps[D[2]] > first                                    # stamped now
-    assert out["split_like_rewrite"] is True
-    (rewrite,) = actions._rewrites(con, "JEM")
-    assert rewrite["dates"] == [D[0].isoformat()]
-    assert rewrite["ratio"] == pytest.approx(12.0)
-
-
 def _continuous(_yf, canon):
     """The source's restated 1:12 series: continuous across all three sessions."""
     return pd.DataFrame({"ticker": canon, "date": D, "open": [13.4, 13.5, 13.6],

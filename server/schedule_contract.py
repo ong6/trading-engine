@@ -289,8 +289,8 @@ def in_window(entry: dict, units: dict[str, dict], now: datetime) -> bool:
 def parse_unit(text: str) -> dict[str, list[str]]:
     """Directive values of a unit file, in order, across all sections."""
     directives: dict[str, list[str]] = {}
-    for line in text.replace("\\\n", " ").splitlines():
-        line = line.strip()
+    for raw in text.replace("\\\n", " ").splitlines():
+        line = raw.strip()
         if not line or line.startswith(("#", ";", "[")) or "=" not in line:
             continue
         key, _, value = line.partition("=")

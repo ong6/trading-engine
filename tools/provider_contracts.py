@@ -107,11 +107,9 @@ def redact_url(url: str) -> str:
         raise ContractError("provider URL carries user info")
     pairs = []
     for name, value in parse_qsl(parsed.query, keep_blank_values=True):
-        if SECRET_PARAM.match(name):
-            value = REDACTED
-        elif name == "cursor" and not _safe_cursor(value):
+        if name == "cursor" and not SECRET_PARAM.match(name) and not _safe_cursor(value):
             raise ContractError("provider cursor does not decode to a credential-free query")
-        pairs.append((name, value))
+        pairs.append((name, REDACTED if SECRET_PARAM.match(name) else value))
     return urlunparse(parsed._replace(query=urlencode(pairs, safe=":/")))
 
 
