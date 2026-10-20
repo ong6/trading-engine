@@ -97,9 +97,14 @@ def refetch(con: duckdb.DuckDBPyConnection, ticker: str, *, apply: bool, force: 
         return out
 
     with db.transaction(con):
-        con.execute("DELETE FROM prices WHERE ticker = ?", [ticker])
         n = db.upsert_prices(con, s)
-        if db_has(con, "split_adjustments"):
+        out["rows_written"] = n
+        out["rows_after"] = con.execute(
+            "SELECT COUNT(*) FROM prices WHERE ticker = ?", [ticker],
+        ).fetchone()[0]
+        if n != len(s):
+            out["status"] = "withheld"
+        if n == len(s) and db_has(con, "split_adjustments"):
             con.execute("UPDATE split_adjustments SET outcome = 'superseded_by_refetch' "
                         "WHERE ticker = ?", [ticker])
         if db_has(con, "audit_log"):

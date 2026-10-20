@@ -31,8 +31,9 @@ farm = ["experiments/*.json", "experiments/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --dist=worksteal"
 # Parallel by default: pytest -n auto (pytest-xdist). Use -n 0 to debug serially.
+# Steal pending tests from busy workers instead of leaving a late heavy chunk.
 
 [tool.ruff]
 line-length = 100

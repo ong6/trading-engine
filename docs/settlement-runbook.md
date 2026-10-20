@@ -18,8 +18,9 @@ session `d` when both hold, using only data dated on or before `d`:
 1. The exchange directory dropped it: its latest `universe_snapshot` row is inactive, and
    that omission began on or after its last traded bar. A name dropped while it still
    traded is never closed out automatically (BURU and ISSC were, and traded again).
-2. It has printed no traded bar (the store's `REAL_BAR_SQL`, which needs a positive open, high
-   and low; a zero-open quote like WBD's 40 shares on 2026-10-05 is not one) for 5 sessions.
+2. It has printed no trusted bar for 5 sessions. Execution, marks and settlement evidence
+   require finite positive OHLC, valid geometry and positive volume; a zero-open quote
+   like WBD's 40 shares on 2026-10-05 is not one.
 
 The settlement is `cash` at that last traded close, effective the next session, with a
 `source` beginning `delisting close-out:` that records the evidence. If a sourced
@@ -85,7 +86,9 @@ document, book nothing: the automatic close-out above settles it at its last tra
 
 Run from the repo root. The dry run prints a before/after table per book and refuses if
 the ticker has a traded bar on or after `--effective`, if `--source` is missing, or if
-the acquirer has no stored prices.
+the acquirer has no trusted stored prices. Nonfinite, negative or invalid zero terms
+are refused before any write, as is arithmetic that would overflow cash, shares or basis.
+Worthless settlements keep a zero price; stock terms may keep a zero cash leg.
 
 ```bash
 # Cash deal: every holder receives qty × price on the effective date.
@@ -417,8 +420,8 @@ p22_unlock() {
   P22_LOCK_FDS=()
 }
 p22_http_200() {
-  timeout 60 bash -c '
-    for attempt in {1..30}; do
+  timeout 300 bash -c '
+    for attempt in {1..150}; do
       code=$(curl --silent --output /dev/null --write-out "%{http_code}" --connect-timeout 2 --max-time 3 "$1") || code=000
       if test "$code" = 200; then printf "%s HTTP 200\n" "$1"; exit 0; fi
       sleep 1
@@ -884,3 +887,397 @@ Removed $XDG_RUNTIME_DIR/systemd/user/p22-rehearsal-options-daily.timer.
 Removed $XDG_RUNTIME_DIR/systemd/user/p22-rehearsal-accounts-settle.timer.
 {"ok":true,"status":"ok","db_readable":true}rehearsal completed; isolated units removed; live store and units untouched
 ```
+
+## Revision-15 deploy addendum — only after v2 is verified
+
+The binding October 18 cleanup rulings preserve the P15 calendar as captured SPY dates
+union hard-invalid reject dates. Basis holds add a date only when it is an XNYS session;
+no synthetic session or stored-label hash is introduced. Missing trusted P15 bars wait
+with the audited `untrusted_bar` reason, including the SPY sleeve. Deployment requires
+the amended revision-15 source, unchanged stored labels, completed money replay and this
+literal rehearsal. No alternative-source observation is promoted by this revision.
+
+The orchestrator runs this immediately after the revision-14 deployment passes, with D0
+2026-10-19 retained. It changes admission and operational source identities; it does not create
+a new cost break or rewrite historical evidence. Paste blocks R15.1–R15.3 in the same Bash
+shell with the exact accepted `R15_APPROVED_SHA`. Stop at the dry run for the orchestrator's
+review of counts and dates. Any failed check keeps triggers stopped. Recovery uses a fresh
+Bash shell and blocks R15.4–R15.5; it restores the revision-14 **v2-migrated** backup, not the
+revision-13 pre-v2 backup. Keep both state directories. Never reuse an incomplete setup.
+
+The new backup includes the v2 routes, breaks, runtime reports and installed units. Reserve
+space by the same v2 rules before setup. Invalid observations move with their original tuples
+to `price_observation_rejects`; valid zero-volume bars and unknown basis candidates stay put.
+Board warnings read retained rejection dates after cleanup; fills and marks use trusted bars.
+Rollback restores the original store and evidence together, preserving the rejected incident
+in the state directory. Revision-14 restoration reintroduces its original bad rows, so leave
+producers held if the incident requires reconciliation before resuming that source.
+
+R15.1 — fresh revision-14 recovery inventory and quiescence:
+
+```bash
+set -eEuo pipefail
+umask 077
+P22_V2_STATE="$HOME/p22-deploy-20261018"
+test -f "$P22_V2_STATE/recovery-ready"
+P22_ROOT="$(cat "$P22_V2_STATE/root")"
+P22_D0="$(cat "$P22_V2_STATE/d0")"
+P22_STATE="$HOME/r15-deploy-20261018"
+: "${R15_APPROVED_SHA:?Set the full revision-15 deploy commit accepted by the orchestrator}"
+P22_APPROVED_SHA="$R15_APPROVED_SHA"
+# A retry must use recovery, never overwrite the original identity/inventory.
+mkdir -m 700 "$P22_STATE"
+P22_STATE="$(realpath "$P22_STATE")"
+P22_BACKUP="$P22_STATE/predeploy-bundle"
+export P22_ROOT P22_STATE P22_BACKUP P22_D0 P22_APPROVED_SHA
+trap 'rc=$?; trap - ERR; printf "P22 failed (exit %s). Keep triggers stopped; open a fresh Bash shell and use recovery for %s.\n" "$rc" "$P22_STATE" >&2; exit "$rc"' ERR
+cd "$P22_ROOT"
+# Discover once in memory; save this prior activation state only after quiescence.
+P22_CRON_PRESENT=0
+if P22_CRON="$(crontab -l)"; then P22_CRON_PRESENT=1; fi
+P22_PROCESS_BEFORE="$(ps -eo pid,ppid,args)"
+P22_UNIT_RECORDS="$(.venv/bin/python - <<'PYCODE'
+import json, subprocess
+def output(*args):
+    return subprocess.check_output(['systemctl', '--user', *args], text=True)
+names = set()
+for cmd in ('list-unit-files', 'list-units'):
+    for line in output(cmd, '--all', '--no-legend', '--plain', '--no-pager').splitlines():
+        fields = line.split()
+        if fields and fields[0].endswith(('.service', '.timer')):
+            names.add(fields[0])
+properties = {}
+for name in sorted(names):
+    raw = output('show', name, '--property=Id,LoadState,ActiveState,SubState,UnitFileState,ExecStart,Triggers,MainPID,ControlGroup')
+    properties[name] = dict(line.split('=', 1) for line in raw.splitlines() if '=' in line)
+managed = {name for name, p in properties.items() if p.get('LoadState') != 'not-found' and (
+    name.startswith(('trading-engine-', 'massive-')) or
+    name in {'te-autopush.service', 'te-autopush.timer', 'trading-data-backup.service',
+             'trading-data-backup.timer', 'store-sync.service', 'store-sync.timer'} or
+    '/trading-alpha/' in p.get('ExecStart', ''))}
+managed |= {name for name, p in properties.items() if set(p.get('Triggers', '').split()) & managed}
+print(json.dumps({name: properties[name] for name in sorted(managed)}, indent=2))
+PYCODE
+)"
+export P22_UNIT_RECORDS P22_PROCESS_BEFORE
+# Reuse the reviewed quiescence/lock/readiness functions; new inventory lives here.
+cp "$P22_V2_STATE/functions.bash" "$P22_STATE/functions.bash"
+# Preserve all reviewed helpers; cold Next builds measured longer than 60 seconds.
+# A 300-second deadline is bounded by the UI service's five-minute build timeout.
+.venv/bin/python - <<'PYCODE'
+import os
+from pathlib import Path
+p = Path(os.environ['P22_STATE']) / 'functions.bash'
+s = p.read_text().replace("timeout 60 bash -c", "timeout 300 bash -c")
+s = s.replace("for attempt in {1..30}; do", "for attempt in {1..150}; do")
+p.write_text(s)
+PYCODE
+source "$P22_STATE/functions.bash"
+p22_clean_source
+p22_quiesce
+p22_lock
+# No unit/cron/source inventory file is ever overwritten, even on recovery.
+set -o noclobber
+.venv/bin/python - <<'PYCODE'
+import json
+from datetime import date
+from engine.lib import db
+assert json.load(open('server/p15-registration.json'))['registration_revision'] == 14
+with db.connect(read_only=True) as con:
+    rows = con.execute("SELECT DISTINCT break_date,registration_revision FROM sim_book_breaks WHERE kind='cost_profile'").fetchall()
+    assert rows == [(date.fromisoformat(__import__('os').environ['P22_D0']), 14)], rows
+PYCODE
+git rev-parse HEAD > "$P22_STATE/predeploy.sha"
+git status --porcelain=v1 > "$P22_STATE/predeploy.git-status"
+git diff --binary > "$P22_STATE/predeploy.diff"
+git show HEAD:server/p15-registration.json > "$P22_STATE/predeploy-registration.json"
+printf '%s\n' "$P22_ROOT" > "$P22_STATE/root"
+printf '%s\n' "$P22_D0" > "$P22_STATE/d0"
+printf '%s\n' "$P22_UNIT_RECORDS" > "$P22_STATE/unit-state.json"
+printf '%s\n' "$P22_PROCESS_BEFORE" > "$P22_STATE/pre-stop-processes.txt"
+printf '%s\n' "$P22_CRON" > "$P22_STATE/predeploy.crontab"
+if test "$P22_CRON_PRESENT" = 1; then touch "$P22_STATE/had-crontab"; fi
+.venv/bin/python --version > "$P22_STATE/predeploy-python.txt"
+node --version > "$P22_STATE/predeploy-node.txt"
+cp -a uv.lock pyproject.toml engine/requirements.txt ui/package.json ui/package-lock.json "$P22_STATE/"
+cp -a "$HOME/.config/systemd/user" "$P22_STATE/predeploy-units"
+.venv/bin/python - <<'PYCODE'
+import json, os, shutil
+from pathlib import Path
+state = Path(os.environ['P22_STATE'])
+records = json.loads(os.environ['P22_UNIT_RECORDS'])
+for kind in ('timer', 'service'):
+    active = [n for n in records if n.endswith('.' + kind) and records[n]['ActiveState'] in {'active', 'activating', 'reloading'}]
+    (state / ('resume-' + kind + 's')).write_text(''.join(n + '\n' for n in active))
+for name in ('data', 'logs'):
+    shutil.copytree(name, state / 'predeploy-artifacts' / name, ignore=shutil.ignore_patterns('*.lock'))
+PYCODE
+mkdir -m 700 "$P22_STATE/predeploy-snapshot-identity"
+readlink store/snapshots/market-latest.duckdb > "$P22_STATE/predeploy-snapshot-identity/latest-link"
+cp -a store/snapshots/*.json "$P22_STATE/predeploy-snapshot-identity/"
+# Backup creation takes the same producer locks itself; do not nest those locks.
+p22_unlock
+.venv/bin/python -m tools.backup_database create "$P22_BACKUP" --source store/market.duckdb
+.venv/bin/python -m tools.backup_database verify "$P22_BACKUP"
+.venv/bin/python - <<'PYCODE'
+import json, os
+from pathlib import Path
+s = Path(os.environ['P22_STATE'])
+m = json.loads((s / 'predeploy-bundle/manifest.json').read_text())
+assert m['release_identity']['git_sha'] == (s / 'predeploy.sha').read_text().strip()
+assert json.loads((s / 'predeploy-registration.json').read_text())['registration_revision'] == 14
+PYCODE
+touch "$P22_STATE/recovery-ready"
+```
+
+R15.2 — pull, registration, runtime migration and cleanup dry run:
+
+```bash
+p22_quiesce
+p22_clean_source
+git checkout HEAD -- data
+git pull --ff-only origin main
+test "$(git rev-parse HEAD)" = "$P22_APPROVED_SHA"
+cp -a "$P22_STATE/predeploy-artifacts/data/." data/
+cp -a "$P22_STATE/predeploy-artifacts/logs/." logs/
+.venv/bin/python -c 'import json; assert json.load(open("server/p15-registration.json"))["registration_revision"] == 15'
+.venv/bin/python -m pytest -q -W error tests/test_p15_registration.py
+# Migrate metadata from exact revision-14 checkpoints with the v2 cost break present.
+.venv/bin/python -m farm.experiment_runner --migrate-runtime-contract
+.venv/bin/python -m engine.forward_review --migrate-runtime-contract
+.venv/bin/python -m engine.xs_forward_review --migrate-runtime-contract
+p22_lock
+.venv/bin/python - <<'PYCODE'
+import json, os
+from pathlib import Path
+from engine.lib import db
+from engine.price_quarantine import cleanup_hard_invalid_prices
+with db.connect() as con:
+    report = cleanup_hard_invalid_prices(con)
+assert report['moved'] == 0
+(Path(os.environ['P22_STATE']) / 'cleanup-dry.json').write_text(json.dumps(report, indent=2) + '\n')
+print(json.dumps(report, indent=2))
+PYCODE
+```
+
+R15.3 — approved cleanup apply, history timer reinstall and verification:
+
+```bash
+# Continue in the same shell after the orchestrator reviews cleanup-dry.json.
+.venv/bin/python - <<'PYCODE'
+import json, os
+from pathlib import Path
+from engine.lib import db
+from engine.price_quarantine import cleanup_hard_invalid_prices
+state = Path(os.environ['P22_STATE'])
+expected = json.loads((state / 'cleanup-dry.json').read_text())
+with db.connect() as con:
+    actual = cleanup_hard_invalid_prices(con)
+    assert actual == expected, (actual, expected)
+    applied = cleanup_hard_invalid_prices(con, dry_run=False)
+    assert applied['moved'] == expected['invalid_rows']
+    assert cleanup_hard_invalid_prices(con)['invalid_rows'] == 0
+(state / 'cleanup-applied.json').write_text(json.dumps(applied, indent=2) + '\n')
+print(json.dumps(applied, indent=2))
+PYCODE
+p22_unlock
+# Do not rerun cost migration or restate historical screens/equity.
+for R15_REVIEW in 1 2; do
+  .venv/bin/python -m farm.experiment_runner --report-only
+  .venv/bin/python -m engine.forward_review
+  .venv/bin/python -m engine.xs_forward_review
+done
+.venv/bin/python -m server.agent_evaluation_reporting
+.venv/bin/python -m tools.publish_snapshot --source store/market.duckdb
+install -m 0644 server/trading-engine-tradingview-history.service \
+  server/trading-engine-tradingview-history.timer "$HOME/.config/systemd/user/"
+systemctl --user daemon-reload
+systemctl --user show trading-engine-tradingview-history.timer --property=TimersCalendar
+p22_readers_ready
+curl --fail --silent --connect-timeout 2 --max-time 60 http://127.0.0.1:8000/meta > "$P22_STATE/deployed-meta.json"
+.venv/bin/python - <<'PYCODE'
+import json, os
+from pathlib import Path
+from engine import forward_review, xs_forward_review
+from farm import experiment_runner
+from engine.lib import db
+from server import agent_evaluation
+from datetime import datetime, timezone
+p = json.loads((Path(os.environ['P22_STATE']) / 'deployed-meta.json').read_text())
+for key, monitor in [('forward_review', forward_review), ('xs_forward_review', xs_forward_review), ('e1_forward', experiment_runner)]:
+    assert p[key]['status'] == 'ACCUMULATING', p[key]
+    assert p[key]['runtime_contract_version'] == monitor.RUNTIME_CONTRACT_VERSION, p[key]
+with db.connect(read_only=True) as con:
+    agent_evaluation.validate_p15_evidence(con, generated_at=datetime.now(timezone.utc))
+    assert con.execute("SELECT DISTINCT registration_revision FROM sim_book_breaks WHERE kind='cost_profile'").fetchall() == [(14,)]
+print('revision-15 forward identities and P15 evidence accepted; v2 cost breaks retained')
+PYCODE
+curl --fail --silent http://127.0.0.1:3000/ > "$P22_STATE/board.html"
+curl --fail --silent http://127.0.0.1:3000/positions > "$P22_STATE/positions.html"
+# Review dashboard, positions and league at 1440 and 390 before releasing triggers.
+p22_release_producers
+if grep -qx te-autopush.timer "$P22_STATE/resume-timers"; then systemctl --user start te-autopush.timer; fi
+if grep -qx te-autopush.service "$P22_STATE/resume-services"; then systemctl --user start --no-block te-autopush.service; fi
+printf 'revision-15 deployment complete\n'
+```
+
+R15.4 — fresh-shell revision-14 recovery initializer:
+
+```bash
+set -eEuo pipefail
+umask 077
+P22_STATE="$HOME/r15-deploy-20261018"
+P22_STATE="$(realpath "$P22_STATE")"
+export P22_STATE
+# Validate before sourcing anything or changing a file/service. An incomplete setup
+# has no restore authority: preserve it and ask the orchestrator to reconcile it.
+/usr/bin/python3 - <<'PYCODE'
+import json, os, re, stat
+from pathlib import Path
+s = Path(os.environ['P22_STATE'])
+assert s.is_dir() and s.stat().st_uid == os.getuid() and stat.S_IMODE(s.stat().st_mode) == 0o700
+for name in ('recovery-ready', 'root', 'd0', 'predeploy.sha', 'predeploy-registration.json',
+             'unit-state.json', 'pre-stop-processes.txt', 'resume-services', 'resume-timers',
+             'predeploy.crontab', 'functions.bash'):
+    p = s / name
+    assert p.is_file() and not p.is_symlink() and p.stat().st_uid == os.getuid(), name
+assert re.fullmatch(r'[0-9a-f]{40}\n', (s / 'predeploy.sha').read_text())
+assert (s / 'd0').read_text().strip() == '2026-10-19'
+assert json.loads((s / 'predeploy-registration.json').read_text())['registration_revision'] == 14
+records = json.loads((s / 'unit-state.json').read_text())
+assert records and all(re.fullmatch(r'[A-Za-z0-9_.@:-]+\.(service|timer)', n) for n in records)
+for kind in ('service', 'timer'):
+    expected = {n for n, p in records.items() if n.endswith('.' + kind) and p['ActiveState'] in {'active', 'activating', 'reloading'}}
+    assert set((s / ('resume-' + kind + 's')).read_text().splitlines()) == expected
+PYCODE
+P22_ROOT="$(cat "$P22_STATE/root")"
+P22_D0="$(cat "$P22_STATE/d0")"
+P22_BACKUP="$P22_STATE/predeploy-bundle"
+P22_UNIT_RECORDS="$(cat "$P22_STATE/unit-state.json")"
+P22_PROCESS_BEFORE="$(cat "$P22_STATE/pre-stop-processes.txt")"
+export P22_ROOT P22_D0 P22_BACKUP P22_UNIT_RECORDS P22_PROCESS_BEFORE
+trap 'rc=$?; trap - ERR; printf "Recovery failed (exit %s); retain stopped triggers and state %s for reconciliation.\n" "$rc" "$P22_STATE" >&2; exit "$rc"' ERR
+cd "$P22_ROOT"
+test "$(realpath .)" = "$P22_ROOT"
+git cat-file -e "$(cat "$P22_STATE/predeploy.sha")^{commit}"
+.venv/bin/python -m tools.backup_database verify "$P22_BACKUP"
+.venv/bin/python - <<'PYCODE'
+import json, os
+from pathlib import Path
+s = Path(os.environ['P22_STATE'])
+m = json.loads((s / 'predeploy-bundle/manifest.json').read_text())
+assert m['release_identity']['git_sha'] == (s / 'predeploy.sha').read_text().strip()
+PYCODE
+source "$P22_STATE/functions.bash"
+set -o noclobber
+p22_quiesce
+p22_clean_source
+printf 'fresh-shell recovery initialized; original inventory preserved\n'
+```
+
+R15.5 — restore revision-14 source, migrated store, evidence and units:
+
+```bash
+p22_quiesce
+p22_clean_source
+p22_lock
+# All producer locks remain held through incident capture, source and DB restore.
+mkdir -m 700 "$P22_STATE/incident"
+cp -a store/market.duckdb data logs "$P22_STATE/incident/"
+if test -f store/market.duckdb.wal; then cp -a store/market.duckdb.wal "$P22_STATE/incident/"; fi
+mkdir -m 700 "$P22_STATE/incident/snapshot-identity"
+readlink store/snapshots/market-latest.duckdb > "$P22_STATE/incident/snapshot-identity/latest-link"
+cp -a store/snapshots/*.json "$P22_STATE/incident/snapshot-identity/"
+if test -f store/agent-shadow-control.json; then cp -a store/agent-shadow-control.json "$P22_STATE/incident/"; fi
+.venv/bin/python -m tools.backup_database verify "$P22_BACKUP"
+# Git 2.20 compatible. Refusal above precedes cleanup; checkout precedes DB replacement.
+# Keep lock-file inodes while clearing archived generated paths.
+find data logs -type f ! -name '*.lock' -delete
+find data logs -type l -delete
+git checkout HEAD -- data
+git checkout --detach "$(cat "$P22_STATE/predeploy.sha")"
+cp -a "$P22_STATE/predeploy-artifacts/data/." data/
+cp -a "$P22_STATE/predeploy-artifacts/logs/." logs/
+cp "$P22_BACKUP/market.duckdb" store/market.duckdb.restore
+cmp "$P22_BACKUP/market.duckdb" store/market.duckdb.restore
+rm -f store/market.duckdb.wal
+mv store/market.duckdb.restore store/market.duckdb
+.venv/bin/python - <<'PYCODE'
+import hashlib, json, os, shutil
+from pathlib import Path
+root, bundle = Path(os.environ['P22_ROOT']), Path(os.environ['P22_BACKUP'])
+manifest = json.loads((bundle / 'manifest.json').read_text())
+for section in ('prospective_evidence', 'operational_artifacts', 'operational_controls'):
+    for relative, record in manifest.get(section, {}).items():
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # Write in place so existing lock-file inodes remain held.
+        with target.open('wb') as out, (bundle / record['bundle_path']).open('rb') as source:
+            shutil.copyfileobj(source, out)
+        assert hashlib.sha256(target.read_bytes()).hexdigest() == record['sha256'], relative
+PYCODE
+cp -a "$P22_STATE/predeploy-units/." "$HOME/.config/systemd/user/"
+systemctl --user daemon-reload
+cmp "$P22_BACKUP/market.duckdb" store/market.duckdb
+mv store/snapshots "$P22_STATE/incident/quarantined-snapshots"
+p22_autopush_held
+p22_unlock
+# Publication acquires its own locks; all triggers remain stopped.
+.venv/bin/python -m tools.publish_snapshot --source store/market.duckdb
+.venv/bin/python - <<'PYCODE'
+import json
+from engine.lib import db
+from engine.lib.snapshots import latest_snapshot
+from server import agent_evaluation
+from datetime import datetime, timezone
+assert json.load(open('server/p15-registration.json'))['registration_revision'] == 14
+assert latest_snapshot(db.DEFAULT_DB, newer_than_database=True) is not None
+with db.connect(read_only=True) as con:
+    agent_evaluation.validate_p15_evidence(con, generated_at=datetime.now(timezone.utc))
+PYCODE
+.venv/bin/python -m pytest -q -W error tests/test_p15_registration.py
+p22_readers_ready
+curl --fail --silent --connect-timeout 2 --max-time 60 http://127.0.0.1:8000/meta > "$P22_STATE/restored-meta.json"
+.venv/bin/python - <<'PYCODE'
+import json, os
+from pathlib import Path
+p = json.loads((Path(os.environ['P22_STATE']) / 'restored-meta.json').read_text())
+assert all(p[key]['status'] == 'ACCUMULATING' for key in ('forward_review', 'xs_forward_review', 'e1_forward'))
+assert [p[k]['runtime_contract_version'] for k in ('forward_review', 'xs_forward_review', 'e1_forward')] == [11, 22, 7]
+PYCODE
+cmp "$P22_BACKUP/market.duckdb" store/market.duckdb
+p22_release_producers
+p22_autopush_held
+printf 'P22 rollback complete; autopush timer and service held for reconciliation\n'
+```
+
+
+## Revision-15 cleanup rehearsal — October 18 amendment
+
+The amended source and registration were rehearsed after literal v2 deployment on the
+October 18 published snapshot, with D0 October 19 unchanged. Cleanup moved 355 original
+rows from 327 tickers (202 rows on October 16), preserved every tuple in the rejection
+table, and changed no valid price row. All 108 formerly blocked common-entry labels
+validate; every stored label tuple and hash in the four label tables is unchanged.
+
+The post-cleanup P15 report exits zero. Ordinary E1/sector/XS reviews pass twice per
+family, the existing history timer is reinstalled, and API/UI checks pass with runtime
+versions 8/12/23. A fixture-backed nightly collect of 3,862 names has zero failures;
+normal screen/league idempotency and P15 verification pass. Twelve board views at
+1440 and 390 pass, with 18 held-row warnings at each width matching rejected evidence.
+
+The money replay covers 33 books over October 12–16: 152 of 165 book-days agree in
+cash, positions and equity within $0.005. All 13 differences are on October 16 and have
+an invalid held-bar cause: HAE in the opportunity book, DELL in discretionary, DELL/UMC
+in three equal-weight books, AGL/DELL in XS, and SPY in the benchmark, dual-momentum,
+macro and three P15 books. Missing SPY execution remains pending with `untrusted_bar`;
+no replacement price was introduced. Stored historical money and labels are not restated
+by deployment. The literal rollback passed: revision-14 source, database and evidence
+were restored byte for byte, P15 and registration checks passed, and API/UI served
+ACCUMULATING sector v11, XS v22 and E1 v7. All rehearsal stores and units were deleted.
+
+The cold UI build exceeded the former 60-second readiness wait; the helper now waits
+at most 300 seconds, matching the bounded UI build timeout. The full UTC and Singapore
+suites each pass 5,376 tests, UI 70 tests and build pass, and the registered source and
+required lint checks pass. The orchestrator still accepts the exact landing SHA and
+executes the production blocks; development rehearsal grants no live-service authority.

@@ -6,6 +6,7 @@ from datetime import date
 
 import duckdb
 
+from engine.lib.data_quality import trusted_bar_sql
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.util import table_exists
 
@@ -50,13 +51,11 @@ def _position_closes(
         return {}
     result = {}
     for raw_ticker, close in con.execute(
-        "SELECT ticker, close FROM ("
-        "  SELECT px.ticker, px.close, "
-        "  ROW_NUMBER() OVER (PARTITION BY px.ticker ORDER BY px.date DESC) AS recency "
+        "SELECT px.ticker, arg_max_null(px.close, px.date) "
         "  FROM prices px WHERE px.date <= ? "
-        f"  AND {REAL_BAR_SQL} "
+        f"  AND {REAL_BAR_SQL} AND {trusted_bar_sql()} "
         "  AND px.ticker = ANY(?)"
-        ") WHERE recency = 1",
+        " GROUP BY px.ticker",
         [as_of, tickers],
     ).fetchall():
         ticker = require_public_ticker(raw_ticker)
@@ -156,6 +155,8 @@ def _add_discretionary_risk(item: dict, stop: float | None) -> None:
 
 def _expected_position_fields(item: dict, discretionary_id: str) -> frozenset[str]:
     fields = POSITION_BASE_FIELDS
+    if "retained_bar_quality" in item:
+        fields |= {"retained_bar_quality"}
     if item.get("close") is not None:
         fields |= POSITION_VALUATION_FIELDS
     if item.get("portfolio_id") == discretionary_id:
@@ -208,6 +209,8 @@ def _validate_position_item(item: dict, portfolio: str | None, discretionary_id:
     if portfolio is not None and portfolio_id != portfolio:
         raise ValueError("public position portfolio is invalid")
     average_cost, close = _validate_position_valuation(item)
+    if "retained_bar_quality" in item:
+        market_read_models.validate_retained_bar_quality(item["retained_bar_quality"])
     if portfolio_id == discretionary_id:
         stop = item["stop"]
         if stop is not None:
@@ -244,6 +247,16 @@ def _validate_positions_projection(payload: dict, *, discretionary_id: str) -> N
         raise ValueError("public positions are not ordered")
 
 
+def _add_position_price_quality(
+    con: duckdb.DuckDBPyConnection, items: list[dict], as_of: date | None
+) -> None:
+    """Join each ticker's measured quality without changing position values."""
+    tickers = sorted({item["ticker"] for item in items})
+    qualities = market_read_models.retained_bar_quality(con, tickers, as_of)
+    for item in items:
+        item["retained_bar_quality"] = qualities[item["ticker"]]
+
+
 def positions(
     con: duckdb.DuckDBPyConnection,
     portfolio: str | None,
@@ -273,6 +286,7 @@ def positions(
         if portfolio_id == discretionary_id:
             _add_discretionary_risk(item, stops.get(ticker))
         result.append(item)
+    _add_position_price_quality(con, result, as_of)
     payload = {
         "portfolio": portfolio,
         "limit": POSITIONS_LIMIT,

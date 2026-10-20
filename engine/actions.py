@@ -82,6 +82,7 @@ import yfinance as yf
 
 from engine.lib import db
 from engine.lib import resources as rsc
+from engine.lib.data_quality import observation_reasons
 from engine.lib.log import get_logger
 from engine.lib.settings import META_PATH as DEFAULT_META
 from engine.lib.settings import STORE_DIR
@@ -321,6 +322,11 @@ def _select_universe(con, params: dict, mode: str) -> tuple[list[tuple[str, str]
             "SELECT ticker FROM screen_results WHERE run_date = ? AND passes_template "
             "ORDER BY rs_rank DESC, ticker LIMIT ?", [max_run, top_n]).fetchall()}
     canon |= {r["ticker"] for r in _rewrites(con, recent=True)}
+    if table_exists(con, "price_observation_rejects"):
+        canon |= {r[0] for r in con.execute(
+            "SELECT DISTINCT ticker FROM price_observation_rejects "
+            "WHERE reason='basis_unverified' AND recorded_at >= current_timestamp - INTERVAL 14 DAY"
+        ).fetchall()}
     # Never ask Yahoo about a name we hold no bars for.
     have = {r[0] for r in con.execute(
         "SELECT DISTINCT ticker FROM prices WHERE ticker IN "
@@ -648,6 +654,20 @@ def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) ->
         "SELECT COUNT(*) FROM prices WHERE ticker = ? AND date < ?",
         [ticker, break_date]).fetchone()[0]
     with db.transaction(con):
+        previous = db.observation_rows(con.execute(
+            "SELECT * FROM prices WHERE ticker=? AND date < ?", [ticker, break_date],
+        ))
+        for bar in previous:
+            candidate = {**bar, **{f: None if bar[f] is None else bar[f] / ratio
+                                   for f in ("open", "high", "low", "close")},
+                         "volume": None if bar["volume"] is None else round(bar["volume"] * ratio)}
+            reasons = observation_reasons(candidate)
+            if reasons:
+                raise ValueError(f"invalid split restatement: {ticker}: {reasons}")
+        db.append_price_observations(
+            con, previous, reason="split_restatement_predecessor",
+            batch_id=f"split:{ticker}:{ex_date}:{break_date}",
+        )
         con.execute(
             "UPDATE prices SET open = open / ?, high = high / ?, low = low / ?, "
             "close = close / ?, volume = CAST(ROUND(volume * ?) AS BIGINT) "

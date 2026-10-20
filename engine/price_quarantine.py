@@ -9,11 +9,65 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from datetime import datetime, timezone
+from uuid import uuid4
+
+import pandas as pd
 
 from engine.lib import db
+from engine.lib.data_quality import observation_reasons, session_schedule
 from engine.lib.settings import DEFAULT_DB
 from sim.schema import init_sim_schema
+
+
+def cleanup_hard_invalid_prices(con, *, dry_run: bool = True) -> dict:
+    """One-off revision-15 cleanup. Default is read-only; never repairs a tuple.
+
+    Scan scalar invariants in SQL and historical calendar dates once. Applying
+    appends each original observation and deletes its cache key atomically.
+    Basis candidates and valid REAL-ineligible bars are outside this cleanup.
+    """
+    dates = [row[0] for row in con.execute("SELECT DISTINCT date FROM prices").fetchall()]
+    off_calendar = [day for day in dates if pd.Timestamp(day) not in session_schedule(day.year).index]
+    scalar = " OR ".join(
+        [f"{f} IS NULL OR NOT isfinite({f}) OR {f} <= 0"
+         for f in ("open", "high", "low", "close")]
+        + ["high < greatest(open,close,low)", "low > least(open,close,high)",
+           "volume IS NULL OR volume < 0"]
+    )
+    with db.registered_frame(con, "_off_calendar_dates", pd.DataFrame(
+        {"date": pd.Series(off_calendar, dtype="datetime64[ns]")},
+    )):
+        originals = db.observation_rows(con.execute(
+            f"SELECT p.* FROM prices p WHERE ({scalar}) "
+            "OR date IN (SELECT date FROM _off_calendar_dates) ORDER BY ticker,date"
+        ))
+    reasons = [observation_reasons(row) for row in originals]
+    if any(not reason for reason in reasons):
+        raise ValueError("cleanup SQL and validator disagree; no rows moved")
+    report = {
+        "dry_run": dry_run, "invalid_rows": len(originals),
+        "tickers": len({row["ticker"] for row in originals}),
+        "by_date": dict(sorted(Counter(str(row["date"]) for row in originals).items())),
+        "by_reason": dict(sorted(Counter(r for items in reasons for r in items).items())),
+        "moved": 0,
+    }
+    if dry_run or not originals:
+        return report
+    batch_id = str(uuid4())
+    with db.transaction(con):
+        for row, reason in zip(originals, reasons, strict=True):
+            db.append_price_observations(con, [row], reason=",".join(reason), batch_id=batch_id)
+        with db.registered_frame(con, "_invalid_price_keys", pd.DataFrame(originals)[["ticker", "date"]]):
+            moved = con.execute(
+                "DELETE FROM prices USING _invalid_price_keys i "
+                "WHERE prices.ticker=i.ticker AND prices.date=i.date RETURNING ticker"
+            ).fetchall()
+        if len(moved) != len(originals):
+            raise ValueError("cleanup count changed; rolled back")
+        report["moved"] = len(moved)
+    return report
 
 
 def set_quarantine(con, ticker: str, *, reason: str, evidence: str) -> None:

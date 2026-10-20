@@ -6,7 +6,7 @@ from datetime import date
 
 import duckdb
 
-from engine.lib.db import REAL_BAR_SQL
+from engine.lib.data_quality import trusted_bar_sql
 from engine.lib.util import table_exists
 
 from .read_model_utils import (
@@ -17,6 +17,8 @@ from .read_model_utils import (
     require_public_ticker,
     rows,
 )
+
+TRUSTED_BAR_SQL = trusted_bar_sql()
 
 STALE_DETAIL_LIMIT = 100
 ORDER_SIDES = frozenset({"buy", "sell"})
@@ -82,7 +84,7 @@ def _stale_exposure(
         ticker
         for (ticker,) in con.execute(
             f"SELECT DISTINCT ticker FROM prices WHERE date = ? "
-            f"AND ticker = ANY(?) AND {REAL_BAR_SQL}",
+            f"AND ticker = ANY(?) AND {TRUSTED_BAR_SQL}",
             [as_of, exposure_tickers],
         ).fetchall()
     }
@@ -93,7 +95,7 @@ def _stale_exposure(
         ticker: traded
         for ticker, traded in con.execute(
             f"SELECT ticker, MAX(date) FROM prices WHERE date < ? "
-            f"AND ticker = ANY(?) AND {REAL_BAR_SQL} GROUP BY ticker",
+            f"AND ticker = ANY(?) AND {TRUSTED_BAR_SQL} GROUP BY ticker",
             [as_of, stale_tickers],
         ).fetchall()
     }

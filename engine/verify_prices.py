@@ -87,6 +87,7 @@ import requests
 
 from engine.lib import db
 from engine.lib import resources as rsc
+from engine.lib.data_quality import price_bar_reasons
 from engine.lib.log import get_logger
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT  # noqa: F401
 from engine.lib.settings import META_PATH as DEFAULT_META
@@ -496,19 +497,19 @@ def compare_bars(ticker: str, store_bars: dict, src_bars: dict,
         "newest_compared": as_of in common,
         "source_latest_session": max(src_bars).isoformat() if src_bars else None,
     }
-    if not common:
-        out["status"] = "not_checked"
-        out["reason"] = "no_overlapping_sessions"
-        return out
-
     invalid = [
-        {"date": day.isoformat(), "side": side, "field": field, "value": repr(bar[field])}
-        for day in common for side, bar in (("store", store_bars[day]), ("source", src_bars[day]))
-        for field in FIELDS if bar.get(field) is not None
-        and (not math.isfinite(float(bar[field])) or float(bar[field]) <= 0)
+        {"date": day.isoformat(), "side": side, "field": reason,
+         "value": repr(bar)}
+        for side, bars in (("store", store_bars), ("source", src_bars))
+        for day, bar in bars.items()
+        for reason in price_bar_reasons(bar, check_volume=bar.get("volume") is not None)
     ]
     if invalid:
         out.update(status="not_checked", reason="invalid_comparison_price", invalid_fields=invalid)
+        return out
+    if not common:
+        out["status"] = "not_checked"
+        out["reason"] = "no_overlapping_sessions"
         return out
 
     for d in common:

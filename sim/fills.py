@@ -29,12 +29,15 @@ tradeable bar it rejects as 'no_bar'. A bar is never invented.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 import duckdb
 
-from . import bar_sources, calendar, execution, nyse, order_types
+from engine.lib.data_quality import trusted_bar
+
+from . import bar_sources, calendar, execution, money_inputs, nyse, order_types
 
 OrderType = order_types.OrderType
 
@@ -126,24 +129,18 @@ def attempt_fill(
             f"look-ahead violation: fill_date {fill_date} !> signal_date {signal_date}"
         )
 
+    refusal = money_inputs.order_refusal(side, qty, sides=("buy", "sell"))
+    if refusal:
+        return FillResult(status="rejected", reject_reason=refusal)
     bar = con.execute(
-        "SELECT open, volume FROM prices WHERE ticker = ? AND date = ?",
+        "SELECT open,high,low,close,volume FROM prices WHERE ticker=? AND date=?",
         [ticker, fill_date],
     ).fetchone()
-
-    if bar is None or bar[0] is None or bar[0] <= 0 or not bar[1]:
-        # No TRADEABLE bar on the fill date — halt / delisting / missing data.
-        # Three shapes count as "no bar": the row is absent; `open` is NULL or
-        # non-positive (an `open = 0.0` row would fill a buy for $0 and book
-        # free shares — 4 such rows exist in the store); or `volume` is NULL/0.
-        # yfinance keeps emitting a dead quote as a zero-volume bar after a
-        # name stops trading (BUILDLOG 2026-08-20c), and nobody could have
-        # traded at it. A thin name's legitimate zero-volume day simply waits a
-        # session; after PENDING_MAX_DAYS it rejects as 'no_bar' like any halt.
+    if not trusted_bar(bar):
         elapsed = calendar.trading_days_between(con, signal_date, fill_date)
         if elapsed >= PENDING_MAX_DAYS:
             return FillResult(status="rejected", reject_reason="no_bar")
-        return FillResult(status="pending")
+        return FillResult(status="pending", reject_reason="untrusted_bar")
 
     open_px = float(bar[0])
     mdv = median_dollar_vol(con, ticker, fill_date)
@@ -170,9 +167,9 @@ def attempt_fill(
         fill_px = open_px * (1 + slip / 1e4)
     elif side == "sell":
         fill_px = open_px * (1 - slip / 1e4)
-    else:  # pragma: no cover - guarded upstream
-        raise ValueError(f"bad side {side!r}")
 
+    if money_inputs.order_refusal(side, qty, fill_price=fill_px) or not math.isfinite(qty * fill_px):
+        return FillResult(status="rejected", reject_reason="invalid_order: fill arithmetic")
     return FillResult(
         status="filled",
         open_px=open_px,
@@ -206,6 +203,9 @@ def _v2_result(
     fill_ts: datetime,
     profile: str | execution.ExecutionProfile | None,
 ) -> FillResult:
+    refusal = money_inputs.order_refusal(side, qty, reference_price=reference_px)
+    if refusal:
+        return FillResult(status="rejected", reject_reason=refusal)
     selected = execution.resolve_profile(profile)
     participation = (
         0.0 if mdv is None or mdv <= 0 else qty * reference_px / mdv
@@ -230,6 +230,8 @@ def _v2_result(
     if side not in {"buy", "sell", "short", "cover"}:
         raise ValueError(f"bad side {side!r}")
     fill_px = reference_px * (1 + direction * slip_bps / 1e4)
+    if money_inputs.order_refusal(side, qty, fill_price=fill_px) or not math.isfinite(qty * fill_px):
+        return FillResult(status="rejected", reject_reason="invalid_order: fill arithmetic")
     return FillResult(
         status="filled",
         open_px=reference_px,
@@ -263,6 +265,9 @@ def attempt_next_open_fill(
     penalty_bps: float = 0.0,
 ) -> FillResult:
     """V2 next-open attempt with alternate daily sources and explicit sides."""
+    refusal = money_inputs.order_refusal(side, qty)
+    if refusal:
+        return FillResult(status="rejected", reject_reason=refusal)
     if fill_date <= signal_date:
         raise ValueError(
             f"look-ahead violation: fill_date {fill_date} !> signal_date {signal_date}"
@@ -279,7 +284,7 @@ def attempt_next_open_fill(
                 elapsed += 1
         if elapsed >= PENDING_MAX_DAYS:
             return FillResult(status="rejected", reject_reason="no_bar")
-        return FillResult(status="pending", price_source=price_source)
+        return FillResult(status="pending", reject_reason="untrusted_bar", price_source=price_source)
     mdv = bar_sources.median_dollar_volume(
         con, ticker, fill_date, source=price_source, available_at=available_at,
     )
@@ -318,6 +323,9 @@ def attempt_auction_fill(
 ) -> FillResult:
     """Attempt an opening- or closing-auction fill without a same-bar peek."""
     kind = OrderType(order_type)
+    refusal = money_inputs.order_refusal(side, qty)
+    if refusal:
+        return FillResult(status="rejected", reject_reason=refusal)
     if kind not in {OrderType.MOO, OrderType.MOC}:
         raise ValueError("auction order_type must be 'moo' or 'moc'")
     if received_at.utcoffset() is None:
@@ -328,7 +336,7 @@ def attempt_auction_fill(
         con, ticker, session_date, source=price_source, available_at=available_at,
     )
     if bar is None:
-        return FillResult(status="pending", price_source=price_source)
+        return FillResult(status="pending", reject_reason="untrusted_bar", price_source=price_source)
     opening = kind is OrderType.MOO
     reference = bar.open if opening else bar.close
     mdv = bar_sources.median_dollar_volume(
@@ -411,6 +419,9 @@ def attempt_intraday_market_fill(
     available_at: datetime | None = None,
 ) -> FillResult:
     """Fill at the first minute bar at least 60 seconds after receipt."""
+    refusal = money_inputs.order_refusal(side, qty)
+    if refusal:
+        return FillResult(status="rejected", reject_reason=refusal)
     if received_at.utcoffset() is None:
         raise ValueError("received_at must include its timezone")
     if not order_types.received_at_allowed(OrderType.MARKET, session_date, received_at):
@@ -432,7 +443,7 @@ def attempt_intraday_market_fill(
             terminal_status="rejected", terminal_reason="no_bar",
         )
     bar = bars[0]
-    reference = bar.vwap if bar.vwap is not None and bar.vwap > 0 else (
+    reference = bar.vwap if bar.vwap is not None and math.isfinite(bar.vwap) and bar.vwap > 0 else (
         bar.open + bar.high + bar.low + bar.close
     ) / 4
     mdv = bar_sources.median_dollar_volume(
@@ -457,8 +468,7 @@ def attempt_intraday_market_fill(
 
 def tick_size(price: float) -> float:
     """US equity tick used by the deterministic limit-touch rule."""
-    if price <= 0:
-        raise ValueError("limit price must be positive")
+    money_inputs.finite_number(price, "limit price", positive=True)
     return 0.01 if price >= 1 else 0.0001
 
 
@@ -477,6 +487,9 @@ def attempt_intraday_limit_fill(
     available_at: datetime | None = None,
 ) -> FillResult:
     """Fill a day limit only after a full later minute bar crosses one tick."""
+    refusal = money_inputs.order_refusal(side, qty, limit_price=limit_px)
+    if refusal:
+        return FillResult(status="rejected", reject_reason=refusal)
     if received_at.utcoffset() is None:
         raise ValueError("received_at must include its timezone")
     if not order_types.received_at_allowed(OrderType.LIMIT, session_date, received_at):

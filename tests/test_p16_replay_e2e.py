@@ -420,7 +420,7 @@ def test_fixture_http_to_real_parsers_executor_notes_and_report_is_deterministic
     assert all("Future rule" not in json.dumps(payload) for payload in postmortems)
     assert first["labels"] and first["notes"]
     assert first["halt_attempts"][:2] == [
-        ("pending", None), ("rejected", "stale_signal")
+        ("pending", "untrusted_bar"), ("rejected", "stale_signal")
     ]
     assert len(snapshot["positions"]) == len(p15_books.BOOK_IDS)
     assert all(qty == pytest.approx(fill_qty * 2) for _book, qty, _cost, fill_qty, _px in snapshot[

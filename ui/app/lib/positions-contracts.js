@@ -6,6 +6,7 @@ import {
   isRecord,
 } from "./response-contracts.js";
 import { isCandidateTicker } from "./candidate-route.js";
+import { isRetainedBarQuality } from "./market-contracts.js";
 
 const DISC = "discretionary";
 const POSITIONS_LIMIT = 500;
@@ -31,6 +32,9 @@ function hasExactKeys(value, keys) {
 
 function expectedPositionKeys(row) {
   const keys = [...POSITION_BASE_KEYS];
+  if (Object.prototype.hasOwnProperty.call(row, "retained_bar_quality")) {
+    keys.push("retained_bar_quality");
+  }
   if (row.close !== null) keys.push(...POSITION_VALUATION_KEYS);
   if (row.portfolio_id === DISC) {
     keys.push(...POSITION_RISK_KEYS);
@@ -78,6 +82,8 @@ export function isPositionsProjection(data, requestedPortfolio = "") {
       !Number.isFinite(row.avg_cost) ||
       row.avg_cost <= 0 ||
       !isNullableFiniteNumber(row.close) ||
+      (Object.prototype.hasOwnProperty.call(row, "retained_bar_quality") &&
+        !isRetainedBarQuality(row.retained_bar_quality)) ||
       (requestedPortfolio && row.portfolio_id !== requestedPortfolio)
     ) {
       return false;

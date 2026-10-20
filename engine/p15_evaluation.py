@@ -11,11 +11,11 @@ from zoneinfo import ZoneInfo
 import duckdb
 
 from engine import p15_event_sources
-from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock, write_text_atomic
 from engine.lib.settings import DATA_DIR, REPO_ROOT
 from engine.lib.util import table_exists
+from engine.p15_calendar import observed_sessions
 from sim import book_breaks, nyse
 
 POLICY_ID = "p15-scoring-v1"
@@ -305,11 +305,8 @@ def _primary_rows(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> lis
 def _mature(con, market_date: date, horizon: int, generated_at: datetime) -> bool:
     if not table_exists(con, "prices"):
         return False
-    return con.execute(
-        f"SELECT COUNT(DISTINCT date)>=? FROM prices WHERE ticker='SPY' AND date>? "
-        f"AND date<=? AND {REAL_BAR_SQL}",
-        [horizon, market_date, generated_at.date()],
-    ).fetchone()[0]
+    return len(observed_sessions(con, after=market_date, through=generated_at.date(),
+                                 limit=horizon)) >= horizon
 
 
 def _scores(row: dict, horizon: int) -> tuple[float, float] | None:
@@ -1160,11 +1157,10 @@ def events(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
                 day = decision_at.replace(tzinfo=timezone.utc).astimezone(
                     p15_event_sources.ET
                 ).date()
-                mature = bool(con.execute(
-                    f"SELECT COUNT(DISTINCT date)>=5 FROM prices WHERE ticker='SPY' "
-                    f"AND date>=? AND date<=? AND {REAL_BAR_SQL}",
-                    [day, generated_at.astimezone(p15_event_sources.ET).date()],
-                ).fetchone()[0]) if table_exists(con, "prices") else False
+                mature = len(observed_sessions(
+                    con, after=day, include_after=True,
+                    through=generated_at.astimezone(p15_event_sources.ET).date(), limit=5,
+                )) >= 5
             else:
                 mature = _mature(con, decision_at.date(), 5, generated_at)
             missing += mature

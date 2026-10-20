@@ -504,7 +504,7 @@ def _yahoo_bars(ticker: str, days: list, closes: list[float]) -> pd.DataFrame:
     return pd.concat({ticker: frame}, axis=1)
 
 
-def _late_split_store(tmp_path, monkeypatch):
+def _late_split_store(tmp_path, monkeypatch, *, recorded=True):
     """Store DXJ's mixed bases: the ex-date evening pull is not yet restated, the
     next night's 5-session re-fetch is, so the stored break sits 3 sessions early."""
     db_path = tmp_path / "market.duckdb"
@@ -519,6 +519,9 @@ def _late_split_store(tmp_path, monkeypatch):
     insert_bars(con, "DXJ", SESSIONS[:LATE_EX_IDX - 4], open_=180.0, close=180.0,
                 high=182.0, low=178.0)
     con.execute("UPDATE prices SET fetched_at = ?", [FETCHED_BEFORE_EX])
+    if recorded:
+        con.execute("INSERT INTO corporate_actions VALUES ('DXJ', ?, 'split', ?, 'yfinance', now())",
+                    [LATE_EX, SPLIT])
     con.close()
     nights = iter([
         # ex-date evening: Yahoo still serves the old scale before the ex-date
@@ -528,8 +531,8 @@ def _late_split_store(tmp_path, monkeypatch):
     ])
     monkeypatch.setattr(collect, "_download", lambda *_args, **_kwargs: next(nights))
     monkeypatch.setattr(collect.time, "sleep", lambda _seconds: None)
-    assert collect.mode_incremental(db_path, force=True) == (1, 0)
-    assert collect.mode_incremental(db_path, force=True) == (1, 0)
+    assert collect.mode_incremental(db_path, force=True) == (1, 0 if recorded else 1)
+    assert collect.mode_incremental(db_path, force=True) == (1, 0 if recorded else 1)
     monkeypatch.setattr(actions, "PER_NAME_SLEEP", 0)
     monkeypatch.setattr(actions.rsc, "dir_size_gb", lambda _path: 0.0)
     return db_path
@@ -596,7 +599,7 @@ def test_split_like_rewrite_is_recorded_once_per_ticker_and_ordinary_restatement
     assert body["replaced_fetched_at"] == FETCHED_BEFORE_EX.isoformat()
 
 
-def test_rewrite_evidence_is_recorded_in_a_store_without_the_sim_schema(tmp_path):
+def test_unknown_basis_is_held_in_a_store_without_the_sim_schema(tmp_path):
     db_path = tmp_path / "market.duckdb"
     con = db.connect(db_path)
     db.init_schema(con)
@@ -610,10 +613,11 @@ def test_rewrite_evidence_is_recorded_in_a_store_without_the_sim_schema(tmp_path
 
     con = db.connect(db_path, read_only=True)
     try:
-        assert [r["ticker"] for r in actions._rewrites(con)] == ["AAA"]
+        assert actions._rewrites(con) == []
+        assert con.execute("SELECT reason FROM price_observation_rejects").fetchall() == [("basis_unverified",)]
         assert con.execute(
             "SELECT close FROM prices WHERE ticker = 'AAA' ORDER BY date").fetchall() == [
-            (90.0,), (30.0,)]
+            (90.0,), (90.0,)]
     finally:
         con.close()
 
@@ -625,8 +629,6 @@ def test_late_restatement_without_rewrite_evidence_stays_skipped(monkeypatch, tm
     con = db.connect(db_path)
     try:
         con.execute("DELETE FROM audit_log WHERE action = 'split_like_rewrite'")
-        con.execute("INSERT INTO corporate_actions VALUES ('DXJ', ?, 'split', ?, 'yfinance', now())",
-                    [LATE_EX, SPLIT])
         actions.reconcile(con)
         assert con.execute(
             "SELECT outcome FROM split_adjustments WHERE ticker = 'DXJ'"
@@ -636,10 +638,12 @@ def test_late_restatement_without_rewrite_evidence_stays_skipped(monkeypatch, tm
 
 
 def test_rewrite_with_no_split_row_is_surfaced_for_a_human(monkeypatch, tmp_path):
-    db_path = _late_split_store(tmp_path, monkeypatch)
+    db_path = _late_split_store(tmp_path, monkeypatch, recorded=False)
     con = db.connect(db_path)
     try:
+        assert con.execute("SELECT count(*) FROM price_observation_rejects WHERE reason='basis_unverified'").fetchone() == (10,)
+        assert {r[0] for r in con.execute("SELECT close FROM prices").fetchall()} == {180.0}
         summary = actions.reconcile(con)
     finally:
         con.close()
-    assert summary["warnings"] == 1
+    assert summary["warnings"] == 0

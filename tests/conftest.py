@@ -15,6 +15,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from sim.schema import INITIAL_CASH, init_sim_schema  # noqa: E402
 
+pytest_plugins = ["tests.speed_plugin"]
+
 PRICES_DDL = """
 CREATE TABLE IF NOT EXISTS prices (
     ticker VARCHAR NOT NULL, date DATE NOT NULL,
@@ -67,8 +69,8 @@ def insert_bars(con, ticker, dates, *, open_=100.0, close=100.0, volume=1_000_00
         [ticker] * n,
         dates,
         seq(open_),
-        seq(high if high is not None else (open_ if not isinstance(open_, (list, tuple)) else open_)),
-        seq(low if low is not None else close),
+        seq(high) if high is not None else [max(o, c) for o, c in zip(seq(open_), seq(close), strict=True)],
+        seq(low) if low is not None else [min(o, c) for o, c in zip(seq(open_), seq(close), strict=True)],
         seq(close),
         seq(volume),
         strict=True,

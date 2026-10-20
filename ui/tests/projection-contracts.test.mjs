@@ -80,6 +80,8 @@ function screenRow(overrides = {}) {
     vol_dryup: false,
     new_today: true,
     universe_policy: "all",
+    retained_bar_quality: { as_of: "2026-09-04", retained_count: 1, invalid_count: 0,
+      latest_invalid_date: null, reason: null },
     ...overrides,
   };
 }

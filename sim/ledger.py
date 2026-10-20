@@ -14,6 +14,7 @@ from engine.lib import db
 from engine.lib.log import get_logger
 from engine.lib.util import table_exists
 
+from . import money_inputs
 from .costs import FeeBreakdown
 from .schema import INITIAL_CASH, portfolio_account
 
@@ -238,17 +239,16 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill, fees=None, *,
     portfolio_id = str(_value(fill, "portfolio_id"))
     instrument_id = str(_value(fill, "instrument_id", "ticker"))
     side = str(_value(fill, "side"))
-    qty = float(_value(fill, "qty", "quantity"))
-    px = float(_value(fill, "fill_px", "price"))
-    multiplier = float(_value(fill, "multiplier", default=1.0))
+    try:
+        qty = money_inputs.finite_number(_value(fill, "qty", "quantity"), "fill quantity", positive=True)
+        px = money_inputs.finite_number(_value(fill, "fill_px", "price"), "fill price", positive=True)
+        multiplier = money_inputs.finite_number(_value(fill, "multiplier", default=1.0), "multiplier", positive=True)
+        money_inputs.finite_number(qty * px * multiplier, "fill notional", positive=True)
+    except ValueError as exc:
+        log.warning(f"[ledger] WARN bad_fill: {exc} — fill rejected")
+        return 0.0
     if side not in {"buy", "sell", "short", "cover"}:
         raise ValueError(f"unknown fill side {side!r}")
-    if not all(math.isfinite(value) and value > 0 for value in (qty, px, multiplier)):
-        log.warning(
-            f"[ledger] WARN bad_fill: {portfolio_id} {instrument_id} "
-            f"{side} {qty} @ {px!r} — fill rejected"
-        )
-        return 0.0
     portfolio = con.execute(
         "SELECT cash FROM portfolios WHERE id=?",
         [portfolio_id],
@@ -272,10 +272,19 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill, fees=None, *,
         (float(row[0]), float(row[1])) if row else (0.0, 0.0)
     )
     matched = ()
+    if fees is not None:
+        for name in FeeBreakdown.__dataclass_fields__:
+            if name != "profile_id":
+                money_inputs.finite_number(_fee_value(fees, name), f"fill fee {name}", nonnegative=True)
     charged = _normalise_fees(fees)
     fee = charged.total_usd
-    if not math.isfinite(fee) or fee < 0:
-        raise ValueError("fill fees must be finite and non-negative")
+    money_inputs.finite_number(cash, "cash")
+    money_inputs.finite_number(current_qty, "position quantity")
+    money_inputs.finite_number(current_cost, "position basis", nonnegative=True)
+    signed_notional = qty * px * multiplier * (-1 if side in {"buy", "cover"} else 1)
+    money_inputs.finite_number(cash + signed_notional - fee, "cash after fill")
+    money_inputs.finite_number(abs(current_qty) + qty, "position after fill")
+    money_inputs.finite_number(abs(current_qty) * current_cost + qty * px, "position basis value")
 
     if side == "buy":
         if current_qty < 0:
@@ -362,16 +371,22 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill, fees=None, *,
     return float(qty)
 
 
+def get_cash_value(con, portfolio_id):
+    row = con.execute("SELECT cash FROM portfolios WHERE id=?", [portfolio_id]).fetchone()
+    if row is None:
+        raise KeyError(f"unknown portfolio {portfolio_id!r}")
+    return money_inputs.finite_number(row[0], "cash")
+
+
 def apply_cash_event(con: duckdb.DuckDBPyConnection, event: Mapping) -> int:
     """Append one signed non-fill cash movement and apply it exactly once."""
     portfolio_id = str(event["portfolio_id"])
     event_date = event["event_date"]
     kind = str(event["kind"])
-    amount = float(event["amount"])
+    amount = money_inputs.finite_number(event["amount"], "cash-event amount")
     if kind not in CASH_EVENT_KINDS:
         raise ValueError(f"unknown cash-event kind {kind!r}")
-    if not math.isfinite(amount):
-        raise ValueError("cash-event amount must be finite")
+    money_inputs.finite_number(get_cash_value(con, portfolio_id) + amount, "cash after event")
     seq = event.get("seq")
     if seq is None:
         seq = int(con.execute(
@@ -522,8 +537,13 @@ def apply_event(con, event: LedgerEvent, *, on_close=None):
                                row['qty'], row['price'], row['into_ticker'], row['ratio'],
                                on_close=on_close)
     else:
+        amount = money_inputs.finite_number(row['amount'], "cash event amount")
+        if event.kind == 'dividend':
+            money_inputs.finite_number(row['dps'], "dividend per share", positive=True)
+            money_inputs.finite_number(row['qty'], "dividend quantity")
+        money_inputs.finite_number(get_cash_value(con, row['portfolio_id']) + amount, "cash after event")
         con.execute('UPDATE portfolios SET cash=cash+? WHERE id=?',
-                    [row['amount'], row['portfolio_id']])
+                    [amount, row['portfolio_id']])
 
 
 def rebuild_state(con, portfolio_ids: Iterable[str] | None = None, *,

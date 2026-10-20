@@ -7,7 +7,7 @@ import sqlite3
 import subprocess
 import sys
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -22,6 +22,7 @@ NOW = datetime(2026, 10, 10, 3, 5, tzinfo=UTC)
 @pytest.fixture(autouse=True)
 def _no_host_units(tmp_path, monkeypatch):
     monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", tmp_path / "no-units")
+    monkeypatch.setattr(ops_digest, "HOST_LOG_GLOBS", ())
 
 
 def _entry(stamp: str, message: str, ident: str = "python") -> str:
@@ -56,6 +57,8 @@ def _fake_run(journal: dict[str, str]):
         if args[:3] == ["systemctl", "--user", "list-units"]:
             return "dbus.service loaded active running D-Bus\n"
         if args[0] == "journalctl":
+            if "--list-boots" in args:
+                return "0 boot Sat 2026-10-10 00:00:00 UTC—Sat 2026-10-10 03:00:00 UTC"
             return journal.get(args[args.index("-u") + 1], "")
         if args[0] == "git":
             return "0\n" if "rev-list" in args else " M data/reports/league.md\n"
@@ -107,6 +110,26 @@ def test_parse_journal_closes_run_started_in_earlier_hour():
     runs = ops_digest.parse_journal(unit, raw, ops_digest.SourceSignals())
     assert (runs[0].started, runs[0].ended, runs[0].result) == (
         None, "2026-10-10T03:10:00Z", "success")
+
+
+@pytest.mark.parametrize("kind,code,result", [
+    ("killed", 15, "success"), ("killed", 15, "signal"),
+    ("exited", 1, "exit-code"), ("exited", 75, "success")])
+def test_systemd_result_and_termination_survive_storage(tmp_path, kind, code, result):
+    unit = "sample.service"
+    finish = (f"{unit}: Succeeded." if result == "success" else
+              f"{unit}: Failed with result '{result}'.")
+    raw = "\n".join([
+        _entry("2026-10-10T02:40:00Z",
+               f"{unit}: Main process exited, code={kind}, status={code}/n/a", "systemd"),
+        _entry("2026-10-10T02:40:01Z", finish, "systemd")])
+    with closing(ops_digest.open_db(tmp_path)) as db:
+        for _ in range(2):
+            [row] = ops_digest.store_runs(db, ops_digest.parse_journal(
+                unit, raw, ops_digest.SourceSignals()))
+        assert (row["started"], row["seconds"], row["termination_kind"], row["exit_code"],
+                row["result"]) == (None, None, kind, code, result)
+        assert db.execute("SELECT COUNT(*) FROM unit_runs").fetchone()[0] == 1
 
 
 def test_read_new_lines_starts_at_end_then_follows_and_resets(tmp_path):
@@ -191,10 +214,10 @@ def test_clean_stop_that_systemd_reports_as_success_is_not_a_failed_run(tmp_path
     report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW, run=_fake_run(journal))
 
     assert hour["status"] == "OK" and "0 failed run(s)" in hour["text"]
-    assert "| trading-engine-api | 02:46:54 | 02:46:54 | 0s | — | success (exit 15) |" in (
+    assert "| trading-engine-api | — | 02:46:54 | — | — | success (exit 15) [killed] |" in (
         hour["text"])
     assert "1 OK" in report and "Failed runs" not in report
-    assert "| trading-engine-api | `—` | ? | 1 | 0 | ? |" in report
+    assert "| trading-engine-api | `—` | ? | 1 | 0 | 0 | ? | schedule unknown |" in report
 
 
 def test_failure_whose_result_lands_in_the_next_hour_keeps_its_exit_code(tmp_path):
@@ -211,6 +234,8 @@ def test_failure_whose_result_lands_in_the_next_hour_keeps_its_exit_code(tmp_pat
     def run(args, timeout):
         if args[0] != "journalctl":
             return units(args, timeout)
+        if "--list-boots" in args:
+            return units(args, timeout)
         since, until = (int(args[args.index(flag) + 1][1:]) for flag in ("--since", "--until"))
         return "\n".join(entry for when, entry in entries if since <= when < until)
 
@@ -223,7 +248,7 @@ def test_failure_whose_result_lands_in_the_next_hour_keeps_its_exit_code(tmp_pat
     report = ops_digest.report(24, logs / "ops", now=later, run=_fake_run({}))
 
     assert first["status"] == "OK" and second["status"] == "FAIL"
-    assert "| exit-code (exit 75) |" in second["text"]
+    assert "| exit-code (exit 75) [exited] |" in second["text"]
     assert f"{unit} at 2026-10-10T02:30:00Z (30m01s): exit-code, exit 75" in report
     assert "exit None" not in report
 
@@ -288,9 +313,16 @@ def _schedule_run(tmp_path):
 def test_report_lists_every_run_and_stage_against_the_schedules(tmp_path):
     ops = tmp_path / "ops"
     with closing(ops_digest.open_db(ops)) as db:
+        begin = datetime(2026, 10, 14, 12, tzinfo=UTC)
+        finish = datetime(2026, 10, 17, 12, 30, tzinfo=UTC)
+        for moment in (begin, finish):
+            ops_digest.sample_schedules(db, _schedule_run(tmp_path), moment)
+        for source in ("trading-engine-p15-preopen.service", "stages"):
+            ops_digest.record_coverage(db, source, begin, finish)
         db.executemany("INSERT INTO hours (hour, status) VALUES (?, 'OK')",
                        [(f"2026-10-17T{hour:02}",) for hour in range(12)])
-        db.executemany("INSERT INTO unit_runs VALUES (?,?,?,?,?,?)", [
+        db.executemany("INSERT INTO unit_runs (unit, started, ended, seconds, exit_code, result) "
+                       "VALUES (?,?,?,?,?,?)", [
             ("trading-engine-p15-preopen.service", "2026-10-14T13:05:58Z",
              "2026-10-14T13:05:59Z", 1.0, 1, "exit-code"),
             ("trading-engine-p15-preopen.service", "2026-10-16T13:05:07Z",
@@ -318,11 +350,11 @@ def test_report_lists_every_run_and_stage_against_the_schedules(tmp_path):
     assert "- run_daily: due 10-15 22:30Z" in missing
     assert missing.count("\n- ") == 2
     assert ("| trading-engine-p15-preopen | `timer Mon..Fri *-*-* 09:05:00 America/New_York` "
-            "| 3 | 2 | 1 | 1 | 10-14 13:05Z exit-code 1s; 10-16 13:05Z success 10s |") in report
-    assert "| run_daily | `cron 30 22 * * 1-5` | 3 | 2 | 1 | 1 |" in report
-    assert ("| friday-postflight | `cron 15 5 * * 6` | 1 | 1 | 0 | 0 | "
-            "10-17 05:16Z output written |") in report
-    assert "| store-sync | `timer OnUnitActiveUSec=15min` | ? | 1 | 0 | ? |" in report
+            "| 3 | 2 | 1 | 0 | 1 | 0 | 10-14 13:05Z exit-code 1s; 10-16 13:05Z success 10s |") in report
+    assert "| run_daily | `cron 30 22 * * 1-5` | 3 | 2 | 1 | 0 | 1 | 0 |" in report
+    assert ("| friday-postflight | `cron 15 5 * * 6` | 1 | 1 | 0 | 0 | 0 | "
+            "0 | 10-17 05:16Z output written |") in report
+    assert "| store-sync | `timer OnUnitActiveUSec=15min` | ? | 1 | 0 | 0 | ? | schedule unknown |" in report
     assert "- run_daily 10-14 22:30Z, 53m00s: collect 4m00s · snapshot 1m00s" in report
     assert "- run_daily 10-16 22:30Z, 1m02s: collect 1m00s exit 1" in report
 
@@ -335,6 +367,195 @@ def test_installed_services_are_discovered_without_a_timer(tmp_path, monkeypatch
     monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", units)
 
     assert ops_digest.discover_units(_fake_run({})) == ["report-after-settle.service"]
+
+
+def test_current_schedule_does_not_invent_missing_unobserved_history(tmp_path):
+    with closing(ops_digest.open_db(tmp_path)) as db:
+        missing, lines = ops_digest.runs_lines(
+            db, _schedule_run(tmp_path), datetime(2026, 10, 3, tzinfo=UTC),
+            datetime(2026, 10, 17, tzinfo=UTC))
+    assert missing == []
+    assert "unknown" in "\n".join(lines).lower()
+
+
+def test_fourteen_day_schedule_change_short_journal_and_dated_receipts(tmp_path):
+    start = datetime(2026, 10, 3, tzinfo=UTC)
+    end = start + timedelta(days=14)
+    change = start + timedelta(days=7)
+    job = "trading-engine-ops-digest"
+
+    def installed(minute):
+        def run(args, _timeout):
+            if "list-timers" in args:
+                return f"x {job}.timer {job}.service"
+            if "show" in args:
+                return (f"Unit={job}.service\nTimersCalendar={{ OnCalendar=*-*-* "
+                        f"*:0{minute}:00 UTC ; }}\nAccuracyUSec=1min\nRandomizedDelayUSec=0\n")
+            return ""
+        return run
+
+    old, new = installed(5), installed(8)
+    receipts = {job: [ops_digest.JobRun(start + timedelta(hours=h, minutes=5 if h < 168 else 8),
+                                       None, None, "receipt completed; exit unknown")
+                      for h in range(336) if h != 200]}
+    with closing(ops_digest.open_db(tmp_path)) as db:
+        for moment, runner in ((start, old), (change - timedelta(minutes=1), old),
+                               (change, new), (end, new)):
+            ops_digest.sample_schedules(db, runner, moment)
+        ops_digest.record_coverage(db, f"{job}.service", change, end)
+        missing, lines = ops_digest.runs_lines(db, new, start, end, receipts)
+    assert len(missing) == 1 and "10-11 08:08Z" in missing[0]
+    table = "\n".join(lines)
+    assert table.count(f"| {job} |") == 1
+    assert "| 336 | 335 | 0 | 0 | 1 |" in table
+    assert "schedule unknown" in table  # transition interval is never backdated
+
+
+def test_missing_requires_coverage_of_entire_start_window(tmp_path):
+    begin = datetime(2026, 10, 14, tzinfo=UTC)
+    finish = begin + timedelta(days=1)
+    runner = _schedule_run(tmp_path)
+    with closing(ops_digest.open_db(tmp_path)) as db:
+        for moment in (begin, finish):
+            ops_digest.sample_schedules(db, runner, moment)
+        # The journal stops during the six-minute allowed pre-open start window.
+        ops_digest.record_coverage(db, "trading-engine-p15-preopen.service", begin,
+                                   begin + timedelta(hours=13, minutes=6))
+        missing, lines = ops_digest.runs_lines(db, runner, begin, finish)
+    assert missing == []
+    assert "| 1 | 0 | 0 | 0 | 0 | 1 |" in "\n".join(lines)
+
+
+def test_work_receipts_read_only_from_resolved_snapshot(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    published = tmp_path / "published.duckdb"
+    with duckdb.connect(str(published)) as con:
+        con.execute("CREATE TABLE p15_event_windows (observed_at TIMESTAMP, "
+                    "completed_at TIMESTAMP, status VARCHAR, reason VARCHAR)")
+        con.execute("INSERT INTO p15_event_windows VALUES ('2026-10-05 13:35:59', "
+                    "'2026-10-05 13:37:27', 'completed', NULL)")
+    before = published.read_bytes()
+    monkeypatch.setattr(ops_digest, "latest_snapshot", lambda database:
+                        SimpleNamespace(path=published))
+    receipts, gaps = ops_digest.work_receipts(tmp_path / "absent-primary.duckdb",
+                                             datetime(2026, 10, 3, tzinfo=UTC), NOW)
+    [row] = receipts["trading-engine-p15-events"]
+    assert row.start == datetime(2026, 10, 5, 13, 35, 59, tzinfo=UTC)
+    assert row.ok is None and row.seconds is None and row.label.endswith("exit unknown")
+    assert len(gaps) == 3 and before == published.read_bytes()
+    assert not (tmp_path / "absent-primary.duckdb").exists()
+
+
+def test_dated_observer_receipts_are_used_before_text_tail_coverage(tmp_path):
+    log = tmp_path / "hourly_market_watch_v5.jsonl"
+    log.write_text("\n".join(json.dumps({"observed_at": f"2026-10-0{day}T14:15:00+00:00",
+                    "completed_at": f"2026-10-0{day}T14:16:00+00:00", "unavailable_count": 1})
+                    for day in (5, 6)))
+    receipts, gaps = ops_digest.work_receipts(tmp_path / "absent.duckdb",
+                datetime(2026, 10, 3, tzinfo=UTC), NOW, tmp_path)
+    rows = receipts["trading-engine-hourly-opportunity"]
+    assert len(rows) == 2 and all(r.degraded and r.ok is None for r in rows)
+    assert "no published snapshot" in gaps[0]
+
+
+@pytest.mark.parametrize("line,level", [
+    ("fetch failed", "error"), ("push failed", "error"),
+    ("operator_digest failed (non-fatal)", "error"),
+    ("[agent-data-capture] status=failed failed_steps=price_observations", "error"),
+    ("fatal: could not read from remote repository", "error"),
+    ("rebase conflict: left for a session to resolve", "warn"),
+    ("ERROR: python interpreter missing — cannot start", "error"),
+    ("ERROR: relaunch did not come up", "error"),
+    ('{"status": "unavailable", "reason": "pre-open evidence is invalid"}', "warn"),
+    ('{"status": "late"}', "warn"),
+    ("[backfill] processed=20 with_data=19 failed=1", "warn"),
+    ('{"backfill": {"processed": 20, "failed": 1}}', "warn"),
+    ("[queue] job 1 (archive) refused: memory exceeds budget", "warn"),
+    ("[queue] disk watchdog: refusing archive job 1", "warn"),
+    ("[queue] resource guard tripped; leaving 2 jobs pending", "warn"),
+    ("[queue] drain budget exhausted; leaving 2 pending jobs", "warn"),
+    ("[queue] job 1 failed: bad params JSON", "error"),
+    ("active process holds .nightly.lock; backup not started", "warn"),
+    ("[backfill] processed=20 with_data=20 failed=0", None),
+    ("[queue] no pending jobs; nothing to do", None),
+    ("no open recurring sweep grids", None),
+    ("snapshot younger than 120 minutes; publication skipped", None),
+    ("skip: not on main", None), ("SKIP: another ensure_scraper is running", None),
+    ('{"status": "no_session"}', None),
+    ("already successfully backed up today", None)])
+def test_host_failure_and_fail_soft_messages(line, level):
+    assert ops_digest.classify(line) == level
+
+
+def test_structured_snapshot_throttle_is_a_valid_noop():
+    assert ops_digest.classify(json.dumps({"status": "skipped", "reason":
+        "latest snapshot is 55.1 minutes old; minimum age is 120 minutes"})) is None
+
+
+@pytest.mark.parametrize("code,kind", [(15, "killed"), (75, "exited")])
+def test_success_in_next_hour_preserves_actual_termination(tmp_path, code, kind):
+    unit = "sample.service"
+    with closing(ops_digest.open_db(tmp_path)) as db:
+        ops_digest.store_runs(db, [ops_digest.UnitRun(unit, "2026-10-10T02:01:00Z",
+                                                    exit_code=code, termination_kind=kind)])
+        [row] = ops_digest.store_runs(db, ops_digest.parse_journal(unit, _entry(
+            "2026-10-10T03:01:00Z", f"{unit}: Succeeded.", "systemd"),
+            ops_digest.SourceSignals()))
+    assert (row["exit_code"], row["termination_kind"], row["result"]) == (code, kind, "success")
+
+
+def test_host_sources_expand_home_globs_and_are_counted_once(tmp_path, monkeypatch):
+    host = tmp_path / "host"
+    state = host / ".local" / "state"
+    state.mkdir(parents=True)
+    log = state / "store-sync.log"
+    log.write_text("old history\n")
+    logs = tmp_path / "logs"
+    ops = logs / "ops"
+    ops.mkdir(parents=True)
+    (ops / "sources.txt").write_text("# existing sources\n$HOME/.local/state/*.log\n"
+                                     "~/.local/state/store-sync.log\n")
+    monkeypatch.setenv("HOME", str(host))
+    monkeypatch.setattr(ops_digest, "HOST_LOG_GLOBS", ("~/.local/state/*.log",))
+    assert ops_digest._log_sources(logs, ops) == [log]
+    _collect(tmp_path, {})
+    log.write_text("old history\nfetch failed\npush failed\n")
+    [hour] = _collect(tmp_path, {}, now=NOW + timedelta(hours=1))
+    assert hour["status"] == "WARN"
+    with closing(sqlite3.connect(ops / "ops.sqlite")) as db:
+        assert db.execute("SELECT SUM(errors) FROM log_counts").fetchone()[0] == 2
+
+
+def test_warning_only_hour_is_degraded_and_noops_stay_ok(tmp_path):
+    journal = {"sample.service": _entry("2026-10-10T02:10:00Z",
+                "[backfill] processed=20 with_data=19 failed=1")}
+    [hour] = _collect(tmp_path, journal)
+    assert hour["status"] == "WARN" and "1 warning line(s)" in hour["text"]
+    journal = {"sample.service": _entry("2026-10-10T03:10:00Z", "no open recurring sweep grids")}
+    [hour] = _collect(tmp_path, journal, now=NOW + timedelta(hours=1))
+    assert hour["status"] == "OK"
+
+
+def test_unavailable_preopen_receipt_degrades_successful_exit(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    published = tmp_path / "published.duckdb"
+    with duckdb.connect(str(published)) as con:
+        con.execute("CREATE TABLE p15_preopen_runs (started_at TIMESTAMP, "
+                    "completed_at TIMESTAMP, status VARCHAR, reason VARCHAR)")
+        con.execute("INSERT INTO p15_preopen_runs VALUES ('2026-10-10 02:30:05', "
+                    "'2026-10-10 02:31:00', 'unavailable', 'pre-open evidence is invalid')")
+    monkeypatch.setattr(ops_digest, "latest_snapshot", lambda database:
+                        SimpleNamespace(path=published))
+    unit = "trading-engine-p15-preopen.service"
+    [hour] = _collect(tmp_path, {unit: _journal(unit)})
+    report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW,
+                               run=_fake_run({unit: ""}))
+    assert hour["status"] == "WARN" and "0 failed run(s)" in hour["text"]
+    assert "Degraded work receipts" in hour["text"]
+    assert "[WARN] trading-engine-p15-preopen" in report
+    assert "| 1 | 0 | 1 | ? |" in report  # one run, lifecycle failure 0, degradation 1
 
 
 def test_footprint_counts_the_whole_store_directory(tmp_path):
@@ -422,3 +643,23 @@ def test_digest_timer_never_fires_with_another_timer():
         clashes = [(ours, theirs) for ours in digest for theirs in _start_windows(timer)
                    if _overlaps(ours, theirs)]
         assert not clashes, f"{DIGEST_TIMER} can fire with {timer.name}: {clashes[:3]}"
+
+
+def test_moved_sunday_history_slot_finishes_before_weekly_readers():
+    timer = ROOT / "server" / "trading-engine-tradingview-history.timer"
+    specs = [line.split("=", 1)[1] for line in timer.read_text().splitlines()
+             if line.startswith("OnCalendar=")]
+    matcher = ops_digest._any_of([ops_digest.calendar_matcher(s) for s in specs])
+    sunday = datetime(2026, 10, 18, tzinfo=UTC)
+    slots = ops_digest.expected_times(matcher, sunday, sunday + timedelta(days=1))
+    assert [s.hour for s in slots] == [1, 3, 11, 15, 19, 23]
+    saturday = sunday - timedelta(days=1)
+    assert [s.hour for s in ops_digest.expected_times(matcher, saturday, sunday)] == [
+        3, 7, 11, 15, 19, 23]
+    service = ROOT / "server" / "trading-engine-tradingview-history.service"
+    timeout = next(line.split("=", 1)[1] for line in service.read_text().splitlines()
+                   if line.startswith("TimeoutStartSec="))
+    delay = next(line.split("=", 1)[1] for line in timer.read_text().splitlines()
+                 if line.startswith("RandomizedDelaySec="))
+    latest_end = slots[0] + timedelta(seconds=_span(timeout) + _span(delay) + 60)
+    assert latest_end < sunday + timedelta(hours=6)

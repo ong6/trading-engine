@@ -3641,4 +3641,218 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; documentation and manual-harness lines only, budget ok.
 - **Next:** orchestrator acceptance of the runbook and Sunday execution-time gates.
 
+## 2026-10-17 — Reject impossible price observations before cache admission
+
+- **Why:** revision 15 admission gate, approved by the orchestrator; reproduction:
+  `db.upsert_prices` admitted O=10, H=9, L=8, C=8.5 on 2026-10-16 (one row).
+- **What:** preserve rejected observations and replacement predecessors; guard daily,
+  intraday and split restatement writes; withhold unverified basis changes.
+- **Evidence:** targeted pytest across admission, collection, actions, verifier and drivers:
+  251 passed under both UTC and Asia/Singapore; snapshot-copy cleanup moved 360, valid rows changed 0.
+- **Metrics:** server +8, tools unchanged, product +366.
+- **Next:** orchestrator integrates revision-15 source registrations; full-suite hash gates remain blocked.
+
+## 2026-10-17 — Refuse invalid money inputs and execution bars
+
+- **Why:** Revision 15 money-path goal; pre-fix synthetic settlement accepts cash infinity, stock cash NaN and infinite conversion shares; NaN orders are mislabeled insufficient cash. Full-suite replay also reproduces a pending partial-bar attempt preventing a trusted completion.
+- **What:** Validate order, settlement, dividend and fee numbers and overflow before money writes; share finite positive OHLCV and valid geometry across fills, marks and settlement evidence. Invalid execution bars wait with an audited reason; marks carry the last trusted close and date through stale exposure.
+  P15 recovery, deadline and terminal tests cover the requested branches; a pending partial bar can complete with its original attempt retained. Valid sizing and timing stay unchanged.
+- **Evidence:** Both full timezone suites: 5,093 passed / 92 stale-pin failures each; one snapshot-copy replay of 25 books over October 12–16: 112/125 book-days match within $0.005, all differences on invalid October 16 bars, copy deleted. Input, bar and P15 regressions pass.
+- **Metrics:** server +2, tools unchanged, product +229, tests +556; budget ok.
+- **Next:** integration orchestrator issues revision 15 and forward-runtime pins, then closes the full-suite gate; lane is blocked on that technical integration step.
+## 2026-10-17 — Reduce repeated intraday windows using completed coverage
+
+- **Why:** Orchestrator revision 15 M9, flow finding rank 1; post-v2 integration only.
+- **What:** Save successful per-session response counts in existing metadata after insertion.
+  Validate resident counts before grouped incremental windows; missing sessions, new names and
+  failed/partial requests use full retention windows. First captured values and dates stay exact.
+- **Evidence:** `python -m pytest tests/test_intraday.py -W error` → six passed, including full-path row equality with gaps, failed batches, new symbols and provider revisions.
+- **Metrics:** product +112; server/tools unchanged for this step.
+- **Next:** Finish the full offline corpus comparison and integration evidence.
+
+## 2026-10-17 — Aggregate held positions' latest real close
+
+- **Why:** Orchestrator revision 15 M9, flow finding rank 6.
+- **What:** Replace the per-ticker window sort with arg_max over the same date and real-bar filter.
+  Empty inputs, absent names, future rows and phantom/null sentinels retain the same results.
+- **Evidence:** `python -m pytest tests/test_position_read_models.py -W error` → all projection tests pass; seven snapshot pairs match 151 held symbols, median 457.1 → 437.2 ms.
+- **Metrics:** server -2; product/tools unchanged.
+- **Next:** Finish offline report and telemetry acceptance.
+
+## 2026-10-17 — Share recent history publications under an explicit age budget
+
+- **Why:** Orchestrator revision 15 M9, flow finding rank 3 near-term only.
+- **What:** History slices reuse authentic snapshots younger than 120 minutes at completion.
+  The original as_of stays visible; publication failure reaches the scheduler. The existing
+  schedule/timeout gives a conservative 16h20m between-slice history fallback bound.
+- **Evidence:** `python -m pytest tests/test_stage_timings.py tests/test_service_units.py -W error` → shell failure and age argument tests pass; fixture 9,187,328 → 0 published bytes, 386.0 → 0.42 ms.
+- **Metrics:** unchanged; shell lines are outside Python LOC.
+- **Next:** Integrate after v2; delta format remains design only in the lane deliverables.
+
+## 2026-10-17 — Defer offline rendering and measure movement in existing stage records
+
+- **Why:** Orchestrator revision 15 M9, flow findings ranks 2 and 8; post-v2 integration only.
+- **What:** Live league steps retain session reports; walk-forward/replay emit one final report per fold/window.
+  Existing stage records aggregate input/output rows and bytes plus measured writer hold and retry wait;
+  unknown fields remain null. Buffered deltas and shell aggregation avoid per-event file overhead.
+- **Evidence:** `python -m pytest tests/test_stage_timings.py tests/test_league_v2.py tests/test_result_provenance.py -W error` passes; nine paired telemetry trials measured +0.78% CPU, with no measured wall increase.
+- **Metrics:** product +14, tools +113 for this step; server unchanged.
+- **Next:** Complete all 18 books' registered corpus pairs, publish lane STATUS and stop.
+
+## 2026-10-17 — Preserve a latest null close in the aggregate projection
+
+- **Why:** Rank 6 sentinel acceptance reproduced plain arg_max skipping a latest null close while the old row-number path omitted the ticker.
+- **What:** Aggregate a struct containing close, then extract close, so a null latest value retains the old selection and omission behavior.
+- **Evidence:** `python -m pytest tests/test_position_read_models.py -W error` → 27 passed including latest-null-close equality against the old query.
+- **Metrics:** unchanged.
+- **Next:** Complete the full corpus comparison and lane STATUS.
+
+## 2026-10-17 — Use native null-preserving latest-close aggregation
+
+- **Why:** Rank 6 latest-null sentinel acceptance; native arg_max_null is equivalent to the preserving struct and avoids its allocation.
+- **What:** Select arg_max_null(close, date) with the same admitted-bar filter, preserving a latest null close and the old ticker omission.
+- **Evidence:** `python -m pytest tests/test_position_read_models.py -W error` → 27 passed; seven paired queries equal including absent/future/phantom/latest-null cases.
+- **Metrics:** unchanged.
+- **Next:** Complete the registered offline corpus acceptance and STATUS.
+
+## 2026-10-17 — Prove revision-15 flow equivalence on the full league corpus
+
+- **Why:** Orchestrator M9 acceptance: all 18 current books under the registered ten-fold walk-forward geometry.
+- **What:** Completed 180 old/new fold pairs on one shared disposable input with fresh sim state.
+  Every sim/portfolio row, fold statistic and final Markdown/CSV hash matched; deleted the sole store copy.
+  Coverage gap/new/failed/provider-revision fixtures preserve captured values and dates; live report default remains session-based.
+- **Evidence:** `python benchmark_corpus.py` via isolated acceptance harness → 180/180 exact pairs; 135,174 → 180 report calls and 2,326,328,369 → 6,121,846 report bytes. UTC/Singapore suites each 4,733 passed plus 81 expected integration pin failures.
+- **Metrics:** server -2, tools +113, product +126, tests +242; hygiene budget passes.
+- **Next:** Orchestrator integration after v2, with revision-15 re-pinning; no further lane work admitted.
+## 2026-10-17 — Preserve systemd termination and unknown starts in the ops digest
+
+- **Why:** Revision-15 ops rank 6; the baseline parser stores successful TERM as exit 15 without its termination kind, and a completion-only journal row gets an invented start and zero duration.
+- **What:** Carry the systemd termination kind through storage and rendering; systemd's final result decides failure.
+  Preserve unknown starts and durations, including when completion arrives in a later hour.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 19 passed, including successful TERM, failed TERM, exit 1 and accepted exit 75.
+- **Metrics:** server/product unchanged; tools +16 LOC.
+- **Next:** Delimit observed schedule and journal coverage and consume dated work receipts.
+
+## 2026-10-17 — Separate observed work from unknown schedule history
+
+- **Why:** Revision-15 ops rank 5; the cited 14-day report says 130 event windows are missing despite 260 dated receipts, applies today's :08 timer to old :05 runs, and counts history before journal retention as missed.
+- **What:** Delimit sampled installed schedules and readable source intervals; absence outside those intervals is unknown.
+  Read existing work receipts from one immutable published snapshot, keeping process exit unknown when only work is observed.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 23 passed; the 336-hour fixture retains one covered miss and no false historical misses.
+- **Metrics:** server/product unchanged; tools +157 LOC.
+- **Next:** Classify host failures and producer degradation, then move the Sunday history slot.
+
+## 2026-10-17 — Surface host failures and recorded producer degradation
+
+- **Why:** Revision-15 ops ranks 7/9; baseline classification returns nothing for fetch/push/non-fatal failure messages, unavailable pre-open JSON, failed backfill counts and queue refusals.
+- **What:** Recognize existing host messages and partial/deferred producer output; warning lines make the hour WARN.
+  Include existing host log sources, deduplicate configured paths, and project degraded dated receipts without changing producers.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 56 passed; warning-only hours and exit-zero unavailable receipts are WARN, benign no-ops stay OK.
+- **Metrics:** server/product unchanged; tools +77 LOC.
+- **Next:** Move the Sunday TradingView history slot and run both full timezone suites.
+
+## 2026-10-17 — Move the Sunday history slice ahead of weekly readers
+
+- **Why:** Revision-15 flow rank 5; October 11's 07:40 history enqueue collided with the 06:00 weekly readers, spent 895 seconds retrying and failed.
+- **What:** Move only Sunday's 07:40 slice to 01:40 in the existing timer; retain six Sunday slices.
+  Document observed digest coverage, source handling, degraded work and the moved invocation's 05:51 timeout boundary before weekly readers.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 57 passed, including timer collision windows and the moved slot's existing timeout/jitter bound.
+- **Metrics:** server/product unchanged; tools +1 LOC from source documentation.
+- **Next:** Run the full UTC and Asia/Singapore suites and deliver the revision-15 lane status.
+
+## 2026-10-17 — Record the revision-15 ops acceptance boundary
+
+- **Why:** Revision-15 ops validation requires both full timezone suites; the existing service-unit test pins the former Sunday calendar and is outside this lane's claim.
+- **What:** Finished the digest and timer fixtures and recorded the exact test-only correction needed from the orchestrator.
+  Corrected the local test-environment link; all other full-suite cases pass, with no registration/runtime-pin failures.
+- **Evidence:** `TZ=UTC python -m pytest -o addopts= -q -W error -n auto` → 4,847 passed, 1 failed; Asia/Singapore also 4,847 passed, with only the stale timer assertion at `tests/test_service_units.py:155` failing.
+- **Metrics:** server/product unchanged; tools +251 LOC, tests +241 LOC since the lane base; budget ok.
+- **Next:** Blocked until the orchestrator extends the claim for the existing timer assertion or supplies its correction.
+
+## 2026-10-17 — Align the existing timer test with Sunday's moved history slice
+
+- **Why:** The orchestrator extended the ops claim for the failing calendar assertions in the existing service-unit test; its old combined Saturday/Sunday line contradicts the requested Sunday move.
+- **What:** Assert the retained Saturday calendar, Sunday's 01:40 slice and absence of Sunday's old 07:40 calendar.
+  Every other service and runner assertion remains unchanged.
+- **Evidence:** `python -m pytest tests/test_service_units.py::test_tradingview_archive_timer_is_bounded_and_queue_owned tests/test_ops_digest.py -q -W error -n 0` → 58 passed.
+- **Metrics:** server/tools/product unchanged; tests +2 LOC.
+- **Next:** Run the full UTC and Asia/Singapore suites and finish the lane status.
+
+## 2026-10-17 — Complete revision-15 ops timezone validation
+
+- **Why:** The orchestrator authorized the timer-test correction and required both full suites before closing the lane.
+- **What:** Validated the final digest and Sunday calendar with the corrected existing assertions.
+  The prior blocker is resolved; no producer/runner assertion, registered source or runtime pin changed in this follow-up.
+- **Evidence:** `TZ=UTC python -m pytest -o addopts= -q -W error -n auto` → 4,848 passed in 625.47 seconds; Asia/Singapore → 4,848 passed in 645.94 seconds. Targeted digest/calendar tests: 58 passed.
+- **Metrics:** server/product unchanged; tools +251 LOC, tests +243 LOC since the lane base; budget ok.
+- **Next:** Nothing admitted; deliver the completed lane status for post-v2 integration.
+## 2026-10-17 — Explain retained-bar warnings and prospective board gates
+
+- **Why:** Board round 2's retained-bar probe reproduces inadmissible candidate bars
+  on 19 screen and 18 holding rows without warnings; the date conflicts with early REVIEW-KILL,
+  and the template checklist mixes supplemental context with scored criteria.
+- **What:** Screen rows now expose measured retained-bar quality, including rejected daily
+  originals. UI supports holding warnings; its producer wiring awaits cross-lane authorization.
+  Prospective cards separate statistical eligibility from early review; all eight criteria
+  are listed, with unrecorded SMA results explicit and supplemental context labeled unscored.
+- **Evidence:** `python acceptance-check.py` → 976 checks, zero failures in completed scope
+  at 1440/390; screen warnings 0 → 19, stored screen and position values unchanged.
+- **Metrics:** server +84, tools/product unchanged; budget ok.
+- **Next:** orchestrator authorizes the position read-model edit or assigns its wiring to its owner.
+
+## 2026-10-17 — Join measured retained-bar warnings into positions
+
+- **Why:** Board round 2 reproduces 18 held rows with invalid retained bars and zero
+  warnings; the orchestrator authorizes a separate quality-only join into positions.
+- **What:** Join the existing per-ticker retained-bar quality after assembling position
+  values; preserve the close query and all recorded position arithmetic.
+- **Evidence:** `python positions-acceptance.py` → 1,064 checks, zero failures at 1440/390;
+  all 18 affected holding rows warn while the 350 recorded position rows retain their values.
+- **Metrics:** server +15, tests +64, tools/product/UI unchanged; budget ok.
+- **Next:** nothing admitted.
+
+## 2026-10-18 — Integrate revision-15 admission and board evidence
+
+- **Why:** The orchestrator's revision-15 integration goal admits the six lanes and their consumer agreement; `tests/test_r15_integration.py` reproduces a valid duplicate/split predecessor counted as an invalid board date.
+- **What:** Merge the six accepted lanes in order, retaining each lane's tests and both BUILDLOG histories.
+  Admission and money share scalar geometry; execution additionally requires positive volume. Board closes use that money predicate and valid archive receipts do not warn.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error -n 0 tests/test_r15_integration.py` → 4 passed; 461 consumer cases and 135 forward cases pass.
+- **Metrics:** combined snapshot is published at closure.
+- **Next:** bind the committed source as registration revision 15 and advance changed forward contracts.
+
+## 2026-10-18 — Publish revision-15 deploy and registration checks
+
+- **Why:** The revision-15 integration goal requires literal post-v2 deployment and rollback; full-suite reproduction found three tests hard-coded to revision 14 although migration correctly reads deployed revision 15.
+- **What:** Keep the deployed-registration assertions on revision 15 and document a separate post-v2 backup, exact runtime migration, reviewed cleanup, history timer reinstall and revision-14 rollback.
+- **Evidence:** `tests/test_migrate_cost_profiles.py tests/test_p22_round3.py` → 15 passed; no migration code or retained break changed.
+- **Metrics:** combined snapshot is published at closure.
+- **Next:** rehearse the literal sequence on one snapshot copy, then complete the requested suite measurements.
+
+## 2026-10-18 — Record revision-15 rehearsal no-go
+
+- **Why:** The orchestrator's revision-15 integration goal requires the post-v2 snapshot rehearsal and a passing P15 gate after cleanup.
+- **What:** Integrated six lanes, bound source then registration once, and executed literal v2 deployment on the single copied snapshot.
+  Cleanup archived 355 originals from 327 tickers with zero valid rows changed. Revision-15 forward reviews and 12 board views pass; P15 refuses 108 labels after the invalid SPY October-16 bar leaves its price-derived calendar, and that day's sleeve replay also refuses.
+- **Evidence:** `server.agent_evaluation_reporting` after cleanup → exit 75, `common-entry label evidence differs`; first case label 2448, ACN decision 352, October 5–16 (nine retained SPY sessions versus ten registered). Full UTC three runs and Singapore: 5,370 passed each; median UTC 192.50s.
+- **Metrics:** server +112, tools +364, product +747 from baseline; budget passes.
+- **Next:** orchestrator resolves the P15 calendar/missing-SPY interaction and authorizes affected source scope; landing remains NO-GO.
+
+## 2026-10-18 — Apply the revision-15 P15 cleanup rulings
+
+- **Why:** Binding orchestrator follow-up to the reproduced cleanup blockers: 108 intact-hash labels lose October 16 from the SPY calendar, and that day's P15 sleeve raises `SPY sleeve price is unavailable`.
+- **What:** Session evidence is stored SPY dates union hard-invalid rejected SPY dates; basis holds count only on an XNYS session. Every P15 label/horizon path shares that observed calendar, without generated dates or stored-label rewrites.
+  Missing trusted P15 execution/sleeve bars wait with audited `untrusted_bar`; windows complete without repaired prices or promotion of another source. Cold UI readiness has a bounded wait covering the measured build.
+- **Evidence:** `tests/test_p15_cleanup_rulings.py` and the touched P15 suites → 309 passed; forward/integration suites → 139 passed. The real-store acceptance follows the single source binding.
+- **Metrics:** amendment server −17, tools −14, product +70; final snapshot budget passes.
+- **Next:** amend the undeployed revision-15 source, bind once, and finish full acceptance.
+
+## 2026-10-18 — Complete the amended revision-15 acceptance checks
+
+- **Why:** The binding orchestrator cleanup rulings require unchanged labels, audited waits, complete money replay and literal post-v2 deployment before landing.
+- **What:** The amended source and revision-15 binding preserve the exact revision-14 predecessor contracts. All 108 previously blocked labels validate and all four stored label tables remain unchanged.
+  Literal apply, P15 reporting, 3,862-name nightly fixture pass, history timer reinstall, forward reviews and 12 board views pass. Replay matches 152 of 165 book-days; all 13 October-16 differences name invalid held bars, including SPY in all three P15 books.
+- **Evidence:** Full UTC and Singapore suites → 5,376 passed each, no failures/errors/skips; UTC 172.45s, Singapore 155.38s. Money replay across 33 books and five dates uses the $0.005 tolerance without valid-data differences.
+- **Metrics:** amendment server −17, tools −14, product +70; hygiene budget passes.
+- **Next:** hand the exact landing SHA to the orchestrator after v2 verification; revision-14 rollback passed and all copied stores and isolated units were deleted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

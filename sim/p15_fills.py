@@ -8,6 +8,7 @@ from datetime import date
 import duckdb
 
 from . import execution, fills
+from .money_inputs import order_refusal
 
 
 @dataclass
@@ -30,6 +31,9 @@ def attempt_limit_on_open(
     """Attempt one buy at the modelled open without ever crossing ``limit_px``."""
     if side != "buy":
         raise ValueError("limit-on-open v1 supports buy orders only")
+    refusal = order_refusal(side, qty, sides=("buy",))
+    if refusal:
+        return LimitFillResult(status="rejected", reject_reason=refusal)
     if (
         isinstance(limit_px, bool)
         or not isinstance(limit_px, (int, float))

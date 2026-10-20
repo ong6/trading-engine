@@ -26,16 +26,33 @@ systemctl --user list-timers 'trading-engine-*'
 
 Start with the hourly operations digest, which has already collated these sources:
 `.venv/bin/python -m tools.ops_digest --report --hours 24` lists non-OK hours, failed, missing
-and slow runs (over 3× their 14-day median), every scheduled job's runs checked against the
-current timers and crontab, each driver run's stages, the loudest error signatures, log growth
+and slow runs (over 3× their 14-day median), every scheduled job's observed runs and dated work
+receipts, each driver run's stages, the loudest error signatures, log growth
 and unhealthy `/meta` sections. Each UTC hour's detail is in `logs/ops/hourly/<date>/<HH>.md` (newest copy:
 `logs/ops/latest.md`); metrics for SQL are in `logs/ops/ops.sqlite` (tables `hours`,
 `unit_runs`, `stage_runs`, `log_counts`, `signatures`, `probes`, `meta_status`, `footprint`).
 The `trading-engine-ops-digest.timer` collects at :08 UTC from the user journal, new lines of
 `logs/*.log`/`*.jsonl` (plus host-private globs listed one per line in `logs/ops/sources.txt`),
-`logs/stage-timings.jsonl` and the API. It never opens the DuckDB store itself, but its `/meta`
+`logs/stage-timings.jsonl` and the API. It reads dated P15/daily-opportunity receipts from one
+resolved immutable published snapshot with a read-only connection, plus the dated hourly and
+four-hour observer JSONL receipts. A receipt proves work exists; the process exit remains unknown
+unless the journal records it. It never opens the primary DuckDB store, but its `/meta`
 probe holds an API read connection that refuses writers, so it runs clear of every other
 timer's start minute. Digests are kept 30 days and metrics 180 days. A missing source shows as a collection gap, never a failure.
+
+The report counts due slots only between matching installed timer/crontab observations saved by
+the collector. Earlier schedules and intervals spanning a schedule change are unknown. A missing
+run additionally requires readable journal or stage coverage over its whole allowed start window;
+unknown history is never counted as missed. Existing metrics without coverage observations remain
+unknown. Successful systemd TERM and accepted exit 75 are clean stops; their termination kind and
+exit status remain visible. Completion-only journal rows keep an unknown start and duration.
+
+Partial backfill counts, unavailable/late pre-open receipts, queue refusals and resource deferrals
+make the digest WARN even when a wrapper exits zero. Host fetch/push/non-fatal child failures also
+make it WARN; process/stage failures make it FAIL. The default host sources include
+`~/.local/state/{te-autopush,store-sync}.log` and `~/news-scraper/logs/*.log`.
+`logs/ops/sources.txt` accepts extra globs with `~` or `$HOME`, or paths relative to `logs/ops/`;
+duplicate paths are read once. Text history before a file's first offset remains unknown.
 
 Read `GET /meta` before interpreting a log in isolation. It reconciles schedule, log, lock,
 database, report, queue, source-control, and evidence state. A missing or malformed
@@ -59,6 +76,14 @@ postflight. The production schedules are:
 | `run_weekend_sweeps.sh` | Saturday at 06:00 | `logs/sweeps-cron.log` | 24 hours |
 | `run_weekly_liquid.sh` | Sunday at 02:00 | `logs/liquid-cron.log` | 4 hours |
 | `run_weekly_walkforward.sh` | Sunday at 06:00 | `logs/walkforward-cron.log` | 18 hours |
+
+Revision 15 moves the Sunday TradingView history slice from 07:40 to 01:40 UTC in the existing
+timer, retaining six Sunday slices and all weekday/Saturday slots. With its existing ten-minute
+random delay, default one-minute accuracy and four-hour service timeout, that moved invocation
+ends by 05:51, before the 06:00 weekly readers. The old 07:40 slot collided with readers that
+ran until 08:47 on October 11. Other history slices and late persistent catch-up runs still depend
+on the existing queue/lock behavior; schedule avoidance does not change reader or writer ownership.
+Install this timer change only with the post-v2 revision-15 deployment.
 
 The exact five required user-crontab entries above are managed by
 `tools.install_automation`. The auxiliary crontab entry remains outside the five

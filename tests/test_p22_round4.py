@@ -86,7 +86,7 @@ def test_late_recovery_preserves_resume_anchor(h):
     h.create()
     h.history('LONG', 'buy', 100, 100)
     with h.con(h.daily) as con:
-        con.execute("UPDATE free_daily_bars SET c=20 WHERE ticker='LONG' AND date=?", [DAY])
+        con.execute("UPDATE free_daily_bars SET l=20,c=20 WHERE ticker='LONG' AND date=?", [DAY])
     assert h.night() == 0
     with h.con() as con:
         assert con.execute("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'").fetchone()[0] == 'halted'
