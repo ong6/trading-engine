@@ -23,7 +23,7 @@ def _run(monkeypatch, con, tmp_path, pairs, responses):
     monkeypatch.setattr(fundamentals, "_select_universe", lambda _con, _params: pairs)
     monkeypatch.setattr(fundamentals, "_fetch_info", lambda _ticker: next(remaining))
     monkeypatch.setattr(fundamentals, "PER_NAME_SLEEP", 0)
-    monkeypatch.setattr(fundamentals.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(fundamentals.rsc, "dir_size_gb", lambda _path, **_kwargs: 0.0)
     return fundamentals.run({}, con, meta_path=tmp_path / "meta.json")
 
 
@@ -156,7 +156,7 @@ def test_connection_narrowed_run_releases_db_during_fetch(monkeypatch, tmp_path)
 
     monkeypatch.setattr(fundamentals, "_fetch_info", fetch_while_reading)
     monkeypatch.setattr(fundamentals, "PER_NAME_SLEEP", 0)
-    monkeypatch.setattr(fundamentals.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(fundamentals.rsc, "dir_size_gb", lambda _path, **_kwargs: 0.0)
     result = fundamentals.run_connection_narrowed(
         {"tickers": ["AAA"]}, db_path=db_path, meta_path=tmp_path / "meta.json"
     )

@@ -118,7 +118,7 @@ def _run_fetch(monkeypatch, con, tmp_path, responses):
     )
     monkeypatch.setattr(actions, "_fetch_actions", lambda _ticker: next(remaining))
     monkeypatch.setattr(actions, "PER_NAME_SLEEP", 0)
-    monkeypatch.setattr(actions.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(actions.rsc, "dir_size_gb", lambda _path, **_kwargs: 0.0)
     return actions.run(
         {"mode": "backfill"}, con, meta_path=tmp_path / "meta.json"
     )
@@ -233,7 +233,7 @@ def test_connection_narrowed_run_releases_db_during_fetch(monkeypatch, tmp_path)
 
     monkeypatch.setattr(actions, "_fetch_actions", fetch_while_reading)
     monkeypatch.setattr(actions, "PER_NAME_SLEEP", 0)
-    monkeypatch.setattr(actions.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(actions.rsc, "dir_size_gb", lambda _path, **_kwargs: 0.0)
     result = actions.run_connection_narrowed(
         {"mode": "backfill", "tickers": ["AAA"]},
         db_path=db_path,
@@ -535,7 +535,7 @@ def _late_split_store(tmp_path, monkeypatch, *, recorded=True):
     assert collect.mode_incremental(db_path, force=True) == (1, 0 if recorded else 1)
     assert collect.mode_incremental(db_path, force=True) == (1, 0 if recorded else 1)
     monkeypatch.setattr(actions, "PER_NAME_SLEEP", 0)
-    monkeypatch.setattr(actions.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(actions.rsc, "dir_size_gb", lambda _path, **_kwargs: 0.0)
     return db_path
 
 

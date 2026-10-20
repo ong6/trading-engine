@@ -90,19 +90,47 @@ def free_ram_gb() -> float:
     return float("inf")  # unknown -> don't block
 
 
-def dir_size_gb(path: str | Path) -> float:
-    """Total on-disk size of a directory tree, in GiB."""
+# store/snapshots/ holds immutable read-only copies of the engine database. They
+# are bounded by their own retention (latest + N, tools/publish_snapshot.py), so
+# the §12.7 soft cap measures the live store without them and snapshots carry a
+# separate cap: room for the retained pair plus one in-flight publication.
+STORE_SOFT_GB = 60.0
+SNAPSHOTS_DIRNAME = "snapshots"
+SNAPSHOT_SOFT_GB = 35.0
+
+
+def dir_size_gb(path: str | Path, *, exclude: tuple[str, ...] = ()) -> float:
+    """Total on-disk size of a directory tree, in GiB.
+
+    ``exclude`` names top-level children of ``path`` that are left out. Symlinks
+    are not followed, so snapshots/market-latest does not count its target twice.
+    """
     path = Path(path)
     if not path.exists():
         return 0.0
     total = 0
-    for root, _dirs, files in os.walk(path):
+    for root, dirs, files in os.walk(path):
+        if root == str(path):
+            dirs[:] = [name for name in dirs if name not in exclude]
+            files = [name for name in files if name not in exclude]
         for name in files:
             try:
-                total += os.path.getsize(os.path.join(root, name))
+                info = os.lstat(os.path.join(root, name))
             except OSError:
                 continue
+            if not stat.S_ISLNK(info.st_mode):
+                total += info.st_size
     return total / (1024 ** 3)
+
+
+def live_store_gb(store_dir: str | Path) -> float:
+    """Size of store/ without its snapshots/ subtree, in GiB (the soft-cap figure)."""
+    return dir_size_gb(store_dir, exclude=(SNAPSHOTS_DIRNAME,))
+
+
+def snapshots_gb(store_dir: str | Path) -> float:
+    """Size of store/snapshots/, in GiB (measured against SNAPSHOT_SOFT_GB)."""
+    return dir_size_gb(Path(store_dir) / SNAPSHOTS_DIRNAME)
 
 
 def root_free_gb(path: str = "/") -> float:
@@ -185,17 +213,43 @@ def merge_meta(path: str | Path, updates: dict) -> None:
         write_text_atomic(path, json.dumps(meta, indent=2))
 
 
-def update_disk_warning(path: str | Path, store_gb: float, soft_gb: float = 60.0) -> None:
+def update_disk_warning(
+    path: str | Path,
+    store_gb: float,
+    soft_gb: float = STORE_SOFT_GB,
+    *,
+    snapshots_gb: float | None = None,
+    snapshot_soft_gb: float = SNAPSHOT_SOFT_GB,
+) -> None:
     """Set (or clear) the top-level disk_warning field per the §12.7 soft cap.
-    Merges so it never disturbs the intraday block or collect's health fields."""
+
+    ``store_gb`` is the live store without snapshots/ (``live_store_gb``). When
+    ``snapshots_gb`` is given, ``snapshot_disk_warning`` is set or cleared
+    against its own cap in the same merge. Merges so it never disturbs the
+    intraday block or collect's health fields."""
+    flagged_at = datetime.now(timezone.utc).isoformat()
+    updates: dict = {"disk_warning": None}
     if store_gb > soft_gb:
-        warning = {
+        updates["disk_warning"] = {
             "store_gb": round(store_gb, 2),
             "soft_cap_gb": soft_gb,
-            "flagged_at": datetime.now(timezone.utc).isoformat(),
-            "message": f"store/ is {store_gb:.1f} GiB, over the {soft_gb:.0f} GiB soft cap",
+            "flagged_at": flagged_at,
+            "message": (
+                f"store/ is {store_gb:.1f} GiB excluding {SNAPSHOTS_DIRNAME}/, "
+                f"over the {soft_gb:.0f} GiB soft cap"
+            ),
         }
-        merge_meta(path, {"disk_warning": warning})
-    else:
-        # below the soft cap -> clear any stale warning (merge preserves siblings)
-        merge_meta(path, {"disk_warning": None})
+    if snapshots_gb is not None:
+        updates["snapshot_disk_warning"] = None
+        if snapshots_gb > snapshot_soft_gb:
+            updates["snapshot_disk_warning"] = {
+                "snapshots_gb": round(snapshots_gb, 2),
+                "soft_cap_gb": snapshot_soft_gb,
+                "flagged_at": flagged_at,
+                "message": (
+                    f"store/{SNAPSHOTS_DIRNAME}/ is {snapshots_gb:.1f} GiB, over the "
+                    f"{snapshot_soft_gb:.0f} GiB snapshot cap"
+                ),
+            }
+    # below a cap -> clear any stale warning (merge preserves siblings)
+    merge_meta(path, updates)

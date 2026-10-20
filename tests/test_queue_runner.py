@@ -695,9 +695,9 @@ def sequential_kind(monkeypatch):
         "archive": False, "mem_mb": 10})
     monkeypatch.setattr(qr.rsc, "load_5min", lambda: 0.0)
     monkeypatch.setattr(qr.rsc, "free_ram_gb", lambda: 100.0)
-    monkeypatch.setattr(qr.rsc, "dir_size_gb", lambda _path: 0.0)
+    monkeypatch.setattr(qr.rsc, "dir_size_gb", lambda _path, **_kwargs: 0.0)
     monkeypatch.setattr(qr.rsc, "root_free_gb", lambda _path: 100.0)
-    monkeypatch.setattr(qr.rsc, "update_disk_warning", lambda *_args: None)
+    monkeypatch.setattr(qr.rsc, "update_disk_warning", lambda *_args, **_kwargs: None)
     return ran
 
 

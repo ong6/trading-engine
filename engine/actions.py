@@ -469,11 +469,11 @@ def _pull_pending(
         "total_splits": totals[0],
         "total_dividends": totals[1],
     }
-    store_gb = rsc.dir_size_gb(STORE_DIR)
+    store_gb = rsc.live_store_gb(STORE_DIR)
     accounting["last_run"] = datetime.now(timezone.utc).isoformat()
     accounting["store_gb"] = round(store_gb, 2)
     rsc.merge_meta(meta_path, {f"actions_{mode}": accounting})
-    rsc.update_disk_warning(meta_path, store_gb)
+    rsc.update_disk_warning(meta_path, store_gb, snapshots_gb=rsc.snapshots_gb(STORE_DIR))
     return accounting
 
 
@@ -1009,11 +1009,11 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
 
     if mode == "reconcile":
         acc = reconcile(con)
-        store_gb = rsc.dir_size_gb(STORE_DIR)
+        store_gb = rsc.live_store_gb(STORE_DIR)
         acc["last_run"] = datetime.now(timezone.utc).isoformat()
         acc["store_gb"] = round(store_gb, 2)
         rsc.merge_meta(meta_path, {f"actions_{mode}": acc})
-        rsc.update_disk_warning(meta_path, store_gb)
+        rsc.update_disk_warning(meta_path, store_gb, snapshots_gb=rsc.snapshots_gb(STORE_DIR))
     else:
         acc = collect(con, params, mode, meta_path=meta_path)
         if params.get("reconcile", False):
