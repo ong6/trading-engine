@@ -456,7 +456,7 @@ safety and operations), run on 2026-09-26. File references are as of that commit
 | R11 | `_p15_atr` (`engine/daily_opportunities.py` ~34) lacks the `REAL_BAR_SQL` filter and duplicates `atr_wilder` | Reuse `atr_wilder(..., period=14)` over real bars only |
 | R12 | One missing mature label anywhere marks the whole test `invalid` (`engine/p15_evaluation.py` ~311/329), including rows the test never uses | Count only rows the test uses, with a grace period after maturity |
 | R13 | Look results are recomputed every run | Persist each look's result the first time it is reached (append-only, hashed) so the verdict is tamper-evident |
-| R14 | The public report `data/reports/agent-evaluation.json` carries internal runtime strings ("internal edition" CLI identity), against the public-hygiene rule | Publish a runtime identity hash instead; keep the literal in the private database |
+| R14 | The public report `data/reports/agent-evaluation.json` carries internal runtime strings (the vendor CLI identity), against the public-hygiene rule | Publish a runtime identity hash instead; keep the literal in the private database |
 | R15 | The W8 rehearsal logged 17 model calls where 60 candidates in chunks of 10 with k = 3 means 18, and reported no unavailable count. `docs/how-it-works.md` (~1504) still says the P15 units are absent | Explain the count on the new dry-run and record `unavailable_count`; fix the doc |
 | R16 | The scoring prompt doesn't say that a negative `expected_excess_bp_5` exits a held name in the AI book | Add one sentence before the registration is issued again |
 

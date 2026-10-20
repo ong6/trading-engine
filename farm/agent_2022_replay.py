@@ -238,7 +238,7 @@ def _generate_decisions(con, config: dict, decision_file: Path) -> list[dict]:
                 "request_sha256": response.request_sha256, "usage": response.usage,
                 "proxy_version": response.proxy_version,
                 "proxy_source_sha256": response.proxy_source_sha256,
-                "traecli_runtime": response.traecli_runtime,
+                "traecli_runtime_sha256": canonical_sha256(response.traecli_runtime),
                 "upstream_model_family": response.upstream_model_family,
                 "upstream_request_id": response.upstream_request_id,
                 "model_catalog_entry_sha256": response.model_catalog_entry_sha256,

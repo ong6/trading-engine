@@ -533,7 +533,8 @@ def _rewritten_commit(commit: str) -> str:
     """Follow a cited commit ID through each recorded history rewrite (old -> new).
 
     The registration keeps the commit ID it was hashed with, so its registration_sha256
-    and the evidence keyed by it stay valid after a history rewrite.
+    and the evidence keyed by it stay valid after a history rewrite. Rewrite maps are
+    kept privately; with none in the tree the cited commit must resolve directly.
     """
     for commit_map in sorted((ROOT / "docs" / "history").glob("commit-map-*.txt")):
         for line in commit_map.read_text(encoding="utf-8").splitlines():
@@ -541,6 +542,13 @@ def _rewritten_commit(commit: str) -> str:
             if len(fields) == 2 and fields[0] == commit:
                 commit = fields[1]
                 break
+    resolves = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"], cwd=ROOT, capture_output=True,
+    ).returncode == 0
+    assert resolves, (
+        f"source_commit {commit} does not resolve directly and no docs/history/"
+        "commit-map-*.txt in this tree maps it"
+    )
     return commit
 
 
