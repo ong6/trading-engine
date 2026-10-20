@@ -25,6 +25,7 @@ from . import (
     miner_monitor,
     nightly_monitor,
     queue_monitor,
+    schedule_contract,
     scheduler_monitor,
     sector_forward_status,
     source_control,
@@ -64,6 +65,7 @@ PUBLIC_META_FIELDS = (
     "scheduler",
     "friday_postflight",
     "source_control",
+    "schedule_contract",
     "nightly",
     "weekly_verify",
     "weekly_sweeps",
@@ -220,6 +222,14 @@ def _host_status(data_dir: Path) -> dict:
             "source_control",
             source_control.status,
             source_control.invalid_status(),
+        ),
+        # Written hourly by the ops digest's read-only probe; /meta never probes the host.
+        "schedule_contract": _optional(
+            "schedule_contract",
+            lambda: schedule_contract.public_status(
+                data_dir.parent / "logs" / "ops" / "schedule-contract.json"
+            ),
+            schedule_contract.invalid_status(),
         ),
     }
 

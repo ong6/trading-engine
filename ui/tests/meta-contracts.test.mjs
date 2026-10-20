@@ -202,6 +202,15 @@ function validMeta() {
       behind: null,
       network_checked: false,
     },
+    schedule_contract: {
+      status: "violations",
+      checked_at: "2026-10-20T07:08:01+00:00",
+      age_minutes: 12,
+      stale_after_minutes: 150,
+      violation_count: 1,
+      violations: [{ rule: "foreign-holder", subject: "pid 4242" }],
+      truncated: false,
+    },
     nightly: {
       status: "ok",
       name: "run_daily",
@@ -1944,5 +1953,48 @@ test("queue projection accepts only explicit retained failure dispositions", () 
     assert.equal(isMetaProjection(payload), true);
     payload.queue.historical_failures[0].classification = "newer unrelated job succeeded";
     assert.equal(isMetaProjection(payload), false);
+  }
+});
+
+test("schedule contract section is bounded, path-free and status-consistent", () => {
+  const base = validMeta();
+  assert.equal(isMetaProjection(base), true);
+  const accepted = [
+    (value) => (value.schedule_contract = {
+      status: "absent", checked_at: null, age_minutes: null, stale_after_minutes: 150,
+      violation_count: 0, violations: [], truncated: false,
+    }),
+    (value) => Object.assign(value.schedule_contract, {
+      status: "ok", violation_count: 0, violations: [],
+    }),
+    (value) => Object.assign(value.schedule_contract, { status: "stale", age_minutes: 151 }),
+    (value) => Object.assign(value.schedule_contract, {
+      violation_count: 21,
+      violations: Array.from({ length: 20 }, () => ({ rule: "failed", subject: "x.service" })),
+      truncated: true,
+    }),
+  ];
+  for (const change of accepted) {
+    const value = clone(base);
+    change(value);
+    assert.equal(isMetaProjection(value), true, change.toString());
+  }
+  const rejected = [
+    (value) => delete value.schedule_contract,
+    (value) => (value.schedule_contract.status = "fine"),
+    (value) => (value.schedule_contract.status = "ok"),
+    (value) => (value.schedule_contract.age_minutes = 151),
+    (value) => (value.schedule_contract.violations[0].rule = "invented"),
+    (value) => (value.schedule_contract.violations[0].subject = "/srv/engine-lanes/store"),
+    (value) => (value.schedule_contract.violations[0].cmdline = "python -m engine.collect"),
+    (value) => (value.schedule_contract.violation_count = 2),
+    (value) => (value.schedule_contract.truncated = true),
+    (value) => (value.schedule_contract.checked_at = null),
+    (value) => (value.schedule_contract.internal = "not public"),
+  ];
+  for (const change of rejected) {
+    const value = clone(base);
+    change(value);
+    assert.equal(isMetaProjection(value), false, change.toString());
   }
 });

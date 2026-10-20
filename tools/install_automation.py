@@ -15,90 +15,14 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from engine.lib.settings import REPO_ROOT
-from server import scheduler_monitor
+from server import schedule_contract, scheduler_monitor
 
 BEGIN_MARKER = "# BEGIN trading-engine managed automation"
 END_MARKER = "# END trading-engine managed automation"
-UNIT_SOURCES = {
-    "trading-engine-api.service": Path("server/trading-engine-api.service"),
-    "trading-engine-ui.service": Path("ui/trading-engine-ui.service"),
-    "trading-engine-agent-shadow.service": Path(
-        "server/trading-engine-agent-shadow.service"
-    ),
-    "trading-engine-agent-shadow.timer": Path(
-        "server/trading-engine-agent-shadow.timer"
-    ),
-    "trading-engine-agent-data-capture.service": Path(
-        "server/trading-engine-agent-data-capture.service"
-    ),
-    "trading-engine-agent-data-capture.timer": Path(
-        "server/trading-engine-agent-data-capture.timer"
-    ),
-    "trading-engine-daily-opportunity.service": Path(
-        "server/trading-engine-daily-opportunity.service"
-    ),
-    "trading-engine-daily-opportunity.timer": Path(
-        "server/trading-engine-daily-opportunity.timer"
-    ),
-    "trading-engine-hourly-opportunity.service": Path(
-        "server/trading-engine-hourly-opportunity.service"
-    ),
-    "trading-engine-hourly-opportunity.timer": Path(
-        "server/trading-engine-hourly-opportunity.timer"
-    ),
-    "trading-engine-four-hour-opportunity.service": Path(
-        "server/trading-engine-four-hour-opportunity.service"
-    ),
-    "trading-engine-four-hour-opportunity.timer": Path(
-        "server/trading-engine-four-hour-opportunity.timer"
-    ),
-    "trading-engine-tradingview-history.service": Path(
-        "server/trading-engine-tradingview-history.service"
-    ),
-    "trading-engine-tradingview-history.timer": Path(
-        "server/trading-engine-tradingview-history.timer"
-    ),
-    "trading-engine-p15-scoring.service": Path(
-        "server/trading-engine-p15-scoring.service"
-    ),
-    "trading-engine-p15-scoring.timer": Path(
-        "server/trading-engine-p15-scoring.timer"
-    ),
-    "trading-engine-p15-preopen.service": Path(
-        "server/trading-engine-p15-preopen.service"
-    ),
-    "trading-engine-p15-preopen.timer": Path(
-        "server/trading-engine-p15-preopen.timer"
-    ),
-    "trading-engine-p15-events.service": Path(
-        "server/trading-engine-p15-events.service"
-    ),
-    "trading-engine-p15-events.timer": Path(
-        "server/trading-engine-p15-events.timer"
-    ),
-    "trading-engine-ops-digest.service": Path(
-        "server/trading-engine-ops-digest.service"
-    ),
-    "trading-engine-ops-digest.timer": Path(
-        "server/trading-engine-ops-digest.timer"
-    ),
-    "trading-engine-p16-challengers.service": Path(
-        "server/trading-engine-p16-challengers.service"
-    ),
-    "trading-engine-p16-challengers.timer": Path(
-        "server/trading-engine-p16-challengers.timer"
-    ),
-    "massive-options-daily.service": Path("server/massive-options-daily.service"),
-    "massive-options-daily.timer": Path("server/massive-options-daily.timer"),
-    "trading-engine-accounts-settle.service": Path(
-        "server/trading-engine-accounts-settle.service"
-    ),
-    "trading-engine-accounts-settle.timer": Path(
-        "server/trading-engine-accounts-settle.timer"
-    ),
-}
-# Enabled, started and verified by --apply. A held unit is installed but its
-# enablement is left alone; see scheduler_monitor.HELD_UNITS for each blocker.
+# Every repository unit in server/schedule-contract.json, enabled or not. Enabled
+# timers and boot services are enabled, started and verified by --apply; a held unit
+# is installed but its enablement is left alone (its manifest reason names the blocker).
+UNIT_SOURCES = schedule_contract.unit_sources()
 AUTOSTART_UNITS = scheduler_monitor.AUTOSTART_UNITS
 HELD_UNITS = scheduler_monitor.HELD_UNITS
 # A failed old unit or a stale backup must not make an install fail; cron and unit

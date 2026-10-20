@@ -17,12 +17,19 @@ from engine.lib import db as engine_db
 from tools import ops_digest
 
 NOW = datetime(2026, 10, 10, 3, 5, tzinfo=UTC)
+REAL_CONTRACT_PROBE = ops_digest.contract_probe
+
+
+CONTRACT_OK = {"status": "ok", "checked_at": "2026-10-10T03:05:00+00:00",
+               "modes": ["static", "live"], "violations": [], "exceptions": [], "errors": [],
+               "counts": {}}
 
 
 @pytest.fixture(autouse=True)
 def _no_host_units(tmp_path, monkeypatch):
     monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", tmp_path / "no-units")
     monkeypatch.setattr(ops_digest, "HOST_LOG_GLOBS", ())
+    monkeypatch.setattr(ops_digest, "contract_probe", lambda _now: CONTRACT_OK)
 
 
 def _entry(stamp: str, message: str, ident: str = "python") -> str:
@@ -698,3 +705,30 @@ def test_moved_sunday_history_slot_finishes_before_weekly_readers():
                  if line.startswith("RandomizedDelaySec="))
     latest_end = slots[0] + timedelta(seconds=_span(timeout) + _span(delay) + 60)
     assert latest_end < sunday + timedelta(hours=6)
+
+
+def test_schedule_contract_violation_is_published_and_warns(tmp_path, monkeypatch):
+    holder = {"rule": "foreign-holder", "subject": "pid 4242",
+              "detail": {"pid": 4242, "database": "store/market.duckdb", "mode": "write",
+                         "cmdline": "uv run pytest", "cgroup": "0::/user.slice/session-c9.scope"}}
+    monkeypatch.setattr(ops_digest, "contract_probe", lambda now: {
+        **CONTRACT_OK, "status": "violations", "violations": [holder]})
+
+    [hour] = _collect(tmp_path, {})
+
+    assert hour["status"] == "WARN"
+    assert "## Schedule contract" in hour["text"]
+    assert "- foreign-holder: pid 4242 (pid 4242, database store/market.duckdb" in hour["text"]
+    written = json.loads((tmp_path / "logs" / "ops" / "schedule-contract.json").read_text())
+    assert written["violations"] == [holder]
+
+
+def test_schedule_contract_probe_crash_is_a_collection_gap(tmp_path, monkeypatch):
+    monkeypatch.setattr(ops_digest.schedule_contract, "check",
+                        lambda **_: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(ops_digest, "contract_probe", REAL_CONTRACT_PROBE)
+
+    [hour] = _collect(tmp_path, {})
+
+    assert hour["status"] == "WARN"
+    assert "schedule contract probe: probe crashed: RuntimeError" in hour["text"]
