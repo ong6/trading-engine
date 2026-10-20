@@ -53,8 +53,8 @@ def test_context_is_bounded_reproducible_and_has_no_execution_authority(con):
     assert first["decision_model"]["model_catalog_entry_sha256"] == (
         agent_model_client.MODEL_CATALOG_ENTRY_SHA256
     )
-    assert first["decision_model"]["required_traecli_runtime"] == (
-        agent_model_client.REQUIRED_TRAECLI_RUNTIME
+    assert first["decision_model"]["reviewed_traecli_runtime_sha256"] == list(
+        agent_model_client.REVIEWED_TRAECLI_RUNTIME_SHA256
     )
     assert first["decision_model"]["tools"] == "none"
     assert first["decision_model"]["execution_authority"] == "none"

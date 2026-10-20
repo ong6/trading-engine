@@ -377,10 +377,10 @@ def project(
         model_status = agent_model_client.status()
         model_transport_healthy = True
         model_transport_error = None
-    except agent_model_client.ConnectorError:
+    except agent_model_client.ConnectorError as exc:
         model_status = agent_model_client.identity()
         model_transport_healthy = False
-        model_transport_error = "unavailable"
+        model_transport_error = exc.reason
     arms = manifest["arms"]
     bound_arm_count = sum(
         all(value is not None for value in arm["implementation_binding"].values()) for arm in arms

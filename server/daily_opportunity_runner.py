@@ -237,7 +237,7 @@ def _validate_connector_identity(
         or response.model_version != identity["model_version"]
         or response.proxy_version != identity["required_proxy_version"]
         or response.proxy_source_sha256 != identity["required_proxy_source_sha256"]
-        or response.traecli_runtime != identity["required_traecli_runtime"]
+        or not agent_model_client.traecli_runtime_matches(identity, response.traecli_runtime)
         or response.upstream_model_family != agent_model_client.UPSTREAM_MODEL_FAMILY
         or response.model_catalog_entry_sha256 != identity["model_catalog_entry_sha256"]
     ):

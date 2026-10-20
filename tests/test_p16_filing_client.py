@@ -41,7 +41,7 @@ class _Connection:
 def _health():
     return {"ok": True, "proxy_version": base.REQUIRED_PROXY_VERSION,
             "proxy_source_sha256": base.REQUIRED_PROXY_SOURCE_SHA256,
-            "traex": base.REQUIRED_TRAECLI_RUNTIME,
+            "traex": "traecli 0.210.1",
             "token": {"present": True}}
 
 

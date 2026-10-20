@@ -111,11 +111,11 @@
   "legacy_bindings": {
     "agent_policy_registry_sha256": "77575d69f1e3e3cd40c086c21f99554ed1708b373ceb0b92548131d5f6a6ccf4",
     "algorithm_strategy_config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
-    "proposal_model_identity_sha256": "98deaaa204cc64ab8486af5b9962549af47f9fc7b92540f9230bff51a1c31411",
-    "veto_model_identity_sha256": "8c556e0df1ba81796107f27b7d67d2e26a0c79ca4b5a97bbb32ba89127378393"
+    "proposal_model_identity_sha256": "538348a02df68827a68fc7b07762e15f6710339e65b25086c3be308d20b51595",
+    "veto_model_identity_sha256": "d282dfafdc3064afe58a8567c51219dbbe30e35f7a1269d17eb0120ddf42cd8d"
   },
   "live_trading": "disabled",
-  "manifest_sha256": "99ba4b00353f0b1a794f5f832ce2b860bf47ee1fcf32050459138ab61974ea82",
+  "manifest_sha256": "d690a3c0516d70156ac394309c8df4b53ad6dfb16b5e97f637008ad04b322f34",
   "registration_status": "preregistered_inactive",
   "runtime_evidence": {
     "backup_restore_rehearsal_sha256": null,

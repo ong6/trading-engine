@@ -243,7 +243,7 @@ def _validate_identity(result: agent_model_client.ConnectorResult) -> None:
         or result.model_version != identity["model_version"]
         or result.proxy_version != identity["required_proxy_version"]
         or result.proxy_source_sha256 != identity["required_proxy_source_sha256"]
-        or result.traecli_runtime != identity["required_traecli_runtime"]
+        or not agent_model_client.traecli_runtime_matches(identity, result.traecli_runtime)
         or result.upstream_model_family != agent_model_client.UPSTREAM_MODEL_FAMILY
         or result.model_catalog_entry_sha256 != identity["model_catalog_entry_sha256"]
     ):
@@ -327,7 +327,9 @@ def _trace(
         "toolset_sha256": identity["toolset_sha256"],
         "model_catalog_entry_sha256": identity["model_catalog_entry_sha256"],
         "proxy_source_sha256": identity["required_proxy_source_sha256"],
-        "traecli_runtime": identity["required_traecli_runtime"],
+        "traecli_runtime": agent_model_client.summarize_traecli_runtime(
+            item.get("traecli_runtime") for item in samples if item.get("status") == "completed"
+        ),
         "upstream_model_family": agent_model_client.UPSTREAM_MODEL_FAMILY,
         "upstream_request_id": f"aggregate-{digest[:32]}",
         "latency_ms": max(0.0, (completed_at - started_at).total_seconds() * 1000),

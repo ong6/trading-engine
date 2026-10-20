@@ -23,7 +23,7 @@ def _result(output, payload):
         output=output, response_id="preopen-response", model=agent_model_client.MODEL,
         model_version=agent_model_client.MODEL_VERSION, proxy_version="0.7",
         proxy_source_sha256=agent_model_client.REQUIRED_PROXY_SOURCE_SHA256,
-        traecli_runtime=agent_model_client.REQUIRED_TRAECLI_RUNTIME,
+        traecli_runtime="traecli 0.210.1",
         upstream_model_family=agent_model_client.UPSTREAM_MODEL_FAMILY,
         upstream_request_id="preopen-upstream",
         model_catalog_entry_sha256=agent_model_client.MODEL_CATALOG_ENTRY_SHA256,

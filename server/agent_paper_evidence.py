@@ -156,7 +156,9 @@ def _verify_model_response(
             and response["proxy_source_sha256"]
             != context["decision_model"]["required_proxy_source_sha256"]
         )
-        or response["traecli_runtime"] != context["decision_model"]["required_traecli_runtime"]
+        or not agent_model_client.traecli_runtime_matches(
+            context["decision_model"], response["traecli_runtime"]
+        )
         or response["model_catalog_entry_sha256"]
         != context["decision_model"]["model_catalog_entry_sha256"]
         or (
@@ -303,12 +305,7 @@ def _attempt(
         or stored["required_proxy_version"] != model["required_proxy_version"]
         or stored["execution_authority"] != "none"
         or policy != expected_policy
-        or model
-        != (
-            agent_model_client.legacy_identity(role=role)
-            if model.get("schema_version") == 2
-            else agent_model_client.identity(role=role)
-        )
+        or not agent_model_client.accepted_identity(model, role=role)
         or model_input != expected_input
         or model_request != expected_request
         or stored["request_sha256"] != canonical_sha256(model_request)

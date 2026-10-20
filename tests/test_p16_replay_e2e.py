@@ -186,7 +186,7 @@ def _model_result(payload: dict, role: str):
         model=identity["model"], model_version=identity["model_version"],
         proxy_version=identity["required_proxy_version"],
         proxy_source_sha256=identity["required_proxy_source_sha256"],
-        traecli_runtime=identity["required_traecli_runtime"],
+        traecli_runtime="traecli 0.210.1",
         upstream_model_family=agent_model_client.UPSTREAM_MODEL_FAMILY,
         upstream_request_id=f"fixture-{role}-{payload.get('sample_index', 0)}",
         model_catalog_entry_sha256=identity["model_catalog_entry_sha256"],

@@ -301,7 +301,9 @@ def _model_gate(context: dict | None, context_error: str | None) -> dict:
             "model_catalog_entry_sha256": identity[
                 "model_catalog_entry_sha256"
             ],
-            "required_traecli_runtime": identity["required_traecli_runtime"],
+            "reviewed_traecli_runtime_sha256": list(
+                agent_model_client.reviewed_traecli_runtime_sha256(identity)
+            ),
             "stable_revision": stable,
             "tools": identity["tools"],
             "execution_authority": identity["execution_authority"],

@@ -9,6 +9,10 @@ import pytest
 from engine.lib.provenance import canonical_sha256
 from server import agent_model_client
 
+REVIEWED_RUNTIME = "traecli 0.210.1"
+ROLES = ("proposal", "veto", "opportunity", "p15_scoring", "p15_preopen", "p15_event",
+         "trade_tool", "historical_replay")
+
 
 class Response:
     def __init__(
@@ -83,7 +87,7 @@ def health():
         "ok": True,
         "proxy_version": "0.7",
         "proxy_source_sha256": agent_model_client.REQUIRED_PROXY_SOURCE_SHA256,
-        "traex": "traecli 0.205.1(internal edition)",
+        "traex": REVIEWED_RUNTIME,
         "token": {"present": True, "user": "secret-not-public"},
         "upstream": "secret-not-public",
     }
@@ -151,7 +155,7 @@ def test_status_uses_only_loopback_allowlisted_routes_and_sanitizes_health():
     result = agent_model_client.status(connection_factory=factory)
 
     assert result == {
-        "schema_version": 3,
+        "schema_version": 4,
         "transport": "trae_cli_proxy",
         "endpoint": "http://127.0.0.1:8317/v1/responses",
         "api": "openai_responses",
@@ -163,10 +167,12 @@ def test_status_uses_only_loopback_allowlisted_routes_and_sanitizes_health():
         "model_catalog_entry_sha256": (agent_model_client.MODEL_CATALOG_ENTRY_SHA256),
         "required_proxy_version": "0.7",
         "required_proxy_source_sha256": agent_model_client.REQUIRED_PROXY_SOURCE_SHA256,
-        "required_traecli_runtime": "traecli 0.205.1(internal edition)",
+        "reviewed_traecli_runtime_sha256": list(
+            agent_model_client.REVIEWED_TRAECLI_RUNTIME_SHA256
+        ),
         "proxy_version": "0.7",
         "proxy_source_sha256": agent_model_client.REQUIRED_PROXY_SOURCE_SHA256,
-        "traecli_runtime": "traecli 0.205.1(internal edition)",
+        "traecli_runtime": REVIEWED_RUNTIME,
         "observed_model_catalog_entry_sha256": (agent_model_client.MODEL_CATALOG_ENTRY_SHA256),
         "instructions_sha256": canonical_sha256(agent_model_client.INSTRUCTIONS),
         "toolset_sha256": canonical_sha256([]),
@@ -204,7 +210,7 @@ def test_generate_json_uses_no_tools_and_returns_strict_object():
     assert result.proxy_source_sha256 == agent_model_client.REQUIRED_PROXY_SOURCE_SHA256
     assert result.upstream_model_family == agent_model_client.UPSTREAM_MODEL_FAMILY
     assert result.upstream_request_id == "upstream-123"
-    assert result.traecli_runtime == agent_model_client.REQUIRED_TRAECLI_RUNTIME
+    assert result.traecli_runtime == REVIEWED_RUNTIME
     assert result.model_catalog_entry_sha256 == agent_model_client.MODEL_CATALOG_ENTRY_SHA256
     assert result.usage == {
         "input_tokens": 10,
@@ -422,7 +428,8 @@ def test_generation_requires_bounded_upstream_identity(provider_metadata, detail
     [
         ([Response({**health(), "ok": False})], "health check"),
         ([Response({**health(), "proxy_version": "0.5"})], "version"),
-        ([Response({**health(), "traex": "traecli 0.205.0"})], "runtime version"),
+        ([Response({**health(), "traex": "traecli 0.205.0"})], "runtime version is not reviewed"),
+        ([Response({**health(), "traex": None})], "runtime version is not reviewed"),
         ([Response(health()), Response(models("another-model"))], "model is unavailable"),
         (
             [
@@ -527,3 +534,145 @@ def test_generate_rejects_oversized_or_nonfinite_input_without_network():
             {"value": "x" * agent_model_client.MAX_INPUT_BYTES},
             connection_factory=no_network,
         )
+
+
+def test_reviewed_runtime_allowlist_pins_current_build_by_hash():
+    assert set(agent_model_client.REVIEWED_TRAECLI_RUNTIMES) == {"0.205.1", "0.210.1"}
+    assert agent_model_client.REVIEWED_TRAECLI_RUNTIMES["0.210.1"] == canonical_sha256(
+        REVIEWED_RUNTIME
+    )
+    assert agent_model_client.REVIEWED_TRAECLI_RUNTIME_SHA256 == tuple(
+        sorted(agent_model_client.REVIEWED_TRAECLI_RUNTIMES.values())
+    )
+    for role in ROLES:
+        current = agent_model_client.identity(role=role)
+        assert current["schema_version"] == 4
+        assert "required_traecli_runtime" not in current
+        assert current["reviewed_traecli_runtime_sha256"] == list(
+            agent_model_client.REVIEWED_TRAECLI_RUNTIME_SHA256
+        )
+        assert agent_model_client.traecli_runtime_matches(current, REVIEWED_RUNTIME)
+        for rejected in ("traecli 0.210.2", REVIEWED_RUNTIME + " ", "", None, 0.2101,
+                         "x" * 129):
+            assert not agent_model_client.traecli_runtime_matches(current, rejected)
+
+
+def test_status_accepts_any_reviewed_runtime_and_rejects_others(monkeypatch):
+    other = "traecli 0.299.9"
+    factory, _observed, _connections, _timeouts = factory_for([
+        Response({**health(), "traex": other}),
+    ])
+    with pytest.raises(agent_model_client.TransportIdentityError):
+        agent_model_client.status(connection_factory=factory)
+
+    monkeypatch.setattr(agent_model_client, "REVIEWED_TRAECLI_RUNTIME_SHA256", (
+        *agent_model_client.REVIEWED_TRAECLI_RUNTIME_SHA256, canonical_sha256(other),
+    ))
+    factory, _observed, _connections, _timeouts = factory_for([
+        Response({**health(), "traex": other}), Response(models(agent_model_client.MODEL)),
+    ])
+    assert agent_model_client.status(connection_factory=factory)["traecli_runtime"] == other
+
+
+@pytest.mark.parametrize(
+    "responses",
+    [
+        [Response({**health(), "traex": "traecli 0.205.0"})],
+        [Response({**health(), "proxy_version": "0.5"})],
+        [Response({**health(), "proxy_source_sha256": "0" * 64})],
+        [Response(health()), Response({"object": "list", "data": [{
+            **agent_model_client.EXPECTED_MODEL_CATALOG_ENTRY, "description": "drifted",
+        }]})],
+    ],
+)
+def test_identity_mismatch_records_a_distinct_reason(responses):
+    factory, _observed, _connections, _timeouts = factory_for(responses)
+
+    with pytest.raises(agent_model_client.TransportIdentityError) as error:
+        agent_model_client.status(connection_factory=factory)
+
+    assert error.value.reason == "transport_identity_mismatch"
+    assert str(error.value).startswith("transport_identity_mismatch: ")
+
+
+def test_transport_failure_keeps_the_unavailable_reason():
+    def refused(*_args):
+        class Refused:
+            def request(self, *_args, **_kwargs):
+                raise ConnectionRefusedError
+
+            def close(self):
+                pass
+
+        return Refused()
+
+    with pytest.raises(agent_model_client.ConnectorError) as error:
+        agent_model_client.status(connection_factory=refused)
+
+    assert not isinstance(error.value, agent_model_client.TransportIdentityError)
+    assert error.value.reason == "unavailable"
+    assert "transport_identity_mismatch" not in str(error.value)
+
+
+def test_runtime_change_between_reviewed_builds_during_generation_is_a_mismatch(monkeypatch):
+    other = "traecli 0.299.9"
+    monkeypatch.setattr(agent_model_client, "REVIEWED_TRAECLI_RUNTIME_SHA256", (
+        *agent_model_client.REVIEWED_TRAECLI_RUNTIME_SHA256, canonical_sha256(other),
+    ))
+    factory, _observed, _connections, _timeouts = factory_for([
+        Response(health()), Response(models(agent_model_client.MODEL)),
+        Response(response({"decision": "no_action"})),
+        Response({**health(), "traex": other}), Response(models(agent_model_client.MODEL)),
+    ])
+
+    with pytest.raises(agent_model_client.TransportIdentityError, match="changed during"):
+        agent_model_client.generate_json({}, connection_factory=factory)
+
+
+def test_retained_identities_are_accepted_by_hash_only(monkeypatch):
+    for table in (agent_model_client.RETAINED_SCHEMA_2_IDENTITY_SHA256,
+                  agent_model_client.RETAINED_SCHEMA_3_IDENTITY_SHA256):
+        assert set(table) == set(ROLES)
+    retained = {**agent_model_client.identity(role="veto"), "schema_version": 3}
+    retained.pop("reviewed_traecli_runtime_sha256")
+    retained["required_traecli_runtime"] = "traecli 0.1.0"
+    assert not agent_model_client.accepted_identity(retained, role="veto")
+    monkeypatch.setitem(
+        agent_model_client.RETAINED_SCHEMA_3_IDENTITY_SHA256, "veto", canonical_sha256(retained)
+    )
+    assert agent_model_client.accepted_identity(retained, role="veto")
+    assert not agent_model_client.accepted_identity(retained, role="proposal")
+    assert not agent_model_client.accepted_identity(
+        {**retained, "required_traecli_runtime": "traecli 0.1.1"}, role="veto"
+    )
+    for role in ROLES:
+        current = agent_model_client.identity(role=role)
+        assert agent_model_client.accepted_identity(current, role=role)
+        assert not agent_model_client.accepted_identity({**current, "model": "other"}, role=role)
+        for schema in (2, 3, [3], True):
+            assert not agent_model_client.accepted_identity(
+                {**current, "schema_version": schema}, role=role
+            )
+    assert not agent_model_client.accepted_identity(None, role="proposal")
+    assert not agent_model_client.accepted_identity(
+        agent_model_client.identity(role="veto"), role="proposal"
+    )
+
+
+def test_retained_single_runtime_identity_matches_only_its_runtime():
+    retained = {"schema_version": 3, "required_traecli_runtime": "traecli 0.1.0"}
+
+    assert agent_model_client.reviewed_traecli_runtime_sha256(retained) == (
+        canonical_sha256("traecli 0.1.0"),
+    )
+    assert agent_model_client.traecli_runtime_matches(retained, "traecli 0.1.0")
+    assert not agent_model_client.traecli_runtime_matches(retained, REVIEWED_RUNTIME)
+    assert agent_model_client.reviewed_traecli_runtime_sha256({}) == ()
+
+
+def test_aggregate_runtime_label_is_deterministic():
+    summarize = agent_model_client.summarize_traecli_runtime
+    assert summarize([REVIEWED_RUNTIME, REVIEWED_RUNTIME, None]) == REVIEWED_RUNTIME
+    assert summarize([]) == "unobserved"
+    mixed = summarize(["b", "a", "b"])
+    assert mixed == summarize(["a", "b"]) == f"mixed:{canonical_sha256(['a', 'b'])}"

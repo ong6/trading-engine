@@ -100,7 +100,7 @@ def identity() -> dict:
         "model_catalog_entry_sha256": base.MODEL_CATALOG_ENTRY_SHA256,
         "required_proxy_version": base.REQUIRED_PROXY_VERSION,
         "required_proxy_source_sha256": base.REQUIRED_PROXY_SOURCE_SHA256,
-        "required_traecli_runtime": base.REQUIRED_TRAECLI_RUNTIME,
+        "reviewed_traecli_runtime_sha256": list(base.REVIEWED_TRAECLI_RUNTIME_SHA256),
         "toolset_sha256": canonical_sha256([]),
         "tools": "none",
         "execution_authority": "none",
