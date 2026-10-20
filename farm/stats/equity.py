@@ -62,12 +62,13 @@ def bil_daily_returns(con, start: date, end: date) -> dict[date, float]:
     return out
 
 
-def _sharpe(r: np.ndarray) -> float:
+def _sharpe(r: np.ndarray) -> float | None:
+    """Annualized Sharpe; None (not NaN) when undefined, so JSON stays strict."""
     if len(r) < 2:
-        return float("nan")
+        return None
     sd = float(r.std(ddof=1))
     if sd <= 0:
-        return float("nan")
+        return None
     return float(r.mean()) / sd * math.sqrt(TRADING_DAYS)
 
 
@@ -79,14 +80,14 @@ def max_drawdown(equity: np.ndarray) -> float:
     return float((equity / peak - 1.0).min())
 
 
-def worst_month(dates: list[date], equity: np.ndarray) -> float:
-    """Worst calendar-month return of the month-end equity series."""
+def worst_month(dates: list[date], equity: np.ndarray) -> float | None:
+    """Worst calendar-month return of the month-end equity series (None if < 2 months)."""
     month_end: dict[tuple[int, int], float] = {}
     for d, e in zip(dates, equity, strict=True):
         month_end[(d.year, d.month)] = float(e)
     keys = sorted(month_end)
     if len(keys) < 2:
-        return float("nan")
+        return None
     rets = [month_end[keys[i]] / month_end[keys[i - 1]] - 1.0
             for i in range(1, len(keys))]
     return float(min(rets))

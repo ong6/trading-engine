@@ -7,6 +7,13 @@ from farm.walkforward import report
 from farm.walkforward.controls import declaration
 
 
+@pytest.fixture(autouse=True)
+def _any_identity(monkeypatch):
+    """These cases test cohort selection among results of one code identity;
+    the current-code filter is covered in test_walkforward_replay_regression."""
+    monkeypatch.setattr(report, "current_identity", lambda: {})
+
+
 def _fold(total):
     return {
         "status": "ok",
@@ -176,7 +183,8 @@ def test_report_labels_retained_result_as_retired(tmp_path):
                    "folds": [fold],
                    "summary": {"n_folds_ok": 1, "validate_win_rate": 1.0,
                                "mean_validate_total": total}}
-        payload.pop("source_sha256", None)
+        if cid == "spy_benchmark":  # an active result is only shown when stamped
+            payload["source_sha256"] = "same-source"
         (tmp_path / f"{cid}.json").write_text(json.dumps(payload))
     out = tmp_path / "out"
     report.write_reports(tmp_path, out)
