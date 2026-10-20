@@ -541,7 +541,7 @@ def test_gap_cost_cannot_turn_a_whole_share_buy_into_fractional_fill(con):
 def test_limit_miss_label_waits_for_h5_and_replays_without_duplicate(con):
     dates = SESSIONS[30:35]
     insert_bars(con, "AAA", dates, open_=102, close=[102, 103, 104, 105, 106],
-                high=[103, 104, 105, 106, 107], low=[101, 102, 103, 104, 105])
+                high=[103, 104, 105, 106, 107], low=101)
     insert_bars(con, "SPY", dates, open_=100, close=[100, 100, 101, 101, 102],
                 high=103, low=99)
     con.execute(

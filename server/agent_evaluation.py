@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 
 import duckdb
 
+from engine.lib.data_quality import provisional_open_fault_sql
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
@@ -15,6 +16,12 @@ from engine.p15_calendar import observed_sessions
 from tools import p15_evidence_validation
 
 from . import agent_model_client
+
+# Labels read the entry session's open. A same-night provisional bar whose open lies
+# outside its range is admitted for its close, so labels treat it as not yet known
+# (exactly as before it was admitted) and wait for the next night's settled re-fetch.
+PROVISIONAL_OPEN_FAULT_SQL = provisional_open_fault_sql()
+LABEL_BAR_SQL = f"{REAL_BAR_SQL} AND NOT {PROVISIONAL_OPEN_FAULT_SQL}"
 
 SCHEMA_VERSION = 1
 LABEL_SCHEMA_VERSION = 2
@@ -442,13 +449,13 @@ def _label_outcome_from_prices(
     asset = con.execute(
         f"SELECT date,open,high,low,close FROM prices WHERE ticker=? "
         f"AND date>=? AND date<=? {availability_sql}"
-        f"AND {REAL_BAR_SQL} ORDER BY date",
+        f"AND {LABEL_BAR_SQL} ORDER BY date",
         [ticker, entry_date, exit_date, *availability_args],
     ).fetchall()
     spy = con.execute(
         f"SELECT date,open,high,low,close FROM prices WHERE ticker='SPY' "
         f"AND date>=? AND date<=? {availability_sql}"
-        f"AND {REAL_BAR_SQL} ORDER BY date",
+        f"AND {LABEL_BAR_SQL} ORDER BY date",
         [entry_date, exit_date, *availability_args],
     ).fetchall()
     if len(spy) != len(sessions):
@@ -456,7 +463,7 @@ def _label_outcome_from_prices(
     if not asset or asset[0][0] != entry_date or asset[0][1] in (None, 0):
         last = con.execute(
             f"SELECT date,close FROM prices WHERE ticker=? AND date<? "
-            f"{availability_sql}AND {REAL_BAR_SQL} "
+            f"{availability_sql}AND {LABEL_BAR_SQL} "
             "ORDER BY date DESC LIMIT 1",
             [ticker, entry_date, *availability_args],
         ).fetchone()
@@ -551,7 +558,7 @@ def _label_outcome_when_ready(
     cutoff = _timestamp(labeled_at)
     known_dates = {row[0] for row in con.execute(
         f"SELECT date FROM prices WHERE ticker=? AND date>=? AND date<=? "
-        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
+        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {LABEL_BAR_SQL}",
         [ticker, sessions[0], sessions[-1], cutoff],
     ).fetchall()}
     missing_dates = [session for session in sessions if session not in known_dates]
@@ -565,7 +572,7 @@ def _label_outcome_when_ready(
         return None
     later_ticker_bar = con.execute(
         f"SELECT 1 FROM prices WHERE ticker=? AND date>? "
-        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} LIMIT 1",
+        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {LABEL_BAR_SQL} LIMIT 1",
         [ticker, max(missing_dates), cutoff],
     ).fetchone() is not None
     confirmed_dates = set()
@@ -762,11 +769,13 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
             entry_date, exit_date = sessions[0], sessions[horizon - 1]
             asset = con.execute(
                 "SELECT date, open, high, low, close FROM prices WHERE ticker=? "
-                "AND date>=? AND date<=? ORDER BY date", [ticker, entry_date, exit_date]
+                f"AND date>=? AND date<=? AND NOT {PROVISIONAL_OPEN_FAULT_SQL} ORDER BY date",
+                [ticker, entry_date, exit_date],
             ).fetchall()
             spy = con.execute(
                 "SELECT date, open, high, low, close FROM prices WHERE ticker='SPY' "
-                "AND date>=? AND date<=? ORDER BY date", [entry_date, exit_date]
+                f"AND date>=? AND date<=? AND NOT {PROVISIONAL_OPEN_FAULT_SQL} ORDER BY date",
+                [entry_date, exit_date],
             ).fetchall()
             if len(asset) != horizon or len(spy) != horizon or asset[0][1] in (None, 0):
                 continue
@@ -801,7 +810,7 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
             inserted += 1
     v2_latest = con.execute(
         f"SELECT MAX(date) FROM prices WHERE ticker='SPY' AND fetched_at IS NOT NULL "
-        f"AND fetched_at<=? AND {REAL_BAR_SQL}",
+        f"AND fetched_at<=? AND {LABEL_BAR_SQL}",
         [_timestamp(labeled_at)],
     ).fetchone()[0]
     v2_inserted = 0

@@ -11,7 +11,7 @@ from datetime import date
 import duckdb
 
 from engine.lib import db as engine_db
-from engine.lib.data_quality import active_quarantines
+from engine.lib.data_quality import active_quarantines, provisional_open_fault_sql
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
@@ -152,6 +152,11 @@ def _earnings(
     }
 
 
+# The gap return reads the latest bar's open, so a same-night provisional bar whose
+# open lies outside its range is left out exactly as if it had not been admitted.
+PROVISIONAL_OPEN_FAULT = provisional_open_fault_sql("p")
+
+
 def _candidate_rows(con: duckdb.DuckDBPyConnection, market_date: date) -> list[tuple]:
     return con.execute(
         f"""
@@ -160,7 +165,7 @@ def _candidate_rows(con: duckdb.DuckDBPyConnection, market_date: date) -> list[t
                  ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.date DESC) AS rn
           FROM prices p JOIN universe u ON u.ticker = p.ticker
           WHERE p.date <= ? AND u.active = TRUE AND u.liquid = TRUE AND u.etf = FALSE
-            AND p.close >= ? AND {REAL_BAR_SQL}
+            AND p.close >= ? AND {REAL_BAR_SQL} AND NOT {PROVISIONAL_OPEN_FAULT}
         ), history AS (
           SELECT ticker,
                  MAX(date) FILTER (WHERE rn = 1) AS latest_date,
@@ -200,6 +205,7 @@ def _p15_candidate_rows(
                  ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.date DESC) AS rn
           FROM prices p JOIN universe u ON u.ticker=p.ticker
           WHERE p.date<=? AND (p.close>=? {held_clause}) {cutoff_clause} AND {REAL_BAR_SQL}
+            AND NOT {PROVISIONAL_OPEN_FAULT}
         ), history AS (
           SELECT ticker,
                  MAX(date) FILTER (WHERE rn=1) AS latest_date,

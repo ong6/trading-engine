@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timezone
-from zoneinfo import ZoneInfo
+from datetime import date
 
 import duckdb
 
-from engine.lib.data_quality import price_bar_reasons
+from engine.lib.data_quality import bar_is_provisional, price_bar_reasons
 from engine.lib.db import (
     MARKET_DATE_MIN_COVERAGE,
     MARKET_DATE_MIN_NAMES,
@@ -78,7 +77,6 @@ CANDIDATE_PROJECTION_KEYS = frozenset(
     {"ticker", "as_of", "n_bars", "bars", "latest_close_date", "latest_close", "screen"}
 )
 CANDIDATE_BAR_KEYS = frozenset({"date", "open", "high", "low", "close", "volume", "provisional"})
-NEW_YORK = ZoneInfo("America/New_York")
 
 
 def _screen_result_columns(con: duckdb.DuckDBPyConnection) -> str:
@@ -355,21 +353,6 @@ def screen(
         _screen_page(con, run_date, offset, limit),
         limit,
     )
-
-
-def bar_is_provisional(bar_date: date, fetched_at: datetime | None) -> bool:
-    """True while a daily bar's last fetch fell on or before its New York session date.
-
-    The nightly collect (~18:30 New York) stores yfinance's same-session bar, whose
-    open can sit outside its own high/low (2026-10-19: 228 of 4,058 bars, with every
-    close inside); the next night's re-fetch rewrites the bar and moves `fetched_at`,
-    which clears the flag. `fetched_at` is naive UTC as stored; unknown is not provisional.
-    """
-    if fetched_at is None:
-        return False
-    if fetched_at.tzinfo is None:
-        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
-    return fetched_at.astimezone(NEW_YORK).date() <= bar_date
 
 
 def _candidate_bars(

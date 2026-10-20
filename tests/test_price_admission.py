@@ -10,7 +10,11 @@ import pytest
 
 from engine import actions, collect, intraday, price_quarantine, verify_prices
 from engine.lib import db
-from engine.lib.data_quality import PRICE_VALIDATOR_VERSION, observation_reasons
+from engine.lib.data_quality import (
+    PRICE_VALIDATOR_VERSION,
+    observation_reasons,
+    provisional_open_only_fault,
+)
 
 BAR = dict(ticker="AAA", date=date(2026, 10, 16), open=10., high=11.,
            low=9., close=10.5, volume=1000, source="fixture")
@@ -56,7 +60,17 @@ def test_other_hard_invalid_shapes(con, change, reason):
 @pytest.mark.parametrize("bar", FIXTURE, ids=lambda b: f"{b['ticker']}-{b['date']}")
 def test_original_board_and_spy_observations(con, bar):
     assert len(FIXTURE) == 42  # 41 board observations plus the October 16 SPY tuple.
-    assert observation_reasons(bar)
+    reasons = observation_reasons(bar)
+    assert reasons
+    if provisional_open_only_fault(bar, reasons):
+        # The October 16 SPY tuple was fetched that night and only its open lies
+        # outside the range: it is admitted as fetched, still provisional.
+        assert (bar["ticker"], bar["date"]) == ("SPY", "2026-10-16")
+        assert db.upsert_prices(con, frame(bar)) == 1
+        assert con.execute("SELECT open,high,low,close FROM prices").fetchone() == tuple(
+            bar[f] for f in ("open", "high", "low", "close"))
+        assert con.execute("SELECT count(*) FROM price_observation_rejects").fetchone() == (0,)
+        return
     assert db.upsert_prices(con, frame(bar)) == 0
     assert con.execute("SELECT count(*) FROM prices").fetchone() == (0,)
     stored = con.execute("SELECT open,high,low,close,volume FROM price_observation_rejects").fetchone()
@@ -200,10 +214,24 @@ def test_impossible_verifier_bar_never_agrees(side, bar):
     day = BAR["date"]
     bars = {"store": {day: BAR}, "source": {day: BAR}}
     bars[side] = {day: bar}
-    result = verify_prices.compare_bars("AAA", bars["store"], bars["source"], 9999, 9999, day)
+    settled_as_of = date(2026, 10, 19)
+    result = verify_prices.compare_bars("AAA", bars["store"], bars["source"], 9999, 9999,
+                                        settled_as_of)
     assert result["status"] == "not_checked"
     assert result["reason"] == "invalid_comparison_price"
     assert result["invalid_fields"][0]["side"] == side
+
+
+@pytest.mark.parametrize("side,bar,agrees", [
+    ("store", {**BAR, "low": 10.2}, True), ("store", {**BAR, "open": 11.5}, True),
+    ("store", {**BAR, "high": 10.}, False), ("store", {**BAR, "open": None}, False),
+    ("source", {**BAR, "low": 10.2}, False)])
+def test_store_provisional_open_only_fault_is_not_a_comparison_fault(side, bar, agrees):
+    day = BAR["date"]
+    bars = {"store": {day: BAR}, "source": {day: BAR}}
+    bars[side] = {day: bar}
+    result = verify_prices.compare_bars("AAA", bars["store"], bars["source"], 9999, 9999, day)
+    assert (result.get("reason") != "invalid_comparison_price") is agrees
 
 
 def test_valid_provisional_drift_still_agrees():

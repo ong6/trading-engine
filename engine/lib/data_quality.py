@@ -6,6 +6,7 @@ import json
 import math
 from datetime import date, datetime
 from functools import lru_cache
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pandas_market_calendars as mcal
@@ -16,8 +17,10 @@ FIXED_ETF_HISTORY = "fixed_etf_history"
 CURRENT_UNIVERSE_SURVIVOR_BIASED = "current_universe_survivor_biased"
 STATIC_FUNDAMENTAL_LOOKAHEAD = "static_fundamental_lookahead"
 
-PRICE_VALIDATOR_VERSION = "price-admission-v15.1"
+PRICE_VALIDATOR_VERSION = "price-admission-v15.2"
 OHLC = ("open", "high", "low", "close")
+NEW_YORK = ZoneInfo("America/New_York")
+GEOMETRY_REASONS = frozenset({"high_geometry", "low_geometry"})
 COMMON_SPLIT_FACTORS = (1.5, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 50, 100, 200, 500, 1000)
 
 
@@ -101,6 +104,63 @@ def observation_reasons(bar, *, intraday: bool = False) -> list[str]:
     except (TypeError, ValueError, OverflowError):
         reasons.append("invalid_date")
     return reasons
+
+
+def bar_is_provisional(bar_date, fetched_at) -> bool:
+    """True while a daily bar's last fetch fell on or before its New York session date.
+
+    The nightly collect (~18:30 New York) stores yfinance's same-session bar; the
+    next night's re-fetch rewrites it and moves ``fetched_at``, which clears the
+    flag. A naive ``fetched_at`` is UTC as stored; unknown is not provisional.
+    """
+    if fetched_at is None or fetched_at is pd.NA or bar_date is None:
+        return False
+    try:
+        stamp = pd.Timestamp(fetched_at)
+        day = pd.Timestamp(bar_date)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if pd.isna(stamp) or pd.isna(day):
+        return False
+    stamp = stamp.tz_localize("UTC") if stamp.tzinfo is None else stamp.tz_convert("UTC")
+    return stamp.tz_convert(NEW_YORK).date() <= day.date()
+
+
+def open_fault_only(bar, reasons: list[str]) -> bool:
+    """The bar's ONLY scalar fault is its open lying outside [low, high].
+
+    ``reasons`` are the bar's own validator reasons. With the open set to the close
+    every invariant still holds: prices positive and finite, high >= low, the close
+    inside the range, and (when it was checked) the volume representable.
+    """
+    if not reasons or not set(reasons) <= GEOMETRY_REASONS:
+        return False
+    return not price_bar_reasons({**bar, "open": bar.get("close")}, check_volume=False)
+
+
+def provisional_open_only_fault(bar, reasons: list[str]) -> bool:
+    """A provisional daily bar whose only fault is its open's geometry.
+
+    yfinance's same-session open can sit outside its own range until the next
+    night's re-fetch settles it (2026-10-19: 228 of 4,058 bars, every close inside).
+    Such a bar is admissible as fetched, with no clamping; the same fault on a
+    settled bar, or any other fault, stays rejected.
+    """
+    return open_fault_only(bar, reasons) and bar_is_provisional(
+        bar.get("date"), bar.get("fetched_at"))
+
+
+def provisional_open_fault_sql(table: str = "") -> str:
+    """SQL twin of an admitted provisional bar whose open lies outside [low, high].
+
+    Paths that consume a daily OPEN exclude it (``AND NOT ...``) so they behave exactly
+    as if the bar had not been admitted until the settled re-fetch replaces it.
+    ``fetched_at`` is naive UTC as stored (``bar_is_provisional``).
+    """
+    p = f"{table}." if table else ""
+    return (f"({p}fetched_at IS NOT NULL AND CAST(timezone('America/New_York', "
+            f"timezone('UTC', {p}fetched_at)) AS DATE) <= {p}date "
+            f"AND NOT ({p}low <= {p}open AND {p}open <= {p}high))")
 
 
 def split_like_factor(ratio: float) -> float | None:

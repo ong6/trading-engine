@@ -22,7 +22,13 @@ import duckdb
 import pandas as pd
 
 from engine.lib import settings
-from engine.lib.data_quality import PRICE_VALIDATOR_VERSION, observation_reasons, split_like_factor
+from engine.lib.data_quality import (
+    PRICE_VALIDATOR_VERSION,
+    observation_reasons,
+    price_bar_sql,
+    provisional_open_only_fault,
+    split_like_factor,
+)
 from engine.lib.log import get_logger
 
 log = get_logger("db")
@@ -1026,6 +1032,34 @@ def _comparison_value(value):
         return repr(value)
 
 
+def _admit_provisional_open_faults(con, rows: list[dict], reasons: list[list[str]]) -> None:
+    """Clear the reasons of same-night bars whose only fault is the open's geometry.
+
+    The bar is stored exactly as fetched (no clamping) and stays provisional by its
+    `fetched_at`; the next night's settled re-fetch replaces it through the normal
+    path. It never displaces a stored bar whose own geometry is complete, so a
+    settled (or fully valid same-night) bar is kept and the newcomer is rejected.
+    """
+    candidates = [i for i, row in enumerate(rows)
+                  if provisional_open_only_fault(row, reasons[i])]
+    if not candidates:
+        return
+    keys = pd.DataFrame({
+        "ticker": [str(rows[i]["ticker"]) for i in candidates],
+        "date": [pd.Timestamp(rows[i]["date"]).date() for i in candidates],
+    })
+    complete = set()
+    if con.execute("SELECT 1 FROM information_schema.tables WHERE table_name='prices'").fetchone():
+        with registered_frame(con, "_provisional_keys", keys):
+            complete = {(ticker, day) for ticker, day in con.execute(
+                "SELECT p.ticker,p.date FROM prices p JOIN _provisional_keys k "
+                f"ON p.ticker=k.ticker AND p.date=k.date WHERE {price_bar_sql()}"
+            ).fetchall()}
+    for i, key in zip(candidates, keys.itertuples(index=False), strict=True):
+        if (key.ticker, key.date) not in complete:
+            reasons[i] = []
+
+
 def _validated_observations(con, df, *, intraday: bool, now, batch_id: str):
     frame = df.copy()
     if "source" not in frame:
@@ -1034,6 +1068,8 @@ def _validated_observations(con, df, *, intraday: bool, now, batch_id: str):
         frame["fetched_at"] = now
     rows = frame.to_dict("records")
     reasons = [observation_reasons(row, intraday=intraday) for row in rows]
+    if not intraday:
+        _admit_provisional_open_faults(con, rows, reasons)
     groups = {}
     for i, row in enumerate(rows):
         try:

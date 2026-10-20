@@ -87,7 +87,7 @@ import requests
 
 from engine.lib import db
 from engine.lib import resources as rsc
-from engine.lib.data_quality import price_bar_reasons
+from engine.lib.data_quality import open_fault_only, price_bar_reasons
 from engine.lib.log import get_logger
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT  # noqa: F401
 from engine.lib.settings import META_PATH as DEFAULT_META
@@ -463,6 +463,16 @@ def _diff_bp(store_v: float, src_v: float) -> float:
     return abs(store_v - src_v) / denom * 10_000.0
 
 
+def _comparison_reasons(bar: dict, *, provisional: bool) -> list[str]:
+    """Scalar faults; the store admits a provisional bar whose only fault is its open.
+
+    That open is measured, never compared (PROVISIONAL_FIELDS), and the next night's
+    settled re-fetch replaces the bar.
+    """
+    reasons = price_bar_reasons(bar, check_volume=bar.get("volume") is not None)
+    return [] if provisional and open_fault_only(bar, reasons) else reasons
+
+
 def compare_bars(ticker: str, store_bars: dict, src_bars: dict,
                  tolerance_bp: float, tolerance_abs: float,
                  as_of: date) -> dict:
@@ -502,7 +512,7 @@ def compare_bars(ticker: str, store_bars: dict, src_bars: dict,
          "value": repr(bar)}
         for side, bars in (("store", store_bars), ("source", src_bars))
         for day, bar in bars.items()
-        for reason in price_bar_reasons(bar, check_volume=bar.get("volume") is not None)
+        for reason in _comparison_reasons(bar, provisional=side == "store" and day >= as_of)
     ]
     if invalid:
         out.update(status="not_checked", reason="invalid_comparison_price", invalid_fields=invalid)

@@ -16,7 +16,11 @@ from uuid import uuid4
 import pandas as pd
 
 from engine.lib import db
-from engine.lib.data_quality import observation_reasons, session_schedule
+from engine.lib.data_quality import (
+    observation_reasons,
+    provisional_open_only_fault,
+    session_schedule,
+)
 from engine.lib.settings import DEFAULT_DB
 from sim.schema import init_sim_schema
 
@@ -46,8 +50,13 @@ def cleanup_hard_invalid_prices(con, *, dry_run: bool = True) -> dict:
     reasons = [observation_reasons(row) for row in originals]
     if any(not reason for reason in reasons):
         raise ValueError("cleanup SQL and validator disagree; no rows moved")
+    # A same-night bar whose only fault is its open is admissible as fetched, so the
+    # cleanup leaves it for the next night's settled re-fetch, exactly as ingest does.
+    kept = [provisional_open_only_fault(row, reason) for row, reason in zip(originals, reasons, strict=True)]
+    originals = [row for row, keep in zip(originals, kept, strict=True) if not keep]
+    reasons = [reason for reason, keep in zip(reasons, kept, strict=True) if not keep]
     report = {
-        "dry_run": dry_run, "invalid_rows": len(originals),
+        "dry_run": dry_run, "invalid_rows": len(originals), "provisional_kept": sum(kept),
         "tickers": len({row["ticker"] for row in originals}),
         "by_date": dict(sorted(Counter(str(row["date"]) for row in originals).items())),
         "by_reason": dict(sorted(Counter(r for items in reasons for r in items).items())),
