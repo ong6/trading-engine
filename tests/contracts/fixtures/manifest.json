@@ -1,0 +1,96 @@
+{
+ "grouped_daily": {
+  "fetched_at": "2026-10-20T07:10:16.510026+00:00",
+  "file": "massive-grouped-daily.json",
+  "ohlc_violations": 0,
+  "rows": 120,
+  "session_date": "2026-10-19",
+  "source_rows": 12638,
+  "source_sha256": "7de35df68b04bc4169207ca4734be9815b37a2a9906293cc6274c343e5ffcf36",
+  "vwap_outside_high_low": 6
+ },
+ "grouped_daily_archive": {
+  "days": 534,
+  "flat_bars": 67972,
+  "invalid_numbers": 0,
+  "max_day_ohlc_share": 0.0,
+  "max_day_vwap_outside_share": 0.090807,
+  "ohlc_violations": 0,
+  "rows": 5932921,
+  "vwap_outside_high_low": 332621
+ },
+ "harvested_on": "2026-10-20",
+ "options": {
+  "as_of": "2026-10-18",
+  "contracts": [
+   {
+    "close": 270.025063,
+    "expiry_max": "2026-11-27",
+    "expiry_min": "2026-11-13",
+    "file": "massive-option-contracts-IWM.json",
+    "rows": 4,
+    "source_rows": 182,
+    "source_sha256": "006a5eb5011f02eebf47bdd8c9dbb0f9823e756dd7df95ff0ea266971ba78986",
+    "underlying": "IWM"
+   },
+   {
+    "close": 710.025063,
+    "expiry_max": "2026-11-30",
+    "expiry_min": "2026-11-13",
+    "file": "massive-option-contracts-QQQ.json",
+    "rows": 4,
+    "source_rows": 480,
+    "source_sha256": "8003f2175138dcac06a852535045835851df41d394f7268466a6eb5e365bd120",
+    "underlying": "QQQ"
+   },
+   {
+    "close": 763.533835,
+    "expiry_max": "2026-11-30",
+    "expiry_min": "2026-11-13",
+    "file": "massive-option-contracts-SPY.json",
+    "rows": 5,
+    "source_rows": 590,
+    "source_sha256": "19f244cbbedc9208ad55fa258502916be82ebbdb702732f6c8aa4a4cb2378f0d",
+    "underlying": "SPY"
+   }
+  ],
+  "daily": {
+   "file": "massive-option-daily.json",
+   "occ": "SPY261120C00763000",
+   "rows": 4,
+   "source_sha256": "70faa06aac1c95c4d3ae5571f552e81c0d468f3596303f4fae904691ec32f5f6",
+   "status": "DELAYED"
+  },
+  "now": "2026-10-18T19:50:20.276310+00:00"
+ },
+ "schema_version": 1,
+ "splits": {
+  "chain_length_lower_bound": 3,
+  "pages": [
+   {
+    "fetched_at": "2026-10-18T19:49:07.061852+00:00",
+    "file": "massive-splits-page-1.json",
+    "has_next_url": true,
+    "rows": 5,
+    "source_rows": 1000,
+    "source_sha256": "c3cc9c300e07bc910df04784be16b3880e85211dca44ab5ead30c41bc502ffc1"
+   },
+   {
+    "fetched_at": "2026-10-18T19:49:19.541759+00:00",
+    "file": "massive-splits-page-2.json",
+    "has_next_url": true,
+    "rows": 5,
+    "source_rows": 1000,
+    "source_sha256": "fd97fc2ade7dfa747fd3d39163bd6dfe2b55a5a280eb9d5f08744a2affc24d3c"
+   }
+  ],
+  "terminal": "synthetic empty OK page after the last recorded next_url"
+ },
+ "tiingo": {
+  "fetched_at": "2026-10-01T07:02:05.782290+00:00",
+  "file": "tiingo-supported-tickers.zip",
+  "rows": 18,
+  "source_rows": 108908,
+  "source_sha256": "fd22820bc4bdee062aa8e67fd0e353e2ee810aa57db42bbe9e33523f4dd66fd7"
+ }
+}
