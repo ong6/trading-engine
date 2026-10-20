@@ -62,17 +62,17 @@
       "engine/actions.py": "4c9c122c56ffe7f977b8e4724bc0df5330ab65b7b1ffd4005d2311d6a0ad350a",
       "engine/bitemporal_facts.py": "9f593e82da0f65a54b93d0dac5505e6a98fad5d1d4d63ce672b71d527655c8cc",
       "engine/collect.py": "4f764b897d6ba260fce979422d394d3abbceed73808093c1be325d18540c8c20",
-      "engine/daily_opportunities.py": "d8d8cd884183f10055204b606af3a748198d7c9686342b5fad091a24ab71292b",
+      "engine/daily_opportunities.py": "a1ea689abd2ab365dd2ac2aedf31e17bd021a7eecd4e9a0fc303a42f00075d43",
       "engine/earnings.py": "cb53840084c637f4e49f22ac27adbfdd8eeab1b3c22aa3abb8c1293be89a8b0d",
-      "engine/forward_review.py": "dc9bbb8f8e4927531361885b881598f315bb0e9ca1ef587610dce98ceb9f186d",
+      "engine/forward_review.py": "c763fa5065040b58dee3232376dc78b65ce31d7c969ab4215712d87b9295d1fc",
       "engine/free_massive_minute.py": "ee1bc0120836e264b52fc016dbc446233f7bff160b7976ee2c697c69e02a1b1d",
       "engine/free_sources.py": "414af6dcd99bba91ea96cd2340f40680a74b39d0dab31aed194aaaca93a49126",
       "engine/fundamentals.py": "98c023b658ee13e247b649e0fd12dd8332f48878a11b188a41e0cfcce9df642a",
       "engine/instruments.py": "94e2e4ab711f2ead51e2aeecda11e4c7da659170bbfadb07ea45cda33520b506",
       "engine/intraday.py": "eff80a9424d764ed95765939e8264c27691ec23a5f73597b87b36e22e0e070a6",
       "engine/lib/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "engine/lib/data_quality.py": "8ec70d162c5b96c279e3ebe49b8195cf6fe7ddffd777c0a9004926e12d18a867",
-      "engine/lib/db.py": "ef81784aa067c3598c15010fb5312cdba2b6138e3ea5314886d1327ddc0d349f",
+      "engine/lib/data_quality.py": "2807e15b9f432d7ea8a4e01dc4d8d20880e63016bea88263a2555effb95485d2",
+      "engine/lib/db.py": "4e7c333259f2742cd855d54d9f9fd59c7fc67f7f3b7b155a28a13346957d2ba7",
       "engine/lib/driver.sh": "3aa594fc39982ce5b085848d0d459cbf2a1d092a10518574df4eec209e08b4e2",
       "engine/lib/leverage.py": "12295fc760792e5026dc7dbd6b2f3ccd8610a4e4038f5b9699764e14fe3fea68",
       "engine/lib/log.py": "02fd05ba4da797ec62bb467a6bcce93e07929029cdfde21db302fece2ce79bd3",
@@ -90,7 +90,7 @@
       "engine/p15_evaluation.py": "0c878b0d628b3e42c9954e841afc66d9fc4b328e187183dba5e5c4d5622cdf56",
       "engine/p15_event_sources.py": "fb2831a69168d4ffd4dfec0c283601e30d94d017ebaff4103967bd61559df488",
       "engine/paper_accounts.py": "70542f8f415e54d414ac42aaff59a18027608636e38c9caaa029ffc67abc725f",
-      "engine/price_quarantine.py": "26cba6ef9b621fb0896938e5016f628ba4f8a165e9e83c756defc255468554dd",
+      "engine/price_quarantine.py": "7e812700f5f45e9a9e2f573ecedfb82229765a4e01e81df9929d7804648c6b81",
       "engine/queue_runner.py": "3756ca9f92bf712909a291537d07087d7576fc8e35f479e62288038fb01b5c00",
       "engine/run_daily.sh": "33d758b9e41ad4e923665bdd33375fdd0b92ada8fc5c156b4fb153a93cee3f9e",
       "engine/screen.py": "10ad75b95fd8d9f6280365b648105d2eaf5ff26fe6e13966423d0133a43787b3",
@@ -98,8 +98,8 @@
       "engine/sync.py": "9d77a8e963047481ecbed290b4d112ef7c3158fadbb9b5aded91defd33abd574",
       "engine/tradingview_history_archive.py": "640f5346798a7ae9ecf5cfcecb4bbb1bbeb9d3575076b4bf23514f4a8555b155",
       "engine/universe.py": "ad3cf5f62730767081ee7718006ce4f78f4c6bfdbb80ab90caeef118abc276a7",
-      "engine/verify_prices.py": "c83f4dccb2012840d09d477768da176b79d617511dd85d8f0931264dcc821f09",
-      "engine/xs_forward_review.py": "83ec5a159dd6287ba5053626766c2614fa6bc45f4c79b3ad5ce244772800c8e8",
+      "engine/verify_prices.py": "08cb85f8fae3d742e7d98c07d3395b74211c26dfe930a4fae37d3da34ef72de6",
+      "engine/xs_forward_review.py": "c008510f8870bae4c1ccce92f8ef0bebfce62a5afaf568999ecf0846cb221ec3",
       "farm/__init__.py": "bf84aec09336388f858d7c1e7c28cab3da1d8d18096ed36ef460ea49114f11e0",
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
       "farm/backtest/__init__.py": "b65d882bc9e7d1ba6e704fc93be8aa4188775ead4cf4028a3da7141c298427b7",
@@ -109,7 +109,7 @@
       "farm/backtest/stats.py": "994e2147b30fad6c061888f51e6b22238500e185424f007ae96a408df3cdf3c8",
       "farm/capital_sensitivity.py": "90119096f6c31e53427ea8ffa61b8af558b131c0f78ff0841183baa024958244",
       "farm/experiment.py": "bf588f503d4bcec829c8083d5dad3fca0846fa80c726301535cf11a854c82abb",
-      "farm/experiment_runner.py": "884de7150af09b808f6fc92000f3a89683a655198cfe16cda5c2d47c27ccc215",
+      "farm/experiment_runner.py": "0d261ecdb0b8098725cae25c277a2e5ce495d861f4d47c84b06067ea3a2606c1",
       "farm/p15_event_runner.py": "c860f1d9390cdc70b873da3bac7326b45684326c8a273875cefb2831dcbcdb87",
       "farm/stats/__init__.py": "a7e26e929b2d925fd3060ac1af6e20c228479c6552f75dcfcd629b5ff0470b65",
       "farm/stats/equity.py": "e1ffaa2768ff7abed75c053b2273bda215adf6be44c1c60844ed509cbc9bdd1e",
@@ -125,7 +125,7 @@
       "farm/walkforward/runtime_contract.py": "0719e6086dd265d1a26076a41ce01f0ec99b7805322b84f8ed6bfbf35897fe92",
       "server/__init__.py": "c462735edca08a01b1bda392e672430ed441aca796251c6adcaf6b5e648ea4b5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "fe0e23fc993c249658ebc2af9d27c31d11e6ca70d31870764b86341fb6bdb2fc",
+      "server/agent_evaluation.py": "21f444cdb21606f61d71170d6933ddc9174b581f6812957a43f9d9b0e11c056f",
       "server/agent_evaluation_reporting.py": "e910598bb9dabd3c2ac85c96b4d64cf3443e407141d54897795a46a3594f9065",
       "server/agent_model_client.py": "6d08b8fce5328ac6242d7ee5b5af0ee593f52641a6d5e57db91734bd38a23aa4",
       "server/daily_opportunity_execution.py": "bfe15b976408ce4ac275761e140d8456ac4527b09610be23f7d1ca72d25c1c0e",
@@ -218,7 +218,7 @@
       "tools/sec_edgar_capture.py": "63dc9eb0b5f6dc2ac910077a07c58e65a95b5ba0961ae2b5cd4d3d5148b4ecab",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "d5d5da845c27a557b6c7823c87f255a2dcd86a92"
+    "source_commit": "7c69785a04cf15b175df6da1f14b310d68184df7"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -366,7 +366,7 @@
   "registered_at": "2026-10-03T02:52:40Z",
   "registration_id": "p15-profitability-evidence-loop-v1",
   "registration_revision": 15,
-  "revision_reason": "Revision 15 after verified v2: r15-data rejects scalar/calendar/interval and unverified basis observations, retains originals and cleans hard-invalid bars; r15-money refuses nonfinite/overflow money and uses shared trusted bars for fills, marks, settlement and P15 recovery; r15-flow reduces repeated intraday windows, offline report rendering, latest-close scans and history snapshot copies; r15-ops reports recorded process/work outcomes and moves Sunday history 07:40 to 01:40; board-2 joins dated rejected-bar quality and separates prospective eligibility from early review with eight scored criteria; r15-tests reuses private fixture templates, caps native threads, work-steals and caches CI setup. E1 v8, sector v12 and XS v23 migrate exact revision-14 checkpoints after the v2 break. Verdict rules, scores, labels, gates, strategy schedules and frozen valid-data outcomes are unchanged. Binding orchestrator follow-up 2026-10-18: P15 session calendar is SPY stored price dates UNION hard-invalid daily rejected dates; basis_unverified dates count only when they are XNYS sessions. All P15 label/horizon paths share captured session evidence without a synthetic calendar or rewriting/re-hashing stored labels. Missing trusted execution/sleeve bars wait with audited untrusted_bar; run_window completes, no price repair or alternative-source promotion. Acceptance requires all 108 intact-hash labels and all other labels unchanged, no-reject-store equivalence, every book money replay within 0.005 except invalid-bar days, literal post-v2 deploy and rollback, and a bounded five-minute cold-UI readiness wait. Undeployed revision 15 amended once by committed source then registration binding; frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. Undeployed revision 15 amended a second time on 2026-10-20 over the rewritten history by reviewed fixes landed after v2: split-integrity coverage and quarantine, provisional same-night bars, options delayed status, pre-open reliability, queue drain scheduling, walk-forward replay isolation, weekly verify, unit bounds and backup monitoring, schedule contract, shadow invariants, provider contracts, deploy gate, nightly evidence order, scoring report commits, log retention, snapshot disk cap and the model client accepting two reviewed runtimes by hash (connector identity schema 4; retained schema-2/3 evidence accepted by hash); runtime contracts E1 v8, sector v12 and XS v23 keep their versions and migrate the same revision-14 checkpoints. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged.",
+  "revision_reason": "Revision 15 after verified v2: r15-data rejects scalar/calendar/interval and unverified basis observations, retains originals and cleans hard-invalid bars; r15-money refuses nonfinite/overflow money and uses shared trusted bars for fills, marks, settlement and P15 recovery; r15-flow reduces repeated intraday windows, offline report rendering, latest-close scans and history snapshot copies; r15-ops reports recorded process/work outcomes and moves Sunday history 07:40 to 01:40; board-2 joins dated rejected-bar quality and separates prospective eligibility from early review with eight scored criteria; r15-tests reuses private fixture templates, caps native threads, work-steals and caches CI setup. E1 v8, sector v12 and XS v23 migrate exact revision-14 checkpoints after the v2 break. Verdict rules, scores, labels, gates, strategy schedules and frozen valid-data outcomes are unchanged. Binding orchestrator follow-up 2026-10-18: P15 session calendar is SPY stored price dates UNION hard-invalid daily rejected dates; basis_unverified dates count only when they are XNYS sessions. All P15 label/horizon paths share captured session evidence without a synthetic calendar or rewriting/re-hashing stored labels. Missing trusted execution/sleeve bars wait with audited untrusted_bar; run_window completes, no price repair or alternative-source promotion. Acceptance requires all 108 intact-hash labels and all other labels unchanged, no-reject-store equivalence, every book money replay within 0.005 except invalid-bar days, literal post-v2 deploy and rollback, and a bounded five-minute cold-UI readiness wait. Undeployed revision 15 amended once by committed source then registration binding; frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. Undeployed revision 15 amended a second time on 2026-10-20 over the rewritten history by reviewed fixes landed after v2: split-integrity coverage and quarantine, provisional same-night bars, options delayed status, pre-open reliability, queue drain scheduling, walk-forward replay isolation, weekly verify, unit bounds and backup monitoring, schedule contract, shadow invariants, provider contracts, deploy gate, nightly evidence order, scoring report commits, log retention, snapshot disk cap and the model client accepting two reviewed runtimes by hash (connector identity schema 4; retained schema-2/3 evidence accepted by hash); runtime contracts E1 v8, sector v12 and XS v23 keep their versions and migrate the same revision-14 checkpoints. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. Undeployed revision 15 amended a third time on 2026-10-20 by binding orchestrator ruling: a provisional same-night daily bar whose only fault is its open outside [low, high] is admitted as fetched, unclamped and flagged provisional by its fetch time; fills, limit-on-open, labels and the opportunity gap return treat it as absent until the settled re-fetch replaces it, and retained-bar quality does not count it. Runtime contracts E1 v8, sector v12 and XS v23 keep their versions. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged.",
   "schema_version": 1,
   "scoring": {
     "actions": [
@@ -407,5 +407,5 @@
     "trend_limit": 20,
     "version": "p15-universe-v1"
   },
-  "registration_sha256": "b0a493678e2d68309e1f288a32d14b2d622633176db0e1e8676053e444522d10"
+  "registration_sha256": "c6c7bb4786e440c61a092ef61c258fedae965e55851a69a233456ff61c792d86"
 }
