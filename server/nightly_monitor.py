@@ -11,14 +11,16 @@ import duckdb
 from engine.lib.settings import DATA_DIR
 from engine.lib.util import table_exists
 from sim import nyse
-from sim.p15_books import BOOK_IDS as P15_BOOK_IDS
 
 from . import nightly_reports
-from .p15_scoring_store import POLICY_ID as P15_POLICY_ID
 from .status_validation import iso_date, nonnegative_int
 
 log = logging.getLogger(__name__)
 P15_PUBLISHER = "p15-scoring"
+# Mirrors sim.p15_books.BOOK_IDS and server.p15_scoring_store.POLICY_ID (tests pin both):
+# importing them would pull the simulator into the backup tool's recovery closure.
+P15_BOOK_IDS = ("p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto")
+P15_POLICY_ID = "p15-scoring-v1"
 # P15 books are marked by the P15 scoring service, not the nightly: its timer fires at
 # 02:30 UTC on the calendar day after each session, and its runner refuses work after
 # 12:00 UTC that day, so a session's P15 marks are due by then.
@@ -100,6 +102,8 @@ def _pending_by_design(
         return False
     if now >= _p15_publish_due(latest) or _p15_run_finished(con, latest):
         return False
+    # The league renders an unmarked book at its last mark; pending is only the one
+    # session the publisher has not reached yet, i.e. marked through the prior session.
     placeholders = ",".join("?" for _ in missing)
     prior = dict(
         con.execute(
@@ -116,7 +120,7 @@ def _pending_by_design(
 
 def _active_equity_counts(
     con: duckdb.DuckDBPyConnection, latest: date, now: datetime
-) -> tuple[int, int, int]:
+) -> tuple[int, int, tuple[str, ...]]:
     rows = con.execute(
         """
         SELECT p.id, e.portfolio_id IS NOT NULL
@@ -133,7 +137,7 @@ def _active_equity_counts(
         raise ValueError("no active portfolios")
     missing = [portfolio_id for portfolio_id, marked in rows if not marked]
     if _pending_by_design(con, latest, missing, now):
-        return active, with_equity, len(missing)
+        return active, with_equity, tuple(missing)
     if with_equity != active:
         raise _EvidenceResult(
             "incomplete",
@@ -141,7 +145,7 @@ def _active_equity_counts(
             active_portfolios=active,
             portfolios_with_equity=with_equity,
         )
-    return active, with_equity, 0
+    return active, with_equity, ()
 
 
 def _prerequisite_status(
@@ -169,7 +173,7 @@ def _prerequisite_status(
 def _current_evidence(
     latest: date,
     summary: tuple[int, int, int, str],
-    equity_counts: tuple[int, int, int],
+    equity_counts: tuple[int, int, tuple[str, ...]],
 ) -> dict:
     screen_count, passing_count, new_count, policy = summary
     active, with_equity, pending = equity_counts
@@ -185,7 +189,7 @@ def _current_evidence(
     }
     if pending:
         evidence.update(
-            portfolios_pending_publisher=pending,
+            portfolios_pending_publisher=len(pending),
             pending_publisher=P15_PUBLISHER,
             pending_due_at=_p15_publish_due(latest).isoformat().replace("+00:00", "Z"),
         )
@@ -206,7 +210,9 @@ def validate_snapshot(
         summary = _screen_summary(con, latest)
         _validate_screen_metadata(meta, latest, summary)
         equity_counts = _active_equity_counts(con, latest, now)
-        nightly_reports.validate(meta, latest, summary, con, data_dir)
+        nightly_reports.validate(
+            meta, latest, summary, con, data_dir, pending=equity_counts[2]
+        )
     except (_EvidenceResult, nightly_reports.EvidenceState) as result:
         return result.payload
     except (OSError, IndexError, KeyError, TypeError, ValueError, duckdb.Error) as exc:

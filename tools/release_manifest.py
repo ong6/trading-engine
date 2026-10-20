@@ -90,6 +90,8 @@ RECOVERY_SOURCE_FILES = (
     "server/nightly_monitor.py",
     "server/nightly_reports.py",
     "server/status_validation.py",
+    "sim/__init__.py",
+    "sim/nyse.py",
     "tools/__init__.py",
     "tools/backup_database.py",
     "tools/release_manifest.py",

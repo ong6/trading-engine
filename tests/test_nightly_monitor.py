@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from server import nightly_monitor, p15_scoring_runner, p15_scoring_store
+from sim import league
 from sim.p15_books import BOOK_IDS
 from tests.nightly_test_helpers import nightly_fixture
 
@@ -94,28 +95,10 @@ def _record_scoring_run(con, status, session=SESSION):
     )
 
 
-def _write_league(con, root: Path, latest=SESSION):
-    names = [row[0] for row in con.execute(
-        "SELECT p.name FROM portfolios p JOIN sim_equity e ON e.portfolio_id=p.id "
-        "AND e.date=? WHERE p.active ORDER BY p.name", [latest],
-    ).fetchall()]
-    rows = "".join(
-        f"| {rank} | {name} | 2026-09-01 | $100 | +0.00% | · | +0.00% | 0 | 0 | · |\n"
-        for rank, name in enumerate(names, start=1)
-    )
-    (root / "reports" / "league.md").write_text(
-        f"# Paper League — {latest.isoformat()}\n\n"
-        "| # | Portfolio | Inception | Equity | Total ret | vs SPY | Max DD | "
-        "Open | Fills | Last 5d |\n"
-        "|---|---|---|---|---|---|---|---|---|---|\n" + rows
-    )
-    equity = con.execute(
-        "SELECT portfolio_id,date,equity FROM sim_equity ORDER BY portfolio_id,date"
-    ).fetchall()
-    (root / "reports" / "league.csv").write_text(
-        "portfolio_id,date,equity\n"
-        + "".join(f"{pid},{day.isoformat()},{value!r}\n" for pid, day, value in equity)
-    )
+def _render_league(con, root: Path, latest=SESSION):
+    """Render the league the way the nightly and the post-scoring rerender do."""
+    league.write_reports(con, latest, root)
+    return (root / "reports" / "league.md").read_text()
 
 
 @pytest.mark.parametrize("now", [BEFORE_SCORING, DURING_SCORING])
@@ -124,7 +107,10 @@ def test_p15_books_are_pending_until_their_scoring_run_publishes(con, tmp_path, 
     _add_p15_books(con, PRIOR_SESSION)
     if now == DURING_SCORING:
         _record_scoring_run(con, "running")
-    _write_league(con, tmp_path)
+    standings = _render_league(con, tmp_path)
+    # The nightly lists each unmarked P15 book at its prior-session mark.
+    assert all(f"| {book_id} |" in standings for book_id in BOOK_IDS)
+    assert f"marked through {PRIOR_SESSION.isoformat()}" in standings
 
     result = nightly_monitor.evidence_status(
         meta, driver, con, SESSION, data_dir=tmp_path, now=now
@@ -138,12 +124,23 @@ def test_p15_books_are_pending_until_their_scoring_run_publishes(con, tmp_path, 
     assert result["pending_due_at"] == "2026-09-05T12:00:00Z"
 
 
+def test_pending_p15_books_must_still_appear_in_the_league(con, tmp_path):
+    meta, driver = nightly_fixture(con, tmp_path)
+    _add_p15_books(con, PRIOR_SESSION)
+
+    result = nightly_monitor.evidence_status(
+        meta, driver, con, SESSION, data_dir=tmp_path, now=BEFORE_SCORING
+    )
+
+    assert result == {"status": "invalid", "reason": "evidence-invalid"}
+
+
 def test_p15_books_are_current_after_their_scoring_run(con, tmp_path):
     meta, driver = nightly_fixture(con, tmp_path)
     _add_p15_books(con, PRIOR_SESSION)
     _mark_p15_session(con)
     _record_scoring_run(con, "completed")
-    _write_league(con, tmp_path)
+    _render_league(con, tmp_path)
 
     result = nightly_monitor.evidence_status(
         meta, driver, con, SESSION, data_dir=tmp_path, now=DURING_SCORING
@@ -202,7 +199,7 @@ def _nightly_book_missing_while_p15_pending(con):
 def test_genuinely_missing_equity_stays_incomplete(con, tmp_path, scenario):
     meta, driver = nightly_fixture(con, tmp_path)
     now = scenario(con)
-    _write_league(con, tmp_path)
+    _render_league(con, tmp_path)
 
     result = nightly_monitor.evidence_status(
         meta, driver, con, SESSION, data_dir=tmp_path, now=now
@@ -211,6 +208,11 @@ def test_genuinely_missing_equity_stays_incomplete(con, tmp_path, scenario):
     assert result["status"] == "incomplete"
     assert result["reason"] == "active-equity-missing"
     assert "portfolios_pending_publisher" not in result
+
+
+def test_p15_publisher_identity_tracks_the_books_and_scoring_store():
+    assert set(nightly_monitor.P15_BOOK_IDS) == set(BOOK_IDS)
+    assert nightly_monitor.P15_POLICY_ID == p15_scoring_store.POLICY_ID
 
 
 def test_p15_publish_deadline_tracks_the_scoring_runner_and_timer():

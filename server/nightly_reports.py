@@ -152,21 +152,25 @@ def _validate_screen(
         raise ValueError("screen report does not match stored evidence")
 
 
-def _expected_league_names(con: duckdb.DuckDBPyConnection, latest: date) -> list[str]:
+def _expected_league_names(
+    con: duckdb.DuckDBPyConnection, latest: date, pending: tuple[str, ...] = ()
+) -> list[str]:
+    # The league lists a book its publisher has not yet marked for ``latest`` at its
+    # prior mark (flagged ‡), so a pending book is expected without a ``latest`` row.
     public_ids = set(_public_portfolio_ids(con))
     names = [
         row[1]
         for row in con.execute(
             """
-            SELECT p.id, p.name
+            SELECT p.id, p.name, e.portfolio_id IS NOT NULL
             FROM portfolios p
-            JOIN sim_equity e ON e.portfolio_id = p.id AND e.date = ?
+            LEFT JOIN sim_equity e ON e.portfolio_id = p.id AND e.date = ?
             WHERE p.active
             ORDER BY p.name
             """,
             [latest],
         ).fetchall()
-        if row[0] in public_ids
+        if row[0] in public_ids and (row[2] or row[0] in pending)
     ]
     if len(names) != len(set(names)):
         raise ValueError("active portfolio names are not unique")
@@ -193,7 +197,10 @@ def _expected_stale_positions(
 
 
 def _validate_league_markdown(
-    con: duckdb.DuckDBPyConnection, latest: date, data_dir: Path
+    con: duckdb.DuckDBPyConnection,
+    latest: date,
+    data_dir: Path,
+    pending: tuple[str, ...] = (),
 ) -> None:
     league_text = read_text(
         data_dir / "reports" / "league.md",
@@ -203,7 +210,7 @@ def _validate_league_markdown(
     if league_text.splitlines()[0] != f"# Paper League — {latest.isoformat()}":
         raise EvidenceState("stale", "league-report-behind")
     published_names = _league_portfolio_names(league_text)
-    if sorted(published_names) != _expected_league_names(con, latest):
+    if sorted(published_names) != _expected_league_names(con, latest, pending):
         raise ValueError("league report portfolios do not match active equity")
 
     published_stale = _league_stale_positions(league_text)
@@ -259,8 +266,15 @@ def validate(
     summary: tuple[int, int, int, str],
     con: duckdb.DuckDBPyConnection,
     data_dir: Path,
+    *,
+    pending: tuple[str, ...] = (),
 ) -> None:
-    """Require generated screen and league reports to match their source state."""
+    """Require generated screen and league reports to match their source state.
+
+    ``pending`` names active books whose ``latest`` mark is not yet due from their
+    publisher; the caller has already checked each one is marked through the prior
+    session, which is how the league renders it.
+    """
     _validate_screen(meta, latest, summary, data_dir)
-    _validate_league_markdown(con, latest, data_dir)
+    _validate_league_markdown(con, latest, data_dir, pending)
     _validate_league_csv(con, data_dir)
