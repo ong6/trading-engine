@@ -529,7 +529,7 @@ def test_dashboard_and_candidate_fail_visibly_on_malformed_success_payloads():
     assert "passingOnly: true" in market
     assert "export function isScreenResult(" in market
     assert "data.ticker !== expectedTicker" in market
-    assert "bar.high >= Math.max(bar.open, bar.close, bar.low)" in market
+    assert "bar.high >= Math.max(...body, bar.low)" in market
     assert "quoteBar?.close === data.latest_close" in market
     assert "isScreenResult(data.screen, { ticker: expectedTicker })" in market
     assert 'data.purpose !== "candidate_admission_only"' in research

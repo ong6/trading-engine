@@ -350,6 +350,7 @@ def test_candidate_bars_reject_invalid_numeric_values(field, value, message):
         "low": 99.0,
         "close": 101.0,
         "volume": 1_000,
+        "provisional": False,
     }
     bar[field] = value
 
@@ -366,6 +367,7 @@ def test_candidate_bars_require_ordered_dates_and_valid_ohlc_geometry():
             "low": 99.0,
             "close": 101.0,
             "volume": 1_000,
+            "provisional": False,
         },
         {
             "date": date(2026, 9, 4),
@@ -374,6 +376,7 @@ def test_candidate_bars_require_ordered_dates_and_valid_ohlc_geometry():
             "low": 98.0,
             "close": 101.0,
             "volume": 1_000,
+            "provisional": False,
         },
     ]
 
@@ -393,6 +396,7 @@ def test_candidate_latest_quote_must_match_a_valid_bar():
             "low": 99.0,
             "close": 101.0,
             "volume": 1_000,
+            "provisional": False,
         }
     ]
 
@@ -408,6 +412,7 @@ def test_candidate_projection_rejects_incoherent_envelope():
         "low": 99.0,
         "close": 101.0,
         "volume": 1_000,
+        "provisional": False,
     }
     valid = {
         "ticker": "AAA",

@@ -715,8 +715,10 @@ test("candidate projection requires ordered coherent bars and an exact quote", (
     as_of: "2026-09-04",
     n_bars: 2,
     bars: [
-      { date: "2026-09-03", open: 99, high: 102, low: 98, close: 101, volume: 1000 },
-      { date: "2026-09-04", open: 101, high: 104, low: 100, close: 103, volume: 1200 },
+      { date: "2026-09-03", open: 99, high: 102, low: 98, close: 101, volume: 1000,
+        provisional: false },
+      { date: "2026-09-04", open: 101, high: 104, low: 100, close: 103, volume: 1200,
+        provisional: false },
     ],
     latest_close_date: "2026-09-04",
     latest_close: 103,
@@ -735,6 +737,18 @@ test("candidate projection requires ordered coherent bars and an exact quote", (
   const impossibleBar = clone(valid);
   impossibleBar.bars[0].high = 100;
   assert.equal(isCandidateProjection(impossibleBar, "AAA"), false);
+
+  const provisionalOpen = clone(valid);
+  provisionalOpen.bars[1].open = 99.5;
+  assert.equal(isCandidateProjection(provisionalOpen, "AAA"), false);
+  provisionalOpen.bars[1].provisional = true;
+  assert.equal(isCandidateProjection(provisionalOpen, "AAA"), true);
+  provisionalOpen.bars[1].close = 99.5;
+  assert.equal(isCandidateProjection(provisionalOpen, "AAA"), false);
+
+  const untypedFlag = clone(valid);
+  untypedFlag.bars[0].provisional = "false";
+  assert.equal(isCandidateProjection(untypedFlag, "AAA"), false);
 
   const negativeVolume = clone(valid);
   negativeVolume.bars[0].volume = -1;
@@ -764,6 +778,7 @@ test("candidate projection requires ordered coherent bars and an exact quote", (
     low: 99,
     close: 100,
     volume: 1000,
+    provisional: false,
   }));
   tooManyBars.n_bars = tooManyBars.bars.length;
   assert.equal(isCandidateProjection(tooManyBars, "AAA"), false);

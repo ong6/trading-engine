@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from datetime import date
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 import duckdb
 
@@ -76,7 +77,8 @@ SCREEN_PROJECTION_KEYS = frozenset(
 CANDIDATE_PROJECTION_KEYS = frozenset(
     {"ticker", "as_of", "n_bars", "bars", "latest_close_date", "latest_close", "screen"}
 )
-CANDIDATE_BAR_KEYS = frozenset({"date", "open", "high", "low", "close", "volume"})
+CANDIDATE_BAR_KEYS = frozenset({"date", "open", "high", "low", "close", "volume", "provisional"})
+NEW_YORK = ZoneInfo("America/New_York")
 
 
 def _screen_result_columns(con: duckdb.DuckDBPyConnection) -> str:
@@ -355,21 +357,39 @@ def screen(
     )
 
 
+def bar_is_provisional(bar_date: date, fetched_at: datetime | None) -> bool:
+    """True while a daily bar's last fetch fell on or before its New York session date.
+
+    The nightly collect (~18:30 New York) stores yfinance's same-session bar, whose
+    open can sit outside its own high/low (2026-10-19: 228 of 4,058 bars, with every
+    close inside); the next night's re-fetch rewrites the bar and moves `fetched_at`,
+    which clears the flag. `fetched_at` is naive UTC as stored; unknown is not provisional.
+    """
+    if fetched_at is None:
+        return False
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    return fetched_at.astimezone(NEW_YORK).date() <= bar_date
+
+
 def _candidate_bars(
     con: duckdb.DuckDBPyConnection,
     ticker: str,
     market_date: date,
     limit: int,
 ) -> list[dict]:
-    return rows(
+    bars = rows(
         con.execute(
-            "SELECT date, open, high, low, close, volume FROM ("
-            "  SELECT date, open, high, low, close, volume FROM prices "
+            "SELECT date, open, high, low, close, volume, fetched_at FROM ("
+            "  SELECT date, open, high, low, close, volume, fetched_at FROM prices "
             "  WHERE ticker = ? AND date <= ? ORDER BY date DESC LIMIT ?"
             ") ORDER BY date",
             [ticker, market_date, limit],
         )
     )
+    for bar in bars:
+        bar["provisional"] = bar_is_provisional(bar["date"], bar.pop("fetched_at"))
+    return bars
 
 
 class InadmissiblePriceData(ValueError):
@@ -386,7 +406,14 @@ def _validate_candidate_prices(bar: dict) -> None:
     require_public_positive_number(bar["low"], "candidate low")
     require_public_positive_number(bar["close"], "candidate close")
     require_public_nonnegative_number(bar["volume"], "candidate volume")
-    reasons = price_bar_reasons(bar)
+    provisional = bar.get("provisional", False)
+    if type(provisional) is not bool:
+        raise ValueError("public candidate provisional flag is invalid")
+    # A same-session provisional bar is shown flagged, as fetched: its open can sit
+    # outside high/low until the next night's re-fetch settles it (2026-10-19: 228
+    # opens outside, no close). The close and the range itself are still checked,
+    # and every scalar invariant of the shared admission validator still applies.
+    reasons = price_bar_reasons({**bar, "open": bar["close"]} if provisional else bar)
     if any(reason.endswith("geometry") for reason in reasons):
         raise ValueError("public candidate OHLC geometry is invalid")
     if reasons:
@@ -441,14 +468,14 @@ def retained_bar_quality(
     rejected = ""
     if table_exists(con, "price_observation_rejects"):
         rejected = (
-            " UNION ALL SELECT ticker, date, NULL, NULL, NULL, NULL, NULL, MIN(reason) "
+            " UNION ALL SELECT ticker, date, NULL, NULL, NULL, NULL, NULL, MIN(reason), NULL "
             "FROM price_observation_rejects WHERE ticker = ANY(?) AND date <= ? "
             "AND interval = '1d' AND reason NOT IN "
             "('replacement_predecessor', 'split_restatement_predecessor', 'intraday_existing_key', 'identical_duplicate') GROUP BY ticker, date"
         )
     observations = rows(con.execute(
         "WITH observations AS (SELECT ticker, date, open, high, low, close, volume, "
-        "NULL::VARCHAR AS reason FROM prices WHERE ticker = ANY(?) AND date <= ?"
+        "NULL::VARCHAR AS reason, fetched_at FROM prices WHERE ticker = ANY(?) AND date <= ?"
         + rejected + ") SELECT * EXCLUDE (recency) FROM (SELECT *, "
         "DENSE_RANK() OVER (PARTITION BY ticker ORDER BY date DESC) AS recency "
         "FROM observations) WHERE recency <= ? ORDER BY ticker, date, reason NULLS FIRST",
@@ -459,6 +486,7 @@ def retained_bar_quality(
     for bar in observations:
         ticker = require_public_ticker(bar["ticker"])
         dates[ticker].add(bar["date"])
+        bar["provisional"] = bar_is_provisional(bar["date"], bar.pop("fetched_at"))
         reason = bar["reason"] or _candidate_price_reason(bar)
         if reason is not None:
             invalid[ticker][bar["date"]] = reason
