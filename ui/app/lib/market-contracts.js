@@ -53,7 +53,7 @@ const CANDIDATE_PROJECTION_KEYS = [
   "screen",
   "ticker",
 ];
-const CANDIDATE_BAR_KEYS = ["close", "date", "high", "low", "open", "volume"];
+const CANDIDATE_BAR_KEYS = ["close", "date", "high", "low", "open", "provisional", "volume"];
 
 function hasExactKeys(value, keys) {
   return (
@@ -195,6 +195,9 @@ export function isCandidateProjection(data, expectedTicker) {
   }
   let priorDate = null;
   const barsValid = data.bars.every((bar) => {
+    // A same-session provisional bar keeps its fetched open, which can sit outside
+    // high/low until the next night's re-fetch; its close and range still must hold.
+    const body = bar?.provisional === true ? [bar.close] : [bar?.open, bar?.close];
     const valid =
       isRecord(bar) &&
       hasExactKeys(bar, CANDIDATE_BAR_KEYS) &&
@@ -209,8 +212,9 @@ export function isCandidateProjection(data, expectedTicker) {
       bar.low > 0 &&
       Number.isFinite(bar.close) &&
       bar.close > 0 &&
-      bar.high >= Math.max(bar.open, bar.close, bar.low) &&
-      bar.low <= Math.min(bar.open, bar.close, bar.high) &&
+      typeof bar.provisional === "boolean" &&
+      bar.high >= Math.max(...body, bar.low) &&
+      bar.low <= Math.min(...body, bar.high) &&
       Number.isFinite(bar.volume) &&
       bar.volume >= 0;
     priorDate = bar?.date;

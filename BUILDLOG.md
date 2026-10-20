@@ -3641,4 +3641,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; documentation and manual-harness lines only, budget ok.
 - **Next:** orchestrator acceptance of the runbook and Sunday execution-time gates.
 
+## 2026-10-20 — Show same-night provisional bars flagged instead of refusing them
+
+- **Why:** Reproduction: on the published snapshot `GET /candidates/{PD,OSCR,MCS,UVE,AIG}` returned 422 `inadmissible_price_data`; 228 of 4,058 bars for 2026-10-19, all fetched that evening, have the open outside high/low and no close outside. The next night's re-fetch rewrites them.
+- **What:** `server.market_read_models.bar_is_provisional` calls a bar provisional while its last fetch fell on or before its New York session date, from the `fetched_at` ingest already stamps; the next re-fetch clears it.
+  `/candidates` bars carry `provisional`; a provisional bar may have its open outside high/low (close and range still checked), and a settled impossible bar is still refused with 422. The UI contract accepts the flag and the summary says the latest bar is provisional.
+  Ingest and P15 limit evidence are unchanged: `engine/lib/db.py` and `engine/collect.py` are pinned by the XS, sector and E1 runtime contracts and the P15 registration, and the P15 book schema is frozen.
+- **Evidence:** `pytest tests/test_provisional_bars.py`: 3 failed before, 4 passed after; on the snapshot all five names return 200 with the 2026-10-19 bar flagged provisional; full suite (`-W error -n 2`) 4,816 passed, UI 67 passed.
+- **Metrics:** server +27, UI +8, tests +105; no registered or runtime-contract file changed.
+- **Next:** nothing admitted (ingest-side geometry logging needs a runtime-contract amendment).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
