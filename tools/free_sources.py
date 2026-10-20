@@ -29,6 +29,10 @@ MASSIVE_SPLITS_ENDPOINT = "https://api.massive.com/v3/reference/splits"
 MASSIVE_KEY_PATH = Path.home() / ".config/trading-engine/massive.key"
 MASSIVE_INTERVAL_SECONDS = 13.0
 MASSIVE_DAILY_SESSION_CAP = 10
+# The free tier pages reference splits 1,000 rows at a time and the archived 2026-10-18 chain
+# needed at least three pages for 2024-10..2026-10, so follow next_url; ten pages (about two
+# minutes of the shared 13 s limiter) bound a bootstrap while a daily increment is one page.
+MASSIVE_SPLIT_PAGE_CAP = 10
 HTTP_TIMEOUT_SECONDS = 60
 USER_AGENT = "trading-engine-free-source-research/1"
 UTC_NO_CALL_WINDOWS = (
@@ -433,21 +437,26 @@ def capture_massive_splits(
     session: requests.Session | None = None,
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     rate_limit: Callable[[], object] | None = None,
-    max_pages: int = 2,
+    max_pages: int = MASSIVE_SPLIT_PAGE_CAP,
 ) -> dict:
-    """Capture at most two pages of reference splits through the shared limiter."""
-    if max_pages < 1 or max_pages > 2:
-        raise free_sources.FreeSourceError("Massive splits page limit must be between 1 and 2")
+    """Capture reference splits, following next_url for at most max_pages pages."""
+    if max_pages < 1 or max_pages > MASSIVE_SPLIT_PAGE_CAP:
+        raise free_sources.FreeSourceError(
+            f"Massive splits page limit must be between 1 and {MASSIVE_SPLIT_PAGE_CAP}"
+        )
     instant = now()
     start = _split_start(database, _aware_utc(instant, "split capture timestamp").date())
     key = _load_massive_key() if api_key is None else api_key
     client = session or requests.Session()
     url = _split_url(start)
-    pages, observed, page_shas = [], set(), []
+    pages, observed, page_shas, requested = [], set(), [], set()
     reconciliation_at = instant
     try:
         for _page in range(max_pages):
             _validate_split_url(url)
+            if url in requested:
+                raise free_sources.FreeSourceError("Massive splits next_url repeats a page")
+            requested.add(url)
             _require_network_window(now())
             if rate_limit is None:
                 free_sources.wait_for_massive_rate_limit(
@@ -504,7 +513,9 @@ def capture_massive_splits(
     finally:
         if session is None:
             client.close()
-    raise free_sources.FreeSourceError("Massive splits response exceeded the two-page daily bound")
+    raise free_sources.FreeSourceError(
+        f"Massive splits response exceeded the {max_pages}-page bound"
+    )
 
 
 def _paths(parser: argparse.ArgumentParser) -> None:

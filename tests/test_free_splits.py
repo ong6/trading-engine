@@ -376,3 +376,21 @@ def test_split_parser_rejects_invalid_ratios():
     body = SPLIT_BODY.replace(b'"split_to":4', b'"split_to":0')
     with pytest.raises(free_sources.FreeSourceError, match="split row"):
         free_sources.parse_massive_splits(body)
+
+
+def test_split_cursor_that_returns_to_an_earlier_page_fails_closed(tmp_path):
+    database, data_dir = tmp_path / "free.duckdb", tmp_path / "raw"
+    first = capture._split_url(capture._split_start(database, date(2026, 1, 6)))
+
+    with pytest.raises(free_sources.FreeSourceError, match="repeats a page"):
+        _capture_splits(
+            database, data_dir, _split_body(_five_splits(), next_url=first), 6, max_pages=3
+        )
+
+
+def test_split_page_limit_is_capped(tmp_path):
+    with pytest.raises(free_sources.FreeSourceError, match="between 1 and 10"):
+        _capture_splits(
+            tmp_path / "free.duckdb", tmp_path / "raw", _split_body([]), 6,
+            max_pages=capture.MASSIVE_SPLIT_PAGE_CAP + 1,
+        )
