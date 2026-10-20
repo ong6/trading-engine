@@ -204,28 +204,45 @@ def test_backtest_releases_live_reader_before_session_loop(monkeypatch, tmp_path
     assert all(kwargs.get("no_accounts") is True for kwargs, _ok in steps)
 
 
-def test_sweep_reopens_and_releases_live_reader_per_book(monkeypatch, tmp_path):
+def _snapshot_store(path) -> None:
+    # The columns data_snapshot hashes, so a nightly-style insert would move it.
+    writer = duckdb.connect(str(path))
+    writer.execute("CREATE TABLE prices (ticker VARCHAR, date DATE, close DOUBLE, "
+                   "fetched_at TIMESTAMP)")
+    writer.execute("INSERT INTO prices VALUES "
+                   "('SPY', DATE '2026-01-02', 2, TIMESTAMP '2026-01-02 22:30:00')")
+    writer.close()
+
+
+def _coherent_grid_cell(con, live_path, kwargs) -> tuple:
+    # A grid's cohort signature includes the data snapshot, so every cell must
+    # see the same store: the grid keeps its one reader, which is never
+    # released mid-grid, and a live writer stays refused between cells.
+    assert not kwargs.get("release_live")
+    from engine.lib.data_quality import data_snapshot
+    return id(con), data_snapshot(con)["sha256"], _writer_can_open(live_path)
+
+
+def test_sweep_keeps_one_live_reader_so_every_book_shares_a_snapshot(
+        monkeypatch, tmp_path):
     from farm.sweep import sweep
     live_path = tmp_path / "live.duckdb"
-    _live_store(live_path)
+    _snapshot_store(live_path)
     observed = []
     monkeypatch.setattr(sweep, "expand", lambda _name: [{"id": "cand-a"}, {"id": "cand-b"}])
     monkeypatch.setattr(sweep, "_bench_book", lambda _con: {"id": "bench"})
     monkeypatch.setattr(sweep, "rank", lambda *_args, **_kwargs: {})
-
-    def fake_run_book(book_con, config_id, *, release_live, **_kwargs):
-        assert book_con.execute("SELECT COUNT(*) FROM prices").fetchone() == (2,)
-        assert release_live is True
-        book_con.close()  # what run_book does once the scratch store is built
-        observed.append((config_id, _writer_can_open(live_path)))
-
-    monkeypatch.setattr(sweep.runner, "run_book", fake_run_book)
+    monkeypatch.setattr(
+        sweep.runner, "run_book",
+        lambda book_con, _config_id, **kwargs: observed.append(
+            _coherent_grid_cell(book_con, live_path, kwargs)),
+    )
     live = duckdb.connect(str(live_path), read_only=True)
     try:
         sweep.run_sweep(live, "grid", out_root=tmp_path / "sweeps")
+        assert observed == [(id(live), observed[0][1], False)] * 3
     finally:
         live.close()
-    assert observed == [("bench", True), ("cand-a", True), ("cand-b", True)]
 
 
 # ------------------------------------------------------------- NaN results -- #
@@ -304,17 +321,15 @@ def test_readme_names_books_not_yet_revalidated(tmp_path, monkeypatch):
     assert "fill model `v5`, runtime contract revision 2, source `tree-now`" in readme
 
 
-def test_capital_grid_reopens_and_releases_live_reader_per_cell(monkeypatch, tmp_path):
+def test_capital_grid_keeps_one_live_reader_so_every_cell_shares_a_snapshot(
+        monkeypatch, tmp_path):
     from farm import capital_sensitivity
     live_path = tmp_path / "live.duckdb"
-    _live_store(live_path)
+    _snapshot_store(live_path)
     observed = []
 
-    def fake_replay(cell_con, _config_id, _window, *, release_live, **kwargs):
-        assert cell_con.execute("SELECT COUNT(*) FROM prices").fetchone() == (2,)
-        assert release_live is True
-        cell_con.close()  # what run_replay does before its session loop
-        observed.append((kwargs["initial_cash"], _writer_can_open(live_path)))
+    def fake_replay(cell_con, _config_id, _window, **kwargs):
+        observed.append(_coherent_grid_cell(cell_con, live_path, kwargs))
         return {}
 
     monkeypatch.setattr(capital_sensitivity.replay, "run_replay", fake_replay)
@@ -326,6 +341,6 @@ def test_capital_grid_reopens_and_releases_live_reader_per_cell(monkeypatch, tmp
         capital_sensitivity.run_grid(live, "probe", "5y", capitals=(10_000.0, 39_000.0),
                                      profiles=("baseline_v1",), out_dir=tmp_path / "out",
                                      scratch_root=tmp_path / "scratch")
+        assert observed == [(id(live), observed[0][1], False)] * 2
     finally:
         live.close()
-    assert observed == [(10_000.0, True), (39_000.0, True)]

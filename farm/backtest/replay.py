@@ -103,20 +103,6 @@ def is_reader(con) -> bool:
     return bool(row and row[0])
 
 
-# A grid reopens its reader per replay and may race a nightly writer's collect.
-REOPEN_WAIT_S = 900.0
-
-
-def reader_path(con) -> str | None:
-    """The store path behind a read-only handle a grid may close and reopen."""
-    if not is_reader(con):
-        return None
-    row = con.execute(
-        "SELECT path FROM duckdb_databases() "
-        "WHERE database_name = current_database()").fetchone()
-    return row[0] if row and row[0] else None
-
-
 def _require_single_portfolio(con) -> None:
     """Reject replay scratch state that is missing or mixes portfolio books."""
     count = con.execute("SELECT COUNT(*) FROM portfolios").fetchone()[0]

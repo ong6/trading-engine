@@ -54,7 +54,6 @@ from engine.lib import resources
 from engine.lib.log import get_logger
 from engine.lib.settings import DATA_DIR, REPO_ROOT
 from farm import stats as fstats
-from farm.backtest.replay import REOPEN_WAIT_S, reader_path
 from farm.walkforward import protocol, runner
 
 log = get_logger("sweep")
@@ -315,31 +314,19 @@ def run_sweep(
     todo = [_bench_book(live_con)] + cands
     log.info(f"[sweep] {name}: {len(cands)} candidate(s) + benchmark, {n_folds} folds each")
 
-    # Each book reads the live store only while it builds its scratch store, so
-    # a multi-hour grid never pins a reader (which blocks every live writer).
-    live_path = reader_path(live_con)
-    if live_path is not None:
-        live_con.close()
     for b in todo:
-        book_con = (live_con if live_path is None else
-                    _db.connect(live_path, read_only=True, wait_s=REOPEN_WAIT_S))
-        try:
-            runner.run_book(
-                book_con,
-                b["id"],
-                book=b,
-                anchor=anchor,
-                n_folds=n_folds,
-                scratch_root=Path(scratch_root),
-                results_dir=out_dir / "results",
-                write_result=True,
-                verbose=True,
-                threads=threads,
-                release_live=live_path is not None,
-            )
-        finally:
-            if book_con is not live_con:
-                book_con.close()
+        runner.run_book(
+            live_con,
+            b["id"],
+            book=b,
+            anchor=anchor,
+            n_folds=n_folds,
+            scratch_root=Path(scratch_root),
+            results_dir=out_dir / "results",
+            write_result=True,
+            verbose=True,
+            threads=threads,
+        )
     return rank(
         name,
         out_root=out_root,

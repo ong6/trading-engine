@@ -201,30 +201,18 @@ def run_grid(live_con, config_id: str, window: str, *,
     """Run and persist every capital/profile cell outside canonical outputs."""
     cells = []
     root = Path(out_dir) / config_id / window
-    # Each cell reads the live store only until its scratch store is built, so
-    # a day-long grid never pins a reader (which blocks every live writer).
-    live_path = replay.reader_path(live_con)
-    if live_path is not None:
-        live_con.close()
     for profile_id in profiles:
         execution.resolve_profile(profile_id)
         for capital in capitals:
             capital = float(capital)
             cell_dir = root / "cells" / profile_id / capital_slug(capital)
-            cell_con = (live_con if live_path is None else db.connect(
-                live_path, read_only=True, wait_s=replay.REOPEN_WAIT_S))
-            try:
-                result = replay.run_replay(
-                    cell_con, config_id, window,
-                    scratch_root=Path(scratch_root) / profile_id / capital_slug(capital),
-                    results_dir=cell_dir, write_result=True, verbose=verbose,
-                    threads=threads, mem_mb=mem_mb, initial_cash=capital,
-                    execution_profile=profile_id,
-                    release_live=live_path is not None,
-                )
-            finally:
-                if cell_con is not live_con:
-                    cell_con.close()
+            result = replay.run_replay(
+                live_con, config_id, window,
+                scratch_root=Path(scratch_root) / profile_id / capital_slug(capital),
+                results_dir=cell_dir, write_result=True, verbose=verbose,
+                threads=threads, mem_mb=mem_mb, initial_cash=capital,
+                execution_profile=profile_id,
+            )
             cell = {"profile_id": profile_id, **_cell_summary(result)}
             cells.append(cell)
 
