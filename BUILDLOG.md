@@ -3641,4 +3641,21 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; documentation and manual-harness lines only, budget ok.
 - **Next:** orchestrator acceptance of the runbook and Sunday execution-time gates.
 
+## 2026-10-20 — Snapshot invariant monitor in shadow mode
+
+- **Why:** orchestrator item B2 after the first v2 nightly: the day-zero checks (fee rows, P15
+  publication order, close-outs, equity per book) were run by hand, and checks must read the
+  published snapshot, never the live store.
+- **What:** `tools/invariants` (ten checks: bar geometry, split basis, unrecorded split breaks,
+  fee rows, equity per active book, close-outs, P15 publication order, pre-open voids, finite
+  results) and `tools/check_invariants.py`, which refuses any non-snapshot path before opening
+  it; a baseline of owned, expiring exceptions; the hourly digest reruns it when the snapshot
+  sha256 changes and `/meta` shows it as `invariants`. Three unfixed defects filed in scope.
+- **Evidence:** `nice -n 19 python -m tools.check_invariants --snapshot latest --publish …` →
+  5.8 s, no `store/market.duckdb` handle in 55 fd samples; 2026-10-19: 228 of 4,058 bars
+  (5.62%) impossible, 74/74 fee rows ($41.12), 25/25 books marked, void 10-16 baselined; 38
+  regressions, each filed.
+- **Metrics:** tools +1,103 · server +117 · product unchanged.
+- **Next:** the orchestrator reviews the baseline entries; `--gate` waits for the filed fixes.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
