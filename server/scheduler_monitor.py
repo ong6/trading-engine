@@ -12,7 +12,7 @@ from pathlib import Path
 
 from engine.lib.settings import REPO_ROOT
 
-from . import friday_postflight, scheduler_host
+from . import friday_postflight, schedule_contract, scheduler_host
 from .driver_monitor import DRIVER_SCHEDULES
 from .host_command import command_budget
 
@@ -24,36 +24,11 @@ PUBLIC_UNIT_STATUSES = frozenset({"degraded", "ok", "unknown"})
 PUBLIC_BACKUP_STATUSES = frozenset({"current", "stale", "unknown"})
 PUBLIC_BACKUP_STATES = frozenset({"absent", "failed", "ok", "retry", "unknown"})
 
-# Installed but left as the operator set them: tools.install_automation does not
-# enable, start or verify a held unit until the blocker named beside it is fixed.
-HELD_UNITS = frozenset(
-    {
-        # Disabled at the v2 deploy: the provider rejects the splits page bound and
-        # option daily bars return status invalid. Persistent=true would fire at once.
-        "massive-options-daily.timer",
-    }
-)
-AUTOSTART_UNITS = (
-    frozenset(
-        {
-            "trading-engine-agent-data-capture.timer",
-            "trading-engine-agent-shadow.timer",
-            "trading-engine-daily-opportunity.timer",
-            "trading-engine-hourly-opportunity.timer",
-            "trading-engine-four-hour-opportunity.timer",
-            "trading-engine-tradingview-history.timer",
-            "trading-engine-p15-scoring.timer",
-            "trading-engine-p15-preopen.timer",
-            "trading-engine-p15-events.timer",
-            "massive-options-daily.timer",
-            "trading-engine-accounts-settle.timer",
-            "trading-engine-ops-digest.timer",
-            "trading-engine-api.service",
-            "trading-engine-ui.service",
-        }
-    )
-    - HELD_UNITS
-)
+# Both sets come from server/schedule-contract.json. A held unit is installed but
+# tools.install_automation does not enable, start or verify it until the blocker named
+# in its manifest reason is fixed.
+HELD_UNITS = schedule_contract.held_units()
+AUTOSTART_UNITS = schedule_contract.autostart_units()
 # The private data repository's backup timer runs at 04:30 and 10:30 UTC; a day with
 # both slots skipped or failed leaves the newest off-host copy older than this.
 BACKUP_STALE_AFTER_HOURS = 26
