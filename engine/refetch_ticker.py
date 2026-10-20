@@ -20,6 +20,13 @@ Refuses a ticker with open sim_positions unless --force, because a re-scaled
 history under a live position changes its mark without any corporate-action
 record. Writes an audit_log row and flips the ticker's split_adjustments
 watermark(s) to `superseded_by_refetch` (rows are kept, never deleted).
+
+Every date the store already had keeps its first_fetched_at; only new dates are
+stamped now (DXJ, JEM, SNEX and APH lost theirs to the DELETE). A replacement
+that rescales stored bars by a split-sized ratio is recorded first as a
+`split_like_rewrite` audit row (engine.actions), so the nightly actions fetch
+asks about the name and a split with no corporate_actions row is surfaced (DXJ's
+3:1, ex 2026-10-09, was missing after its refetch).
 """
 from __future__ import annotations
 
@@ -28,6 +35,7 @@ import json
 from datetime import date, datetime, timezone
 
 import duckdb
+import pandas as pd
 
 from engine.lib import db
 from engine.lib.log import get_logger
@@ -96,9 +104,28 @@ def refetch(con: duckdb.DuckDBPyConnection, ticker: str, *, apply: bool, force: 
               f"({s.date.min()}..{s.date.max()}); nothing written")
         return out
 
+    from engine import actions
+
     with db.transaction(con):
+        # A replacement that rescales stored bars is the same evidence a split-like
+        # re-fetch leaves: record it before the old closes are gone, so the nightly
+        # actions fetch asks about the name and a missing split row is surfaced.
+        out["split_like_rewrite"] = bool(actions.record_split_like_rewrites(con, s))
+        # Each (ticker, date) keeps its first availability stamp; only dates the
+        # store never had are stamped now (the DELETE would otherwise reset them).
+        first = con.execute(
+            "SELECT date, COALESCE(first_fetched_at, fetched_at) FROM prices "
+            "WHERE ticker = ? AND COALESCE(first_fetched_at, fetched_at) IS NOT NULL",
+            [ticker]).fetchall() if db_has_column(con, "prices", "first_fetched_at") else []
         con.execute("DELETE FROM prices WHERE ticker = ?", [ticker])
         n = db.upsert_prices(con, s)
+        if first:
+            kept = pd.DataFrame(first, columns=["date", "first_fetched_at"])
+            with db.registered_frame(con, "_kept_first_fetch", kept):
+                con.execute(
+                    "UPDATE prices SET first_fetched_at = k.first_fetched_at "
+                    "FROM _kept_first_fetch k WHERE prices.ticker = ? AND prices.date = k.date",
+                    [ticker])
         if db_has(con, "split_adjustments"):
             con.execute("UPDATE split_adjustments SET outcome = 'superseded_by_refetch' "
                         "WHERE ticker = ?", [ticker])
@@ -115,6 +142,12 @@ def refetch(con: duckdb.DuckDBPyConnection, ticker: str, *, apply: bool, force: 
 def db_has(con, table: str) -> bool:
     return con.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
                        [table]).fetchone()[0] > 0
+
+
+def db_has_column(con, table: str, column: str) -> bool:
+    return con.execute("SELECT COUNT(*) FROM information_schema.columns "
+                       "WHERE table_name = ? AND column_name = ?",
+                       [table, column]).fetchone()[0] > 0
 
 
 def main() -> int:
