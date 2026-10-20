@@ -20,6 +20,7 @@ from server import (
     nightly_monitor,
     queue_monitor,
     read_model_utils,
+    schedule_contract,
     scheduler_monitor,
     sector_forward_status,
     source_control,
@@ -40,6 +41,7 @@ OPTIONAL_PROJECTION_OWNERS = {
     "xs_forward_review": xs_forward_status,
     "e1_forward": e1_forward_status,
     "friday_postflight": friday_postflight,
+    "schedule_contract": schedule_contract,
 }
 
 EMPTY_QUARANTINES = {
@@ -65,6 +67,15 @@ def _javascript_constant(source: str, declaration: str) -> str:
     match = re.search(rf"^const {declaration} = (?P<value>.+);$", source, re.MULTILINE)
     assert match is not None
     return match["value"]
+
+
+def test_schedule_contract_rules_match_browser_contract():
+    source = (REPO_ROOT / "ui" / "app" / "lib" / "meta-automation-contracts.js").read_text()
+    rules = _javascript_string_fields(source, "SCHEDULE_CONTRACT_RULES")
+    assert set(rules) == schedule_contract.STATIC_RULES | schedule_contract.LIVE_RULES
+    assert _javascript_constant(source, "SCHEDULE_CONTRACT_VIOLATION_LIMIT") == str(
+        schedule_contract.PUBLIC_VIOLATION_LIMIT
+    )
 
 
 def test_public_driver_fields_match_browser_contract():
@@ -294,6 +305,7 @@ def test_meta_uses_complete_snapshot_internally_but_returns_only_summary(
             "scheduler": {},
             "friday_postflight": {},
             "source_control": {},
+            "schedule_contract": {},
         },
     )
     monkeypatch.setattr(
@@ -560,6 +572,7 @@ def test_meta_keeps_live_status_when_snapshot_is_invalid(tmp_path, monkeypatch):
             "friday_postflight",
             {"status": "invalid", "reason": "projection-error"},
         ),
+        ("public_status", "schedule_contract", schedule_contract.invalid_status()),
     ],
 )
 def test_meta_isolates_unexpected_optional_projection_failures(

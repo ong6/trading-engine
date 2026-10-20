@@ -136,6 +136,56 @@ const SOURCE_CONTROL_LOCAL_ONLY_REASONS = new Set([
   "no-upstream",
   "tracking-ref-missing",
 ]);
+const SCHEDULE_CONTRACT_STATUSES = new Set([
+  "absent",
+  "error",
+  "invalid",
+  "ok",
+  "stale",
+  "violations",
+]);
+const SCHEDULE_CONTRACT_FIELDS = [
+  "status",
+  "checked_at",
+  "age_minutes",
+  "stale_after_minutes",
+  "violation_count",
+  "violations",
+  "truncated",
+];
+// server/schedule_contract.py STATIC_RULES | LIVE_RULES
+const SCHEDULE_CONTRACT_RULES = new Set([
+  "autostart-drift",
+  "cron-drift",
+  "duplicate-cron",
+  "failed",
+  "foreign-holder",
+  "held-active",
+  "held-autostart",
+  "held-cron",
+  "held-enabled",
+  "held-holder",
+  "holder-outside-window",
+  "lane-path",
+  "manifest-invalid",
+  "manifest-source-missing",
+  "max-runtime-drift",
+  "missing-cron",
+  "not-active",
+  "not-enabled",
+  "not-installed",
+  "off-manifest-cron",
+  "off-manifest-unit",
+  "state-drift",
+  "stops-live-unit",
+  "timer-drift",
+  "unbounded",
+  "undeclared-holder",
+  "undeclared-writer",
+  "unit-not-in-manifest",
+]);
+const SCHEDULE_CONTRACT_VIOLATION_LIMIT = 20;
+const SCHEDULE_CONTRACT_SUBJECT_MAX_CHARS = 255;
 const FIRST_POSTFLIGHT_AT = "2026-09-12T05:15:00+00:00";
 const SCHEDULER_TIMEZONE_MAX_CHARS = 255;
 const SOURCE_CONTROL_IDENTITY_MAX_CHARS = 4096;
@@ -514,10 +564,56 @@ function isSourceControl(source) {
   return status === "diverged" && ahead > 0 && behind > 0;
 }
 
+function isScheduleContractViolation(violation) {
+  return (
+    hasExactFields(violation, ["rule", "subject"]) &&
+    SCHEDULE_CONTRACT_RULES.has(violation.rule) &&
+    isBoundedPrintableLine(violation.subject, SCHEDULE_CONTRACT_SUBJECT_MAX_CHARS) &&
+    !violation.subject.includes("/")
+  );
+}
+
+function isScheduleContract(contract) {
+  if (
+    !hasExactFields(contract, SCHEDULE_CONTRACT_FIELDS) ||
+    !SCHEDULE_CONTRACT_STATUSES.has(contract.status) ||
+    !isPositiveInteger(contract.stale_after_minutes) ||
+    !isNonnegativeInteger(contract.violation_count) ||
+    typeof contract.truncated !== "boolean" ||
+    !Array.isArray(contract.violations) ||
+    contract.violations.length > SCHEDULE_CONTRACT_VIOLATION_LIMIT ||
+    !contract.violations.every(isScheduleContractViolation) ||
+    contract.truncated !== contract.violation_count > contract.violations.length ||
+    (!contract.truncated && contract.violation_count !== contract.violations.length)
+  ) {
+    return false;
+  }
+  if (contract.checked_at === null) {
+    return (
+      ["absent", "invalid"].includes(contract.status) &&
+      contract.age_minutes === null &&
+      contract.violation_count === 0
+    );
+  }
+  if (
+    !isOffsetIsoTimestamp(contract.checked_at) ||
+    !isNonnegativeInteger(contract.age_minutes) ||
+    ["absent", "invalid"].includes(contract.status)
+  ) {
+    return false;
+  }
+  if (contract.status === "stale") return contract.age_minutes > contract.stale_after_minutes;
+  if (contract.age_minutes > contract.stale_after_minutes) return false;
+  if (contract.status === "ok") return contract.violation_count === 0;
+  if (contract.status === "violations") return contract.violation_count > 0;
+  return true;
+}
+
 export function isMetaAutomation(data) {
   return (
     isScheduler(data.scheduler) &&
     isFridayPostflight(data.friday_postflight) &&
-    isSourceControl(data.source_control)
+    isSourceControl(data.source_control) &&
+    isScheduleContract(data.schedule_contract)
   );
 }

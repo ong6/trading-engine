@@ -22,6 +22,10 @@ noted in the digest, never fatal.
 ``python -m tools.ops_digest --report [--hours 24]`` prints a summary for an agent to start
 from: hour statuses, failed, missing and slow runs, every scheduled job's runs checked against
 the timers and crontab, each driver's stages, the loudest error signatures and log growth.
+
+Each run also checks the host and schedule contract (``server/schedule_contract.py``, read-only)
+and writes the result to ``logs/ops/schedule-contract.json``, which ``/meta`` projects as
+``schedule_contract``; any violation makes the hour WARN.
 """
 
 from __future__ import annotations
@@ -49,6 +53,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DEFAULT_DB, LOGS_DIR, REPO_ROOT
+from server import schedule_contract
 from tools.stage_timings import load_timings
 
 OPS_DIR = LOGS_DIR / "ops"
@@ -118,6 +123,8 @@ CREATE TABLE IF NOT EXISTS file_offsets (path TEXT PRIMARY KEY, inode INT, offse
 
 Runner = Callable[[list[str], float], str | None]
 Fetch = Callable[[str, float], tuple[int, int, bytes]]
+ContractProbe = Callable[[datetime], dict]
+CONTRACT_RESULT = "schedule-contract.json"
 
 
 def _iso(moment: datetime) -> str:
@@ -430,6 +437,16 @@ def probe(fetch: Fetch) -> tuple[list[dict], dict[str, str]]:
     return probes, sections
 
 
+def contract_probe(now: datetime) -> dict:
+    """Static and live schedule-contract check; read-only, it never opens a database."""
+    try:
+        return schedule_contract.check(static=True, live=True, repo_root=REPO_ROOT, now=now)
+    except Exception as exc:  # noqa: BLE001 - a probe defect must not stop the digest
+        return {"status": "error", "checked_at": _iso(now).replace("Z", "+00:00"),
+                "modes": ["static", "live"], "violations": [], "exceptions": [],
+                "errors": [f"probe crashed: {type(exc).__name__}"], "counts": {}}
+
+
 def _tree_bytes(root: Path) -> int:
     """Apparent size of the regular files under ``root``; symlinks are not followed."""
     total = 0
@@ -474,6 +491,13 @@ def _duration(seconds: float | None) -> str:
     return f"{minutes}m{secs:02d}s" if minutes else f"{secs}s"
 
 
+def _contract_detail(detail: dict) -> str:
+    keys = ("pid", "database", "mode", "cmdline", "cgroup")
+    shown = {key: detail[key] for key in keys if key in detail}
+    text = ", ".join(f"{key} {value}" for key, value in shown.items())
+    return f" ({text.replace(str(Path.home()), '~')[:400]})".replace("`", "'") if text else ""
+
+
 def render(hour: datetime, data: dict) -> str:
     end = hour + timedelta(hours=1)
     lines = [
@@ -515,6 +539,17 @@ def render(hour: datetime, data: dict) -> str:
             lines.append("`/meta` sections not ok: " + ", ".join(
                 f"{key}={value}" + (" (changed)" if key in data["section_changes"] else "")
                 for key, value in sorted(unhealthy.items())))
+    contract = data.get("contract")
+    if contract:
+        lines += ["", "## Schedule contract", "",
+                  f"{contract['status']}: {len(contract['violations'])} violation(s), "
+                  f"{len(contract['exceptions'])} excepted, {len(contract['errors'])} probe "
+                  f"error(s) (`python -m tools.schedule_contract_check --live`)."]
+        if contract["violations"] or contract["errors"]:
+            lines.append("")
+        lines += [f"- {item['rule']}: {item['subject']}" + _contract_detail(item["detail"])
+                  for item in contract["violations"]]
+        lines += [f"- probe error: {error}" for error in contract["errors"]]
     noisy = [(name, sig) for name, sig in sorted(data["signals"].items())
              if sig.counts["error"] or sig.counts["warn"]]
     if noisy:
@@ -545,6 +580,7 @@ def render(hour: datetime, data: dict) -> str:
 def collect_hour(
     db: sqlite3.Connection, hour: datetime, *, since: datetime | None, run: Runner,
     fetch: Fetch, logs_dir: Path, ops_dir: Path, db_path: Path, now: datetime,
+    contract_check: ContractProbe | None = None,
 ) -> dict:
     """Collect one UTC hour.
 
@@ -565,9 +601,14 @@ def collect_hour(
             item["typical"] = typical_seconds(db, item["unit"], item["started"])
             item["slow"] = bool(item["typical"] and item["seconds"] > SLOW_FACTOR * item["typical"])
     stages = collect_stages(db, logs_dir, since) if since is not None else []
-    probes, sections, fp = [], {}, {}
+    probes, sections, fp, contract = [], {}, {}, None
     if last:
         collect_files(db, logs_dir, ops_dir, signals)
+        # Before the /meta probe, so this hour's /meta shows this hour's contract.
+        contract = (contract_check or contract_probe)(now)
+        schedule_contract.write_result(ops_dir / CONTRACT_RESULT, contract)
+        if contract["errors"]:
+            gaps.append("schedule contract probe: " + "; ".join(contract["errors"]))
         probes, sections = probe(fetch)
         fp = footprint(run, logs_dir, db_path)
     previous = dict(db.execute(
@@ -584,7 +625,8 @@ def collect_hour(
     if failed or failed_stages or (health and health["http_status"] != 200):
         status = "FAIL"
     elif errors or any(r.get("slow") or r["result"] == SKIPPED_RESULT for r in runs) or any(
-            p["ms"] > SLOW_PROBE_MS for p in probes):
+            p["ms"] > SLOW_PROBE_MS for p in probes) or (
+            contract is not None and contract["status"] != "ok"):
         status = "WARN"
     else:
         status = "OK"
@@ -592,7 +634,7 @@ def collect_hour(
         "status": status, "collected_at": _iso(now), "failed_runs": len(failed) + len(
             failed_stages), "error_lines": errors, "warn_lines": warns, "gaps": gaps,
         "runs": runs, "stages": stages, "probes": probes, "sections": sections,
-        "section_changes": changes, "signals": signals, "footprint": fp,
+        "section_changes": changes, "signals": signals, "footprint": fp, "contract": contract,
     }
     digest = ops_dir / "hourly" / f"{hour:%Y-%m-%d}" / f"{hour:%H}.md"
     text = render(hour, data)
@@ -646,6 +688,7 @@ def prune(db: sqlite3.Connection, ops_dir: Path, now: datetime) -> None:
 def collect(
     *, now: datetime | None = None, run: Runner = _run, fetch: Fetch = _fetch,
     logs_dir: Path = LOGS_DIR, ops_dir: Path = OPS_DIR, db_path: Path = DEFAULT_DB,
+    contract_check: ContractProbe | None = None,
 ) -> list[dict]:
     """Collect every closed hour since the last run (at most ``MAX_BACKFILL_HOURS``)."""
     now = now or datetime.now(UTC)
@@ -670,8 +713,8 @@ def collect(
             for index, hour in enumerate(hours):
                 results.append(collect_hour(
                     db, hour, since=hours[0] if index == len(hours) - 1 else None,
-                    run=run, fetch=fetch,
-                    logs_dir=logs_dir, ops_dir=ops_dir, db_path=db_path, now=now))
+                    run=run, fetch=fetch, logs_dir=logs_dir, ops_dir=ops_dir,
+                    db_path=db_path, now=now, contract_check=contract_check))
                 db.execute("INSERT OR REPLACE INTO meta VALUES ('next_hour', ?)",
                            ((hour + timedelta(hours=1)).isoformat(),))
                 db.commit()

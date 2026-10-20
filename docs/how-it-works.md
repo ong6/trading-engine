@@ -37,6 +37,17 @@ The `trading-engine-ops-digest.timer` collects at :08 UTC from the user journal,
 probe holds an API read connection that refuses writers, so it runs clear of every other
 timer's start minute. Digests are kept 30 days and metrics 180 days. A missing source shows as a collection gap, never a failure.
 
+What may run on this host is declared in `server/schedule-contract.json`: every user unit, timer
+and cron line (including ones other repositories install), whether it is enabled, held or
+disabled and why, which live databases it may hold and when. Each digest run checks it
+read-only (`.venv/bin/python -m tools.schedule_contract_check --live`; `--static` checks a
+checkout) and publishes the result as `/meta` `schedule_contract`. A violation names the unit or
+process: a timer-driven unit without a runtime bound, a unit started from a lane worktree, a
+unit or cron line missing from the manifest, a failed unit, or a process holding
+`store/market.duckdb` or `store/pit/*.duckdb` outside a declared window (with its pid, command
+line and cgroup in `logs/ops/schedule-contract.json`). Change the manifest in the same commit
+as the unit; the installer reads its autostart and held sets from it.
+
 Read `GET /meta` before interpreting a log in isolation. It reconciles schedule, log, lock,
 database, report, queue, source-control, and evidence state. A missing or malformed
 `data/_meta.json` is reported separately and does not hide live projections. `GET /health`
