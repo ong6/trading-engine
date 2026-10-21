@@ -3947,4 +3947,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +35 lines.
 - **Next:** stale provisional bars.
 
+## 2026-10-21 — Never-settled same-night bars are asked for again, then retired
+
+- **Why:** P24 integrity lane; scope.md 2026-10-20 line. DDS and SUNC 2026-10-12 and CIB 2026-10-16 kept their same-night bars (open outside high/low) after newer sessions landed. Reproduced against the source: it answers NaN for DDS and SUNC on 10-12 and 10-13 on every later night, so the 5d re-fetch never replaced them; CIB was deactivated the next night and never asked again, though the source now has its settled 10-16 bar. The store copy holds 30 such never-settled bars dated before the newest session (13 of them on 10-16, all names deactivated on 10-20).
+- **What:** after the nightly incremental fetch, `collect.settle_stale_provisional` re-asks for every never-settled key of the last 31 days (a stored bar last fetched on or before its own session, `data_quality.never_settled_sql`, or a hole whose only observations are rejected geometry faults) and upserts only those keys, never an all-NaN "no bar" answer, through normal admission. Any still unsettled and inadmissible is moved by `price_quarantine.retire_stale_provisional` (original retained as `stale_provisional,<faults>`, key deleted, as the revision-15 cleanup does); a valid unsettled bar stays and is asked again. Best-effort: it never changes the night's fetch record.
+- **Evidence:** `pytest tests/test_collect.py` 23 passed; the new test settles CIB from the source, retires DDS with its original kept, keeps the valid ET bar, and the next pass re-asks for the valid bar and the hole and stores or rejects nothing.
+- **Metrics:** engine +120 lines.
+- **Next:** repair tool for the bars already wrong in the store.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
