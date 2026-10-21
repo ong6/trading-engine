@@ -3995,4 +3995,23 @@ the 42-entry 2026-09-19 C90 complexity series is in
   pin; the orchestrator re-pins).
 - **Next:** walk-forward fold profile.
 
+## 2026-10-21 — Record the revision-15 install (R15.1–R15.3, 08:03–08:48 UTC)
+
+- **Why:** orchestrator follow-up to the P24 ops audit: the install ran on the host with no
+  BUILDLOG record. Evidence is the deploy state directory, the checkout reflog and the units.
+- **What:** deploy gate passed on `71d3b0d` at 08:04 (invariants warn only). R15.1: inventory
+  and quiescence 08:03, backup of revision-14 `9e9acc5` verified, recovery-ready 08:06.
+  R15.2: fast-forward to `71d3b0d` at 08:18, registration revision 15, three runtime
+  migrations, cleanup dry run 155 invalid rows on 127 tickers, 332 provisional kept, 0 moved.
+  R15.3: cleanup applied 08:22 (155 moved), forward reviews and P15 reporting, snapshot
+  published 08:34, API 08:35 and UI 08:36 restarted, history timer enabled, board and positions
+  captured 08:37 (after the validation block, under `set -e`), producers released. Amendment:
+  install-automation audit and apply 08:47–08:48 (re-audit: no changes left, options timer held,
+  P16 challengers disabled per contract), model gateway ok (startup 0.205.1, installed 0.210.1).
+- **Evidence:** deployed `/meta`: E1 v8, sector v12, XS v23, all ACCUMULATING; every timer
+  scheduled. Later fast-forwards: `6f4086d` (gated 08:58), then docs-only `7875093`, `05b3515`.
+- **Metrics:** unchanged (record only).
+- **Next:** tonight's 22:30 nightly is the first revision-15 nightly; Sunday 10-25 the first
+  walk-forward with the 7 h job timeout.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
