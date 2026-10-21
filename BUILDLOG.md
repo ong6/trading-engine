@@ -3947,4 +3947,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +12/-0, tests +44 lines.
 - **Next:** none admitted; the alpha-side evaluators keep their own comparators.
 
+## 2026-10-21 — Dividend withholding applies to receipts, never to a short's liability
+
+- **Why:** P24 quant-audit lane. `farm.study.simulate` multiplied the signed dividend cash by `(1 - dividend_withholding)` in both the event and portfolio paths, so a short position paid 70% of the dividend it owed under the 30% Singapore withholding. Reproduction: a one-share-class short over a USD 1 ex-date booked -7 of -10 per 10 shares, and a portfolio short of 1,000 shares booked -700 of -1,000.
+- **What:** `_after_withholding` keeps the full gross for a negative (owed) amount and withholds only from a positive receipt; the portfolio path applies it per holding so a mixed long/short book is right. Long-only behaviour and the gross-of-withholding ledger fields are unchanged.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_study_followup2.py` passes; the new short test fails on the previous code. The sim/ledger account path already debited shorts at full gross; only the study core differed.
+- **Metrics:** farm +9/-3, tests +29 lines.
+- **Next:** none admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
