@@ -80,3 +80,18 @@ def test_capacity_reports_each_order_and_available_maxima():
     assert result["max_mdv60_share"] == pytest.approx(0.02)
     assert result["max_auction_volume_share"] == pytest.approx(0.05)
     assert result["orders"][1]["auction_volume_share"] is None
+
+
+def test_clustered_se_equals_the_t_test_on_daily_means_for_equal_clusters():
+    """With equal cluster sizes the CR1 cluster-robust SE of the trade mean is exactly
+    sd(daily means, ddof=1) / sqrt(days): an independent closed form."""
+    rng = np.random.default_rng(11)
+    days, per_day = 40, 5
+    trades = [TradeObservation(date(2024, 1, 1) + __import__("datetime").timedelta(days=d),
+                               float(rng.normal(0.001 * d, 0.02)), 750.0, 2e6)
+              for d in range(days) for _ in range(per_day)]
+    result = clustered_trade_stats(trades)
+    daily = np.asarray([np.mean([t.net_return for t in trades if t.entry_session == day])
+                        for day in sorted({t.entry_session for t in trades})])
+    assert result["se"] == pytest.approx(daily.std(ddof=1) / math.sqrt(days))
+    assert result["one_sided_t"] == pytest.approx(daily.mean() / (daily.std(ddof=1) / math.sqrt(days)))
