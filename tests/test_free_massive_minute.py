@@ -11,7 +11,7 @@ import pytest
 import requests
 
 from engine import free_massive_minute as minute
-from engine import free_sources
+from engine import free_sources, raw_payload
 from tools import free_massive_minute as capture
 from tools import free_sources as daily_capture
 
@@ -98,6 +98,10 @@ def test_paginated_chunk_is_cached_loaded_and_key_stays_out_of_cache(tmp_path: P
     assert "fixture-secret" not in "".join(
         path.read_text(errors="ignore") for path in tmp_path.rglob("*") if path.is_file()
     )
+    sealed = list((tmp_path / "raw").glob("*.json.zst"))
+    assert len(sealed) == 2
+    assert not list((tmp_path / "raw").glob("*.json"))
+    assert all(raw_payload.decode(path.read_bytes()) for path in sealed)
 
 
 def test_interrupted_pagination_resumes_at_saved_next_url(tmp_path: Path):

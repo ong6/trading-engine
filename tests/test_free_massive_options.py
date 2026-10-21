@@ -3,13 +3,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shlex
+import subprocess
+import sys
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import duckdb
 import pytest
 
 from engine import free_massive_options as options
-from engine import free_sources
+from engine import free_sources, raw_payload
 from tools import free_massive_options as capture
 from tools import provider_contracts as contracts
 
@@ -56,6 +61,63 @@ class Session:
         )
 
 
+@pytest.fixture(autouse=True)
+def enable_collection_for_capture_tests(monkeypatch):
+    monkeypatch.setattr(capture, "COLLECTION_ENABLED", True)
+
+
+def test_collection_is_paused_by_default_config_without_io(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(capture, "COLLECTION_ENABLED", False)
+    database = tmp_path / "options.duckdb"
+    result = capture.capture(
+        database=database, data_dir=tmp_path / "raw",
+        daily_database=tmp_path / "daily.duckdb", session=Session(fail=True),
+    )
+    assert result == {
+        "status": "paused", "reason": "no_registered_reader",
+        "collection_enabled": False,
+    }
+    assert not database.exists()
+    assert capture.main([
+        "--database", str(database), "--data-dir", str(tmp_path / "raw"),
+        "--daily-database", str(tmp_path / "daily.duckdb"),
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "paused"
+
+
+def test_service_always_refreshes_splits_before_paused_options():
+    service = Path(capture.__file__).parents[1] / "server/massive-options-daily.service"
+    lines = service.read_text().splitlines()
+    commands = [line.removeprefix("ExecStart=") for line in lines if line.startswith("ExecStart=")]
+    assert len(commands) == 2
+    assert "tools.free_sources massive --splits" in commands[0]
+    assert "tools.free_massive_options" in commands[1]
+    assert not any(line.startswith("ExecCondition=") for line in lines)
+
+
+def test_options_service_import_failure_is_not_mapped_to_paused(tmp_path: Path):
+    root = Path(__file__).resolve().parents[1]
+    service = root / "server/massive-options-daily.service"
+    option_command = next(
+        line.removeprefix("ExecStart=") for line in service.read_text().splitlines()
+        if line.startswith("ExecStart=") and "tools.free_massive_options" in line
+    )
+    arguments = shlex.split(option_command)[1:]
+    shadow = tmp_path / "tools"
+    shadow.mkdir()
+    (shadow / "__init__.py").write_text("")
+    (shadow / "free_massive_options.py").write_text(
+        "raise RuntimeError('injected options import failure')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, *arguments], cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": f"{tmp_path}:{root}"},
+        text=True, capture_output=True, check=False,
+    )
+    assert result.returncode != 0
+    assert "injected options import failure" in result.stderr
+
+
 def test_recorded_contract_and_daily_pages_load_through_shared_limiter(tmp_path):
     database, data_dir = tmp_path / "options.duckdb", tmp_path / "raw"
     limiter = []
@@ -92,6 +154,10 @@ def test_recorded_contract_and_daily_pages_load_through_shared_limiter(tmp_path)
     )
     assert receipts == 2
     assert len(session.urls) == 2
+    for body in (CONTRACTS, DAILY):
+        logical = data_dir / f"{hashlib.sha256(body).hexdigest()}.json"
+        assert not logical.exists()
+        assert raw_payload.read(logical, expected_sha256=logical.stem) == body
 
 
 def test_tampered_cached_response_fails_sha_check(tmp_path):
@@ -124,6 +190,9 @@ def test_capture_resumes_from_verified_receipts_without_network_or_limiter(tmp_p
         selected_underlyings=("SPY",), contracts_only=True,
         rate_limit=lambda: calls.append("reserved"), close_overrides={"SPY": 500.0},
     )
+    logical = data_dir / f"{hashlib.sha256(CONTRACTS).hexdigest()}.json"
+    logical.write_bytes(raw_payload.read(logical))
+    raw_payload.compressed_path(logical).unlink()
     second = capture.capture(
         database=database, data_dir=data_dir, daily_database=tmp_path / "unused.duckdb",
         api_key="fixture-key", session=Session(fail=True), now=lambda: NOW, as_of=AS_OF,
@@ -144,7 +213,8 @@ def test_missing_cached_response_file_is_a_source_error(tmp_path):
         selected_underlyings=("SPY",), contracts_only=True,
         rate_limit=lambda: None, close_overrides={"SPY": 500.0},
     )
-    (data_dir / f"{hashlib.sha256(CONTRACTS).hexdigest()}.json").unlink()
+    logical = data_dir / f"{hashlib.sha256(CONTRACTS).hexdigest()}.json"
+    raw_payload.compressed_path(logical).unlink()
 
     with pytest.raises(free_sources.FreeSourceError, match="file is missing or unreadable"):
         capture.capture(

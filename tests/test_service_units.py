@@ -166,6 +166,8 @@ def test_tradingview_archive_timer_is_bounded_and_queue_owned():
     assert f"StandardError={log}" in service
     assert "--enqueue tradingview_history" in runner
     assert "--run --run-kind tradingview_history" in runner
+    assert "--collection-state" in runner and "--publish-paused" in runner
+    assert "export PYTHONPATH=" in runner
     # Each archive slice must not republish the full-database snapshot, and a
     # publication failure is not swallowed.
     assert "tools.publish_snapshot --min-age-minutes 1440" in runner

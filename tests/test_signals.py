@@ -74,6 +74,40 @@ def test_connection_narrowed_db_source_gets_read_only_lease(monkeypatch, tmp_pat
     assert result["rows_inserted"] == 1
 
 
+def test_unread_macro_collection_is_paused_and_active_series_have_purposes():
+    assert signals.UNREAD_MACRO_COLLECTION_ENABLED is False
+    assert "cot" not in signals.SOURCES
+    assert signals.COLLECTED_MACRO_SERIES == frozenset(signals.SERIES_PURPOSES)
+    assert signals.COLLECTED_MACRO_SERIES.isdisjoint(signals.UNREAD_MACRO_SERIES)
+
+
+def test_paused_shared_response_fields_are_not_emitted_or_requested(monkeypatch):
+    calls = []
+
+    class Response:
+        text = "date,dix,gex\n2026-10-01,0.45,9000000\n"
+
+        @staticmethod
+        def json():
+            return {"ratios": [
+                {"name": "TOTAL PUT/CALL RATIO", "value": 1.2},
+                {"name": "EQUITY PUT/CALL RATIO", "value": 0.8},
+            ]}
+
+    def get(url, **_kwargs):
+        calls.append(url)
+        response = Response()
+        if url.endswith("equitypc.csv"):
+            response.text = "DATE,CALLS,PUTS,TOTAL,P/C RATIO\n10/01/2026,1,1,2,0.8\n"
+        return response
+
+    monkeypatch.setattr(signals, "_get", get)
+    assert {row[0] for row in signals.src_squeezemetrics(None, "incremental")} == {"dix"}
+    assert {row[0] for row in signals._pc_era1()} == {"pc_equity"}
+    assert {row[0] for row in signals._pc_era2_day(date(2026, 10, 1))} == {"pc_equity"}
+    assert not any(url.endswith("totalpc.csv") for url in calls)
+
+
 def test_breadth_unregisters_temporary_universe_when_calculation_fails(con, monkeypatch):
     con.execute(
         "CREATE TABLE universe_snapshot "

@@ -74,10 +74,12 @@ MANAGED_PATH_RE = re.compile(
     r"((?:store|data|logs|scratch)/[A-Za-z0-9_.*{}<>/-]+"
     r"(?:\.[A-Za-z0-9_*{}<>-]+)?)"
 )
-FALSE_DDL_NAMES = {"if", "so"}
+# Prose words, and the migration's rebuild tables that are renamed over their originals.
+FALSE_DDL_NAMES = {"if", "so", "portfolios_r16", "sim_fill_fees_r16"}
 EXTERNAL_DYNAMIC_CONSTANTS = {
     "RETENTION_TABLE": "broker_paper_authority_retained_events",
     "RISK_EVIDENCE_TABLE": "broker_paper_authority_risk_evaluations",
+    "MIGRATION_TABLE": "schema_migrations",
 }
 IGNORED_MANAGED_PATHS = {
     "store/yahoo",  # Historical prose describes a store/Yahoo value ratio.
@@ -109,6 +111,8 @@ SOURCE_DATABASES = {
     Path("farm/credit_confirmed_experiment.py"): "scratch/credit-confirmed-spy-v1/**.duckdb",
 }
 NON_DUCKDB_DDL_SOURCES = {Path("tools/ops_digest.py")}
+# Replays the primary's own catalogued DDL into an immutable generation; it declares nothing.
+REPLICA_DDL_SOURCES = {Path("tools/publish_snapshot.py")}
 PINNED_REHEARSAL = {
     "as_of": "2026-10-18T13:39:50.276918+00:00",
     "source_commit": "1d104decf05c64a29dacbfb361c4f5a2805e775b",
@@ -295,7 +299,7 @@ def _dynamic_objects(tree: ast.AST, path: Path) -> set[tuple[str, str]]:
 
 
 def _database_for_source(relative: Path) -> str | None:
-    if relative in NON_DUCKDB_DDL_SOURCES:
+    if relative in NON_DUCKDB_DDL_SOURCES or relative in REPLICA_DDL_SOURCES:
         return None
     if relative.parts[:2] == ("farm", "replay"):
         return "scratch/replay/**/replay.duckdb"

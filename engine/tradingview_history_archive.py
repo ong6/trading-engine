@@ -23,7 +23,7 @@ from engine import bitemporal_facts
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import merge_meta
-from engine.lib.settings import DEFAULT_DB
+from engine.lib.settings import DEFAULT_DB, META_PATH, REPO_ROOT
 
 COHORT = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}$")
 EXCHANGE_PREFIX = {"Q": "NASDAQ", "P": "AMEX", "N": "NYSE",
@@ -35,6 +35,7 @@ INCREMENTAL_WINDOW_DAYS = 14
 MAX_CHUNKS_PER_RUN = 100
 DEFAULT_MAX_CHUNKS = 50
 DEFAULT_MAX_ATTEMPTS = 3
+COLLECTION_POLICY_PATH = REPO_ROOT / "server/collection-policy.json"
 # An exhausted window is retried RETRY_COOLDOWN after its latest attempt. A
 # refusal becomes terminal on the REFUSAL_DAYS-th refusal at least RETRY_COOLDOWN
 # after the previous counted one, i.e. on three separate days over >= 48 hours.
@@ -49,6 +50,42 @@ LIMITATION = ("current-liquid-universe snapshot; survivor-biased and retrieval-t
 
 class ArchiveError(ValueError):
     """Archive parameters or persisted state are invalid."""
+
+
+def collection_enabled(policy_path: Path = COLLECTION_POLICY_PATH) -> bool:
+    """Read the dependency-light collection switch shared with nightly planning."""
+    try:
+        policy = json.loads(policy_path.read_text())
+    except (OSError, ValueError) as exc:
+        raise ArchiveError("collection policy is unreadable") from exc
+    if (not isinstance(policy, dict)
+            or set(policy) != {"schema_version", "tradingview_history"}
+            or policy["schema_version"] != 1
+            or not isinstance(policy["tradingview_history"], bool)):
+        raise ArchiveError("collection policy is invalid")
+    return policy["tradingview_history"]
+
+
+def paused_status(
+    cohort_id: str = "liquid-current-v1",
+    *, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+) -> dict:
+    return {
+        "status": "paused", "reason": "no_registered_reader",
+        "collection_enabled": False, "cohort_id": cohort_id,
+        "last_run": clock().isoformat(),
+    }
+
+
+def publish_paused(
+    meta_path: str | Path = META_PATH, *, cohort_id: str = "liquid-current-v1",
+    clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+) -> dict:
+    if collection_enabled():
+        raise ArchiveError("cannot publish paused evidence while collection is enabled")
+    result = paused_status(cohort_id, clock=clock)
+    merge_meta(meta_path, {"tradingview_history": result})
+    return result
 
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
@@ -381,6 +418,12 @@ def run_connection_narrowed(
     if cohort_id == "liquid-current-v1" and symbols is not None:
         raise ArchiveError("production liquid cohort cannot use an explicit symbol subset")
     now = clock or (lambda: datetime.now(timezone.utc))
+    if not collection_enabled():
+        result = paused_status(cohort_id, clock=now)
+        if meta_path is not None:
+            merge_meta(meta_path, {"tradingview_history": result})
+        print(json.dumps(result, sort_keys=True))
+        return result
     path = Path(db_path) if db_path is not None else DEFAULT_DB
     con = db.connect(path)
     try:
@@ -436,12 +479,21 @@ def run_connection_narrowed(
     return result
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     import argparse
     parser = argparse.ArgumentParser(description="Read TradingView history archive status.")
     parser.add_argument("--cohort", default="liquid-current-v1")
     parser.add_argument("--db", default=None)
-    args = parser.parse_args()
+    parser.add_argument("--meta", default=str(META_PATH))
+    parser.add_argument("--collection-state", action="store_true")
+    parser.add_argument("--publish-paused", action="store_true")
+    args = parser.parse_args(argv)
+    if args.collection_state:
+        print("enabled" if collection_enabled() else "paused")
+        return 0
+    if args.publish_paused:
+        print(json.dumps(publish_paused(args.meta, cohort_id=args.cohort), sort_keys=True))
+        return 0
     con = db.connect(args.db, read_only=True)
     try:
         print(json.dumps(archive_status(con, args.cohort), indent=2, sort_keys=True))

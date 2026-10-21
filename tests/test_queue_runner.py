@@ -8,6 +8,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+import builtins
 from datetime import date
 
 import duckdb
@@ -57,8 +58,7 @@ def test_main_closes_connection_on_schema_failure(monkeypatch):
 def test_nightly_plan_monday_has_three_mining_jobs():
     plan = qr.nightly_plan(date(2026, 8, 31))  # a Monday
     assert [(k, p) for k, p, _ in plan] == [
-        ("intraday", 100), ("signals", 105), ("earnings", 110),
-        ("tradingview_history", 130)]
+        ("intraday", 100), ("signals", 105), ("earnings", 110)]
     assert dict((k, params) for k, _, params in plan)["signals"] == '{"mode": "incremental"}'
 
 
@@ -66,13 +66,13 @@ def test_nightly_plan_friday_adds_fundamentals_last():
     plan = qr.nightly_plan(date(2026, 9, 4))  # a Friday
     assert [(k, p) for k, p, _ in plan] == [
         ("intraday", 100), ("signals", 105), ("earnings", 110),
-        ("tradingview_history", 130), ("fundamentals", 120)]
+        ("fundamentals", 120)]
 
 
 @pytest.mark.parametrize("wd", [1, 2, 3, 4, 6, 7])
 def test_nightly_plan_weekday_override_non_friday(wd):
     assert [k for k, _, _ in qr.nightly_plan(weekday=wd)] == [
-        "intraday", "signals", "earnings", "tradingview_history"]
+        "intraday", "signals", "earnings"]
 
 
 def test_nightly_plan_weekday_override_beats_date():
@@ -83,6 +83,21 @@ def test_nightly_plan_weekday_override_beats_date():
 def test_nightly_plan_rejects_bad_weekday():
     with pytest.raises(ValueError):
         qr.nightly_plan(weekday=0)
+
+
+def test_paused_nightly_plan_does_not_import_tradingview_collector(monkeypatch):
+    monkeypatch.setattr(qr, "_tradingview_history_collection_enabled", lambda: False)
+    original_import = builtins.__import__
+
+    def refuse_collector(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "engine" and "tradingview_history_archive" in fromlist:
+            raise ImportError("injected stopped collector import failure")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", refuse_collector)
+    assert [kind for kind, _priority, _params in qr.nightly_plan(weekday=2)] == [
+        "intraday", "signals", "earnings",
+    ]
 
 
 def test_nightly_plan_priorities_precede_every_research_kind():
@@ -97,20 +112,18 @@ def test_enqueue_nightly_writes_rows_and_is_idempotent(qcon, capsys):
         ("intraday", "pending", 100, "{}"),
         ("signals", "pending", 105, '{"mode": "incremental"}'),
         ("earnings", "pending", 110, "{}"),
-        ("tradingview_history", "pending", 130,
-         '{"cohort_id":"liquid-current-v1","start":"2022-01-01","max_chunks":50}'),
         ("fundamentals", "pending", 120, "{}"),
     ]
     # a second nightly (same weekday) dedups every one — the guard-tripped case
     assert qr.cmd_enqueue_nightly(qcon, weekday=5) == 0
-    assert len(_rows(qcon)) == 5
+    assert len(_rows(qcon)) == 4
     assert "skipping duplicate enqueue" in capsys.readouterr().out
 
 
 def test_enqueue_nightly_monday_skips_fundamentals(qcon):
     qr.cmd_enqueue_nightly(qcon, date(2026, 8, 31))
     assert [r[0] for r in _rows(qcon, "kind")] == [
-        "intraday", "signals", "earnings", "tradingview_history"]
+        "intraday", "signals", "earnings"]
 
 
 def test_enqueue_nightly_params_match_the_old_bash_text(qcon):
@@ -126,7 +139,7 @@ def test_enqueue_nightly_dry_run_writes_nothing(qcon, capsys):
     assert qr.cmd_enqueue_nightly(qcon, weekday=5, dry_run=True) == 0
     assert _rows(qcon) == []
     out = capsys.readouterr().out
-    assert out.count("DRY RUN would enqueue") == 5
+    assert out.count("DRY RUN would enqueue") == 4
     assert "fundamentals priority=120" in out
 
 

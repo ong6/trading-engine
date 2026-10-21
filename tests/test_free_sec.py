@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import zipfile
 from datetime import date, datetime, timezone
@@ -10,7 +11,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from engine import free_sec, free_sources
+from engine import free_sec, free_sources, raw_payload
 from tools import free_sec as capture
 
 # Fixed entry time: writestr(name, ...) stamps the current time, so two fixtures
@@ -164,10 +165,9 @@ class _Clock:
 
 
 class _Response:
-    status_code = 200
-
-    def __init__(self, body: bytes):
+    def __init__(self, body: bytes, status_code: int = 200):
         self.content = body
+        self.status_code = status_code
 
 
 class _Session:
@@ -183,6 +183,35 @@ class _Session:
         return _Response(self.bodies[url])
 
 
+class _ResponseSession:
+    def __init__(self, responses):
+        self.responses = iter(responses)
+        self.started = 0
+
+    def get(self, _url: str, **_kwargs):
+        self.started += 1
+        return next(self.responses)
+
+
+def test_sec_empty_retryable_response_is_sealed_then_retried(tmp_path: Path):
+    clock = _Clock()
+    session = _ResponseSession([_Response(b"", 429), _Response(b"valid", 200)])
+    client = capture.SecClient(
+        "Fixture Contact fixture@example.com", tmp_path, session=session,
+        now=lambda: ALLOWED, monotonic=clock.monotonic, sleep=clock.sleep,
+    )
+    response = client.get("https://www.sec.gov/retry")
+    assert response.body == b"valid" and response.resumed is False
+    assert session.started == 2
+    assert clock.sleeps == [1.0]
+    empty_sha = hashlib.sha256(b"").hexdigest()
+    compressed = next(tmp_path.rglob(f"{empty_sha}.raw.zst"))
+    logical = compressed.with_suffix("")
+    assert raw_payload.read(
+        logical, expected_sha256=empty_sha, expected_size=0,
+    ) == b""
+
+
 def test_sec_client_paces_parallel_requests_and_resumes_by_url_and_hash(tmp_path: Path):
     urls = ["https://www.sec.gov/a", "https://www.sec.gov/b"]
     clock, bodies = _Clock(), {urls[0]: b"first", urls[1]: b"second"}
@@ -195,6 +224,10 @@ def test_sec_client_paces_parallel_requests_and_resumes_by_url_and_hash(tmp_path
     assert session.started == [0.0, 0.2]
     assert clock.sleeps == [0.2]
     assert all(headers["Accept-Encoding"] == "gzip, deflate" for headers in session.headers)
+    assert not list(tmp_path.rglob("*.raw"))
+    sealed = list(tmp_path.rglob("*.raw.zst"))
+    assert len(sealed) == 2
+    assert sorted(raw_payload.decode(path.read_bytes()) for path in sealed) == [b"first", b"second"]
     resumed = capture.SecClient(
         "Fixture Contact fixture@example.com", tmp_path,
         session=_Session(bodies, clock, fail_urls=urls), now=lambda: ALLOWED,
