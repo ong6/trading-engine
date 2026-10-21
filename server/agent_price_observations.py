@@ -28,6 +28,13 @@ class ObservationError(ValueError):
     """A price row cannot be retained as an immutable normalized observation."""
 
 
+class InconsistentPriceError(ObservationError):
+    """A provider bar's OHLC values contradict each other (e.g. open below low).
+
+    The provider row is malformed, not the capture: the row is skipped and reported, and a
+    later consistent refetch is captured normally."""
+
+
 def _utc(value: datetime, field: str) -> datetime:
     if type(value) is not datetime:
         raise ObservationError(f"{field} is invalid")
@@ -132,7 +139,7 @@ def _normalized(
     if low_value > min(open_value, high_value, close_value) or high_value < max(
         open_value, low_value, close_value
     ):
-        raise ObservationError("price OHLC values are inconsistent")
+        raise InconsistentPriceError("price OHLC values are inconsistent")
     normalized = {
         "ticker": ticker,
         "market_date": market_date.isoformat(),
@@ -170,10 +177,16 @@ def _capture_rows(
     library_version = _library_version()
     prepared = []
     seen = set()
+    skipped = []
     for row in rows:
-        normalized, value, source_fetched_at = _normalized(
-            row, observed_at=observed_at
-        )
+        try:
+            normalized, value, source_fetched_at = _normalized(
+                row, observed_at=observed_at
+            )
+        except InconsistentPriceError:
+            skipped.append({"ticker": row[0], "market_date": row[1].isoformat(),
+                            "reason": "ohlc_inconsistent"})
+            continue
         key = (normalized["ticker"], date.fromisoformat(normalized["market_date"]))
         if key in seen:
             raise ObservationError("price capture contains a duplicate ticker/date")
@@ -282,6 +295,7 @@ def _capture_rows(
         "baseline_snapshots": baseline,
         "unchanged_observations": unchanged,
         "value_revisions": revisions,
+        "skipped_inconsistent": skipped,
     }
 
 
