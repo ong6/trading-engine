@@ -4094,4 +4094,28 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** tonight's 22:30 nightly is the first revision-15 nightly; Sunday 10-25 the first
   walk-forward with the 7 h job timeout.
 
+## 2026-10-21 — Start each test worker on its share of the slow tests and balance CI shards
+
+- **Why:** P24 test-speed lane. Baseline `pytest -q -W error -n 8`: 210.9s wall, last worker done at 205s against a 153s median, because worksteal's contiguous blocks left the four 33s `test_generated_delivery_matches_on_time_accounting` seeds queued on one worker; CI's hashed file shards held 447/294/270/245s of work.
+- **What:** under xdist, `tests/speed_plugin.py` reorders the collection so each worker's first worksteal block opens with a longest-first share of the tests recorded at 1s or more in `tests/durations.json`; the other tests keep collection order and file locality. CI shards take files longest-first onto the least-loaded shard (a file missing from the record counts 0.1s a test). `--record-durations PATH` rewrites the record. Order and shard membership change; the set of tests does not.
+- **Evidence:** replaying the recorded per-test times through xdist's worksteal rules gives 206s for the old order (205s measured) and 158s for the new; the worst 4-worker shard goes from 121s to 79s. `--collect-only` lists 5,762 nodes before and after, and the four shards' union equals that list exactly under UTC and Asia/Singapore.
+- **Metrics:** server/tools/product unchanged; tests +119/-12 lines plus the 558-line duration record.
+- **Next:** reuse the repeated P16 lambda calibrations.
+
+## 2026-10-21 — Reuse identical P16 lambda calibrations across test workers
+
+- **Why:** the P16 book, runner, store and transfer tests called `calibrate_lambda` 30 times at about 7s each (216s); the conftest helper and the store's validation recompute only 13 distinct synthetic cohorts.
+- **What:** a session fixture in `tests/speed_plugin.py` keeps one result per byte-identical input (type-tagged cases, grid and default grid), shared by all workers under a file lock. It is used only while the calibration, optimizer and projection modules are unpatched, so tests that inject solver failures or a fake calibration still run the real path. The validation still recomputes and compares; only the repeated deterministic solve is reused. `TEST_SPEED_VERIFY_MEMO=1` re-solves every reuse and fails if anything other than the timings differs, or if the inputs were changed.
+- **Evidence:** a verify-mode run of nine P16 files: 29 reuses, all identical to fresh solves, inputs unchanged, every test passes. Same files at `-n 8`: child CPU 304s before, 191s and 185s after.
+- **Metrics:** server/tools/product unchanged; tests +99 lines.
+- **Next:** take the suite's fsync waits off the shared disk.
+
+## 2026-10-21 — Keep test temporary files on tmpfs when there is room
+
+- **Why:** after the two changes above, the DuckDB-file-heavy tests (daily opportunities, backup, filing runner, P15 scoring, ops digest) spent 2-4x their CPU time waiting on disk flushes. Those five files at `-n 8` took 31-38s wall on disk and 12s on `/dev/shm`, with the same CPU.
+- **What:** when no `--basetemp` is given and `/dev/shm` has at least 6 GiB free, the controller puts the pytest base directory and `TMPDIR` under `/dev/shm/pytest-of-<user>/run-<pid>`; xdist workers inherit both. Files, locks, renames and checkpoints stay real. The run directory is removed at exit and runs whose process is gone are pruned; `TEST_SPEED_TMPFS=0` restores pytest's on-disk default. A full `-n 8` run peaked at 3.3 GiB.
+- **Evidence:** `nice -n 10 .venv/bin/python -m pytest -q -W error -n 8`: 210.9s before; 148.2s under UTC and 143.8s under Asia/Singapore after, with host load at 42-51 against 18-20 for the baseline. 5,762 executed, 5,761 passed, 0 skipped; the one failure (`docs/README.md` does not link the P24 plan) is on `main` before and after.
+- **Metrics:** server/tools/product unchanged; tests +61 lines.
+- **Next:** speed up row-at-a-time price-observation capture (75% of the broker human-paper tests) in a production lane.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
