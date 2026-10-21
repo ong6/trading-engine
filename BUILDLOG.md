@@ -3931,4 +3931,21 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine, server, farm and tests +330/-48 lines.
 - **Next:** reviewer round 2.
 
+## 2026-10-21 — Keep a league report current when its books are retired after the session
+
+- **Why:** P24 ops audit. Reproduction: after eight books were retired at 08:22 UTC
+  (`portfolio_retired` audit rows), `/meta` read `nightly_evidence=invalid` and the API logged
+  `league report portfolios do not match active equity` on every probe: the 2026-10-20 report
+  correctly lists the 25 books marked that session, but the check compared it with today's
+  `active` flag. Agents may now retire books themselves, so this recurs on every retirement.
+- **What:** `server/nightly_reports.py` also accepts, in the standings and stale-mark tables, a
+  public book marked for the report's session whose first `portfolio_retired` row is after
+  that session's 16:00 ET close. Unaudited or pre-close retirements still fail closed.
+- **Evidence:** `pytest tests/test_nightly_reports.py`: the new retirement test fails before
+  (ValueError) and 17 pass after; on a copy of the 08:34 snapshot with the live 10-20
+  `league.md`, `_validate_league_markdown` raised before and passes after.
+- **Metrics:** server +40, tests +49. Registered: `server/nightly_reports.py` (P15 pin; the
+  orchestrator re-pins).
+- **Next:** ops audit report for the orchestrator.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
