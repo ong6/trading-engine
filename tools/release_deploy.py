@@ -2020,7 +2020,7 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
 
     def _forced_snapshot(self, state: ReleaseState, *, rolled_back: bool) -> dict[str, Any]:
         code = (
-            "import duckdb,sys; c=duckdb.connect(sys.argv[1]); "
+            "import sys; from engine.lib import db; c=db.connect(sys.argv[1]); "
             "print('ready',flush=True); sys.stdin.read(1); c.close()"
         )
         python = (
