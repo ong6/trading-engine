@@ -4014,4 +4014,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +17 lines (pinned file engine/lib/db.py), tests +24 lines.
 - **Next:** P22 harness on generations.
 
+## 2026-10-21 — Serve the P22 round-2/3 API reads from a published generation
+
+- **Why:** r16-gen integrator action: five P22 GET regressions call revision-16 readers, which serve only a pinned generation, without publishing one (`DBBusyError: no valid published generation`).
+- **What:** the P22 harness builds its market store on the exact baseline catalog with a migration ledger (copying the shared fixture rows, since the speed plugin replaces the shared fixture file), and `publish()` publishes the generation the API reads; the five tests publish before their GETs. One test now stamps `execution_profile` on its legacy portfolio row, as every producer does, because a versioned store refuses runtime backfills.
+- **Evidence:** `pytest tests/test_p22_round2.py tests/test_p22_round3.py` passes except `test_late_recovery_keeps_cash_delisting`: `sim.settle.ensure_table` creates `sim_settlements` lazily and the revision-16 baseline catalog does not contain it (a revision-16 blocker, see the rehearsal entry).
+- **Metrics:** tests +60 lines.
+- **Next:** store-copy rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
