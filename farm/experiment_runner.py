@@ -93,7 +93,7 @@ RUNTIME_CONTRACT_FILES = (
 # Filled after the dependency list was frozen. The self-file digest normalizes
 # this literal so the contract can cover its own validation and verdict code.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "4da5afa3c006c5eb09fe17943e65ba74f2518078f9f94383bd66b1b4135346b5"
+    "638d09e4ebfb84261a45db58a35a399680bcbd2c4220f84803dfb1790a7f16c5"
 )
 # The deployed code identity of this same contract version (revision 15, installed
 # 2026-10-21). Revision 16 changed pinned bytes but not what E1 selects, prices, stores
