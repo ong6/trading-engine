@@ -3939,4 +3939,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** lane total +3,948 lines (tools and tests); adaptation 2 lines.
 - **Next:** land b-catalog.
 
+## 2026-10-21 — Admit the public Claude co-author trailer in the hygiene gate
+
+- **Why:** reproduction: with b-platform landed, `python -m tools.public_hygiene --range 230619bc..origin/main` reports `tool_coauthor` on the 32 main commits since the revision-15 base that carry `Co-Authored-By: Claude`, which the orchestrator's commit rule requires; the new CI `hygiene` job scans each pushed range, so every main push would go red.
+- **What:** the tool co-author rule keeps refusing the internal CLI and other unapproved tool trailers but no longer matches `claude`, matching AGENTS.md ("no employer or internal-tool co-author trailers"). A new regression proves the trailer is admitted.
+- **Evidence:** `pytest tests/test_public_hygiene.py` 21 passed; the new test fails on the prior regex.
+- **Metrics:** tools +2, tests +13 lines.
+- **Next:** orchestrator may revert this one commit if the trailer rule changes instead.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

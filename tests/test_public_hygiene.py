@@ -396,6 +396,19 @@ def test_invalid_metadata_and_tool_coauthor_are_rejected(tmp_path):
     assert {"commit_identity_email", "tool_coauthor"} <= _rules(findings)
 
 
+def test_public_claude_coauthor_trailer_is_admitted(tmp_path):
+    root, _remote = _repository(tmp_path)
+    base = _git(root, "rev-parse", "HEAD").stdout.strip()
+    (root / "metadata.txt").write_text("changed\n")
+    trailer = "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+    _git(root, "add", "metadata.txt")
+    _git(root, "commit", "-m", "metadata fixture", "-m", trailer)
+    head = _git(root, "rev-parse", "HEAD").stdout.strip()
+
+    findings = public_hygiene.RepositoryScanner(root).scan_range(f"{base}..{head}")
+
+    assert "tool_coauthor" not in _rules(findings)
+
 def test_merge_only_addition_is_scanned(tmp_path):
     root, _remote = _repository(tmp_path)
     base_branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()

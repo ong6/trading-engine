@@ -109,8 +109,10 @@ _SECRET_RULES = (
         (1, 2, 3),
     ),
 )
+# The repository's commit rule carries the public Claude co-author trailer, so only
+# internal or unapproved tool trailers are refused.
 _TOOL_COAUTHOR_RE = re.compile(
-    r"(?im)^co-authored-by:\s*(?:tra" + r"e(?:\s+cli)?|claude|codex|chatgpt|openai)\b"
+    r"(?im)^co-authored-by:\s*(?:tra" + r"e(?:\s+cli)?|codex|chatgpt|openai)\b"
 )
 _PUBLIC_FIXTURE_WORDS = ("dummy", "example", "fixture", "placeholder", "redacted", "test-only")
 _TEXT_LIMIT = object()
