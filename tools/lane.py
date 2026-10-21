@@ -38,7 +38,7 @@ FULL_SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 STATUS_FIELDS = frozenset({"lane", "branch", "base", "head"})
 GLOB_MAGIC = frozenset("*?[")
 CURRENT_LEGACY_SHA256 = "fdb5b81bce5029223b8acbed63f2b94d4a6c7781e0865d79a523f3005335fd98"
-CURRENT_LEGACY_BASE = "c3f5c0b13e8107b9e9e68c8afeca0a7e4701f85b"
+CURRENT_LEGACY_BASE = "230619bc6f99bfda24604cc0f5035269f6e3d97a"  # c3f5c0b after the E7 identity rewrite (same tree)
 CURRENT_LEGACY_ROWS = (
     ("eca970eb495930feec9c040bb8c657bb49994ef3069e432c6b5daa5708cc3999", "P18 backtest core"),
     ("71112b69ce466b3d00ad8f5a385ac8e17cc0543eaf2ec1d3a57c88bdc2e50193", "P3 phase 0, free sources"),

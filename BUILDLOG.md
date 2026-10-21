@@ -3931,4 +3931,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine, server, farm and tests +330/-48 lines.
 - **Next:** reviewer round 2.
 
+## 2026-10-21 — Land wave-1 b-platform (hygiene gate, lane tool) on the rewritten main
+
+- **Why:** P24 integrate lane; b-platform was reviewed to ACCEPT on the pre-rewrite revision-15 base.
+- **What:** the lane's 24 commits are rebased tree-faithfully onto main. Two adaptations to newer main: main already has a `checks` job (lint, audit, compile), so the lane's hygiene job is named `hygiene` instead of a second `checks` key that YAML would silently collapse; the reviewed one-time claims migration's base is mapped to the rewritten equivalent of the old revision-15 head (same tree), because the pre-rewrite commit no longer exists in the public history and the migration test fetched it.
+- **Evidence:** `pytest tests/test_public_hygiene.py tests/test_lane.py` 63 passed; `python -m tools.public_hygiene --range origin/main..HEAD` PASS; the workflow parses with jobs hygiene, test, checks, ui-build.
+- **Metrics:** lane total +3,948 lines (tools and tests); adaptation 2 lines.
+- **Next:** land b-catalog.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
