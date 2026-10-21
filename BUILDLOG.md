@@ -4011,4 +4011,87 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +9/-3, tests +29 lines.
 - **Next:** none admitted.
 
+## 2026-10-21 — Keep a league report current when its books are retired after the session
+
+- **Why:** P24 ops audit. Reproduction: after eight books were retired at 08:22 UTC
+  (`portfolio_retired` audit rows), `/meta` read `nightly_evidence=invalid` and the API logged
+  `league report portfolios do not match active equity` on every probe: the 2026-10-20 report
+  correctly lists the 25 books marked that session, but the check compared it with today's
+  `active` flag. Agents may now retire books themselves, so this recurs on every retirement.
+- **What:** `server/nightly_reports.py` also accepts, in the standings and stale-mark tables, a
+  public book marked for the report's session whose first `portfolio_retired` row is after
+  that session's 16:00 ET close. Unaudited or pre-close retirements still fail closed.
+- **Evidence:** `pytest tests/test_nightly_reports.py`: the new retirement test fails before
+  (ValueError) and 17 pass after; on a copy of the 08:34 snapshot with the live 10-20
+  `league.md`, `_validate_league_markdown` raised before and passes after.
+- **Metrics:** server +40, tests +49. Registered: `server/nightly_reports.py` (P15 pin; the
+  orchestrator re-pins).
+- **Next:** ops audit report for the orchestrator.
+
+## 2026-10-21 — Resolve a failed TradingView tail window when a wider retry completes
+
+- **Why:** P24 ops audit. Reproduction: a symbol's last backfill window ends at the newest
+  session, so the retry after a failed attempt asks for a wider window; `archive_status`
+  matched failures on the exact (ticker, start, end) and kept the failure unresolved forever,
+  pinning `/meta` `miner_evidence.tradingview_history` at `issues`. On the 10-21 snapshot
+  3,239 of 4,063 symbols are two windows from that tail, so it arrives within weeks.
+- **What:** a failed window counts as resolved when a complete, empty or refused attempt
+  for the same ticker covers it (start on or before, end on or after).
+- **Evidence:** new `test_failed_tail_window_resolves_when_a_wider_window_completes` fails
+  before (`unresolved_failed_windows` 1) and the 12 archive tests pass after; the snapshot
+  copy still reports the two genuine open windows (PSKY, QRVO symbol_error) and 11 refused.
+- **Metrics:** engine +2, tests +23. Registered: `engine/tradingview_history_archive.py`
+  (P15 pin; the orchestrator re-pins).
+- **Next:** ops audit report for the orchestrator.
+
+## 2026-10-21 — Refuse a weekday walk-forward start inside the producer window
+
+- **Why:** orchestrator follow-up to the P24 ops audit. Reproduction: hand-started drains on
+  Monday 2026-10-19 at 02:53, 07:31 and 11:41 UTC held the store and the drain lock through the
+  producers' window (five TradingView archive failures, the P15 pre-open store-lock failure, both
+  backups skipped), although the driver header already forbade weekday starts in 22:30-13:05.
+- **What:** `engine/run_weekly_walkforward.sh` exits 1 before its header on a weekday start in
+  22:30-13:05 UTC. `TRADING_ENGINE_WALKFORWARD_OVERRIDE=<reason>` permits a supervised run
+  and logs a `WARN: weekday-window override` line with the reason. The Sunday 06:00 cron is
+  unaffected.
+- **Evidence:** `pytest tests/test_drivers.py`: the six new window and override cases fail
+  before the guard; all 43 driver tests pass after.
+- **Metrics:** engine +23, tests +39.
+- **Next:** walk-forward fold profile (next entry).
+
+## 2026-10-21 — Name the failing field when a model assessment is rejected
+
+- **Why:** orchestrator follow-up to the P24 ops audit. On 2026-10-20 at 15:15 and 16:15 UTC
+  the hourly observer failed with only `daily assessment values are invalid`, and the raw model
+  output is not kept, so which field was rejected could not be determined.
+- **What:** `server/daily_opportunity_runner._validate_assessment` checks each value in turn
+  and raises `daily assessment values are invalid: <ticker> <field>=<value>` (repr capped at
+  120 characters; unknown evidence ids listed as `outside allowed`). It accepts and rejects
+  exactly the same assessments as before.
+- **Evidence:** the new parametrized test (six fields) fails before the change and passes
+  after; the daily-opportunity, evaluation-reporting, intraday and unit suites pass (120), apart
+  from the expected P15 hash pin.
+- **Metrics:** server +13, tests +29. Registered: `server/daily_opportunity_runner.py` (P15
+  pin; the orchestrator re-pins).
+- **Next:** walk-forward fold profile.
+
+## 2026-10-21 — Record the revision-15 install (R15.1–R15.3, 08:03–08:48 UTC)
+
+- **Why:** orchestrator follow-up to the P24 ops audit: the install ran on the host with no
+  BUILDLOG record. Evidence is the deploy state directory, the checkout reflog and the units.
+- **What:** deploy gate passed on `71d3b0d` at 08:04 (invariants warn only). R15.1: inventory
+  and quiescence 08:03, backup of revision-14 `9e9acc5` verified, recovery-ready 08:06.
+  R15.2: fast-forward to `71d3b0d` at 08:18, registration revision 15, three runtime
+  migrations, cleanup dry run 155 invalid rows on 127 tickers, 332 provisional kept, 0 moved.
+  R15.3: cleanup applied 08:22 (155 moved), forward reviews and P15 reporting, snapshot
+  published 08:34, API 08:35 and UI 08:36 restarted, history timer enabled, board and positions
+  captured 08:37 (after the validation block, under `set -e`), producers released. Amendment:
+  install-automation audit and apply 08:47–08:48 (re-audit: no changes left, options timer held,
+  P16 challengers disabled per contract), model gateway ok (startup 0.205.1, installed 0.210.1).
+- **Evidence:** deployed `/meta`: E1 v8, sector v12, XS v23, all ACCUMULATING; every timer
+  scheduled. Later fast-forwards: `6f4086d` (gated 08:58), then docs-only `7875093`, `05b3515`.
+- **Metrics:** unchanged (record only).
+- **Next:** tonight's 22:30 nightly is the first revision-15 nightly; Sunday 10-25 the first
+  walk-forward with the 7 h job timeout.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

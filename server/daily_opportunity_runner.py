@@ -81,6 +81,16 @@ def _validate_alert(decision: str, alert: object, candidate: dict) -> None:
         raise DailyOpportunityError("only watch assessments may create alerts")
 
 
+def _require_value(ticker: str, field: str, value: object, ok: bool, *, label: str = "") -> None:
+    """Fail closed, naming the ticker, field and offending value for the operator."""
+    if not ok:
+        shown = repr(value)
+        shown = shown if len(shown) <= 120 else shown[:117] + "..."
+        raise DailyOpportunityError(
+            f"daily assessment values are invalid: {ticker} {field}"
+            f"{' ' + label if label else ''}={shown}")
+
+
 def _validate_assessment(
     raw: object, bundle: dict, expected: list[str], allowed: dict[str, set[str]], held: set[str],
 ) -> dict:
@@ -91,14 +101,17 @@ def _validate_assessment(
     ticker, decision, action = raw["ticker"], raw["decision"], raw["action"]
     horizon, confidence = raw["horizon_sessions"], raw["confidence"]
     evidence_ids = raw["evidence_ids"]
-    if (decision not in DECISIONS or action not in ACTIONS
-            or isinstance(horizon, bool) or not isinstance(horizon, int) or not 1 <= horizon <= 20
-            or isinstance(confidence, bool) or not isinstance(confidence, (int, float))
-            or not math.isfinite(float(confidence)) or not 0 <= confidence <= 1
-            or not isinstance(evidence_ids, list) or not evidence_ids
-            or any(not isinstance(value, str) for value in evidence_ids)
-            or not set(evidence_ids) <= allowed[ticker]):
-        raise DailyOpportunityError("daily assessment values are invalid")
+    _require_value(ticker, "decision", decision, decision in DECISIONS)
+    _require_value(ticker, "action", action, action in ACTIONS)
+    _require_value(ticker, "horizon_sessions", horizon, not isinstance(horizon, bool)
+                   and isinstance(horizon, int) and 1 <= horizon <= 20)
+    _require_value(ticker, "confidence", confidence, not isinstance(confidence, bool)
+                   and isinstance(confidence, (int, float))
+                   and math.isfinite(float(confidence)) and 0 <= confidence <= 1)
+    _require_value(ticker, "evidence_ids", evidence_ids, isinstance(evidence_ids, list)
+                   and bool(evidence_ids) and all(isinstance(value, str) for value in evidence_ids))
+    unknown = sorted(set(evidence_ids) - allowed[ticker])
+    _require_value(ticker, "evidence_ids", unknown, not unknown, label="outside allowed")
     if decision in {"ignore", "watch", "hold"} and action != "none":
         raise DailyOpportunityError("non-swing assessment cannot act")
     if decision == "swing" and action not in {"buy", "sell"}:

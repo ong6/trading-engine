@@ -20,9 +20,9 @@
 # Tue-Sat. TradingView history still runs on Sunday (03/07/11/15/19/23:40) and
 # writes the live store, so the children read the published snapshot instead
 # (engine/queue_runner.py _research_connection). The pre-v2 grid took 2.8 h.
-# It can also be run by hand, but on a weekday only outside 22:30-13:05 UTC: the
-# drain holds the queue-drain lock, so an overlapping nightly skips its mining
-# drain. It re-anchors to the latest session in the store, so an off-day run is
+# It can also be run by hand, but on a weekday only outside 22:30-13:05 UTC (the
+# guard below enforces it): the drain holds the queue-drain lock, so an
+# overlapping nightly skips its mining drain. It re-anchors to the latest session in the store, so an off-day run is
 # simply a re-validation as of that day.
 set -euo pipefail
 
@@ -36,12 +36,35 @@ DRIVER_LOG_PREFIX=walkforward
 DRIVER_STAGE_FILE=logs/.last_stage_walkforward
 source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 
+# Weekday window guard (2026-10-21). Manual Monday runs at 02:53, 07:31 and 11:41
+# UTC on 2026-10-19 held the drain lock and the store through the producers'
+# window: five TradingView archive runs and the P15 pre-open failed on the store
+# lock and both backups skipped. Refuse a weekday start inside 22:30-13:05 UTC;
+# a supervised run sets TRADING_ENGINE_WALKFORWARD_OVERRIDE to its reason, which
+# is logged. TRADING_ENGINE_WALKFORWARD_CLOCK (a `date -d` string) is for tests.
+_wf_clock="${TRADING_ENGINE_WALKFORWARD_CLOCK:-now}"
+_wf_dow="$(date -u -d "${_wf_clock}" +%u)"
+_wf_hm="$(date -u -d "${_wf_clock}" +%H%M)"
+WALKFORWARD_OVERRIDE_NOTE=""
+if [ "${_wf_dow}" -le 5 ] && (( 10#${_wf_hm} >= 2230 || 10#${_wf_hm} < 1305 )); then
+  if [ -z "${TRADING_ENGINE_WALKFORWARD_OVERRIDE:-}" ]; then
+    echo "ERROR: run_weekly_walkforward refuses a weekday start inside 22:30-13:05 UTC" \
+         "($(date -u -d "${_wf_clock}" '+%a %H:%M') UTC): it would hold the store and drain lock" \
+         "through the nightly, P15 and backup window. Set" \
+         "TRADING_ENGINE_WALKFORWARD_OVERRIDE=<reason> for a supervised run." >&2
+    exit 1
+  fi
+  WALKFORWARD_OVERRIDE_NOTE="WARN: weekday-window override at $(date -u -d "${_wf_clock}" '+%a %H:%M') UTC: ${TRADING_ENGINE_WALKFORWARD_OVERRIDE}"
+fi
+
 # Launch window 8 h (default 4 h): the budget only stops NEW launches, and each
 # walkforward job is killed at its 7 h timeout_s, so the drain ends by about
 # 06:00 + 8 h + 7 h = 21:00 UTC Sunday, clear of Monday's 22:30 nightly.
 export TRADING_ENGINE_DRAIN_BUDGET_S="${TRADING_ENGINE_DRAIN_BUDGET_S:-28800}"
 
 body() {
+  if [ -n "${WALKFORWARD_OVERRIDE_NOTE}" ]; then echo "${WALKFORWARD_OVERRIDE_NOTE}"; fi
+
   # Enqueue is idempotent within a day: queue_runner dedups an identical
   # pending (kind, params), so a re-run after a partial drain adds nothing.
   # Pending rows older than 24 h (last week's leftovers) are superseded.

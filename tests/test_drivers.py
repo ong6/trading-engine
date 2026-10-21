@@ -70,10 +70,14 @@ def run_driver(
     name: str,
     fail_match: str = "",
     sweep_grids: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[int, str, list[str]]:
     argv_log = fake / "argv.log"
     argv_log.write_text("")
-    env = dict(os.environ, FAKE_ARGV_LOG=str(argv_log), FAKE_FAIL_MATCH=fail_match)
+    env = dict(os.environ, FAKE_ARGV_LOG=str(argv_log), FAKE_FAIL_MATCH=fail_match,
+               TRADING_ENGINE_WALKFORWARD_CLOCK="2026-10-18 06:00 UTC")  # its Sunday slot
+    env.pop("TRADING_ENGINE_WALKFORWARD_OVERRIDE", None)
+    env.update(extra_env or {})
     if sweep_grids is not None:
         env["FAKE_SWEEP_GRIDS"] = sweep_grids
     env.pop("PYTHONUNBUFFERED", None)
@@ -219,6 +223,41 @@ def test_walkforward_drains_only_its_grid_and_reports_partial(fake_repo):
             "--report-partial") in argv
     script = (fake_repo / "engine" / "run_weekly_walkforward.sh").read_text()
     assert 'TRADING_ENGINE_DRAIN_BUDGET_S="${TRADING_ENGINE_DRAIN_BUDGET_S:-28800}"' in script
+
+
+@pytest.mark.parametrize("clock", [
+    "2026-10-19 02:53 UTC", "2026-10-19 07:31 UTC", "2026-10-19 11:41 UTC",  # Monday reruns
+    "2026-10-19 13:04 UTC", "2026-10-23 22:30 UTC",
+])
+def test_walkforward_refuses_a_weekday_start_inside_the_producer_window(fake_repo, clock):
+    rc, out, argv = run_driver(fake_repo, "run_weekly_walkforward.sh",
+                               extra_env={"TRADING_ENGINE_WALKFORWARD_CLOCK": clock})
+    assert rc == 1 and "refuses a weekday start inside 22:30-13:05 UTC" in out
+    assert argv == [] and not list((fake_repo / "logs").glob("walkforward-*.log"))
+
+
+@pytest.mark.parametrize("clock", [
+    "2026-10-19 13:05 UTC", "2026-10-19 22:29 UTC", "2026-10-24 23:00 UTC",
+    "2026-10-25 06:00 UTC",
+])
+def test_walkforward_starts_outside_the_weekday_window(fake_repo, clock):
+    rc, out, argv = run_driver(fake_repo, "run_weekly_walkforward.sh",
+                               extra_env={"TRADING_ENGINE_WALKFORWARD_CLOCK": clock})
+    assert rc == 0 and argv[0] == "-m farm.walkforward.grid --enqueue"
+    assert "override" not in out
+
+
+def test_walkforward_override_runs_and_logs_its_reason(fake_repo):
+    rc, out, argv = run_driver(fake_repo, "run_weekly_walkforward.sh", extra_env={
+        "TRADING_ENGINE_WALKFORWARD_CLOCK": "2026-10-19 07:31 UTC",
+        "TRADING_ENGINE_WALKFORWARD_OVERRIDE": "orchestrator-supervised resume",
+    })
+    assert rc == 0 and argv[0] == "-m farm.walkforward.grid --enqueue"
+    note = ("WARN: weekday-window override at Mon 07:31 UTC: "
+            "orchestrator-supervised resume")
+    assert note in out
+    log = next((fake_repo / "logs").glob("walkforward-*.log")).read_text()
+    assert note in log
 
 
 def test_daily_stage_order(fake_repo):

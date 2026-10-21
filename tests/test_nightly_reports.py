@@ -1,7 +1,7 @@
 """Tests for generated nightly screen and league report validation."""
 
 import os
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
@@ -231,3 +231,52 @@ def test_nightly_reports_reject_oversized_artifact(con, tmp_path):
     assert result["status"] == "invalid"
     assert result["reason"] == "evidence-invalid"
     assert "detail" not in result
+
+
+def _retire_after_report(con, tmp_path, retired_at):
+    """A marked book with a stale holding is in the latest report, then retired."""
+    meta, driver = nightly_fixture(con, tmp_path)
+    latest = date(2026, 9, 4)
+    con.execute(
+        "INSERT INTO portfolios "
+        "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) "
+        "VALUES ('turtle','Turtle','none','{}',?,TRUE,50,100,'baseline_v1')",
+        [latest],
+    )
+    con.execute("INSERT INTO sim_equity VALUES ('turtle',?,95,50,1)", [latest])
+    con.execute("INSERT INTO sim_positions VALUES ('turtle','OLD',1,45)")
+    con.execute(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+        "VALUES ('OLD',DATE '2026-09-01',45,46,44,45,100)"
+    )
+    league.write_reports(con, latest, tmp_path)
+    assert "Turtle" in (tmp_path / "reports" / "league.md").read_text()
+    assert "| turtle | OLD |" in (tmp_path / "reports" / "league.md").read_text()
+    assert nightly_monitor.evidence_status(
+        meta, driver, con, latest, data_dir=tmp_path
+    )["status"] == "current"
+    con.execute("UPDATE portfolios SET active = FALSE WHERE id = 'turtle'")
+    if retired_at is not None:
+        con.execute(
+            "INSERT INTO audit_log VALUES (?, 'operator', 'portfolio_retired', ?)",
+            [retired_at, '{"portfolio_id": "turtle", "positions_kept": 1}'],
+        )
+    return nightly_monitor.evidence_status(meta, driver, con, latest, data_dir=tmp_path)
+
+
+def test_book_retired_after_the_session_keeps_its_report_current(con, tmp_path):
+    # 2026-10-21: eight books retired at 08:22 UTC after the 10-20 report listed them;
+    # /meta read nightly_evidence=invalid until the next nightly rewrote league.md.
+    result = _retire_after_report(con, tmp_path, datetime(2026, 9, 5, 8, 22))
+
+    assert result["status"] == "current"
+
+
+@pytest.mark.parametrize(
+    "retired_at",
+    [None, datetime(2026, 9, 4, 19, 59)],  # no audit row; retired before the 16:00 ET close
+)
+def test_book_retired_before_the_close_or_unaudited_still_fails(con, tmp_path, retired_at):
+    result = _retire_after_report(con, tmp_path, retired_at)
+
+    assert result == {"status": "invalid", "reason": "evidence-invalid"}
