@@ -4118,4 +4118,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; tests +61 lines.
 - **Next:** speed up row-at-a-time price-observation capture (75% of the broker human-paper tests) in a production lane.
 
+## 2026-10-21 — Integrate the first P24 merge batch as registration revision 16
+
+- **Why:** P24 plan, merge batch 1. Revision 15 is deployed (installed 2026-10-21 08:03–08:48), so the batch is a new registration revision. Reproduction for the migration: on a copy of the 08:34 snapshot and the live reports, amending the E1 v8, sector v12 and XS v23 digests in place made every run fail closed (E1 "checkpoint is invalid", sector and XS "requires explicit migration") and all three `--migrate-runtime-contract` calls refused, since only the prior versions migrate.
+- **What:** merged `p24/integrity` (600dea4b), `p24/quant-audit` (5b9d41f6), `p24/ops` (3c0746c0) and `p24/test-speed` (3684c5c7) in that order; only BUILDLOG conflicted, entries kept in merge order.
+  Each runner pins its deployed digest (`AMENDED_RUNTIME_CONTRACT_SHA256`); its explicit migration accepts the current version under exactly that digest with every other field current (XS also moves its signal boundary's digest), and still compares prefixes, equity and ledgers exactly.
+  Re-pin: E1 v8, sector v12 and XS v23 hashes recomputed, versions unchanged; registration revision 16 re-pins 13 of 166 files, source_commit 7ba8b289, registration_sha256 8309cf51. The storage work previously numbered revision 16 (r16-gen, r16-raw) becomes revision 17.
+- **Evidence:** on the snapshot copy the three migrations pass and the next E1, sector and XS runs are ACCUMULATING with reports identical to main's except the runtime digest; full suites 5,799 passed under UTC (142.6s) and Asia/Singapore (143.5s) at `-n 8` with warnings as errors; ruff blocking selections pass; deploy gate passes (invariants shadow warning only).
+- **Metrics:** migration engine/farm +83/-30, tests +88; the batch itself as its lanes recorded.
+- **Next:** after main moves, run the three runtime migrations and the integrity repair on the live host before the 22:30 UTC nightly.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
