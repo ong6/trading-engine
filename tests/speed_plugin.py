@@ -1,4 +1,4 @@
-"""Test speed: shared synthetic setup and balanced workers and shards.
+"""Test speed: shared synthetic setup, balanced workers and shards, RAM temp files.
 
 Every test keeps its own private databases and runs exactly once per run.
 """
@@ -20,6 +20,8 @@ DURATIONS = Path(__file__).with_name("durations.json")
 SLOW_TEST_SECONDS = 1.0
 # Estimate for a file absent from the recorded durations (new since the last record).
 UNKNOWN_TEST_SECONDS = 0.1
+# Leave tmpfs alone unless this much is free; a full -n 8 run peaked at 3.3 GiB.
+MEMORY_TEMP_MIN_FREE = 6 << 30
 
 
 def pytest_addoption(parser):
@@ -30,6 +32,7 @@ def pytest_addoption(parser):
                     help="Write per-file and slow-test durations from this run as JSON")
 
 
+@pytest.hookimpl(tryfirst=True)  # before the tmp_path factory reads --basetemp
 def pytest_configure(config):
     count, index = config.getoption("test_shards"), config.getoption("test_shard")
     if count < 1 or not 0 <= index < count:
@@ -38,6 +41,63 @@ def pytest_configure(config):
         return
     if config.getoption("record_durations"):
         config.pluginmanager.register(_DurationRecorder(config), "test-speed-durations")
+    _use_memory_temp(config)
+
+
+def _use_memory_temp(config, root=Path("/dev/shm")):
+    """Put tmp_path and TMPDIR on tmpfs when there is room; files are unchanged.
+
+    Most of the suite's waiting is fsync from DuckDB checkpoints and copied
+    stores on disk. A RAM-backed base keeps every file operation real (locks,
+    renames, copies, checkpoints) without the device flush. Workers inherit the
+    base and TMPDIR, so dry-run copies stay on the same filesystem as tmp_path.
+    The run directory is removed at exit; TEST_SPEED_TMPFS=0 or an explicit
+    --basetemp keeps pytest's default on-disk temporary directories.
+    """
+    import getpass
+    import os
+    import tempfile
+
+    if config.option.basetemp or os.environ.get("TEST_SPEED_TMPFS") == "0":
+        return
+    try:
+        if shutil.disk_usage(root).free < MEMORY_TEMP_MIN_FREE or not os.access(root, os.W_OK):
+            return
+        parent = root / f"pytest-of-{getpass.getuser()}"
+        parent.mkdir(mode=0o700, exist_ok=True)
+        for stale in parent.glob("run-*"):
+            if not _process_alive(stale.name.removeprefix("run-")):
+                shutil.rmtree(stale, ignore_errors=True)
+        run = parent / f"run-{os.getpid()}"
+        (run / "tmp").mkdir(parents=True)
+    except OSError:
+        return
+    previous = os.environ.get("TMPDIR")
+    os.environ["TMPDIR"] = str(run / "tmp")
+    tempfile.tempdir = None
+    config.option.basetemp = str(run / "base")
+
+    def cleanup():
+        if previous is None:
+            os.environ.pop("TMPDIR", None)
+        else:
+            os.environ["TMPDIR"] = previous
+        tempfile.tempdir = None
+        shutil.rmtree(run, ignore_errors=True)
+
+    config.add_cleanup(cleanup)
+
+
+def _process_alive(pid):
+    import os
+
+    try:
+        os.kill(int(pid), 0)
+    except (ValueError, ProcessLookupError):
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _recorded_durations():

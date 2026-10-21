@@ -3947,4 +3947,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; tests +99 lines.
 - **Next:** take the suite's fsync waits off the shared disk.
 
+## 2026-10-21 — Keep test temporary files on tmpfs when there is room
+
+- **Why:** after the two changes above, the DuckDB-file-heavy tests (daily opportunities, backup, filing runner, P15 scoring, ops digest) spent 2-4x their CPU time waiting on disk flushes. Those five files at `-n 8` took 31-38s wall on disk and 12s on `/dev/shm`, with the same CPU.
+- **What:** when no `--basetemp` is given and `/dev/shm` has at least 6 GiB free, the controller puts the pytest base directory and `TMPDIR` under `/dev/shm/pytest-of-<user>/run-<pid>`; xdist workers inherit both. Files, locks, renames and checkpoints stay real. The run directory is removed at exit and runs whose process is gone are pruned; `TEST_SPEED_TMPFS=0` restores pytest's on-disk default. A full `-n 8` run peaked at 3.3 GiB.
+- **Evidence:** `nice -n 10 .venv/bin/python -m pytest -q -W error -n 8`: 210.9s before; 148.2s under UTC and 143.8s under Asia/Singapore after, with host load at 42-51 against 18-20 for the baseline. 5,762 executed, 5,761 passed, 0 skipped; the one failure (`docs/README.md` does not link the P24 plan) is on `main` before and after.
+- **Metrics:** server/tools/product unchanged; tests +61 lines.
+- **Next:** speed up row-at-a-time price-observation capture (75% of the broker human-paper tests) in a production lane.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
