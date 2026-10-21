@@ -123,6 +123,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-21 | Retire paper books with no after-cost edge; agents may retire a no-edge book themselves, recording the evidence. First batch: turtle_breakout, mr_overlay (+gated), daily_opportunity_agent_v1, low_vol, ew_trend_gated, template_top10_banded (+gated); `active = FALSE`, equity history and positions kept, one `portfolio_retired` audit row each | Strategy scorecard 2026-10-20; audit_log |
 | 2026-10-15 | A delisted holding is removed: closed out at its last real traded close | P22; feedback |
 | 2026-10-15 | Engine v2 (P22) is accepted; the pending revision-14 fixes land in v2 before the Sunday 2026-10-18 deployment (D0 2026-10-19) | P22; feedback |
 | 2026-10-06 | The engine is the executor and ledger; private alpha submits orders and reads results, with one independently funded account per alpha version | P22; feedback |
