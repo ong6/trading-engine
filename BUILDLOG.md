@@ -3947,4 +3947,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +2, tests +13 lines.
 - **Next:** orchestrator may revert this one commit if the trailer rule changes instead.
 
+## 2026-10-21 — Land wave-1 b-catalog (dataset catalogue, doc drift) on the rewritten main
+
+- **Why:** P24 integrate lane; b-catalog was reviewed to ACCEPT on the pre-rewrite revision-15 base.
+- **What:** the lane's 13 commits are rebased onto main. Conflicts kept main's newer text: product.md focus item 2 stays main's deployed-v2 status (the lane's two pre-deploy rewrites are dropped), and history/README keeps both the lane's retired-PIT row and main's commit-map row. The lane's "this pre-integration branch makes no claim" sentence in plans/README is removed now that it lands. The catalogue gains the five managed files main added after the base (invariant and schedule-contract results, log-retention config and report, rotated logs); the coverage test ignores three non-dataset references (a historical claim glob, the PIT audit glob, refusal prose) and treats the snapshot directory as a root. docs/README now indexes the P24 plan, which fixes main's failing documentation-index test.
+- **Evidence:** `pytest tests/test_dataset_catalogue.py tests/test_resources.py tests/test_operating_contract.py tests/test_documentation_integrity.py` all passed (main alone fails the documentation index test).
+- **Metrics:** docs and schema only, plus test path lists; no runtime code.
+- **Next:** land b-jobs (audit-only).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

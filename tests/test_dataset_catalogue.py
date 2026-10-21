@@ -85,6 +85,9 @@ IGNORED_MANAGED_PATHS = {
     "store/.agent-fault-drill.lock",
     "store/agent-shadow-control.json.lock",
     "data/_meta.json.lock",
+    "data/dataset-catalogue.json",  # Historical b-catalog claim glob in tools/lane.py.
+    "store/pit/*.duckdb",  # The schedule contract audits every catalogued PIT database.
+    "store/snapshots/market-*",  # Refusal prose naming the catalogued snapshot family.
 }
 PATH_BASES = {
     "REPO_ROOT": "",
@@ -370,7 +373,8 @@ def _path_references(python_sources: list[Path], other_sources: list[Path]) -> s
         references.update(MANAGED_PATH_RE.findall(path.read_text()))
     cleaned = {value.strip().rstrip("`'\".,:;)") for value in references}
     path_roots = {
-        "store", "store/", "store/pit", "data", "data/", "data/reports",
+        "store", "store/", "store/pit", "store/snapshots", "store/snapshots/",
+        "data", "data/", "data/reports",
         "data/reports/agent-eval", "data/reports/experiments",
         "data/reports/experiments/",
         "data/reports/experiments/agent-2022-contamination-probes-v1",
