@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import sys
 from datetime import date, datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -11,6 +12,7 @@ from pathlib import Path
 import duckdb
 
 from engine.lib import db as engine_db
+from engine.lib.data_quality import provisional_open_fault
 from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DEFAULT_DB
 from sim.strategies.configs import config_by_id
@@ -26,6 +28,13 @@ CLASSIFICATIONS = frozenset(
 
 class ObservationError(ValueError):
     """A price row cannot be retained as an immutable normalized observation."""
+
+
+class InconsistentPriceError(ObservationError):
+    """A provider bar's OHLC values contradict each other (e.g. open below low).
+
+    The provider row is malformed, not the capture: the row is skipped and reported, and a
+    later consistent refetch is captured normally."""
 
 
 def _utc(value: datetime, field: str) -> datetime:
@@ -132,7 +141,7 @@ def _normalized(
     if low_value > min(open_value, high_value, close_value) or high_value < max(
         open_value, low_value, close_value
     ):
-        raise ObservationError("price OHLC values are inconsistent")
+        raise InconsistentPriceError("price OHLC values are inconsistent")
     normalized = {
         "ticker": ticker,
         "market_date": market_date.isoformat(),
@@ -170,10 +179,20 @@ def _capture_rows(
     library_version = _library_version()
     prepared = []
     seen = set()
+    skipped = []
     for row in rows:
-        normalized, value, source_fetched_at = _normalized(
-            row, observed_at=observed_at
-        )
+        try:
+            normalized, value, source_fetched_at = _normalized(
+                row, observed_at=observed_at
+            )
+        except InconsistentPriceError:
+            # Only the fault ingest admits (a same-night bar whose open lies outside
+            # [low, high]) is skipped; a settled inconsistent bar breaks a store invariant.
+            if not provisional_open_fault(row[1], row[2], row[3], row[4], row[8]):
+                raise
+            skipped.append({"ticker": row[0], "market_date": row[1].isoformat(),
+                            "reason": "provisional_open_fault"})
+            continue
         key = (normalized["ticker"], date.fromisoformat(normalized["market_date"]))
         if key in seen:
             raise ObservationError("price capture contains a duplicate ticker/date")
@@ -282,6 +301,7 @@ def _capture_rows(
         "baseline_snapshots": baseline,
         "unchanged_observations": unchanged,
         "value_revisions": revisions,
+        "skipped_inconsistent": skipped,
     }
 
 
@@ -560,6 +580,11 @@ def main(argv: list[str] | None = None) -> int:
     import json
 
     print(json.dumps(result, sort_keys=True))
+    skipped = result.get("skipped_inconsistent") or []
+    if skipped:
+        sample = ", ".join(f"{item['ticker']}/{item['market_date']}" for item in skipped[:5])
+        print(f"[agent-price-observations] warning skipped_provisional_bars={len(skipped)} "
+              f"sample={sample}", file=sys.stderr)
     return 0
 
 
