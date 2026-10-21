@@ -3963,4 +3963,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +400, tests +150 lines.
 - **Next:** walk-forward NaN artifacts.
 
+## 2026-10-21 — Walk-forward results store an undefined statistic as null, documented
+
+- **Why:** P24 integrity lane; scope.md 2026-10-20 line. The shadow monitor's `walkforward_results_finite` has 14 regressions: `sector_momentum.json` (fold 0 train Sharpe and worst month) and `earnings_context_pead.json` (every fold's Sharpe) hold NaN, which strict readers (`/meta`, `report.load_results`) reject. Main's runner already writes null since 6661eb2, but these two files predate it; `earnings_context_pead` is inactive and will never be re-run.
+- **What:** the 14 NaN values in the two committed artifacts become null; nothing else in them changes (each file re-serializes byte-identically before the edit, same writer format). The walk-forward README's disclosures now state the representation: null in the file, `·` in the report, never NaN, infinity or a stand-in zero.
+- **Evidence:** `check_invariants` on the repaired store copy with this tree: `walkforward_results_finite` 14 regressions -> 0; `pytest tests/test_walkforward_report.py tests/test_walkforward_replay_regression.py tests/test_stats.py` 52 passed.
+- **Metrics:** farm +4 lines; data 14 values.
+- **Next:** remaining monitor findings.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
