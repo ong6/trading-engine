@@ -4,6 +4,7 @@ Every test keeps its own private databases and runs exactly once per run.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from collections import Counter
@@ -167,6 +168,104 @@ def test_duckdb_threads():
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(duckdb, "connect", connect)
+        yield
+
+
+class _Uncacheable(Exception):
+    pass
+
+
+def _canonical(value):
+    """Exact, type-tagged form of solver inputs; anything else is not cached."""
+    import numpy as np
+
+    kind = type(value)
+    if value is None or kind in (bool, int, str):
+        return (kind.__name__, value)
+    if kind is float:
+        return ("float", value.hex())
+    if kind is np.ndarray and value.dtype != object:
+        return ("ndarray", value.dtype.str, value.shape, value.tobytes())
+    if isinstance(value, np.generic) and not isinstance(value, np.object_):
+        return ("scalar", value.dtype.str, value.tobytes())
+    if kind in (list, tuple):
+        return (kind.__name__, tuple(_canonical(item) for item in value))
+    if kind is dict and all(type(key) is str for key in value):
+        return ("dict", tuple(sorted((key, _canonical(item)) for key, item in value.items())))
+    raise _Uncacheable(kind.__name__)
+
+
+def _without_timings(value):
+    if isinstance(value, dict):
+        return {key: _without_timings(item) for key, item in value.items()
+                if key not in {"solve_seconds", "solve_seconds_total"}}
+    if isinstance(value, list):
+        return [_without_timings(item) for item in value]
+    return value
+
+
+@pytest.fixture(scope="session", autouse=True)
+def p16_calibration_memo(request, tmp_path_factory):
+    """Share each deterministic P16 lambda calibration across the run.
+
+    `calibrate_lambda` is a pure function of its cases and grid apart from the
+    retained solve timings (which no reader compares with a recomputation).
+    The same synthetic cohorts are calibrated by many tests and again by the
+    store's validation, about seven seconds each. A result is reused only for a
+    byte-identical input while the calibration, optimizer and projection
+    modules are unpatched; a test that substitutes any of them runs the real
+    call. TEST_SPEED_VERIFY_MEMO=1 recomputes every reuse and fails on any
+    difference outside the timings, or on an input the call mutated.
+    """
+    import fcntl
+    import os
+    import pickle
+
+    from farm import p16_calibration, p16_optimizer, p16_projection
+
+    original = p16_calibration.calibrate_lambda
+    verify = os.environ.get("TEST_SPEED_VERIFY_MEMO") == "1"
+    base = tmp_path_factory.getbasetemp()
+    if hasattr(request.config, "workerinput"):
+        base = base.parent
+    root = base / "p16-calibration-memo"
+    root.mkdir(exist_ok=True)
+    modules = (p16_calibration, p16_optimizer, p16_projection)
+
+    def calibrate_lambda(cases, grid=None):
+        if not all(len(vars(module)) == len(state) and all(
+                vars(module).get(name, state) is value for name, value in state.items())
+                for module, state in pristine):
+            return original(cases, grid)
+        try:
+            key = _canonical([cases, grid, p16_calibration.DEFAULT_LAMBDA_GRID])
+        except _Uncacheable:
+            return original(cases, grid)
+        digest = hashlib.sha256(pickle.dumps(key, protocol=5)).hexdigest()
+        path = root / f"{digest}.pickle"
+        with (root / f"{digest}.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                if not path.exists():
+                    result = original(cases, grid)
+                    pending = root / f"{digest}.pending"
+                    pending.write_bytes(pickle.dumps(result, protocol=5))
+                    pending.replace(path)
+                    return result
+                cached = pickle.loads(path.read_bytes())
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+        if verify:
+            fresh = original(cases, grid)
+            assert _canonical([cases, grid, p16_calibration.DEFAULT_LAMBDA_GRID]) == key, (
+                "calibrate_lambda mutated its input")
+            assert _canonical(_without_timings(fresh)) == _canonical(
+                _without_timings(cached)), "memoized calibration differs from a fresh solve"
+        return cached
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(p16_calibration, "calibrate_lambda", calibrate_lambda)
+        pristine = [(module, dict(vars(module))) for module in modules]
         yield
 
 

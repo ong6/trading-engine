@@ -3939,4 +3939,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; tests +119/-12 lines plus the 558-line duration record.
 - **Next:** reuse the repeated P16 lambda calibrations.
 
+## 2026-10-21 — Reuse identical P16 lambda calibrations across test workers
+
+- **Why:** the P16 book, runner, store and transfer tests called `calibrate_lambda` 30 times at about 7s each (216s); the conftest helper and the store's validation recompute only 13 distinct synthetic cohorts.
+- **What:** a session fixture in `tests/speed_plugin.py` keeps one result per byte-identical input (type-tagged cases, grid and default grid), shared by all workers under a file lock. It is used only while the calibration, optimizer and projection modules are unpatched, so tests that inject solver failures or a fake calibration still run the real path. The validation still recomputes and compares; only the repeated deterministic solve is reused. `TEST_SPEED_VERIFY_MEMO=1` re-solves every reuse and fails if anything other than the timings differs, or if the inputs were changed.
+- **Evidence:** a verify-mode run of nine P16 files: 29 reuses, all identical to fresh solves, inputs unchanged, every test passes. Same files at `-n 8`: child CPU 304s before, 191s and 185s after.
+- **Metrics:** server/tools/product unchanged; tests +99 lines.
+- **Next:** take the suite's fsync waits off the shared disk.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
