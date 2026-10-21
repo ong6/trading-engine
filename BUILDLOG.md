@@ -3981,4 +3981,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +research package from the lane; no adaptation.
 - **Next:** full suite under UTC and Asia/Singapore, then revision 16 on its own branch.
 
+## 2026-10-21 — Sort the catalogue test's imports for main's ruff rules
+
+- **Why:** reproduction: after the wave-1 landing `ruff check .` (CI's blocking `checks` job) reports three I001 unsorted-import errors in `tests/test_dataset_catalogue.py`; main enabled import sorting after b-catalog's base.
+- **What:** `ruff check --fix` on that file only; imports reordered, no logic change.
+- **Evidence:** `ruff check .` prints "All checks passed!".
+- **Metrics:** unchanged.
+- **Next:** full suites under both timezones.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

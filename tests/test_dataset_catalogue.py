@@ -12,7 +12,6 @@ import yaml
 from engine.accounts.sources import SOURCE_PATHS, SOURCE_TABLES
 from tools import backup_database, release_manifest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 CATALOGUE_PATH = ROOT / "schemas" / "datasets.yaml"
 REHEARSAL_PATH = ROOT / "tests" / "fixtures" / "revision15-rehearsal-catalog.json"
@@ -407,15 +406,31 @@ def _connection_relations(con, database: str) -> set[Relation]:
 
 
 def _fresh_market_relations() -> set[Relation]:
-    from engine import account_watch, bitemporal_facts, p15_evaluation, p15_event_sources
-    from engine import paper_accounts, pit_import, tradingview_history_archive
+    from engine import (
+        account_watch,
+        bitemporal_facts,
+        p15_evaluation,
+        p15_event_sources,
+        paper_accounts,
+        pit_import,
+        tradingview_history_archive,
+    )
     from engine.lib import db
     from farm import experiment
-    from server import agent_corporate_action_observations, agent_evaluation
-    from server import agent_fault_drills, agent_independent_price_evidence
-    from server import agent_price_observations, agent_provider_responses
-    from server import agent_shadow_store, agent_store, daily_opportunity_store
-    from server import p15_preopen, p15_price_fetch_attempts, p15_scoring_store
+    from server import (
+        agent_corporate_action_observations,
+        agent_evaluation,
+        agent_fault_drills,
+        agent_independent_price_evidence,
+        agent_price_observations,
+        agent_provider_responses,
+        agent_shadow_store,
+        agent_store,
+        daily_opportunity_store,
+        p15_preopen,
+        p15_price_fetch_attempts,
+        p15_scoring_store,
+    )
     from sim import p15_books, settle
     from sim.schema import init_sim_schema
 
@@ -459,8 +474,13 @@ def _fresh_market_relations() -> set[Relation]:
 
 
 def _fresh_pit_relations() -> set[Relation]:
-    from engine import free_massive_minute, free_massive_options, free_sec, free_sec_bulk
-    from engine import free_sources
+    from engine import (
+        free_massive_minute,
+        free_massive_options,
+        free_sec,
+        free_sec_bulk,
+        free_sources,
+    )
 
     relations = set()
     initializers = {
