@@ -79,7 +79,7 @@
       "response_id": "resp_8c5eace7aeaf4a18a0e5100fc58910bb",
       "selected_ticker": "CASH",
       "spy_net_return": -0.047836786546711196,
-      "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+      "traecli_runtime": "traecli 0.205.1(internal edition)",
       "upstream_model_family": "gpt-5.6-sol",
       "upstream_request_id": "e41e10d9-2edd-4817-a523-1739f0e5fd03",
       "usage": {
@@ -161,7 +161,7 @@
       "response_id": "resp_deef838763f740e68b0c3e46ec71a8fd",
       "selected_ticker": "CASH",
       "spy_net_return": 0.005727939598251686,
-      "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+      "traecli_runtime": "traecli 0.205.1(internal edition)",
       "upstream_model_family": "gpt-5.6-sol",
       "upstream_request_id": "d5d0caa3-a049-485e-92e5-4d6d0fe6eca0",
       "usage": {
@@ -243,7 +243,7 @@
       "response_id": "resp_a6bf8d3a12db485f8b31931aaef8585d",
       "selected_ticker": "CASH",
       "spy_net_return": -0.011364552345561774,
-      "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+      "traecli_runtime": "traecli 0.205.1(internal edition)",
       "upstream_model_family": "gpt-5.6-sol",
       "upstream_request_id": "388cdbbb-d763-44bc-926e-e8ea7548e9c8",
       "usage": {
@@ -325,7 +325,7 @@
       "response_id": "resp_08954c73caa044ab8fa597e57c5a21a4",
       "selected_ticker": "CASH",
       "spy_net_return": 0.011022519671930464,
-      "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+      "traecli_runtime": "traecli 0.205.1(internal edition)",
       "upstream_model_family": "gpt-5.6-sol",
       "upstream_request_id": "9a8695cf-4f93-4dcb-929a-3503eab82780",
       "usage": {
@@ -462,7 +462,7 @@
       "response_id": "resp_811ab0b117f348cf90759f6f0b7e91ec",
       "selected_ticker": "XOM",
       "spy_net_return": -0.047836786546711196,
-      "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+      "traecli_runtime": "traecli 0.205.1(internal edition)",
       "upstream_model_family": "gpt-5.6-sol",
       "upstream_request_id": "cae3fede-ff8b-43f0-863d-e8b38e58c6a9",
       "usage": {
@@ -599,7 +599,7 @@
       "response_id": "resp_97c81fa36d25427cb5196963e7006ec5",
       "selected_ticker": "XOM",
       "spy_net_return": 0.005727939598251686,
-      "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+      "traecli_runtime": "traecli 0.205.1(internal edition)",
       "upstream_model_family": "gpt-5.6-sol",
       "upstream_request_id": "fbc47c17-954d-4526-a194-204c1e3c9908",
       "usage": {
@@ -736,7 +736,7 @@
       "response_id": "resp_aff7dfc31da5447eb2c329e167955d73",
       "selected_ticker": "XOM",
       "spy_net_return": -0.011364552345561774,
-      "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+      "traecli_runtime": "traecli 0.205.1(internal edition)",
       "upstream_model_family": "gpt-5.6-sol",
       "upstream_request_id": "ca9d1b95-1094-41c7-8bc8-7c7ea863b15b",
       "usage": {
@@ -873,7 +873,7 @@
       "response_id": "resp_b2e24fba9eb448a9aeee155fa32808ed",
       "selected_ticker": "XOM",
       "spy_net_return": 0.011022519671930464,
-      "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+      "traecli_runtime": "traecli 0.205.1(internal edition)",
       "upstream_model_family": "gpt-5.6-sol",
       "upstream_request_id": "2f5376bf-83f9-4cb9-ae2c-5ea8cc135365",
       "usage": {
@@ -1014,7 +1014,7 @@
       "response_id": "resp_3d328afe54db4723b096e9c3913e9287",
       "selected_ticker": "MSFT",
       "spy_net_return": -0.047836786546711196,
-      "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+      "traecli_runtime": "traecli 0.205.1(internal edition)",
       "upstream_model_family": "gpt-5.6-sol",
       "upstream_request_id": "1a9c72eb-581d-48b2-9120-1562c630fe2a",
       "usage": {
@@ -1155,7 +1155,7 @@
       "response_id": "resp_0771873087364bab9190adf0445a2eaa",
       "selected_ticker": "AAPL",
       "spy_net_return": 0.005727939598251686,
-      "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+      "traecli_runtime": "traecli 0.205.1(internal edition)",
       "upstream_model_family": "gpt-5.6-sol",
       "upstream_request_id": "3cd16869-c2dc-4da6-ac4d-d7110b0447de",
       "usage": {
@@ -1296,7 +1296,7 @@
       "response_id": "resp_36c7227e21d74a8b86b254f122017489",
       "selected_ticker": "MSFT",
       "spy_net_return": -0.011364552345561774,
-      "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+      "traecli_runtime": "traecli 0.205.1(internal edition)",
       "upstream_model_family": "gpt-5.6-sol",
       "upstream_request_id": "5387ce1f-05c5-4f5e-97dd-0ab28a3b7aa1",
       "usage": {
@@ -1437,7 +1437,7 @@
       "response_id": "resp_2db5ae8149a8481896fe202b4340b4bd",
       "selected_ticker": "MSFT",
       "spy_net_return": 0.011022519671930464,
-      "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+      "traecli_runtime": "traecli 0.205.1(internal edition)",
       "upstream_model_family": "gpt-5.6-sol",
       "upstream_request_id": "068bece2-e7c4-4bcd-b593-13490447a75a",
       "usage": {
