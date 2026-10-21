@@ -47,6 +47,9 @@ ALLOWED: dict[str, str] = {
         "directory beside it and never opens the store"),
     "tools/release_manifest.py: store/market.duckdb": (
         "operator CLI default for identifying the schema of a named DuckDB file"),
+    "tools/release_deploy.py: store/market.duckdb": (
+        "operator CLI default naming the live store this release transaction quiesces, "
+        "backs up and migrates while it holds the complete producer-lock set"),
     "engine/free_sec_bulk.py: ATTACH": (
         "attaches the free-sources reference and the market snapshot READ_ONLY into its "
         "own SEC bulk store"),

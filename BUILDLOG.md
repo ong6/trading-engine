@@ -3989,4 +3989,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** full suites under both timezones.
 
+## 2026-10-21 — Route the release tool's lock probe through the connection factory
+
+- **Why:** reproduction: the first full suite after the wave-1 landing fails `tests/test_no_bare_connect.py` (bare `duckdb.connect(` in the release tool's forced-snapshot probe) and `tests/test_live_store_paths.py` (the tool's `--database` default `store/market.duckdb`); main extended both guards to `tools/` after b-release's base.
+- **What:** the probe child opens the store through `engine.lib.db.connect`, which takes the same write handle; the live-store default gets an ALLOWED entry stating why it is safe (the release transaction is the operator path that quiesces, backs up and migrates that store under the producer locks).
+- **Evidence:** `PATH=.venv/bin:$PATH pytest tests/test_release_deploy.py tests/test_no_bare_connect.py tests/test_live_store_paths.py` all passed.
+- **Metrics:** tools 1 line, tests +3 lines.
+- **Next:** rerun the full suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
