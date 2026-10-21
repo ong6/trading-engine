@@ -115,6 +115,12 @@ def gross_returns(benchmark: Benchmark, data: MarketData, sessions: list[date], 
             if bar is not None and bar.close is not None and bar.close >= 0:
                 end = float(bar.close)
             else:
+                # A missing bar is priced only by a delisting KNOWN by `current`
+                # (listed_through <= current). A name still listed on `current`
+                # is skipped: its next print is not information this leg has.
+                interval = universe.listing_interval(ticker)
+                if interval is None or interval.listed_through is None or interval.listed_through > current:
+                    continue
                 outcome = universe.delisting_exit(
                     ticker, held_on=previous, entry_price=start)
                 if outcome is None:

@@ -348,3 +348,28 @@ def test_simulate_jobs_are_serial_parallel_byte_identical():
     parallel = run_simulate_jobs(variants, [1, 2], _parallel_native,
                                  master_seed=8, max_workers=2)
     assert serial.json_bytes == parallel.json_bytes
+
+
+def _one_session_orders(view, session):
+    if session != D0:
+        return []
+    exit_rule = ExitRule.after_n_sessions(1, at=FillPoint.close_auction())
+    return [Order("LIVE", "long", FillPoint.open_auction(), exit_rule, 10_000),
+            Order("DIES", "long", FillPoint.open_auction(), exit_rule, 10_000)]
+
+
+def test_missing_exit_bar_of_a_still_listed_name_is_not_a_delisting():
+    """Two names with identical bars and a missing exit bar must get identical treatment:
+    a listing interval that ends AFTER the run window is not knowledge the run may use."""
+    bars = [_bar("LIVE", D0, 100, 120), _bar("DIES", D0, 100, 120),
+            _bar("MARKET", D0), _bar("MARKET", D1), _bar("MARKET", D2), _bar("MARKET", D3)]
+    listings = (ListingInterval("LIVE", D0), ListingInterval("DIES", D0, date(2025, 1, 1)),
+                ListingInterval("MARKET", D0))
+    data, universe = _fixture(bars, listings)
+    ledger = simulate_events(
+        EventStrategy("gap", "pre_open", _one_session_orders, 2, 10_000,
+                      max_new_per_session=2),
+        data, universe, (D0, D3), COSTS, Benchmark("cash"))
+    assert [trade.ticker for trade in ledger.trades] == []
+    assert sorted(outcome.ticker for outcome in ledger.unfilled_orders) == ["DIES", "LIVE"]
+    assert {outcome.reason for outcome in ledger.unfilled_orders} == {"missing_exit_bar"}

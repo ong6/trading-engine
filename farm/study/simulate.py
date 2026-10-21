@@ -32,6 +32,11 @@ def _sessions(data: MarketData, window: Iterable[date] | tuple[date, date] | obj
     return tuple(days)
 
 
+def _after_withholding(signed_cash: float, withholding: float) -> float:
+    """Withholding is deducted from dividends received; a short owes the full gross."""
+    return signed_cash * (1 - withholding) if signed_cash > 0 else signed_cash
+
+
 def _fill_day(days: tuple[date, ...], base_index: int, fill: FillPoint) -> date | None:
     index = base_index + (fill.kind == "next_open")
     return days[index] if index < len(days) else None
@@ -323,6 +328,12 @@ def _exit(strategy: EventStrategy, data: MarketData, universe: Universe,
                 actual = later
                 break
     if value is None:
+        # Only a delisting KNOWN inside the run window may close the trade; a
+        # listing interval that ends after `days[-1]` is future knowledge, so the
+        # name is treated exactly like a still-listed one with a missing bar.
+        interval = universe.listing_interval(position.ticker)
+        if interval is None or interval.listed_through is None or interval.listed_through > days[-1]:
+            return None
         delist = universe.delisting_exit(
             position.ticker, held_on=position.entry_session, entry_price=position.entry_price)
         if delist is None:
@@ -414,7 +425,7 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
                                       open_as_indication=True, close_as_indication=True)
             gross_dividend = direction * position.shares * dividend_per_share(
                 data, order.ticker, entry_session, exit_session, 0.0, view=dividend_view)
-            dividend = gross_dividend * (1 - strategy.dividend_withholding)
+            dividend = _after_withholding(gross_dividend, strategy.dividend_withholding)
             gross = direction * (exit_price / entry_price - 1) + dividend / order.notional
             mdv = _mdv60(data.primary, order.ticker, entry_session)
             profile_costs, profile_returns = {}, {}
@@ -573,10 +584,12 @@ def simulate_portfolio(strategy: PortfolioStrategy, data: MarketData, universe: 
         flags, day_costs, turnover = [], {profile: 0.0 for profile in profiles}, 0.0
         previous = days[index - 1] if index else session
         dividend_view = data.view(session, "at_close", session)
-        gross_dividend_cash = sum(quantity * dividend_per_share(
-            data, name, previous, session, 0.0,
-            view=dividend_view) for name, quantity in holdings.items())
-        dividend_cash = gross_dividend_cash * (1 - strategy.dividend_withholding)
+        per_name = {name: quantity * dividend_per_share(
+            data, name, previous, session, 0.0, view=dividend_view)
+            for name, quantity in holdings.items()}
+        gross_dividend_cash = sum(per_name.values())
+        dividend_cash = sum(_after_withholding(value, strategy.dividend_withholding)
+                            for value in per_name.values())
         cash += dividend_cash
         if session in pending:
             target, fill = pending.pop(session)

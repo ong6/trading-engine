@@ -3987,4 +3987,28 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +20, tests +20 lines.
 - **Next:** orchestrator runs the repair on the live store after merge.
 
+## 2026-10-21 — Deflated-Sharpe hurdle uses the zero-skill sampling variance
+
+- **Why:** P24 quant-audit lane. `farm.stats.inference.deflated_sharpe` claimed a fallback V equal to the SR estimator's sampling variance "under the null", but plugged the candidate's own Sharpe, skew and kurtosis into the Mertens variance. A positively skewed candidate therefore lowered the expected-best-of-N hurdle it was measured against, a negatively skewed one raised it; zero-skill trials have neither. Reproduction: the new test (two series, same n and N, one Gaussian and one exponential) returned different SR0 values.
+- **What:** the fallback is now V = 1/(n-1), the Bailey & Lopez de Prado null (SR = 0). Callers that pass the real cross-trial variance (`var_sr`) are unchanged. Three independent checks join the suite: SR0 against a Monte-Carlo maximum of N normals, the PSR denominator against the Monte-Carlo variance of a skewed Sharpe (non-excess kurtosis, sign of the skew term), and the day-clustered SE against the closed-form t-test on daily means.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_stats.py tests/test_study_stats.py` passes (new tests fail on the previous code). Recorded effect: the 12 pooled walk-forward monthly DSR values move by at most 0.096 and none crosses the 0.95 context bar; the 13 recorded `experiment_results` SR0 values change by at most 3.5%. `farm/stats/inference.py` is pinned by the P15 registration: re-pin needed, not done here.
+- **Metrics:** farm +6/-5, tests +59 lines.
+- **Next:** the P24 orchestrator re-pins once after the lane merges.
+
+## 2026-10-21 — Study core never prices a missing bar with a close it cannot know yet
+
+- **Why:** P24 quant-audit lane. In `farm.study`, an equal-weight comparator leg whose name had no bar on the leg's end session but a listing interval ending later took `delisting_exit`, i.e. the name's LAST close inside the interval, which can lie days or years after the leg (and after the run window). Reproduction: a three-name fixture where one name's next print, two sessions later, is +200% returned a comparator leg of +70% instead of +5%. The event path had the mirror image: a name with a missing exit bar and a listing interval ending after the window was closed at its entry-day close labelled `delisting`, while an identical still-listed name was left unfilled.
+- **What:** both paths now treat a listing end as knowledge only once it is inside the window: the comparator skips a still-listed name with a missing bar (a delisting with `listed_through` at or before the leg's end session still uses its last close), and `_exit` books a delisting only when `listed_through` is at or before the run's last session. Delistings inside the window behave exactly as before.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_study_costs_benchmark.py tests/test_study_simulate.py tests/test_study_universe.py tests/test_study_synthetic.py` passes; the two new tests fail on the previous code. No registered study result in this repository was produced by these paths.
+- **Metrics:** farm +12/-0, tests +44 lines.
+- **Next:** none admitted; the alpha-side evaluators keep their own comparators.
+
+## 2026-10-21 — Dividend withholding applies to receipts, never to a short's liability
+
+- **Why:** P24 quant-audit lane. `farm.study.simulate` multiplied the signed dividend cash by `(1 - dividend_withholding)` in both the event and portfolio paths, so a short position paid 70% of the dividend it owed under the 30% Singapore withholding. Reproduction: a one-share-class short over a USD 1 ex-date booked -7 of -10 per 10 shares, and a portfolio short of 1,000 shares booked -700 of -1,000.
+- **What:** `_after_withholding` keeps the full gross for a negative (owed) amount and withholds only from a positive receipt; the portfolio path applies it per holding so a mixed long/short book is right. Long-only behaviour and the gross-of-withholding ledger fields are unchanged.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_study_followup2.py` passes; the new short test fails on the previous code. The sim/ledger account path already debited shorts at full gross; only the study core differed.
+- **Metrics:** farm +9/-3, tests +29 lines.
+- **Next:** none admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
