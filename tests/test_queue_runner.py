@@ -5,10 +5,10 @@ store/ is never opened.
 """
 from __future__ import annotations
 
+import builtins
 import subprocess
 import sys
 import time
-import builtins
 from datetime import date
 
 import duckdb

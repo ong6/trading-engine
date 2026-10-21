@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import timezone
 import json
+from datetime import timezone
 from pathlib import Path
 
 import duckdb
 
-from engine.lib.util import table_exists
 from engine.lib.settings import REPO_ROOT
+from engine.lib.util import table_exists
 from server.json_utils import loads_object
 
 from .read_model_utils import (

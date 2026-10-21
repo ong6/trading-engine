@@ -3997,4 +3997,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools 1 line, tests +3 lines.
 - **Next:** rerun the full suites.
 
+## 2026-10-21 — Stage revision 16 (r16-gen, r16-raw) on the wave-1 landing
+
+- **Why:** P24 integrate lane; build plan E5. Both lanes were reviewed to ACCEPT on the pre-rewrite revision-15 base.
+- **What:** each lane's commits (28 and 15) are re-parented onto the rewritten revision-15 head with byte-identical trees, then merged onto `p24/integrate-wave1`, so every reviewed commit keeps its reviewed tree. Against newer main: retention keeps main's latest-plus-one-verified rules and dry run, with the lane's reader pins and part pruning; API readers always pin a generation, so main's `prefer_current_snapshot` is removed; the invariant checker reads generation manifests; the TradingView pause is declared in the schedule contract and keeps main's once-a-day publication; the catalogue gains the migration ledger and generation files.
+  Pinned files changed (no re-pin): engine/lib/db.py, engine/lib/snapshots.py, tools/backup_database.py, tools/publish_snapshot.py, engine/queue_runner.py, engine/signals.py, engine/tradingview_history_archive.py.
+- **Evidence:** storage, snapshot, backup, migration, server, raw, install, scheduler, catalogue and invariant tests pass in the merged tree; a new test proves the invariant checker resolves and reads a published generation (it is refused on main's checker).
+- **Metrics:** lanes +7,200 lines; merge adaptations about +200.
+- **Next:** store-copy rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

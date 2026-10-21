@@ -1,8 +1,8 @@
 """Recorded-fixture tests for P3's isolated free SEC sources."""
 from __future__ import annotations
 
-import io
 import hashlib
+import io
 import json
 import zipfile
 from datetime import date, datetime, timezone
