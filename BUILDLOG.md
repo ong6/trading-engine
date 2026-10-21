@@ -4136,4 +4136,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +70, tests +60 lines.
 - **Next:** orchestrator applies on the live store.
 
+## 2026-10-21 — Batch the TradingView history fact writes (P24 nightly-speed)
+
+- **Why:** P24 nightly-speed. The nightly farm drain is the critical path (median 2,372 of 2,731 s); in its `tradingview_history` job each 50-chunk run spent about 0.7 s per chunk on the network and 6-8 s writing facts, one prior lookup, one latest lookup, one `MAX(id)` and one insert per observation.
+- **What:** `retain_observations` reads the prior and latest revisions once per batch, assigns revisions and ids in observation order exactly as the per-row queries would, and inserts with multi-row VALUES. Inputs it cannot key exactly (naive or non-datetime times, non-string tickers, a non-UTC session) keep the per-row path. `record_fact` shares its checks and row builder with the batch.
+- **Evidence:** store-copy replay of the newest 50 recorded chunks (17,953 facts deleted, then re-captured from their retained bodies and clocks): fact writes 474.6 s before, 63.4 s after; `bitemporal_facts` (5,931,486 rows) and `source_response_receipts` hash identical to the untouched copy on both paths. New test compares batch and per-row results and rows, including replays, revisions, in-batch repeats and errors.
+- **Metrics:** engine +31, server +102, tests +80 lines (net).
+- **Next:** the remaining nightly stages in this lane (snapshot publish, collect, actions, earnings).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

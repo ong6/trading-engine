@@ -340,3 +340,83 @@ def test_capture_waits_out_a_concurrent_store_reader(tmp_path, monkeypatch, capt
         assert con.execute("SELECT COUNT(*) FROM source_response_receipts").fetchone() == (1,)
     finally:
         con.close()
+
+
+def _fact_rows(con):
+    return con.execute("SELECT * FROM bitemporal_facts ORDER BY id").fetchall()
+
+
+def _retain_both_ways(tmp_path, batches):
+    """Run each batch through retain_observations and through the per-row path."""
+    outcomes = []
+    for name, batched in (("batch", True), ("row", False)):
+        database = tmp_path / f"{name}.duckdb"
+        _secure_database(database)
+        con = db.connect(database)
+        db.init_schema(con)
+        if not batched:
+            con_batchable = market_data_sources._batchable
+            market_data_sources._batchable = lambda *_args: False
+        try:
+            results = []
+            for index, observations in enumerate(batches):
+                received = NOW + timedelta(minutes=index // 2)
+                receipt = market_data_sources.retain_response(
+                    con, source_id=market_data_sources.TRADINGVIEW,
+                    dataset="historical_daily_bars", endpoint="wss://example.test",
+                    request={"batch": index // 2},
+                    response=_response({"batch": index // 2}, received_at=received))
+                try:
+                    results.append(market_data_sources.retain_observations(
+                        con, source_id=market_data_sources.TRADINGVIEW,
+                        receipt_sha256=receipt["receipt_sha256"],
+                        receipt_dataset="historical_daily_bars", received_at=received,
+                        observations=observations, fact_type="market.ohlcv.1d.retrieved",
+                        source_version="test", ingested_at=received + timedelta(seconds=5)))
+                except (ValueError, TypeError) as exc:
+                    results.append((type(exc).__name__, str(exc)))
+            outcomes.append((results, _fact_rows(con)))
+        finally:
+            if not batched:
+                market_data_sources._batchable = con_batchable
+            con.close()
+    return outcomes
+
+
+def test_batched_observations_match_per_row_retention(tmp_path):
+    day = datetime(2026, 9, 1, 13, 30, tzinfo=timezone.utc)
+    sgt = timezone(timedelta(hours=8))
+
+    def bar(ticker, offset, close, *, tz=timezone.utc):
+        return {"ticker": ticker, "event_at": (day + timedelta(days=offset)).astimezone(tz),
+                "payload": {"close": close}}
+
+    first = [bar("AAA", 0, 10.0), bar("AAA", 1, 11.0), bar("BBB", 0, 20.0)]
+    batches = [
+        first,
+        first,  # same receipt replay: prior-match replays
+        # new receipt: unchanged (latest replay), revised, new, in-batch repeats
+        [bar("AAA", 0, 10.0, tz=sgt), bar("AAA", 1, 11.5), bar("AAA", 1, 11.5),
+         bar("AAA", 1, 11.0), bar("CCC", 2, 30.0), bar("BBB", 0, 20.0)],
+        [bar("AAA", 1, 11.0), bar("AAA", 1, 12.0)],
+        # errors after valid rows roll back the whole batch on both paths
+        [bar("DDD", 3, 1.0), {"ticker": "DDD", "event_at": day, "payload": {"close": float("nan")}}],
+        [bar("DDD", 3, 1.0), bar(" ", 3, 1.0)],
+        [bar("DDD", 3, 1.0), {"ticker": "DDD", "event_at": day}],
+        [bar("EEE", 0, 5.0), {"ticker": "EEE", "event_at": day + timedelta(days=30),
+                              "payload": {"close": 5.0}}],
+        [],
+    ]
+    (batch_results, batch_rows), (row_results, row_rows) = _retain_both_ways(tmp_path, batches)
+
+    assert batch_results == row_results
+    assert batch_rows == row_rows
+    assert len(batch_rows) == 7
+    assert [len(item) for item in batch_results[:4]] == [3, 3, 6, 2]
+    assert all(isinstance(item, tuple) for item in batch_results[4:8])
+    con = db.connect(tmp_path / "batch.duckdb", read_only=True)
+    try:
+        assert market_data_sources._batchable(con, first)
+        assert not market_data_sources._batchable(con, [{**first[0], "event_at": NOW.replace(tzinfo=None)}])
+    finally:
+        con.close()

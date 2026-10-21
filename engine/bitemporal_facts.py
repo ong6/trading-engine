@@ -98,16 +98,16 @@ def record_receipt(
     return {**identity, "id": receipt_id, "receipt_sha256": receipt_sha, "replayed": False}
 
 
-def record_fact(
-    con: duckdb.DuckDBPyConnection, *, entity_id: str, security_id: str | None,
-    fact_type: str, event_at: datetime, published_at: datetime | None,
-    available_at: datetime, ingested_at: datetime, payload: dict, source: str,
-    source_version: str, receipt_sha256: str,
-) -> dict:
-    entity_id = _text(entity_id, "entity_id")
-    fact_type = _text(fact_type, "fact_type")
-    source = _text(source, "source")
-    source_version = _text(source_version, "source_version")
+def validated_fact_times(
+    *, entity_id: str, fact_type: str, source: str, source_version: str,
+    event_at: datetime, published_at: datetime | None, available_at: datetime,
+    ingested_at: datetime,
+) -> tuple[datetime, datetime | None, datetime, datetime]:
+    """Apply ``record_fact``'s argument checks; return its UTC-naive times."""
+    _text(entity_id, "entity_id")
+    _text(fact_type, "fact_type")
+    _text(source, "source")
+    _text(source_version, "source_version")
     event, available, ingested = (
         _utc(event_at, "event_at"), _utc(available_at, "available_at"),
         _utc(ingested_at, "ingested_at"),
@@ -117,10 +117,49 @@ def record_fact(
         raise FactError("fact event/publication/availability times are inconsistent")
     if available > ingested:
         raise FactError("fact availability is after ingestion")
+    return event, published, available, ingested
+
+
+def require_receipt(con: duckdb.DuckDBPyConnection, receipt_sha256: str) -> None:
     if con.execute(
         "SELECT 1 FROM source_response_receipts WHERE receipt_sha256=?", [receipt_sha256]
     ).fetchone() is None:
         raise FactError("fact source receipt is unavailable")
+
+
+def fact_row(
+    *, fact_id: int, entity_id: str, security_id: str | None, fact_type: str,
+    event: datetime, published: datetime | None, available: datetime, ingested: datetime,
+    revision: int, normalized: str, normalized_sha: str, source: str, source_version: str,
+    receipt_sha256: str, previous: str | None,
+) -> list:
+    """The ``bitemporal_facts`` row for a new revision; its last value is the fact hash."""
+    identity = {
+        "schema_version": SCHEMA_VERSION, "entity_id": entity_id,
+        "security_id": security_id, "fact_type": fact_type,
+        "event_at": event.isoformat(), "published_at": None if published is None else published.isoformat(),
+        "available_at": available.isoformat(), "ingested_at": ingested.isoformat(),
+        "revision": revision, "normalized_sha256": normalized_sha,
+        "source": source, "source_version": source_version,
+        "receipt_sha256": receipt_sha256, "previous_fact_sha256": previous,
+    }
+    return [fact_id, SCHEMA_VERSION, entity_id, security_id, fact_type, event, published,
+            available, ingested, revision, normalized, normalized_sha, source, source_version,
+            receipt_sha256, previous, canonical_sha256(identity)]
+
+
+def record_fact(
+    con: duckdb.DuckDBPyConnection, *, entity_id: str, security_id: str | None,
+    fact_type: str, event_at: datetime, published_at: datetime | None,
+    available_at: datetime, ingested_at: datetime, payload: dict, source: str,
+    source_version: str, receipt_sha256: str,
+) -> dict:
+    event, published, available, ingested = validated_fact_times(
+        entity_id=entity_id, fact_type=fact_type, source=source,
+        source_version=source_version, event_at=event_at, published_at=published_at,
+        available_at=available_at, ingested_at=ingested_at,
+    )
+    require_receipt(con, receipt_sha256)
     normalized = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
     normalized_sha = canonical_sha256(payload)
     latest = con.execute(
@@ -132,24 +171,16 @@ def record_fact(
         return {"fact_sha256": latest[2], "revision": int(latest[0]), "replayed": True}
     revision = 1 if latest is None else int(latest[0]) + 1
     previous = None if latest is None else latest[2]
-    identity = {
-        "schema_version": SCHEMA_VERSION, "entity_id": entity_id,
-        "security_id": security_id, "fact_type": fact_type,
-        "event_at": event.isoformat(), "published_at": None if published is None else published.isoformat(),
-        "available_at": available.isoformat(), "ingested_at": ingested.isoformat(),
-        "revision": revision, "normalized_sha256": normalized_sha,
-        "source": source, "source_version": source_version,
-        "receipt_sha256": receipt_sha256, "previous_fact_sha256": previous,
-    }
-    fact_sha = canonical_sha256(identity)
     fact_id = int(con.execute("SELECT COALESCE(MAX(id),0)+1 FROM bitemporal_facts").fetchone()[0])
-    con.execute(
-        "INSERT INTO bitemporal_facts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        [fact_id, SCHEMA_VERSION, entity_id, security_id, fact_type, event, published, available,
-         ingested, revision, normalized, normalized_sha, source, source_version, receipt_sha256,
-         previous, fact_sha],
+    row = fact_row(
+        fact_id=fact_id, entity_id=entity_id, security_id=security_id, fact_type=fact_type,
+        event=event, published=published, available=available, ingested=ingested,
+        revision=revision, normalized=normalized, normalized_sha=normalized_sha,
+        source=source, source_version=source_version, receipt_sha256=receipt_sha256,
+        previous=previous,
     )
-    return {"fact_sha256": fact_sha, "revision": revision, "replayed": False}
+    con.execute("INSERT INTO bitemporal_facts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
+    return {"fact_sha256": row[-1], "revision": revision, "replayed": False}
 
 
 def record_intraday_quote_batch(
