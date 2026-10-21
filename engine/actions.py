@@ -968,6 +968,30 @@ def _resolve_split_quarantine(con, ticker: str, ex_date: date) -> None:
             con, ticker, resolution=f"split ex {ex_date} restated by actions.reconcile")
 
 
+def decide_split(con, tk: str, ex: date, ratio: float) -> tuple[str, int, str | None]:
+    """Adjudicate one split and act on the verdict: restate, or record the outcome.
+    Returns (outcome, rows restated, TODO line for a skipped split or None)."""
+    v = _adjudicate(con, tk, ex, ratio)
+    outcome = v["outcome"]
+    if outcome == "applied_pending":
+        n = _restate(con, tk, ex, ratio, v["break_date"],
+                     keep=v.get("new_scale_dates", ()))
+        _resolve_split_quarantine(con, tk, ex)
+        log.info(f"[actions] RESTATED {tk} split {ratio:g}:1 ex={ex} "
+                 f"break={v['break_date']} rows={n} (obs {v['observed']:.4f}) "
+                 f"— pre-ex pending orders rescaled, positions rebuilt from fills")
+        return "applied", n, None
+    _mark(con, tk, ex, ratio, v)
+    if not outcome.startswith("skipped"):
+        return outcome, 0, None
+    line = (f"WARN {outcome}: {tk} split {ratio:g}:1 ex={ex} "
+            f"(observed {v['observed']}) — NOT restated, needs a human")
+    log.info(f"[actions] {line}")
+    _audit(con, f"split_{outcome}",
+           {"ticker": tk, "ex_date": ex, "ratio": ratio, "observed": v["observed"]})
+    return outcome, 0, line
+
+
 def reconcile(con) -> dict:
     """Adjudicate every not-yet-considered split with ex_date <= the latest bar,
     restating where the stored series genuinely shows the break. Idempotent: the
@@ -991,28 +1015,9 @@ def reconcile(con) -> dict:
     restated_rows = 0
     todos: list[str] = []
     for tk, ex, ratio in cands:
-        ratio = float(ratio)
-        v = _adjudicate(con, tk, ex, ratio)
-        outcome = v["outcome"]
-        if outcome == "applied_pending":
-            n = _restate(con, tk, ex, ratio, v["break_date"],
-                         keep=v.get("new_scale_dates", ()))
-            _resolve_split_quarantine(con, tk, ex)
-            restated_rows += n
-            outcome = "applied"
-            log.info(f"[actions] RESTATED {tk} split {ratio:g}:1 ex={ex} "
-                  f"break={v['break_date']} rows={n} (obs {v['observed']:.4f}) "
-                  f"— pre-ex pending orders rescaled, positions rebuilt from fills")
-        else:
-            _mark(con, tk, ex, ratio, v)
-            if outcome.startswith("skipped"):
-                line = (f"WARN {outcome}: {tk} split {ratio:g}:1 ex={ex} "
-                        f"(observed {v['observed']}) — NOT restated, needs a human")
-                todos.append(line)
-                log.info(f"[actions] {line}")
-                _audit(con, f"split_{outcome}",
-                       {"ticker": tk, "ex_date": ex, "ratio": ratio,
-                        "observed": v["observed"]})
+        outcome, n, todo = decide_split(con, tk, ex, float(ratio))
+        restated_rows += n
+        todos += [todo] if todo else []
         counts[outcome] = counts.get(outcome, 0) + 1
 
     todos += tripwire(con)

@@ -747,13 +747,14 @@ def test_bar_already_restated_before_the_break_is_not_divided_again(con):
 
 
 def test_new_scale_island_needs_both_edges_within_five_sessions():
-    days = SESSIONS[:12]
-    short = [300.0, 300.0, 100.0, 100.0, 300.0, 300.0]
-    assert actions.new_scale_islands(list(zip(days, short)), 3.0) == days[2:4]
-    long = [300.0] + [100.0] * 6 + [300.0]
-    assert actions.new_scale_islands(list(zip(days, long)), 3.0) == []
+    def islands(closes):
+        return actions.new_scale_islands(list(zip(SESSIONS[:len(closes)], closes,
+                                                  strict=True)), 3.0)
+
+    assert islands([300.0, 300.0, 100.0, 100.0, 300.0, 300.0]) == SESSIONS[2:4]
+    assert islands([300.0] + [100.0] * 6 + [300.0]) == []
     # a real one-way move of the ratio's size is not an island
-    assert actions.new_scale_islands(list(zip(days, [300.0, 100.0, 100.0])), 3.0) == []
+    assert islands([300.0, 100.0, 100.0]) == []
 
 
 def _liquid(con, ticker: str, closes: list[float], volumes: list[int]) -> None:

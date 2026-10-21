@@ -3955,4 +3955,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +120 lines.
 - **Next:** repair tool for the bars already wrong in the store.
 
+## 2026-10-21 — Repair tool for the split and same-night defects already stored
+
+- **Why:** P24 integrity lane. Shadow monitor on the 2026-10-21 08:34 snapshot copy: `one_split_basis_per_ticker` 3 regressions (WLFC, CRWU, ETHA), `split_recorded_vs_restated` 18. `fix/corporate-actions-split-integrity` landed on main but cannot heal these: its rule 3 reads `first_fetched_at`, which equals the last 5d re-fetch for every bar stored before about 10-16 (reproduced: `_adjudicate` on the copy still skips ETHA, CRWU and 8 of the late-recorded splits), and the watermark keeps a decided split from being re-adjudicated.
+- **What:** `engine.repair_integrity`, dry-run by default, idempotent. Steps: `double` (multiply back bars an applied restatement divided twice, when the source agrees), `unrecorded` (record the flagged names' splits through the nightly actions path), `splits` (restate a skipped or new split through `actions._restate` only when the source's current history puts every pre-break bar at stored/source = ratio, or at 1 for bars kept as already restated, and every later one at 1; a new split that fails is recorded `skipped_source_mismatch`), `stale` (the nightly settle path from `--since`). Originals go to `price_observation_rejects`, each change to `audit_log`. `actions.decide_split` is reconcile's per-split body, unchanged. Baseline: the 7 remaining breaks are real moves (stored equals the source on both sides).
+- **Evidence:** on the copy: split regressions 3 -> 0 and 18 -> 0 (7 baselined), 13 splits restated plus WLFC 07-15 (18,691 bars); afterwards all 26,679 stored bars of those 14 names are within 1% of the source, 21 never-settled bars settled (CIB 10-16 restored); books, cash and orders identical; a second dry-run finds nothing to change. `pytest tests/test_repair_integrity.py` 3 passed.
+- **Metrics:** engine +400, tests +150 lines.
+- **Next:** walk-forward NaN artifacts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -671,7 +671,7 @@ def settle_stale_provisional(db_path: str | Path, *, today: date | None = None,
         keys = stale_provisional_keys(con, since)
     finally:
         con.close()
-    report = {"stale": len(keys), "refetched": 0, "retired": 0,
+    report = {"stale": len(keys), "source_bars": 0, "refetched": 0, "retired": 0,
               "keys": [f"{ticker} {day}" for ticker, _yf, day in keys]}
     if not keys:
         return report
@@ -688,6 +688,7 @@ def settle_stale_provisional(db_path: str | Path, *, today: date | None = None,
         df = df[[(ticker, day) in wanted
                  for ticker, day in zip(df.ticker, df.date, strict=True)]]
         df = df[df[["open", "high", "low", "close"]].notna().any(axis=1)]
+        report["source_bars"] += len(df)
         if not dry_run:
             report["refetched"] += _upsert_batch(db_path, df)
     con = db.connect(db_path, read_only=dry_run)
