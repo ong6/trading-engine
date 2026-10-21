@@ -3931,4 +3931,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine, server, farm and tests +330/-48 lines.
 - **Next:** reviewer round 2.
 
+## 2026-10-21 — Start each test worker on its share of the slow tests and balance CI shards
+
+- **Why:** P24 test-speed lane. Baseline `pytest -q -W error -n 8`: 210.9s wall, last worker done at 205s against a 153s median, because worksteal's contiguous blocks left the four 33s `test_generated_delivery_matches_on_time_accounting` seeds queued on one worker; CI's hashed file shards held 447/294/270/245s of work.
+- **What:** under xdist, `tests/speed_plugin.py` reorders the collection so each worker's first worksteal block opens with a longest-first share of the tests recorded at 1s or more in `tests/durations.json`; the other tests keep collection order and file locality. CI shards take files longest-first onto the least-loaded shard (a file missing from the record counts 0.1s a test). `--record-durations PATH` rewrites the record. Order and shard membership change; the set of tests does not.
+- **Evidence:** replaying the recorded per-test times through xdist's worksteal rules gives 206s for the old order (205s measured) and 158s for the new; the worst 4-worker shard goes from 121s to 79s. `--collect-only` lists 5,762 nodes before and after, and the four shards' union equals that list exactly under UTC and Asia/Singapore.
+- **Metrics:** server/tools/product unchanged; tests +119/-12 lines plus the 558-line duration record.
+- **Next:** reuse the repeated P16 lambda calibrations.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

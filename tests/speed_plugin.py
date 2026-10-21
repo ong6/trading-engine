@@ -1,8 +1,12 @@
-"""Reuse expensive synthetic setup while keeping each test's database private."""
+"""Test speed: shared synthetic setup and balanced workers and shards.
+
+Every test keeps its own private databases and runs exactly once per run.
+"""
 from __future__ import annotations
 
-import hashlib
+import json
 import shutil
+from collections import Counter
 from contextlib import closing, contextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -10,31 +14,134 @@ from pathlib import Path
 import duckdb
 import pytest
 
+DURATIONS = Path(__file__).with_name("durations.json")
+# Recorded per-test seconds at or above this go first when tests are distributed.
+SLOW_TEST_SECONDS = 1.0
+# Estimate for a file absent from the recorded durations (new since the last record).
+UNKNOWN_TEST_SECONDS = 0.1
+
 
 def pytest_addoption(parser):
     group = parser.getgroup("test speed")
     group.addoption("--test-shards", type=int, default=1, help="Number of CI file shards")
     group.addoption("--test-shard", type=int, default=0, help="Zero-based CI shard index")
+    group.addoption("--record-durations", metavar="PATH", default=None,
+                    help="Write per-file and slow-test durations from this run as JSON")
 
 
 def pytest_configure(config):
     count, index = config.getoption("test_shards"), config.getoption("test_shard")
     if count < 1 or not 0 <= index < count:
         raise pytest.UsageError("require --test-shards >= 1 and 0 <= --test-shard < --test-shards")
+    if hasattr(config, "workerinput"):
+        return
+    if config.getoption("record_durations"):
+        config.pluginmanager.register(_DurationRecorder(config), "test-speed-durations")
+
+
+def _recorded_durations():
+    try:
+        recorded = json.loads(DURATIONS.read_text())
+    except (OSError, ValueError):
+        return {}, {}
+    return recorded.get("files", {}), recorded.get("slow_tests", {})
+
+
+def shard_files(filenames, counts, file_seconds, shards):
+    """Longest-first file assignment to the least-loaded shard; a partition.
+
+    Every shard collects the same files, so each computes the same mapping.
+    Stale or missing durations only change balance, never which tests run.
+    """
+    def cost(name):
+        return file_seconds.get(name, counts[name] * UNKNOWN_TEST_SECONDS)
+
+    loads = [0.0] * shards
+    assignment = {}
+    for name in sorted(filenames, key=lambda name: (-cost(name), name)):
+        shard = min(range(shards), key=lambda index: (loads[index], index))
+        assignment[name] = shard
+        loads[shard] += cost(name)
+    return assignment
 
 
 def pytest_collection_modifyitems(config, items):
-    """Stable file shards keep fixture caches together; the default runs everything."""
+    """Balance CI file shards and start known-slow tests first under xdist.
+
+    The default run selects everything; serial runs keep collection order.
+    """
+    file_seconds, slow_tests = _recorded_durations()
     count, index = config.getoption("test_shards"), config.getoption("test_shard")
-    if count == 1:
-        return
-    selected, excluded = [], []
-    for item in items:
-        filename = item.nodeid.split("::", 1)[0]
-        bucket = int.from_bytes(hashlib.sha256(filename.encode()).digest()[:8], "big") % count
-        (selected if bucket == index else excluded).append(item)
-    items[:] = selected
-    config.hook.pytest_deselected(items=excluded)
+    if count > 1:
+        counts = Counter(item.nodeid.split("::", 1)[0] for item in items)
+        assignment = shard_files(counts, counts, file_seconds, count)
+        selected, excluded = [], []
+        for item in items:
+            filename = item.nodeid.split("::", 1)[0]
+            (selected if assignment[filename] == index else excluded).append(item)
+        items[:] = selected
+        config.hook.pytest_deselected(items=excluded)
+    if hasattr(config, "workerinput"):
+        # Every worker orders the same collection identically, as xdist requires.
+        items[:] = slow_first(items, slow_tests, config.workerinput["workercount"])
+
+
+def slow_first(items, slow_tests, workers):
+    """Give each worker's first block a longest-first share of the slow tests.
+
+    With --dist=worksteal xdist splits the ordered collection into one
+    contiguous block per worker (each the remaining count divided by the
+    remaining workers) and an idle worker later steals the back half of the
+    longest queue. Slow tests are binned longest-first onto the least-loaded
+    block and placed at its front, so they never queue behind each other or
+    get stolen; the other tests fill the blocks in collection order and keep
+    their file locality. Only the order changes, never the set.
+    """
+    slow = sorted(
+        (item for item in items if slow_tests.get(item.nodeid, 0.0) >= SLOW_TEST_SECONDS),
+        key=lambda item: -slow_tests[item.nodeid],
+    )
+    bins, loads = [[] for _ in range(workers)], [0.0] * workers
+    for item in slow:
+        lightest = min(range(workers), key=lambda index: (loads[index], index))
+        bins[lightest].append(item)
+        loads[lightest] += slow_tests[item.nodeid]
+    chosen = {id(item) for item in slow}
+    rest = [item for item in items if id(item) not in chosen]
+    ordered, remaining, start = [], len(items), 0
+    for index, block in enumerate(bins):
+        size = remaining // (workers - index)
+        remaining -= size
+        if len(block) > size:  # too few tests to give every worker a block
+            return [*slow, *rest]
+        ordered += block + rest[start:start + size - len(block)]
+        start += size - len(block)
+    return ordered
+
+
+class _DurationRecorder:
+    """Controller-side setup+call+teardown totals; workers report every phase."""
+
+    def __init__(self, config):
+        self.path = Path(config.getoption("record_durations"))
+        self.seconds = Counter()
+
+    def pytest_runtest_logreport(self, report):
+        self.seconds[report.nodeid] += report.duration
+
+    def pytest_sessionfinish(self, session):
+        files = Counter()
+        for nodeid, seconds in self.seconds.items():
+            files[nodeid.split("::", 1)[0]] += seconds
+        payload = {
+            "comment": "Recorded by --record-durations; used only to order and shard tests.",
+            "files": {name: round(value, 2) for name, value in sorted(files.items())},
+            "slow_tests": {
+                nodeid: round(value, 2) for nodeid, value in sorted(self.seconds.items())
+                if value >= SLOW_TEST_SECONDS
+            },
+        }
+        self.path.write_text(json.dumps(payload, indent=1) + "\n")
 
 
 @pytest.fixture(scope="session", autouse=True)
