@@ -3964,4 +3964,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +3, ops +8 lines of adaptation over the lane.
 - **Next:** land b-release.
 
+## 2026-10-21 — Land wave-1 b-release (dry-run-default release transaction) on the rewritten main
+
+- **Why:** P24 integrate lane; b-release was reviewed to ACCEPT on the pre-rewrite revision-15 base.
+- **What:** the lane's 16 commits rebase onto main without conflicts and land unchanged; `docs/settlement-runbook.md` is untouched. Its fake host commands start with `#!/usr/bin/env python3`, so the release tests need Python 3.8 or newer first on PATH (CI has 3.12; this host's system `python3` is older, so the suite runs with the project venv first on PATH).
+- **Evidence:** `PATH=.venv/bin:$PATH pytest tests/test_release_deploy.py` all passed.
+- **Metrics:** unchanged beyond the lane.
+- **Next:** land b-study (research-only, E6).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
