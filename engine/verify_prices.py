@@ -979,6 +979,25 @@ def retain_evidence(accounting: dict, directory: Path) -> dict:
     return summary
 
 
+def summary_line(meta_key: str, summary: dict) -> str:
+    """One stdout line for a run whose result went to `_meta.json` and its receipt.
+
+    The nightly and weekly drivers tee stdout into their logs; the full summary is
+    ~4k lines a night (~86k a weekly pass) and already lives in `_meta.json`, with
+    the complete accounting in the receipt this line names.
+    """
+    newest = summary.get("newest_session") or {}
+    receipt = summary.get("evidence_receipt") or {}
+    return (f"[verify] {meta_key} as_of {summary.get('as_of')}: "
+            f"selected {summary.get('names_selected')} checked {summary.get('names_checked')} "
+            f"agree {summary.get('names_agreeing')} disagree {summary.get('names_disagreeing')} "
+            f"not_checked {summary.get('names_not_checked')} "
+            f"disagreements {summary.get('n_disagreements')} "
+            f"material {summary.get('n_material')} parse_errors {summary.get('n_parse_errors')} "
+            f"newest_session {newest.get('status')} secs {summary.get('secs')} "
+            f"receipt {receipt.get('path')} ({receipt.get('bytes')} bytes)")
+
+
 def _connect_ro(path: str | Path, tries: int = 6, retry_s: float = 5.0):
     """Read-only handle, retrying while another process holds the writer lock.
     DuckDB is single-writer on disk, so a transient failure here is normal, not
@@ -1072,8 +1091,10 @@ def main() -> int:
               f"_meta.json update, nightly unaffected")
         return 0
 
-    # stdout is tee'd into two logs: print the summary, never the raw response
-    # bodies (~18 MB a weekly pass). The receipt is the evidence channel.
+    # stdout is tee'd into two logs. The complete accounting (base64 response
+    # bodies included) goes to its receipt, the summary to `_meta.json`, and
+    # stdout gets one line naming both. Only a run that writes nothing prints
+    # the summary JSON, since stdout is then its only output.
     summary = _without_evidence(acc)
     if args.no_meta or args.self_test:
         print(json.dumps(summary, indent=2))
@@ -1088,7 +1109,7 @@ def main() -> int:
         print(json.dumps(summary, indent=2))
         log.error(f"TODO: price verify could not write _meta.json ({exc}) — result above only")
         return 0
-    print(json.dumps(summary, indent=2))
+    print(summary_line(args.meta_key, summary))
     try:
         removed = prune_evidence(receipts, _cited_receipts(args.meta))
         if removed:

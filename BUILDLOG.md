@@ -3931,4 +3931,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine, server, farm and tests +330/-48 lines.
 - **Next:** reviewer round 2.
 
+## 2026-10-21 — Price verify prints one line; the summary stays in _meta.json
+
+- **Why:** P24 integrity lane; scope.md 2026-10-10 line. The 2026-10-20 nightly log has a 14,315-line JSON block from the verifier (base64 bodies included, pre-9b547f6 code); with 9b547f6 the summary alone is still ~4.2k lines a night and ~86k a weekly pass (sizes of the current `price_verify` / `price_verify_full` keys).
+- **What:** a run that writes its result prints one `[verify] <key> as_of ...` line with the counts, the newest-session status and the receipt path and size. The complete accounting still goes to the hash-named receipt under `data/price-verify/` and the summary to `_meta.json` (unchanged contract). `--no-meta`/`--self-test` and a failed `_meta.json` write still print the summary JSON, since stdout is then the only output.
+- **Evidence:** `pytest tests/test_verify_prices.py` 23 passed; the main() test asserts one summary line naming the receipt that holds the base64 bodies.
+- **Metrics:** engine +20 lines.
+- **Next:** stale provisional bars (scope.md 2026-10-20 line).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
