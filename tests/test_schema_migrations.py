@@ -463,6 +463,31 @@ def test_versioned_connection_rejects_unledgered_sequence_ddl(tmp_path):
         guarded.close()
 
 
+def test_versioned_connection_drops_session_temp_tables_but_not_persistent_ones(tmp_path):
+    # Account settlement snapshots its sources into temp tables and drops them unqualified.
+    database = tmp_path / "versioned.duckdb"
+    con = duckdb.connect(str(database))
+    con.execute("CREATE TABLE schema_migrations (migration_id INTEGER)")
+    con.execute("CREATE TABLE prices (id INTEGER)")
+    con.close()
+
+    raw = duckdb.connect(str(database))
+    guarded = engine_db.GuardedConnection(raw, versioned=True)
+    try:
+        guarded.execute("CREATE TEMP TABLE account_source_errors (source VARCHAR)")
+        guarded.execute("CREATE TEMP TABLE prices (id INTEGER)")
+        guarded.execute("DROP TABLE account_source_errors")
+        guarded.execute("DROP TABLE IF EXISTS prices")
+        with pytest.raises(engine_db.SchemaMigrationRequired, match="explicit migration"):
+            guarded.execute("DROP TABLE prices")
+        assert guarded.execute(
+            "SELECT temporary FROM duckdb_tables() WHERE table_name IN "
+            "('account_source_errors', 'prices')"
+        ).fetchall() == [(False,)]
+    finally:
+        guarded.close()
+
+
 def test_versioned_connection_rejects_changed_view_definition(tmp_path):
     database = tmp_path / "versioned.duckdb"
     con = duckdb.connect(str(database))

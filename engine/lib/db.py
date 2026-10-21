@@ -171,6 +171,9 @@ _CREATE_OBJECT = re.compile(
     r'^CREATE\s+(?:OR\s+REPLACE\s+)?(TABLE|VIEW|INDEX)\s+(?:IF\s+NOT\s+EXISTS\s+)?'
     r'(?:(?:"?main"?)\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?',
 )
+_DROP_OBJECT = re.compile(
+    r'^DROP\s+(TABLE|VIEW)\s+(?:IF\s+EXISTS\s+)?"?([A-Za-z_][A-Za-z0-9_]*)"?$',
+)
 _ALTER_ADD = re.compile(
     r'^ALTER\s+TABLE\s+(?:(?:"?main"?)\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?\s+'
     r'ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+"?([A-Za-z_][A-Za-z0-9_]*)"?',
@@ -300,12 +303,24 @@ class GuardedConnection:
                 f"{name} view definition requires an explicit schema migration"
             )
 
+    def _drops_only_temporary(self, kind: str, name: str) -> bool:
+        """An unqualified DROP resolves to the session's temporary object first."""
+        function = "duckdb_tables()" if kind == "TABLE" else "duckdb_views()"
+        column = "table_name" if kind == "TABLE" else "view_name"
+        temporary = self._connection.execute(
+            f"SELECT 1 FROM {function} WHERE temporary AND lower({column})=? LIMIT 1", [name],
+        ).fetchone()
+        return temporary is not None
+
     def _assert_schema_statement(self, statement: str) -> bool:
         if not self._versioned or _SCHEMA_CHANGE_AUTHORITY.get():
             return False
         normalized = " ".join(statement.strip().rstrip(";").split())
         upper = normalized.upper()
         if " TEMP " in f" {upper} " or upper.startswith("CREATE TEMP"):
+            return False
+        match = _DROP_OBJECT.match(upper)
+        if match and self._drops_only_temporary(match.group(1), match.group(2).lower()):
             return False
         match = _CREATE_OBJECT.match(upper)
         if match:

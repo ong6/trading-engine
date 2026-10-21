@@ -4006,4 +4006,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** lanes +7,200 lines; merge adaptations about +200.
 - **Next:** store-copy rehearsal.
 
+## 2026-10-21 — Let a versioned store's connection drop session temp tables
+
+- **Why:** reproduction: with the P22 harness on a versioned (revision-16) store, every nightly account phase fails with `SchemaMigrationRequired: runtime schema DDL requires an explicit migration`; `engine.accounts.sources.production_sources` snapshots its sources into `CREATE TEMP TABLE`s and ends with an unqualified `DROP TABLE account_source_errors`, which the guard treats as persistent DDL. On the migrated live store the nightly league's account phase would fail the same way.
+- **What:** the guarded connection allows an unqualified `DROP TABLE|VIEW [IF EXISTS] name` only when a temporary object of that name exists (DuckDB resolves the unqualified name to it first); every other DROP still needs a migration.
+- **Evidence:** `pytest tests/test_schema_migrations.py -k temp_tables` passes and fails without the change; the P22 round-2/3 account tests pass on a versioned store except the one below.
+- **Metrics:** engine +17 lines (pinned file engine/lib/db.py), tests +24 lines.
+- **Next:** P22 harness on generations.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
