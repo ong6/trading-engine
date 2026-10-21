@@ -137,12 +137,20 @@ def stationary_bootstrap_indices(n: int, n_boot: int, mean_block: float, rng) ->
     Generator, or a scripted stand-in in tests. mean_block ≤ 1 ⇒ iid resample.
     """
     p = 1.0 if mean_block <= 1 else 1.0 / float(mean_block)
-    starts = rng.integers(0, n, size=(n_boot, n))
+    starts = np.asarray(rng.integers(0, n, size=(n_boot, n)))
     cont = rng.random((n_boot, n)) >= p          # True ⇒ continue the running block
-    idx = np.empty((n_boot, n), dtype=np.int64)
-    idx[:, 0] = starts[:, 0]
-    for j in range(1, n):
-        idx[:, j] = np.where(cont[:, j], (idx[:, j - 1] + 1) % n, starts[:, j])
+    # Column j continues its block from the latest restart r <= j (column 0
+    # always restarts), so idx[:, j] = (starts[:, r] + j - r) mod n: the same
+    # integers the column-by-column recurrence produces, without the loop.
+    columns = np.arange(n, dtype=np.int32 if n < 2**31 else np.int64)
+    restart = np.where(cont, 0, columns)
+    del cont
+    restart[:, :1] = 0
+    np.maximum.accumulate(restart, axis=1, out=restart)
+    idx = np.take_along_axis(starts, restart, axis=1).astype(np.int64, copy=False)
+    del starts
+    idx += np.subtract(columns, restart, out=restart)
+    idx %= n
     return idx
 
 
