@@ -609,6 +609,39 @@ def test_runtime_contract_migration_preserves_accumulated_prefix(con):
         if key != "protocol_contract"}
 
 
+def _deployed_amended_result(current: dict, digest: str) -> dict:
+    # The deployed revision-15 report under this same contract version: every field is
+    # current except the runtime digest, which its signal boundary pins as well.
+    prior = copy.deepcopy(current)
+    prior["frozen_runtime"]["runtime_contract_sha256"] = digest
+    prior["frozen_runtime"]["signal_boundary"]["protocol_contract"][
+        "runtime_contract_sha256"] = digest
+    return prior
+
+
+def test_runtime_contract_migration_replaces_only_the_amended_digest(con):
+    _setup(con)
+    waiting = _freeze(con)
+    _transition(con)
+    current = review.evaluate(con, prior_result=waiting)
+    prior = _deployed_amended_result(current, review.AMENDED_RUNTIME_CONTRACT_SHA256)
+    with pytest.raises(ValueError, match="requires explicit migration"):
+        review.evaluate(con, prior_result=prior)
+
+    migrated = review.migrate_runtime_contract(con, prior)
+
+    assert migrated == current
+    assert migrated["frozen_runtime"]["signal_boundary"]["protocol_contract"][
+        "runtime_contract_sha256"] == review.EXPECTED_RUNTIME_CONTRACT_SHA256
+    assert review.evaluate(con, prior_result=migrated) == current
+    with pytest.raises(ValueError):
+        review.migrate_runtime_contract(con, _deployed_amended_result(current, "0" * 64))
+    changed = _deployed_amended_result(current, review.AMENDED_RUNTIME_CONTRACT_SHA256)
+    changed["observation"]["shared_sessions"] += 1
+    with pytest.raises(ValueError, match="previously published"):
+        review.migrate_runtime_contract(con, changed)
+
+
 def test_invalid_result_is_safe():
     result = review._invalid_result(ValueError("private detail"))
     assert result["status"] == "INVALID"

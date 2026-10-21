@@ -95,6 +95,10 @@ RUNTIME_CONTRACT_FILES = (
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
     "4da5afa3c006c5eb09fe17943e65ba74f2518078f9f94383bd66b1b4135346b5"
 )
+# The deployed code identity of this same contract version (revision 15, installed
+# 2026-10-21). Revision 16 changed pinned bytes but not what E1 selects, prices, stores
+# or judges, so the version stays and an explicit migration replaces only this digest.
+AMENDED_RUNTIME_CONTRACT_SHA256 = '4da5afa3c006c5eb09fe17943e65ba74f2518078f9f94383bd66b1b4135346b5'
 PRIOR_RUNTIME_CONTRACT_VERSION = 7
 PRIOR_RUNTIME_CONTRACT_SHA256 = '5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280'
 PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = '5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612'
@@ -597,11 +601,13 @@ def _validate_checkpoint(
 
 
 def migrate_runtime_contract(con, cfg: dict) -> dict:
-    """Validate a schema-v1 or prior-v2 checkpoint and replace only contract metadata.
+    """Validate a schema-v1, prior-v2 or amended checkpoint; replace only contract metadata.
 
     Checkpoint schema v1 anchored the evidence prefix and both config hashes but
     did not identify the source code governing future rows. Runtime contracts
-    subsequently added that digest. Both accepted predecessor forms must anchor
+    subsequently added that digest. An amended checkpoint is the current version under
+    its deployed digest (``AMENDED_RUNTIME_CONTRACT_SHA256``) with every other contract
+    field current. Every accepted predecessor form must anchor
     the exact same audited evidence prefix; migration is explicit and fails
     before writing otherwise.
     """
@@ -637,9 +643,18 @@ def migrate_runtime_contract(con, cfg: dict) -> dict:
             and checkpoint.get("runtime_contract_migration")
             == PRIOR_RUNTIME_CONTRACT_MIGRATION
         )
+        is_amended_contract = (
+            checkpoint["schema_version"] == CHECKPOINT_SCHEMA_VERSION
+            and checkpoint.get("runtime_contract_version") == RUNTIME_CONTRACT_VERSION
+            and checkpoint.get("runtime_contract_sha256") == AMENDED_RUNTIME_CONTRACT_SHA256
+            and checkpoint.get("runtime_contract_files") == list(RUNTIME_CONTRACT_FILES)
+            and checkpoint.get("superseded_runtime_contract_sha256")
+            == SUPERSEDED_RUNTIME_CONTRACT_SHA256
+            and checkpoint.get("runtime_contract_migration") == RUNTIME_CONTRACT_MIGRATION
+        )
         if (
             common_invalid
-            or not (is_legacy or is_prior_contract)
+            or not (is_legacy or is_prior_contract or is_amended_contract)
             or (is_legacy and count != EXPECTED_LEGACY_OBSERVATIONS)
         ):
             raise ValueError("prior E1 checkpoint is invalid")

@@ -159,6 +159,10 @@ EXPECTED_RUNTIME_CONTRACT_SHA256 = (
     "ad612219f50335bac6c30a41bd6d7f49062e37278582ede146a8fd4a0145643a"
 )
 
+# The deployed code identity of this same contract version (revision 15, installed
+# 2026-10-21). Revision 16 changed pinned bytes but not what the XS pair computes, so
+# the version stays and an explicit migration replaces only this digest.
+AMENDED_RUNTIME_CONTRACT_SHA256 = 'ad612219f50335bac6c30a41bd6d7f49062e37278582ede146a8fd4a0145643a'
 PRIOR_RUNTIME_CONTRACT_VERSION = 22
 PRIOR_RUNTIME_CONTRACT_SHA256 = 'c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70'
 PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = 'f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac'
@@ -807,6 +811,31 @@ def _validate_published_runtime(prior_result: dict | None) -> None:
         raise ValueError("published XS runtime contract requires explicit migration")
 
 
+def _predecessor_runtime(prior_result: dict) -> dict:
+    """The predecessor contract metadata a migration accepts for this published report:
+    the current version under its deployed digest when the report carries it, otherwise
+    the prior version."""
+    published = prior_result.get("frozen_runtime") or {}
+    if (
+        published.get("runtime_contract_version") == RUNTIME_CONTRACT_VERSION
+        and published.get("runtime_contract_sha256") == AMENDED_RUNTIME_CONTRACT_SHA256
+    ):
+        return {
+            "runtime_contract_version": RUNTIME_CONTRACT_VERSION,
+            "runtime_contract_sha256": AMENDED_RUNTIME_CONTRACT_SHA256,
+            "superseded_runtime_contract_sha256": SUPERSEDED_RUNTIME_CONTRACT_SHA256,
+            "runtime_contract_migration": RUNTIME_CONTRACT_MIGRATION,
+            "runtime_contract_files": list(RUNTIME_CONTRACT_FILES),
+        }
+    return {
+        "runtime_contract_version": PRIOR_RUNTIME_CONTRACT_VERSION,
+        "runtime_contract_sha256": PRIOR_RUNTIME_CONTRACT_SHA256,
+        "superseded_runtime_contract_sha256": PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256,
+        "runtime_contract_migration": PRIOR_RUNTIME_CONTRACT_MIGRATION,
+        "runtime_contract_files": list(PRIOR_RUNTIME_CONTRACT_FILES),
+    }
+
+
 def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
     """Replace only predecessor metadata on an otherwise exact XS checkpoint."""
     prior_result = _last_valid_result(prior_result)
@@ -845,17 +874,7 @@ def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
     _p22_published_forms(current_prior, prior_result, current=True)
     current = evaluate(con, prior_result=current_prior)
     expected_prior = copy.deepcopy(current)
-    expected_prior["frozen_runtime"].update(
-        {
-            "runtime_contract_version": PRIOR_RUNTIME_CONTRACT_VERSION,
-            "runtime_contract_sha256": PRIOR_RUNTIME_CONTRACT_SHA256,
-            "superseded_runtime_contract_sha256": (
-                PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
-            ),
-            "runtime_contract_migration": PRIOR_RUNTIME_CONTRACT_MIGRATION,
-            "runtime_contract_files": list(PRIOR_RUNTIME_CONTRACT_FILES),
-        }
-    )
+    expected_prior["frozen_runtime"].update(_predecessor_runtime(prior_result))
     _p22_published_forms(expected_prior, prior_result, current=False)
     prior_json = json.loads(json.dumps(prior_result, default=str))
     expected_json = json.loads(json.dumps(expected_prior, default=str))
@@ -870,7 +889,8 @@ def _p22_published_forms(result: dict, prior: dict, *, current: bool) -> None:
     The deployed v21 report predates P22: it publishes fill model v4, its signal boundary
     pins v4 and the predecessor runtime, and its observation has no cost-break clock. Each
     such field moves to the current form for evaluation and back for the exact comparison;
-    the boundary's state, inputs and ledgers are compared unchanged.
+    the boundary's state, inputs and ledgers are compared unchanged. A boundary pinned to
+    this version's deployed digest (``AMENDED_RUNTIME_CONTRACT_SHA256``) moves the same way.
     """
     published = prior.get("frozen_runtime") or {}
     if published.get("fill_model") == PRIOR_FILL_MODEL_VERSION:
@@ -879,11 +899,14 @@ def _p22_published_forms(result: dict, prior: dict, *, current: bool) -> None:
         )
     boundary = result["frozen_runtime"].get("signal_boundary")
     pinned = ((published.get("signal_boundary") or {}).get("protocol_contract") or {})
-    if boundary is not None and pinned.get("runtime_contract_sha256") == PRIOR_RUNTIME_CONTRACT_SHA256:
+    predecessor = pinned.get("runtime_contract_sha256")
+    if boundary is not None and predecessor in {
+        PRIOR_RUNTIME_CONTRACT_SHA256, AMENDED_RUNTIME_CONTRACT_SHA256,
+    }:
         boundary["protocol_contract"].update(
             fill_model=(EXPECTED_FILL_MODEL_VERSION if current else pinned.get("fill_model")),
             runtime_contract_sha256=(
-                EXPECTED_RUNTIME_CONTRACT_SHA256 if current else PRIOR_RUNTIME_CONTRACT_SHA256
+                EXPECTED_RUNTIME_CONTRACT_SHA256 if current else predecessor
             ),
         )
     if current:

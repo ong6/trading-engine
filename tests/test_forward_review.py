@@ -1,5 +1,6 @@
 """Maturity and frozen-criterion tests for the live forward-paper monitor."""
 
+import copy
 import json
 import shutil
 import sys
@@ -417,6 +418,29 @@ def test_runtime_contract_migration_rejects_changed_prior_evidence(con):
     prior = _prior_v6_result(con)
     prior["observation"]["equity_sha256"] = "changed"
 
+    with pytest.raises(ValueError, match="not the exact migration checkpoint"):
+        forward_review.migrate_runtime_contract(con, prior)
+
+
+def test_runtime_contract_migration_replaces_only_the_amended_digest(con):
+    _setup(con)
+    _equity(con, forward_review.OBSERVATION_START, 2, 101, 100)
+    current = forward_review.evaluate(con)
+    prior = copy.deepcopy(current)
+    prior["frozen_runtime"]["runtime_contract_sha256"] = (
+        forward_review.AMENDED_RUNTIME_CONTRACT_SHA256)
+    with pytest.raises(ValueError, match="requires explicit migration"):
+        forward_review.evaluate(con, prior_result=prior)
+
+    migrated = forward_review.migrate_runtime_contract(con, prior)
+
+    assert migrated == current
+    assert forward_review.evaluate(con, prior_result=migrated) == current
+    other = copy.deepcopy(prior)
+    other["frozen_runtime"]["runtime_contract_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="not the exact migration checkpoint"):
+        forward_review.migrate_runtime_contract(con, other)
+    prior["observation"]["equity_sha256"] = "changed"
     with pytest.raises(ValueError, match="not the exact migration checkpoint"):
         forward_review.migrate_runtime_contract(con, prior)
 
