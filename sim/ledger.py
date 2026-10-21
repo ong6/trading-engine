@@ -1,6 +1,7 @@
 """Side-aware cash, position-lot, fee, and replay accounting."""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from collections.abc import Iterable, Mapping
@@ -31,6 +32,9 @@ CASH_EVENT_KINDS = frozenset({
     "adjustment",
 })
 log = get_logger("ledger")
+# Offline replays opt in to reusing exact prefix states (see projection_checkpoints).
+_CHECKPOINTS: dict | None = None
+_STATE_TABLES = ('sim_positions', 'sim_position_lots', 'sim_day_trades')
 
 
 @dataclass(frozen=True)
@@ -610,16 +614,43 @@ def closed_trades(con, account_id: str) -> list[dict]:
     return outcomes
 
 
+def _insert_rows(target, table: str, rows: list, *, bulk: bool) -> None:
+    """Insert fetched rows; ``bulk`` binds each value cast to its column type in
+    multi-row statements, the same values as one-row-at-a-time ``executemany``."""
+    if not rows:
+        return
+    if not bulk:
+        marks = ','.join('?' for _ in rows[0])
+        target.executemany(f'INSERT INTO {table} VALUES ({marks})', rows)
+        return
+    types = [row[0] for row in target.execute(
+        'SELECT data_type FROM duckdb_columns() WHERE table_name=? '
+        'AND database_name=current_database() ORDER BY column_index', [table]).fetchall()]
+    marks = '(' + ','.join(f'?::{kind}' for kind in types) + ')'
+    for start in range(0, len(rows), 256):
+        chunk = rows[start:start + 256]
+        target.execute(f'INSERT INTO {table} VALUES ' + ','.join([marks] * len(chunk)),
+                       [value for row in chunk for value in row])
+
+
 @contextmanager
-def replay_connection(con, account_id: str):
-    """Isolate ledger projection from persisted account state and read-only callers."""
+def replay_connection(con, account_id: str, *, offline: bool = False):
+    """Isolate ledger projection from persisted account state and read-only callers.
+
+    ``offline`` (projection checkpoints) leaves the state tables empty, since the
+    projection resets them anyway, and copies rows with bulk inserts.
+    """
     tables = ('portfolios', 'portfolio_accounts', 'sim_positions', 'sim_position_lots',
               'sim_day_trades', 'sim_fills', 'sim_fill_details', 'sim_fill_fees',
               'sim_dividends', 'sim_settlements', 'sim_cash_events', 'account_events',
               'split_adjustments')
+    present = ({row[0] for row in con.execute(
+        'SELECT table_name FROM information_schema.tables '
+        'WHERE table_name IN (SELECT UNNEST(?::VARCHAR[]))', [list(tables)]).fetchall()}
+        if offline else None)
     with db.connect(':memory:') as target:
         for table in tables:
-            if not table_exists(con, table):
+            if not (table in present if offline else table_exists(con, table)):
                 continue
             ddl = con.execute('SELECT sql FROM duckdb_tables() WHERE table_name=? '
                               'AND database_name=current_database()', [table]).fetchone()[0]
@@ -634,10 +665,10 @@ def replay_connection(con, account_id: str):
                 params = [account_id]
             else:
                 clause, params = '', []
+            if offline and table in _STATE_TABLES:
+                continue
             rows = con.execute(f'SELECT * FROM {table}' + clause, params).fetchall()
-            if rows:
-                placeholders = ','.join('?' for _ in columns)
-                target.executemany(f'INSERT INTO {table} VALUES ({placeholders})', rows)
+            _insert_rows(target, table, rows, bulk=offline)
         target.execute(con.execute(
             "SELECT sql FROM duckdb_views() WHERE view_name='portfolio_accounts_v' "
             'AND database_name=current_database()').fetchone()[0])
@@ -710,23 +741,81 @@ def states_match(expected, observed) -> bool:
     return expected == observed
 
 
+@contextmanager
+def projection_checkpoints(limit: int = 8):
+    """Let `projected_states_at_closes` resume from an exact earlier prefix.
+
+    An offline replay asks for dividend entitlements every session, and each
+    request re-applied the whole ledger from inception. Inside this context a
+    request restores the state tables saved after the longest previously
+    applied event prefix that is identical, row for row, to its own, then
+    applies only the remaining events. Same events, same order, same
+    arithmetic: the snapshots are unchanged. Live callers never enter it.
+    """
+    global _CHECKPOINTS
+    previous, _CHECKPOINTS = _CHECKPOINTS, {"limit": limit, "accounts": {}}
+    try:
+        yield
+    finally:
+        _CHECKPOINTS = previous
+
+
+def _prefix_digests(sequence) -> list[str]:
+    digest, out = hashlib.sha256(), [hashlib.sha256().hexdigest()]
+    for event in sequence:
+        digest.update(repr((event.key, event.kind, sorted(event.row.items()))).encode())
+        out.append(digest.hexdigest())
+    return out
+
+
+def _state_rows(target) -> dict:
+    return {
+        'cash': target.execute('SELECT cash FROM portfolios').fetchall(),
+        **{table: target.execute(f'SELECT * FROM {table} ORDER BY rowid').fetchall()
+           for table in _STATE_TABLES},
+    }
+
+
+def _restore_state(target, rows: dict) -> None:
+    (cash,), = rows['cash']
+    target.execute('UPDATE portfolios SET cash=?', [cash])
+    for table in _STATE_TABLES:
+        _insert_rows(target, table, rows[table], bulk=True)
+
+
 def projected_states_at_closes(con, account_id: str, days) -> dict:
     """Project multiple dividend entitlement dates with one chronological replay."""
     days = sorted(set(days))
     if not days:
         return {}
     snapshots = {}
-    with replay_connection(con, account_id) as target:
-        sequence = iter(events(target, [account_id], through=days[-1]))
-        for table in ('sim_positions', 'sim_position_lots', 'sim_day_trades'):
+    with replay_connection(con, account_id, offline=_CHECKPOINTS is not None) as target:
+        sequence = events(target, [account_id], through=days[-1])
+        for table in _STATE_TABLES:
             target.execute(f'DELETE FROM {table}')
         target.execute('UPDATE portfolios SET cash=COALESCE(initial_cash,?)', [INITIAL_CASH])
-        event = next(sequence, None)
+        position, saved, digests = 0, None, None
+        if _CHECKPOINTS is not None:
+            initial = target.execute('SELECT * FROM portfolios').fetchall()
+            key = (account_id, repr(initial), repr(sorted(portfolio_account(
+                target, account_id).items())))
+            saved = _CHECKPOINTS['accounts'].setdefault(key, [])
+            digests = _prefix_digests(sequence)
+            first = sum(1 for event in sequence if event.stamp.date() <= days[0])
+            usable = [item for item in saved
+                      if item[0] <= first and digests[item[0]] == item[1]]
+            if usable:
+                position, _, rows = max(usable, key=lambda item: item[0])
+                _restore_state(target, rows)
         for day in days:
-            while event is not None and event.stamp.date() <= day:
-                apply_event(target, event)
-                event = next(sequence, None)
+            while position < len(sequence) and sequence[position].stamp.date() <= day:
+                apply_event(target, sequence[position])
+                position += 1
             snapshots[day] = state(target, account_id)
+            if saved is not None and all(item[:2] != (position, digests[position])
+                                         for item in saved):
+                saved.append((position, digests[position], _state_rows(target)))
+                del saved[:-_CHECKPOINTS['limit']]
     return snapshots
 
 

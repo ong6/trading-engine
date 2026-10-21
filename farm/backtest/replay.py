@@ -65,7 +65,7 @@ from engine.lib.provenance import research_provenance
 from engine.lib.settings import DATA_DIR, REPO_ROOT
 from engine.lib.util import num, table_exists
 from farm.backtest import hist_screen, stats
-from sim import execution, league
+from sim import execution, league, ledger
 from sim import portfolio as _pf
 from sim.schema import INITIAL_CASH, init_sim_schema
 from sim.strategies.configs import CONFIGS, config_by_id
@@ -468,12 +468,13 @@ def run_replay(live_con, config_id: str, window: str, *,
         _require_single_portfolio(con)
 
         t_step = time.time()
-        for i, d in enumerate(sessions):
-            league.step(con, d, scratch_dir, rerun=False, verbose=False,
-                        report_policy="deferred", no_accounts=True)
-            if verbose and (i + 1) % 250 == 0:
-                log.info(f"[replay]   {i + 1}/{len(sessions)} sessions "
-                      f"({time.time() - t_step:.0f}s)")
+        with ledger.projection_checkpoints():
+            for i, d in enumerate(sessions):
+                league.step(con, d, scratch_dir, rerun=False, verbose=False,
+                            report_policy="deferred", no_accounts=True)
+                if verbose and (i + 1) % 250 == 0:
+                    log.info(f"[replay]   {i + 1}/{len(sessions)} sessions "
+                          f"({time.time() - t_step:.0f}s)")
         if sessions:
             league.write_reports(con, sessions[-1], scratch_dir)
         step_s = time.time() - t_step
