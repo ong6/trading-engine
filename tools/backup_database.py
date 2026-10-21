@@ -14,9 +14,11 @@ import re
 import secrets
 import shutil
 import stat
+import subprocess
 import sys
+import tempfile
 from contextlib import ExitStack, contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
@@ -24,7 +26,16 @@ import duckdb
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
-from engine.lib.snapshots import latest_snapshot
+from engine.lib.snapshots import (
+    CURRENT_SCHEMA_ID,
+    GenerationError,
+    SchemaIdentityError,
+    SnapshotInfo,
+    pin_latest_generation,
+    require_compatible_schema,
+    sequence_state,
+    table_logical_sha256,
+)
 from server import nightly_monitor
 from server.driver_monitor import DRIVER_SCHEDULES
 from server.file_utils import MAX_OPERATIONAL_FILE_BYTES
@@ -32,7 +43,8 @@ from server.json_utils import load_object, loads_object
 from tools import release_manifest
 
 SCHEMA_VERSION = 3
-SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2, SCHEMA_VERSION})
+GENERATION_SCHEMA_VERSION = 4
+SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2, SCHEMA_VERSION, GENERATION_SCHEMA_VERSION})
 DATABASE_FILENAME = "market.duckdb"
 MANIFEST_FILENAME = "manifest.json"
 REQUIRED_TABLES = frozenset(
@@ -62,6 +74,11 @@ V1_MANIFEST_FIELDS = {
 }
 V2_MANIFEST_FIELDS = V1_MANIFEST_FIELDS | {"operational_artifacts"}
 V3_MANIFEST_FIELDS = V2_MANIFEST_FIELDS | {"operational_controls"}
+V4_MANIFEST_FIELDS = V3_MANIFEST_FIELDS | {"generation"}
+GENERATION_FIELDS = {
+    "generation_id", "manifest_sha256", "as_of", "database_schema_id",
+    "catalog_sha256",
+}
 RELEASE_IDENTITY_FIELDS = {
     "status",
     "release_eligible",
@@ -81,10 +98,13 @@ SNAPSHOT_FIELDS = {
     "job_states",
     "active_portfolio_count",
     "active_portfolios_sha256",
+    "sequence_state",
+    "table_sha256",
 }
 # The first schema-v1 bundle predates index_count. Keep it verifiable while
 # requiring every newly emitted field to have a strict type.
-LEGACY_SNAPSHOT_FIELDS = SNAPSHOT_FIELDS - {"index_count"}
+PRE_GENERATION_SNAPSHOT_FIELDS = SNAPSHOT_FIELDS - {"sequence_state", "table_sha256"}
+LEGACY_SNAPSHOT_FIELDS = PRE_GENERATION_SNAPSHOT_FIELDS - {"index_count"}
 EVIDENCE_RECORD_FIELDS = {"bundle_path", "size_bytes", "sha256"}
 OPERATIONAL_STATIC_FILES = (
     "data/_meta.json",
@@ -99,6 +119,39 @@ OPTIONAL_OPERATIONAL_CONTROL_FILES = ("store/agent-shadow-control.json",)
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 RENAME_NOREPLACE = 1
+MIN_FREE_BYTES = 70 * 1024**3
+CURRENT_DATABASE_SCHEMA_ID = CURRENT_SCHEMA_ID
+
+# Interface owned here and implemented by the private trading-data exporter.
+# The exporter must preserve these identities, fingerprint complete immutable
+# partitions, bound comparison to changed partitions, and still prove the final
+# restored database checksum after a shallow fetch of the exact remote commit.
+REMOTE_RESTORE_INTERFACE = {
+    "schema_version": 1,
+    "input_manifest_schema_version": GENERATION_SCHEMA_VERSION,
+    "required_input_fields": sorted(V4_MANIFEST_FIELDS | {"manifest_sha256"}),
+    "required_restore_receipt_fields": [
+        "remote_commit", "fetched_at", "backup_manifest_sha256",
+        "generation_manifest_sha256", "engine_database_sha256",
+        "research_database_sha256", "semantic_health_sha256", "rpo_hours",
+    ],
+    "partition_contract": {
+        "fingerprint": "ordered paths, lengths, and sha256 for every complete partition",
+        "diff": "only changed fingerprints may emit add/delete segments",
+        "restore": "all tables retain a final full logical checksum",
+    },
+    "rpo": {"config_key": "rpo_hours", "default": 24, "minimum": 1},
+    "restore_drill": [
+        "run only after a successful Sunday backup or its existing retry",
+        "shallow-fetch the exact published commit into an empty directory",
+        "verify the complete bundle tree before opening a database",
+        "restore engine and research databases sequentially",
+        "run read-only engine semantic health checks",
+        "write one bounded receipt and remove every temporary database",
+    ],
+    "scheduler": "existing Sunday backup and retry only; no new timer",
+}
+REMOTE_RESTORE_PLAN = "restore-plan.json"
 
 
 class BackupError(RuntimeError):
@@ -107,6 +160,173 @@ class BackupError(RuntimeError):
 
 class SourceFileMissing(BackupError):
     """An optional source artifact did not exist during the locked snapshot."""
+
+
+def _safe_remote_relative(value: object, label: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise BackupError(f"remote restore {label} is invalid")
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts or path.as_posix() != value:
+        raise BackupError(f"remote restore {label} is invalid")
+    return path
+
+
+def _research_database_health(path: Path) -> dict:
+    if path.is_symlink() or not path.is_file():
+        raise BackupError("remote research database is missing")
+    connection = duckdb.connect(str(path), read_only=True)
+    try:
+        database = connection.execute("SELECT current_database()").fetchone()[0]
+        catalog = _catalog_rows(connection, database)
+        counts = _table_row_counts(
+            connection, database,
+            {(schema, table) for schema, table, _sql in catalog["tables"]},
+        )
+        return {
+            "catalog_sha256": canonical_sha256(catalog),
+            "row_counts_sha256": canonical_sha256(counts),
+            "table_count": len(catalog["tables"]),
+        }
+    except duckdb.Error as exc:
+        raise BackupError(f"remote research database is unreadable: {exc}") from exc
+    finally:
+        connection.close()
+
+
+def write_remote_restore_plan(
+    repository: Path,
+    engine_bundle: Path,
+    research_databases: list[Path],
+) -> dict:
+    """Publish the versioned handoff consumed by :func:`remote_restore_drill`."""
+    repository = repository.resolve(strict=True)
+
+    def relative(path: Path, label: str) -> str:
+        try:
+            return path.resolve(strict=True).relative_to(repository).as_posix()
+        except (OSError, ValueError) as exc:
+            raise BackupError(f"remote restore {label} must be inside its repository") from exc
+
+    bundle_relative = relative(engine_bundle, "engine bundle")
+    verify_backup(engine_bundle)
+    research = []
+    for database in research_databases:
+        path = database.resolve(strict=True)
+        _research_database_health(path)
+        research.append({
+            "path": relative(path, "research database"),
+            "size_bytes": path.stat().st_size,
+            "sha256": _sha256(path),
+        })
+    plan = {
+        "schema_version": REMOTE_RESTORE_INTERFACE["schema_version"],
+        "engine_bundle": bundle_relative,
+        "research_databases": research,
+    }
+    write_text_atomic(
+        repository / REMOTE_RESTORE_PLAN,
+        json.dumps(plan, indent=2, sort_keys=True) + "\n",
+    )
+    return plan
+
+
+def remote_restore_drill(
+    remote: str,
+    commit: str,
+    receipt_path: Path,
+    *,
+    scratch_parent: Path,
+    rpo_hours: float = 24,
+) -> dict:
+    """Fetch one exact remote commit, verify/health-check it, and clean scratch."""
+    if not isinstance(commit, str) or GIT_SHA_PATTERN.fullmatch(commit) is None:
+        raise BackupError("remote restore commit is invalid")
+    if not isinstance(rpo_hours, (int, float)) or not 1 <= rpo_hours <= 24 * 31:
+        raise BackupError("remote restore RPO must be from 1 hour through 31 days")
+    receipt_path = receipt_path.absolute()
+    if os.path.lexists(receipt_path):
+        raise BackupError("remote restore receipt already exists")
+    scratch_parent.mkdir(parents=True, exist_ok=True)
+    if shutil.disk_usage(scratch_parent).free < MIN_FREE_BYTES:
+        raise BackupError("remote restore requires the 70-GiB reserve")
+    checkout = Path(tempfile.mkdtemp(prefix="remote-restore-", dir=scratch_parent))
+    try:
+        commands = (
+            ("git", "init", "-q", str(checkout)),
+            ("git", "-C", str(checkout), "remote", "add", "origin", remote),
+            ("git", "-C", str(checkout), "fetch", "-q", "--depth=1", "origin", commit),
+            ("git", "-C", str(checkout), "checkout", "-q", "--detach", "FETCH_HEAD"),
+        )
+        for command in commands:
+            subprocess.run(command, check=True, capture_output=True, text=True)
+        fetched = subprocess.run(
+            ("git", "-C", str(checkout), "rev-parse", "HEAD"),
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        if fetched != commit:
+            raise BackupError("remote restore fetched a different commit")
+        plan_path = checkout / REMOTE_RESTORE_PLAN
+        try:
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise BackupError("remote restore plan is unreadable") from exc
+        if not isinstance(plan, dict) or set(plan) != {
+            "schema_version", "engine_bundle", "research_databases",
+        } or plan["schema_version"] != REMOTE_RESTORE_INTERFACE["schema_version"]:
+            raise BackupError("remote restore plan is invalid")
+        engine_bundle = checkout / _safe_remote_relative(
+            plan["engine_bundle"], "engine bundle path",
+        )
+        for path in [engine_bundle, *engine_bundle.rglob("*")]:
+            if path.is_symlink():
+                raise BackupError("remote engine bundle must not contain symlinks")
+            path.chmod(0o700 if path.is_dir() else 0o600)
+        engine = verify_backup(engine_bundle)
+        research_results = []
+        if not isinstance(plan["research_databases"], list):
+            raise BackupError("remote restore research databases are invalid")
+        for record in plan["research_databases"]:
+            if not isinstance(record, dict) or set(record) != {"path", "size_bytes", "sha256"}:
+                raise BackupError("remote restore research database record is invalid")
+            relative = _safe_remote_relative(record["path"], "research database path")
+            database = checkout / relative
+            if (
+                type(record["size_bytes"]) is not int
+                or record["size_bytes"] < 0
+                or not _valid_hash(record["sha256"], SHA256_PATTERN)
+                or database.stat().st_size != record["size_bytes"]
+                or _sha256(database) != record["sha256"]
+            ):
+                raise BackupError("remote research database identity does not match")
+            research_results.append({"path": relative.as_posix(), **_research_database_health(database)})
+        health = {
+            "engine_database_snapshot_sha256": engine["database_snapshot_sha256"],
+            "research": research_results,
+        }
+        manifest, backup_manifest_sha256 = _load_manifest(engine_bundle)
+        created_at = datetime.fromisoformat(manifest["created_at"])
+        if created_at < datetime.now(timezone.utc) - timedelta(hours=rpo_hours):
+            raise BackupError("remote engine backup exceeds the configured RPO")
+        generation = manifest.get("generation")
+        if not isinstance(generation, dict):
+            raise BackupError("remote engine bundle is not generation-backed")
+        receipt = {
+            "remote_commit": fetched,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "backup_manifest_sha256": backup_manifest_sha256,
+            "generation_manifest_sha256": generation["manifest_sha256"],
+            "engine_database_sha256": engine["database_sha256"],
+            "research_database_sha256": canonical_sha256(research_results),
+            "semantic_health_sha256": canonical_sha256(health),
+            "rpo_hours": rpo_hours,
+        }
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        write_text_atomic(receipt_path, json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        return receipt
+    except subprocess.CalledProcessError as exc:
+        raise BackupError("remote restore fetch failed") from exc
+    finally:
+        shutil.rmtree(checkout)
 
 
 @contextmanager
@@ -733,19 +953,21 @@ def _validate_count_map(value: object, label: str) -> None:
         raise BackupError(f"backup database snapshot {label} is invalid")
 
 
-def _validate_snapshot_fields(snapshot: object, allow_legacy: bool) -> dict:
+def _validate_snapshot_fields(snapshot: object, schema_version: int) -> dict:
     if not isinstance(snapshot, dict):
         raise BackupError("backup database snapshot has unexpected or missing fields")
     accepted_fields = {frozenset(SNAPSHOT_FIELDS)}
-    if allow_legacy:
+    if schema_version <= 3:
+        accepted_fields.add(frozenset(PRE_GENERATION_SNAPSHOT_FIELDS))
+    if schema_version == 1:
         accepted_fields.add(frozenset(LEGACY_SNAPSHOT_FIELDS))
     if frozenset(snapshot) not in accepted_fields:
         raise BackupError("backup database snapshot has unexpected or missing fields")
     return snapshot
 
 
-def _validate_snapshot(snapshot: object, *, allow_legacy: bool) -> None:
-    snapshot = _validate_snapshot_fields(snapshot, allow_legacy)
+def _validate_snapshot(snapshot: object, *, schema_version: int) -> None:
+    snapshot = _validate_snapshot_fields(snapshot, schema_version)
     if not _valid_hash(snapshot["schema_sha256"], SHA256_PATTERN):
         raise BackupError("backup database snapshot schema hash is invalid")
     if not _valid_hash(snapshot["active_portfolios_sha256"], SHA256_PATTERN):
@@ -758,6 +980,33 @@ def _validate_snapshot(snapshot: object, *, allow_legacy: bool) -> None:
         )
     _validate_count_map(snapshot["row_counts"], "row_counts")
     _validate_count_map(snapshot["job_states"], "job_states")
+    if "table_sha256" in snapshot:
+        table_hashes = snapshot["table_sha256"]
+        if (
+            not isinstance(table_hashes, dict)
+            or set(table_hashes) != set(snapshot["row_counts"])
+            or any(not _valid_hash(value, SHA256_PATTERN) for value in table_hashes.values())
+        ):
+            raise BackupError("backup database snapshot table hashes are invalid")
+    if "sequence_state" in snapshot:
+        states = snapshot["sequence_state"]
+        fields = {
+            "schema", "name", "min_value", "max_value", "increment_by", "cycle",
+            "next_value",
+        }
+        if not isinstance(states, list) or any(
+            not isinstance(state, dict)
+            or set(state) != fields
+            or not isinstance(state["schema"], str)
+            or not isinstance(state["name"], str)
+            or any(
+                isinstance(state[name], bool) or not isinstance(state[name], int)
+                for name in ("min_value", "max_value", "increment_by", "next_value")
+            )
+            or not isinstance(state["cycle"], bool)
+            for state in states
+        ):
+            raise BackupError("backup database snapshot sequence state is invalid")
     latest_price_date = snapshot["latest_price_date"]
     if latest_price_date is not None:
         try:
@@ -768,7 +1017,7 @@ def _validate_snapshot(snapshot: object, *, allow_legacy: bool) -> None:
             raise BackupError("backup database snapshot latest price date is invalid")
 
 
-def _validate_database_metadata(database: object, *, allow_legacy: bool) -> None:
+def _validate_database_metadata(database: object, *, schema_version: int) -> None:
     if not isinstance(database, dict) or set(database) != DATABASE_FIELDS:
         raise BackupError("backup database manifest is invalid")
     if database["filename"] != DATABASE_FILENAME:
@@ -776,7 +1025,7 @@ def _validate_database_metadata(database: object, *, allow_legacy: bool) -> None
     _validate_nonnegative_int(database["size_bytes"], "backup database size_bytes")
     if not _valid_hash(database["sha256"], SHA256_PATTERN):
         raise BackupError("backup database hash is invalid")
-    _validate_snapshot(database["snapshot"], allow_legacy=allow_legacy)
+    _validate_snapshot(database["snapshot"], schema_version=schema_version)
 
 
 def _validate_evidence_metadata(evidence: object) -> None:
@@ -827,17 +1076,32 @@ def _validate_operational_controls(controls: object) -> None:
     )
 
 
+def _validate_generation_metadata(generation: object) -> None:
+    if not isinstance(generation, dict) or set(generation) != GENERATION_FIELDS:
+        raise BackupError("backup generation identity is invalid")
+    if (
+        not isinstance(generation["generation_id"], str)
+        or not generation["generation_id"].startswith("market-")
+        or not _valid_hash(generation["manifest_sha256"], SHA256_PATTERN)
+        or not _valid_hash(generation["catalog_sha256"], SHA256_PATTERN)
+        or not _is_nonnegative_int(generation["database_schema_id"])
+    ):
+        raise BackupError("backup generation identity is invalid")
+    _validate_created_at(generation["as_of"])
+
+
 def _validate_manifest_metadata(manifest: dict, schema_version: int) -> None:
     expected_fields = {
         1: V1_MANIFEST_FIELDS,
         2: V2_MANIFEST_FIELDS,
         3: V3_MANIFEST_FIELDS,
+        4: V4_MANIFEST_FIELDS,
     }[schema_version]
     if set(manifest) != expected_fields:
         raise BackupError("backup manifest has unexpected or missing fields")
     _validate_created_at(manifest["created_at"])
     _validate_source_database(manifest["source_database"])
-    _validate_database_metadata(manifest["database"], allow_legacy=schema_version == 1)
+    _validate_database_metadata(manifest["database"], schema_version=schema_version)
     _validate_evidence_metadata(manifest["prospective_evidence"])
     if schema_version >= 2:
         _validate_operational_metadata(
@@ -845,6 +1109,8 @@ def _validate_manifest_metadata(manifest: dict, schema_version: int) -> None:
         )
     if schema_version >= 3:
         _validate_operational_controls(manifest["operational_controls"])
+    if schema_version >= 4:
+        _validate_generation_metadata(manifest["generation"])
     _validate_release_identity(manifest["release_identity"])
 
 
@@ -884,7 +1150,12 @@ def _table_row_counts(
     return row_counts
 
 
-def database_snapshot(connection: duckdb.DuckDBPyConnection, database: str) -> dict:
+def database_snapshot(
+    connection: duckdb.DuckDBPyConnection,
+    database: str,
+    *,
+    include_content: bool = True,
+) -> dict:
     """Return restore invariants for one attached database."""
     catalog = _catalog_rows(connection, database)
     table_names = {(schema, table) for schema, table, _sql in catalog["tables"]}
@@ -907,7 +1178,7 @@ def database_snapshot(connection: duckdb.DuckDBPyConnection, database: str) -> d
         f"execution_profile FROM {prefix}.{_identifier('portfolios')} "
         "WHERE active ORDER BY id"
     ).fetchall()
-    return {
+    result = {
         "schema_sha256": canonical_sha256(catalog),
         "table_count": len(catalog["tables"]),
         "view_count": len(catalog["views"]),
@@ -917,7 +1188,16 @@ def database_snapshot(connection: duckdb.DuckDBPyConnection, database: str) -> d
         "job_states": job_states,
         "active_portfolio_count": len(active_portfolios),
         "active_portfolios_sha256": canonical_sha256(active_portfolios),
+        "sequence_state": sequence_state(connection, database),
     }
+    if include_content:
+        result["table_sha256"] = {
+            f"{schema}.{table}": table_logical_sha256(
+                connection, database, schema, table,
+            )
+            for schema, table in sorted(table_names)
+        }
+    return result
 
 
 def _copy_database(source: Path, destination: Path) -> dict:
@@ -1004,6 +1284,122 @@ def _copy_optional_operational_controls(
     return result
 
 
+def _copy_generation_cohort(
+    info: SnapshotInfo, bundle: Path,
+) -> dict[str, dict[str, dict]]:
+    copied: dict[str, dict[str, dict]] = {}
+    generation_root = info.manifest_path.parent
+    for section in (
+        "prospective_evidence", "operational_artifacts", "operational_controls",
+    ):
+        copied[section] = {}
+        for relative, record in sorted(info.cohort.get(section, {}).items()):
+            source = generation_root / record["path"]
+            try:
+                content = source.read_bytes()
+            except OSError as exc:
+                raise BackupError(f"generation cohort is unreadable: {relative}") from exc
+            if (
+                len(content) != record["size_bytes"]
+                or hashlib.sha256(content).hexdigest() != record["sha256"]
+            ):
+                raise BackupError(f"generation cohort changed while copying: {relative}")
+            destination = bundle / "evidence" / relative
+            _mkdir_private_tree(bundle, destination.parent)
+            destination.write_bytes(content)
+            destination.chmod(0o600)
+            copied[section][relative] = {
+                "bundle_path": destination.relative_to(bundle).as_posix(),
+                "size_bytes": len(content),
+                "sha256": record["sha256"],
+            }
+    return copied
+
+
+def _restore_generation(info: SnapshotInfo, destination: Path) -> dict:
+    """Materialize a complete ordinary DuckDB from one pinned generation."""
+    shutil.copyfile(info.path, destination)
+    destination.chmod(0o600)
+    connection = duckdb.connect(str(destination))
+    try:
+        connection.execute(
+            f"ATTACH {_sql_string(str(info.path))} AS generation_source (READ_ONLY)"
+        )
+        for qualified_name, spec in sorted(info.cold_tables.items()):
+            schema, table = qualified_name.split(".", 1)
+            qualified = ".".join(map(_identifier, (schema, table)))
+            source = ".".join(map(_identifier, ("generation_source", schema, table)))
+            connection.execute(f"DROP VIEW {qualified}")
+            connection.execute(spec["create_sql"])
+            connection.execute(f"INSERT INTO {qualified} SELECT * FROM {source}")
+            for sql in spec["indexes"]:
+                connection.execute(sql)
+        connection.execute("DETACH generation_source")
+        connection.execute("CHECKPOINT")
+        snapshot = database_snapshot(connection, connection.execute(
+            "SELECT current_database()"
+        ).fetchone()[0])
+        schema_identity = _generation_schema_identity(connection)
+    except duckdb.Error as exc:
+        raise BackupError(f"generation restore failed: {exc}") from exc
+    finally:
+        connection.close()
+    if snapshot != info.source_snapshot:
+        raise BackupError("restored generation invariants do not match its source")
+    if schema_identity != {
+        "database_schema_id": info.database_schema_id,
+        "catalog_sha256": info.catalog_sha256,
+    }:
+        raise BackupError("restored generation schema identity does not match its source")
+    return snapshot
+
+
+def _require_generation_restore_space(directory: Path, info: SnapshotInfo) -> None:
+    serialized = int(info.size_bytes or 0) + sum(
+        int(record["size_bytes"]) for record in info.parts
+    )
+    required = MIN_FREE_BYTES + 2 * serialized
+    if shutil.disk_usage(directory).free < required:
+        raise BackupError(
+            "backup requires the 70-GiB reserve plus generation restore and spill space"
+        )
+
+
+def _generation_identity(info: SnapshotInfo) -> dict:
+    return {
+        "generation_id": info.generation_id,
+        "manifest_sha256": info.manifest_sha256,
+        "as_of": info.as_of.isoformat(),
+        "database_schema_id": info.database_schema_id,
+        "catalog_sha256": info.catalog_sha256,
+    }
+
+
+def _generation_schema_identity(connection: duckdb.DuckDBPyConnection) -> dict:
+    try:
+        return require_compatible_schema(connection)
+    except SchemaIdentityError as exc:
+        raise BackupError(str(exc)) from exc
+
+
+def _require_live_source_schema(source: Path) -> bool:
+    """Verify a versioned primary's live catalog before trusting its generation."""
+    try:
+        connection = duckdb.connect(str(source), read_only=True)
+        try:
+            versioned = connection.execute(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema='main' AND table_name='schema_migrations'"
+            ).fetchone() is not None
+            if versioned:
+                require_compatible_schema(connection)
+            return versioned
+        finally:
+            connection.close()
+    except (duckdb.Error, OSError, SchemaIdentityError) as exc:
+        raise BackupError(f"live primary schema is incompatible or unavailable: {exc}") from exc
+
+
 def _source_location(repo_root: Path, source: Path) -> dict:
     try:
         relative = source.relative_to(repo_root)
@@ -1058,6 +1454,34 @@ def _manifest_body(
     }
 
 
+def _generation_manifest_body(
+    repo_root: Path,
+    source: Path,
+    database_read_path: Path,
+    bundle: Path,
+    snapshot: dict,
+    info: SnapshotInfo,
+    cohort: dict[str, dict[str, dict]],
+) -> dict:
+    database = bundle / DATABASE_FILENAME
+    return {
+        "schema_version": GENERATION_SCHEMA_VERSION,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "source_database": _source_location(repo_root, source),
+        "database": {
+            "filename": DATABASE_FILENAME,
+            "size_bytes": database.stat().st_size,
+            "sha256": _sha256(database),
+            "snapshot": snapshot,
+        },
+        "prospective_evidence": cohort["prospective_evidence"],
+        "operational_artifacts": cohort["operational_artifacts"],
+        "operational_controls": cohort["operational_controls"],
+        "release_identity": _release_summary(repo_root, source, database_read_path),
+        "generation": _generation_identity(info),
+    }
+
+
 def create_backup(
     repo_root: Path, source: Path, destination: Path, *, data_dir: Path | None = None,
 ) -> dict:
@@ -1087,27 +1511,30 @@ def create_backup(
         try:
             temporary = _descriptor_path(temporary_fd)
             with _exclusive_backup_window(repo_root):
-                latest = latest_snapshot(source, newer_than_database=True)
-                backup_source = latest.path if latest is not None else source
-                with _open_source_database(backup_source) as (
-                    source_parent_fd,
-                    source_fd,
-                    source_initial,
-                ):
-                    source_read_path = _descriptor_path(source_fd)
-                    database = temporary / DATABASE_FILENAME
-                    snapshot = _copy_database(source_read_path, database)
-                    database.chmod(0o600)
-                    _require_source_database_identity(
-                        backup_source, source_parent_fd, source_fd, source_initial
+                versioned = _require_live_source_schema(source)
+                try:
+                    generation_pin = pin_latest_generation(
+                        source, newer_than_database=True,
                     )
-                    body = _manifest_body(
+                except GenerationError as exc:
+                    generation_pin = None
+                    if versioned:
+                        raise BackupError(str(exc)) from exc
+            if generation_pin is not None:
+                with generation_pin as generation:
+                    _require_generation_restore_space(destination.parent, generation)
+                    database = temporary / DATABASE_FILENAME
+                    snapshot = _restore_generation(generation, database)
+                    database.chmod(0o600)
+                    cohort = _copy_generation_cohort(generation, temporary)
+                    body = _generation_manifest_body(
                         repo_root,
-                        data_dir,
-                        backup_source,
-                        source_read_path,
+                        source,
+                        database,
                         temporary,
                         snapshot,
+                        generation,
+                        cohort,
                     )
                     manifest = {**body, "manifest_sha256": canonical_sha256(body)}
                     manifest_path = temporary / MANIFEST_FILENAME
@@ -1118,9 +1545,6 @@ def create_backup(
                     manifest_path.chmod(0o600)
                     result = _verify_backup_at_descriptor(temporary_fd)
                     _sync_bundle(temporary, temporary_fd)
-                    _require_source_database_identity(
-                        backup_source, source_parent_fd, source_fd, source_initial
-                    )
                     _require_destination_parent_identity(
                         destination.parent, parent_fd, published=False
                     )
@@ -1130,12 +1554,59 @@ def create_backup(
                     _publish_no_replace(parent_fd, temporary_name, destination.name)
                     published = True
                     _sync_directory_fd(parent_fd, label="backup parent directory")
-                    _require_source_database_identity(
-                        backup_source, source_parent_fd, source_fd, source_initial
-                    )
                     _require_destination_parent_identity(
                         destination.parent, parent_fd, published=True
                     )
+            else:
+                with _exclusive_backup_window(repo_root):
+                    backup_source = source
+                    with _open_source_database(backup_source) as (
+                        source_parent_fd,
+                        source_fd,
+                        source_initial,
+                    ):
+                        source_read_path = _descriptor_path(source_fd)
+                        database = temporary / DATABASE_FILENAME
+                        snapshot = _copy_database(source_read_path, database)
+                        database.chmod(0o600)
+                        _require_source_database_identity(
+                            backup_source, source_parent_fd, source_fd, source_initial
+                        )
+                        body = _manifest_body(
+                            repo_root,
+                            data_dir,
+                            backup_source,
+                            source_read_path,
+                            temporary,
+                            snapshot,
+                        )
+                        manifest = {**body, "manifest_sha256": canonical_sha256(body)}
+                        manifest_path = temporary / MANIFEST_FILENAME
+                        write_text_atomic(
+                            manifest_path,
+                            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                        )
+                        manifest_path.chmod(0o600)
+                        result = _verify_backup_at_descriptor(temporary_fd)
+                        _sync_bundle(temporary, temporary_fd)
+                        _require_source_database_identity(
+                            backup_source, source_parent_fd, source_fd, source_initial
+                        )
+                        _require_destination_parent_identity(
+                            destination.parent, parent_fd, published=False
+                        )
+                        _require_temporary_bundle_identity(
+                            parent_fd, temporary_name, temporary_fd
+                        )
+                        _publish_no_replace(parent_fd, temporary_name, destination.name)
+                        published = True
+                        _sync_directory_fd(parent_fd, label="backup parent directory")
+                        _require_source_database_identity(
+                            backup_source, source_parent_fd, source_fd, source_initial
+                        )
+                        _require_destination_parent_identity(
+                            destination.parent, parent_fd, published=True
+                        )
         finally:
             if not published:
                 _remove_temporary_bundle(parent_fd, temporary_name, temporary_fd)
@@ -1187,11 +1658,9 @@ def _verify_database(bundle: Path, manifest: dict) -> tuple[dict, dict]:
     except duckdb.Error as exc:
         raise BackupError(f"backup database is unreadable: {exc}") from exc
     expected_snapshot = expected["snapshot"]
-    comparable_snapshot = actual_snapshot
-    if "index_count" not in expected_snapshot:
-        comparable_snapshot = {
-            key: value for key, value in actual_snapshot.items() if key != "index_count"
-        }
+    comparable_snapshot = {
+        key: value for key, value in actual_snapshot.items() if key in expected_snapshot
+    }
     if comparable_snapshot != expected_snapshot:
         raise BackupError("backup database invariants do not match its manifest")
     return expected, actual_snapshot
@@ -1361,6 +1830,15 @@ def main(argv: list[str] | None = None) -> int:
     create.add_argument("--source", type=Path, default=DEFAULT_DB)
     verify = subparsers.add_parser("verify", help="verify an existing recovery bundle")
     verify.add_argument("bundle", type=Path)
+    remote = subparsers.add_parser(
+        "remote-restore-drill",
+        help="fetch and verify the exact remote backup commit without retaining scratch DBs",
+    )
+    remote.add_argument("remote")
+    remote.add_argument("commit")
+    remote.add_argument("receipt", type=Path)
+    remote.add_argument("--scratch-parent", type=Path, required=True)
+    remote.add_argument("--rpo-hours", type=float, default=24)
     args = parser.parse_args(argv)
     repo_root = args.repo_root.resolve()
     try:
@@ -1370,8 +1848,16 @@ def main(argv: list[str] | None = None) -> int:
                 _resolve_from_repo(repo_root, args.source),
                 _resolve_from_repo(repo_root, args.destination),
             )
-        else:
+        elif args.command == "verify":
             result = verify_backup(_resolve_from_repo(repo_root, args.bundle))
+        else:
+            result = remote_restore_drill(
+                args.remote,
+                args.commit,
+                _resolve_from_repo(repo_root, args.receipt),
+                scratch_parent=args.scratch_parent,
+                rpo_hours=args.rpo_hours,
+            )
     except (BackupError, OSError) as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))
         return 1

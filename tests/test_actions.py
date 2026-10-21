@@ -14,6 +14,7 @@ import sys
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
+import duckdb
 import pandas as pd
 import pytest
 from conftest import SESSIONS, insert_bars
@@ -188,7 +189,8 @@ def test_action_and_fetch_log_checkpoint_roll_back_together(
     assert con.execute("SELECT COUNT(*) FROM actions_fetch_log").fetchone() == (0,)
 
 
-def test_legacy_fetch_log_schema_migrates_without_losing_rows(con):
+def test_legacy_fetch_log_schema_requires_explicit_migration(tmp_path):
+    con = duckdb.connect(str(tmp_path / "legacy.duckdb"))
     con.execute("DROP TABLE IF EXISTS actions_fetch_log")
     con.execute(
         "CREATE TABLE actions_fetch_log (ticker VARCHAR, fetched_on DATE, "
@@ -198,18 +200,18 @@ def test_legacy_fetch_log_schema_migrates_without_losing_rows(con):
     con.execute(
         "INSERT INTO actions_fetch_log VALUES ('AAA', '2026-09-07', 0, 0, 'failed')"
     )
-    db.init_actions_schema(con)
+    with pytest.raises(db.SchemaMigrationRequired, match="attempted_at"):
+        db.init_actions_schema(con)
     assert con.execute(
-        "SELECT ticker, fetched_on, n_splits, n_dividends, status, source, attempted_at "
+        "SELECT ticker, fetched_on, n_splits, n_dividends, status "
         "FROM actions_fetch_log"
-    ).fetchall() == [
-        ("AAA", datetime(2026, 9, 7).date(), 0, 0, "failed", "yfinance", None)
-    ]
+    ).fetchall() == [("AAA", datetime(2026, 9, 7).date(), 0, 0, "failed")]
     cols = {
         row[1]
         for row in con.execute("PRAGMA table_info('actions_fetch_log')").fetchall()
     }
-    assert {"source", "attempted_at"} <= cols
+    assert "source" not in cols and "attempted_at" not in cols
+    con.close()
 
 
 def test_connection_narrowed_run_releases_db_during_fetch(monkeypatch, tmp_path):

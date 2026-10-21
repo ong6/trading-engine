@@ -28,7 +28,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from engine.lib.resources import write_text_atomic
-from engine.lib.snapshots import LATEST_NAME, SHA256_PATTERN, SNAPSHOT_PATTERN, latest_snapshot
+from engine.lib.snapshots import (
+    GENERATION_MANIFEST_SCHEMA_VERSION,
+    LATEST_NAME,
+    SHA256_PATTERN,
+    SNAPSHOT_PATTERN,
+    latest_snapshot,
+    structural_snapshot_info,
+)
 from tools import invariants
 from tools.invariants import registry
 
@@ -57,6 +64,15 @@ def _manifest(path: Path) -> dict:
         manifest = json.loads(manifest_path.read_text())
     except (OSError, ValueError) as exc:
         raise Refused(f"{path.name} manifest is unreadable") from exc
+    if isinstance(manifest, dict) \
+            and manifest.get("manifest_schema_version") == GENERATION_MANIFEST_SCHEMA_VERSION:
+        # A revision-16 generation: the hot file's identity is its recorded hot_database.
+        info = structural_snapshot_info(path)
+        if info is None:
+            raise Refused(f"{path.name} manifest does not describe it")
+        return {"sha256": info.sha256, "size_bytes": info.size_bytes,
+                "as_of": info.as_of.isoformat(),
+                "source_data_commit": info.source_data_commit}
     if not isinstance(manifest, dict) or manifest.get("schema_version") != 1 \
             or manifest.get("snapshot") != path.name \
             or not isinstance(manifest.get("sha256"), str) \

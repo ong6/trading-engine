@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS prices (
     ticker VARCHAR NOT NULL, date DATE NOT NULL,
     open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume BIGINT,
     source VARCHAR DEFAULT 'yfinance', fetched_at TIMESTAMP,
+    first_fetched_at TIMESTAMP,
     PRIMARY KEY (ticker, date)
 )
 """
@@ -82,19 +83,24 @@ def insert_bars(con, ticker, dates, *, open_=100.0, close=100.0, volume=1_000_00
         strict=True,
     ))
     columns = "ticker, date, open, high, low, close, volume"
+    stamped = f"{columns}, first_fetched_at"
     # Vectorized inserts avoid one prepared-statement execution per bar. Keep
     # DuckDB's parameter conversion for tiny inputs and NaN (frames map it to NULL).
     if n <= 16 or any(
         isinstance(value, float) and math.isnan(value)
         for row in rows for value in row[2:]
     ):
-        con.executemany(f"INSERT INTO prices ({columns}) VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+        con.executemany(
+            f"INSERT INTO prices ({stamped}) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, TIMESTAMP '2000-01-01')", rows)
         return
     import pandas as pd
 
     con.register("test_bar_rows", pd.DataFrame(rows, columns=columns.split(", ")))
     try:
-        con.execute(f"INSERT INTO prices ({columns}) SELECT * FROM test_bar_rows")
+        con.execute(
+            f"INSERT INTO prices ({stamped}) "
+            "SELECT *, TIMESTAMP '2000-01-01' FROM test_bar_rows")
     finally:
         con.unregister("test_bar_rows")
 

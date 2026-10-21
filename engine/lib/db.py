@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from contextvars import ContextVar
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -22,6 +24,7 @@ import duckdb
 import pandas as pd
 
 from engine.lib import settings
+from engine.lib import snapshots as schema_registry
 from engine.lib.data_quality import (
     PRICE_VALIDATOR_VERSION,
     PROVISIONAL_REPLACEMENT_SKIPPED,
@@ -55,6 +58,9 @@ REAL_BAR_SQL = (
 )
 MARKET_DATE_MIN_NAMES = 1_000
 MARKET_DATE_MIN_COVERAGE = 0.90
+MIGRATION_TABLE = schema_registry.MIGRATION_TABLE
+MINIMUM_DATABASE_SCHEMA_ID = schema_registry.MINIMUM_SCHEMA_ID
+CURRENT_DATABASE_SCHEMA_ID = schema_registry.CURRENT_SCHEMA_ID
 
 
 @contextmanager
@@ -158,6 +164,31 @@ _LOCK_MARKERS = (
     "lock",
 )
 _LOCK_RETRY_S = 5.0
+_SCHEMA_CHANGE_AUTHORITY: ContextVar[bool] = ContextVar(
+    "schema_change_authority", default=False,
+)
+_CREATE_OBJECT = re.compile(
+    r'^CREATE\s+(?:OR\s+REPLACE\s+)?(TABLE|VIEW|INDEX)\s+(?:IF\s+NOT\s+EXISTS\s+)?'
+    r'(?:(?:"?main"?)\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?',
+)
+_ALTER_ADD = re.compile(
+    r'^ALTER\s+TABLE\s+(?:(?:"?main"?)\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?\s+'
+    r'ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+"?([A-Za-z_][A-Za-z0-9_]*)"?',
+)
+_ALTER_NULLABLE = re.compile(
+    r'^ALTER\s+TABLE\s+(?:(?:"?main"?)\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?\s+'
+    r'ALTER\s+COLUMN\s+"?([A-Za-z_][A-Za-z0-9_]*)"?\s+DROP\s+NOT\s+NULL',
+)
+_NULL_BACKFILL = re.compile(
+    r'^UPDATE\s+"?([A-Za-z_][A-Za-z0-9_]*)"?\s+SET\s+'
+    r'"?([A-Za-z_][A-Za-z0-9_]*)"?\s*=.*\s+WHERE\s+\2\s+IS\s+NULL$',
+)
+_COLD_TABLE_NAMES = frozenset({
+    "intraday_prices", "bitemporal_facts", "source_response_receipts",
+})
+_RELATION_MUTATIONS = frozenset({
+    "create", "create_view", "insert", "insert_into", "to_table", "to_view", "update",
+})
 
 
 class DBBusyError(RuntimeError):
@@ -167,6 +198,326 @@ class DBBusyError(RuntimeError):
     503 path). `connect` itself re-raises DuckDB's own exception after its
     retry window; use `is_lock_error` to classify it.
     """
+
+
+class SchemaMigrationRequired(RuntimeError):
+    """An existing table has a legacy shape that runtime may not upgrade."""
+
+
+class GuardedRelation:
+    """Best-effort guard for relation methods; publication/backup are authoritative."""
+
+    def __init__(self, relation, *, versioned: bool, preflight):
+        self._relation = relation
+        self._versioned = versioned
+        self._preflight = preflight
+
+    def __getattr__(self, name: str):
+        attribute = getattr(self._relation, name)
+        if (
+            name in _RELATION_MUTATIONS
+            and self._versioned
+            and not _SCHEMA_CHANGE_AUTHORITY.get()
+        ):
+            def reject(*_args, **_kwargs):
+                raise SchemaMigrationRequired(
+                    "relation persistence requires an explicit migration"
+                )
+
+            return reject
+        if not callable(attribute):
+            return attribute
+
+        def guarded(*args, **kwargs):
+            if name == "query":
+                sql_query = args[1] if len(args) > 1 else kwargs.get("sql_query")
+                if isinstance(sql_query, str):
+                    self._preflight(sql_query)
+            result = attribute(*args, **kwargs)
+            if isinstance(result, duckdb.DuckDBPyRelation):
+                return GuardedRelation(
+                    result, versioned=self._versioned, preflight=self._preflight,
+                )
+            return result
+
+        return guarded
+
+
+@contextmanager
+def schema_change_authority():
+    """Permit schema DDL only inside the recovery-gated migration transaction."""
+    token = _SCHEMA_CHANGE_AUTHORITY.set(True)
+    try:
+        yield
+    finally:
+        _SCHEMA_CHANGE_AUTHORITY.reset(token)
+
+
+class GuardedConnection:
+    """Best-effort runtime guard; publication and backup enforce exact catalog state."""
+
+    def __init__(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+        *,
+        versioned: bool,
+        generation_pin=None,
+    ):
+        self._connection = connection
+        self._versioned = versioned
+        self._generation_pin = generation_pin
+
+    def _object_exists(self, kind: str, name: str) -> bool:
+        source = {"TABLE": "duckdb_tables()", "VIEW": "duckdb_views()",
+                  "INDEX": "duckdb_indexes()"}[kind]
+        column = {"TABLE": "table_name", "VIEW": "view_name", "INDEX": "index_name"}[kind]
+        return self._connection.execute(
+            f"SELECT 1 FROM {source} WHERE {column}=?", [name],
+        ).fetchone() is not None
+
+    def _assert_view_definition(self, statement: str, name: str) -> None:
+        body = re.split(r"\s+AS\s+", " ".join(statement.strip().split()), maxsplit=1,
+                        flags=re.IGNORECASE)
+        if len(body) != 2:
+            raise SchemaMigrationRequired(f"runtime view definition is invalid: {name}")
+        probe = f"__schema_assert_{uuid4().hex}"
+        try:
+            self._connection.execute(f'CREATE TEMP VIEW "{probe}" AS {body[1]}')
+            existing = self._connection.execute(
+                "SELECT sql FROM duckdb_views() WHERE view_name=? AND NOT temporary",
+                [name],
+            ).fetchone()[0]
+            proposed = self._connection.execute(
+                "SELECT sql FROM duckdb_views() WHERE view_name=? AND temporary",
+                [probe],
+            ).fetchone()[0]
+        finally:
+            self._connection.execute(f'DROP VIEW IF EXISTS "{probe}"')
+        existing_body = re.split(r"\s+AS\s+", existing, maxsplit=1, flags=re.IGNORECASE)[1]
+        proposed_body = re.split(r"\s+AS\s+", proposed, maxsplit=1, flags=re.IGNORECASE)[1]
+        if existing_body != proposed_body:
+            raise SchemaMigrationRequired(
+                f"{name} view definition requires an explicit schema migration"
+            )
+
+    def _assert_schema_statement(self, statement: str) -> bool:
+        if not self._versioned or _SCHEMA_CHANGE_AUTHORITY.get():
+            return False
+        normalized = " ".join(statement.strip().rstrip(";").split())
+        upper = normalized.upper()
+        if " TEMP " in f" {upper} " or upper.startswith("CREATE TEMP"):
+            return False
+        match = _CREATE_OBJECT.match(upper)
+        if match:
+            kind, name = match.groups()
+            if "IF NOT EXISTS" in upper or "OR REPLACE VIEW" in upper:
+                if self._object_exists(kind, name.lower()):
+                    if "OR REPLACE VIEW" in upper:
+                        self._assert_view_definition(statement, name.lower())
+                    return True
+            raise SchemaMigrationRequired(
+                f"runtime schema creation requires an explicit migration: {name.lower()}"
+            )
+        match = _ALTER_ADD.match(upper)
+        if match:
+            table, column = (value.lower() for value in match.groups())
+            if column in _columns(self._connection, table):
+                return True
+            raise SchemaMigrationRequired(
+                f"{table} requires an explicit schema migration for column: {column}"
+            )
+        match = _ALTER_NULLABLE.match(upper)
+        if match:
+            table, column = (value.lower() for value in match.groups())
+            nullable = self._connection.execute(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_schema='main' AND table_name=? AND column_name=?",
+                [table, column],
+            ).fetchone()
+            if nullable == ("YES",):
+                return True
+            raise SchemaMigrationRequired(
+                f"{table} requires an explicit schema migration for column: {column}"
+            )
+        match = _NULL_BACKFILL.match(upper)
+        if match:
+            table, column = (value.lower() for value in match.groups())
+            pending = self._connection.execute(
+                f'SELECT 1 FROM "{table}" WHERE "{column}" IS NULL LIMIT 1'
+            ).fetchone()
+            if pending is None:
+                return True
+            raise SchemaMigrationRequired(
+                f"{table} requires an explicit schema migration backfill: {column}"
+            )
+        if re.match(r"^(?:CREATE|ALTER|DROP|COMMENT)\b", upper):
+            raise SchemaMigrationRequired("runtime schema DDL requires an explicit migration")
+        if upper.startswith(("COPY FROM DATABASE", "IMPORT DATABASE")):
+            raise SchemaMigrationRequired("runtime schema copy requires an explicit migration")
+        return False
+
+    @staticmethod
+    def _statement_tokens(statement: str) -> list[tuple[str, object]]:
+        positioned = duckdb.tokenize(statement)
+        return [
+            (statement[start:end].strip(), kind)
+            for (start, kind), (end, _next_kind) in zip(
+                positioned, [*positioned[1:], (len(statement), None)], strict=True,
+            )
+        ]
+
+    @staticmethod
+    def _identifier_after(
+        tokens: list[tuple[str, object]], start: int,
+    ) -> str | None:
+        names = []
+        for value, kind in tokens[start:]:
+            upper = value.upper()
+            if not names and upper in {
+                "FROM", "IGNORE", "INTO", "ONLY", "OR", "REPLACE", "TABLE",
+            }:
+                continue
+            if kind == duckdb.token_type.identifier:
+                names.append(value.strip('"').replace('""', '"').lower())
+                continue
+            if names and value == ".":
+                continue
+            break
+        return None if not names else names[-1]
+
+    def _assert_cold_statement(self, statement, tokens: list[tuple[str, object]]) -> None:
+        if not self._versioned or _SCHEMA_CHANGE_AUTHORITY.get():
+            return
+        words = [value.upper() for value, _kind in tokens]
+        statement_type = statement.type.name
+        marker = None
+        if statement_type == "DELETE":
+            marker = "TRUNCATE" if "TRUNCATE" in words else "DELETE"
+        elif statement_type == "UPDATE":
+            marker = "UPDATE"
+        elif statement_type == "MERGE_INTO":
+            marker = "MERGE"
+        elif statement_type == "INSERT":
+            marker = "INSERT"
+        if marker is None:
+            return
+        marker_index = words.index(marker)
+        if marker == "DELETE":
+            try:
+                marker_index = words.index("FROM", marker_index + 1)
+            except ValueError:
+                return
+        target = self._identifier_after(tokens, marker_index + 1)
+        if target not in _COLD_TABLE_NAMES:
+            return
+        conflict_update = (
+            statement_type == "INSERT"
+            and (
+                "REPLACE" in words[:words.index("INTO")]
+                or ("CONFLICT" in words and "UPDATE" in words[words.index("CONFLICT"):])
+            )
+        )
+        if statement_type != "INSERT" or conflict_update:
+            raise SchemaMigrationRequired(
+                f"cold table is append-only after schema activation: {target}"
+            )
+
+    def _preflight_schema_sql(self, statement: str) -> bool:
+        statements = self._connection.extract_statements(statement)
+        assertions = []
+        for item in statements:
+            tokens = self._statement_tokens(item.query)
+            self._assert_cold_statement(item, tokens)
+            assertions.append(self._assert_schema_statement(item.query))
+        if len(statements) > 1 and any(assertions):
+            raise SchemaMigrationRequired(
+                "multi-statement runtime schema SQL requires an explicit migration"
+            )
+        return bool(assertions and assertions[0])
+
+    def execute(self, statement: str, parameters=None):
+        if self._preflight_schema_sql(statement):
+            self._connection.execute("SELECT NULL WHERE FALSE")
+        elif parameters is None:
+            self._connection.execute(statement)
+        else:
+            self._connection.execute(statement, parameters)
+        return self
+
+    def executemany(self, statement: str, parameters):
+        if self._preflight_schema_sql(statement):
+            self._connection.execute("SELECT NULL WHERE FALSE")
+        else:
+            self._connection.executemany(statement, parameters)
+        return self
+
+    def sql(self, query: str, *args, **kwargs):
+        if self._preflight_schema_sql(query):
+            relation = self._connection.sql("SELECT NULL WHERE FALSE")
+        else:
+            relation = self._connection.sql(query, *args, **kwargs)
+        return GuardedRelation(
+            relation, versioned=self._versioned, preflight=self._preflight_schema_sql,
+        )
+
+    def query(self, query: str, *args, **kwargs):
+        if self._preflight_schema_sql(query):
+            relation = self._connection.query("SELECT NULL WHERE FALSE")
+        else:
+            relation = self._connection.query(query, *args, **kwargs)
+        return GuardedRelation(
+            relation, versioned=self._versioned, preflight=self._preflight_schema_sql,
+        )
+
+    def from_query(self, query: str, *args, **kwargs):
+        return self.sql(query, *args, **kwargs)
+
+    def table(self, table_name: str):
+        return GuardedRelation(
+            self._connection.table(table_name), versioned=self._versioned,
+            preflight=self._preflight_schema_sql,
+        )
+
+    def view(self, view_name: str):
+        return GuardedRelation(
+            self._connection.view(view_name), versioned=self._versioned,
+            preflight=self._preflight_schema_sql,
+        )
+
+    def duplicate(self):
+        return GuardedConnection(
+            self._connection.duplicate(), versioned=self._versioned,
+        )
+
+    def cursor(self):
+        return GuardedConnection(self._connection.cursor(), versioned=self._versioned)
+
+    def append(self, table_name: str, *args, **kwargs):
+        if self._versioned and table_name.rsplit(".", 1)[-1] in _COLD_TABLE_NAMES:
+            raise SchemaMigrationRequired(
+                f"cold table is append-only through registered writers: {table_name}"
+            )
+        return self._connection.append(table_name, *args, **kwargs)
+
+    def close(self) -> None:
+        try:
+            self._connection.close()
+        finally:
+            if self._generation_pin is not None:
+                self._generation_pin.close()
+                self._generation_pin = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def __getattr__(self, name: str):
+        # DuckDB adds relation factories over time. This proxy is ergonomic
+        # defense only; publish/backup revalidate the live catalog, and publish
+        # separately proves the append-only cold prefix.
+        return getattr(self._connection, name)
 
 
 def is_lock_error(exc: Exception) -> bool:
@@ -196,6 +547,18 @@ def connect(path: str | Path | None = None, *,
     After the window the original DuckDB exception is re-raised unchanged.
     """
     path = Path(path) if path is not None else settings.DEFAULT_DB
+    generation_pin = None
+    if (
+        read_only
+        and not _SCHEMA_CHANGE_AUTHORITY.get()
+        and path.absolute() == Path(settings.DEFAULT_DB).absolute()
+    ):
+        from engine.lib.snapshots import GenerationError, pin_latest_generation
+        try:
+            generation_pin = pin_latest_generation(path, max_age=timedelta(hours=24))
+        except GenerationError as exc:
+            raise DBBusyError(str(exc)) from exc
+        path = generation_pin.info.path
     if not read_only:
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -207,12 +570,29 @@ def connect(path: str | Path | None = None, *,
     tries = max(1, math.ceil(wait_s / _LOCK_RETRY_S)) if wait_s > 0 else 1
     for attempt in range(1, tries + 1):
         try:
-            con = duckdb.connect(str(path), read_only=read_only)
+            connection = duckdb.connect(str(path), read_only=read_only)
             # Naive TIMESTAMP columns hold UTC: a timezone-aware value (fetch stamps)
             # must not be cast through the host's local zone on a non-UTC host.
-            con.execute("SET TimeZone='UTC'")
-            return con
+            connection.execute("SET TimeZone='UTC'")
+            versioned = connection.execute(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema='main' AND table_name=?", [MIGRATION_TABLE],
+            ).fetchone() is not None
+            if versioned and not read_only and not _SCHEMA_CHANGE_AUTHORITY.get():
+                try:
+                    schema_registry.require_compatible_schema(connection)
+                except schema_registry.SchemaIdentityError:
+                    connection.close()
+                    raise
+            return GuardedConnection(
+                connection, versioned=versioned, generation_pin=generation_pin,
+            )
         except Exception as exc:  # duckdb.IOException et al.
+            if generation_pin is not None:
+                generation_pin.close()
+                raise
+            if isinstance(exc, schema_registry.SchemaIdentityError):
+                raise SchemaMigrationRequired(str(exc)) from exc
             if not is_lock_error(exc) or attempt >= tries:
                 raise
             log.info(f"[db] store locked (attempt {attempt}/{tries}) — "
@@ -221,8 +601,76 @@ def connect(path: str | Path | None = None, *,
     raise AssertionError("unreachable")  # pragma: no cover
 
 
+def _require_columns(
+    con: duckdb.DuckDBPyConnection, table: str, required: frozenset[str],
+) -> None:
+    columns = _columns(con, table)
+    missing = sorted(required - columns)
+    if missing:
+        raise SchemaMigrationRequired(
+            f"{table} requires an explicit schema migration for columns: "
+            + ", ".join(missing)
+        )
+
+
+def _columns(con: duckdb.DuckDBPyConnection, table: str) -> set[str]:
+    return {
+        row[0]
+        for row in con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='main' AND table_name=?", [table],
+        ).fetchall()
+    }
+
+
+def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
+    return con.execute(
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_schema='main' AND table_name=?",
+        [table],
+    ).fetchone() is not None
+
+
+def database_catalog(con: duckdb.DuckDBPyConnection) -> dict:
+    """Stable operational catalog identity, excluding its migration ledger."""
+    return schema_registry.catalog(con)
+
+
+def database_catalog_sha256(con: duckdb.DuckDBPyConnection) -> str:
+    return schema_registry.catalog_sha256(con)
+
+
+def recorded_schema_id(con: duckdb.DuckDBPyConnection) -> int | None:
+    try:
+        return schema_registry.recorded_schema_id(con)
+    except schema_registry.SchemaIdentityError as exc:
+        raise SchemaMigrationRequired(str(exc)) from exc
+
+
+def require_compatible_database_schema(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    minimum: int = MINIMUM_DATABASE_SCHEMA_ID,
+    maximum: int = CURRENT_DATABASE_SCHEMA_ID,
+) -> dict:
+    """Verify the recorded range and current catalog without changing the DB."""
+    try:
+        return schema_registry.require_compatible_schema(
+            con, minimum=minimum, maximum=maximum,
+        )
+    except schema_registry.SchemaIdentityError as exc:
+        raise SchemaMigrationRequired(str(exc)) from exc
+
+
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     """Create all tables IF NOT EXISTS. Safe to call on every run."""
+    for table, columns in (
+        ("prices", frozenset({"first_fetched_at"})),
+        ("screen_results", frozenset({"universe_policy"})),
+        ("jobs", frozenset({"priority", "mem_mb", "last_error"})),
+    ):
+        if _table_exists(con, table):
+            _require_columns(con, table, columns)
     init_price_rejects_schema(con)
     con.execute(
         """
@@ -241,9 +689,7 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
-    con.execute(
-        "ALTER TABLE prices ADD COLUMN IF NOT EXISTS first_fetched_at TIMESTAMP"
-    )
+    _require_columns(con, "prices", frozenset({"first_fetched_at"}))
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS universe (
@@ -293,6 +739,7 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
             base_tight      BOOLEAN,
             vol_dryup       BOOLEAN,
             new_today       BOOLEAN,
+            universe_policy VARCHAR DEFAULT 'all',
             PRIMARY KEY (run_date, ticker)
         )
         """
@@ -307,29 +754,27 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
             state      VARCHAR DEFAULT 'queued',
             progress   VARCHAR,
             created_at TIMESTAMP,
-            updated_at TIMESTAMP
+            updated_at TIMESTAMP,
+            priority   INTEGER DEFAULT 100,
+            mem_mb     INTEGER DEFAULT 0,
+            last_error VARCHAR
         )
         """
+    )
+    _require_columns(
+        con, "jobs", frozenset({"priority", "mem_mb", "last_error"})
     )
 
 
 def init_queue_schema(con: duckdb.DuckDBPyConnection) -> None:
-    """M4 additions: extend the minimal `jobs` table with the §12.7 queue
-    columns and create the append-only `intraday_prices` table.
+    """Assert the current `jobs` shape and create `intraday_prices` if absent.
 
-    Kept SEPARATE from init_schema so the nightly collect path is untouched;
-    every statement is ADD COLUMN IF NOT EXISTS / CREATE TABLE IF NOT EXISTS so
-    it is safe to run against the live single-writer DB. Assumes `jobs` already
-    exists (call init_schema first).
+    Existing jobs tables are never upgraded during producer startup. Legacy
+    shapes must pass through the explicit migration runner first.
     """
-    # Extend jobs in place — backward compatible with the backfill rows already
-    # present (they simply get priority=100, mem_mb=0, last_error=NULL).
-    for ddl in (
-        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS priority   INTEGER DEFAULT 100",
-        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS mem_mb     INTEGER DEFAULT 0",
-        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_error VARCHAR",
-    ):
-        con.execute(ddl)
+    _require_columns(
+        con, "jobs", frozenset({"priority", "mem_mb", "last_error"})
+    )
 
     # Intraday archive: append-only, UTC timestamps. The (ticker, ts, interval)
     # primary key + the anti-join insert together guarantee we never update or
@@ -368,15 +813,10 @@ def init_screen_policy_schema(con: duckdb.DuckDBPyConnection) -> None:
     screen stored before 2026-08-20 ran with no exclusions, so backfilling them
     as 'all' states a fact rather than guessing one.
 
-    Kept SEPARATE from init_schema (same reasoning as init_queue_schema) and
-    written as ADD COLUMN IF NOT EXISTS so it is safe against the live
-    single-writer store. Assumes `screen_results` exists — call init_schema
-    first.
+    Existing screen tables are never upgraded during producer startup. Legacy
+    shapes must pass through the explicit migration runner first.
     """
-    con.execute(
-        "ALTER TABLE screen_results ADD COLUMN IF NOT EXISTS "
-        "universe_policy VARCHAR DEFAULT 'all'"
-    )
+    _require_columns(con, "screen_results", frozenset({"universe_policy"}))
 
 
 def init_mining_schema(con: duckdb.DuckDBPyConnection) -> None:
@@ -595,6 +1035,10 @@ def init_actions_schema(con: duckdb.DuckDBPyConnection) -> None:
     `corporate_actions` is append-only in spirit: INSERT OR REPLACE on the PK is a
     same-value idempotent re-fetch, never a rewrite of history with new meaning.
     """
+    if _table_exists(con, "actions_fetch_log"):
+        _require_columns(
+            con, "actions_fetch_log", frozenset({"source", "attempted_at"})
+        )
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS corporate_actions (
@@ -649,39 +1093,9 @@ def init_actions_schema(con: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
-    action_log_cols = {
-        row[1] for row in con.execute("PRAGMA table_info('actions_fetch_log')").fetchall()
-    }
-    if "attempted_at" not in action_log_cols:
-        # v1 keyed the table by (ticker, fetched_on), overwriting failed attempts
-        # on retry. Replace it atomically while retaining every legacy outcome.
-        with transaction(con):
-            con.execute("ALTER TABLE actions_fetch_log RENAME TO actions_fetch_log_v1")
-            con.execute(
-                """
-                CREATE TABLE actions_fetch_log (
-                    ticker       VARCHAR   NOT NULL,
-                    fetched_on   DATE      NOT NULL,
-                    n_splits     INTEGER   NOT NULL,
-                    n_dividends  INTEGER   NOT NULL,
-                    status       VARCHAR   NOT NULL
-                                 CHECK (status IN ('ok', 'empty', 'failed')),
-                    source       VARCHAR   DEFAULT 'yfinance',
-                    attempted_at TIMESTAMP
-                )
-                """
-            )
-            con.execute(
-                """
-                INSERT INTO actions_fetch_log
-                    (ticker, fetched_on, n_splits, n_dividends, status, source, attempted_at)
-                SELECT ticker, fetched_on, COALESCE(n_splits, 0),
-                       COALESCE(n_dividends, 0), status, 'yfinance',
-                       NULL
-                FROM actions_fetch_log_v1
-                """
-            )
-            con.execute("DROP TABLE actions_fetch_log_v1")
+    _require_columns(
+        con, "actions_fetch_log", frozenset({"source", "attempted_at"})
+    )
     con.execute(
         """
         CREATE INDEX IF NOT EXISTS actions_fetch_log_resume_idx
@@ -1261,7 +1675,16 @@ def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
 
 
 def backfill_first_fetched_at(con: duckdb.DuckDBPyConnection) -> int:
-    """Backfill pre-migration price rows from their last known fetch timestamp."""
+    """Explicitly add/backfill availability for the registered D0 migration."""
+    columns = {
+        row[0]
+        for row in con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='main' AND table_name='prices'"
+        ).fetchall()
+    }
+    if "first_fetched_at" not in columns:
+        con.execute("ALTER TABLE prices ADD COLUMN first_fetched_at TIMESTAMP")
     pending = con.execute(
         """SELECT COUNT(*) FROM prices
         WHERE first_fetched_at IS NULL AND fetched_at IS NOT NULL"""

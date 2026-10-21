@@ -7,14 +7,17 @@ import json
 import os
 import shutil
 import stat
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pytest
 
-from engine import p15_evaluation
+from engine import p15_evaluation, schema_migrations
 from engine.lib import db as engine_db
+from sim import schema as sim_schema
 from tools import backup_database, publish_snapshot
 
 
@@ -32,8 +35,35 @@ def test_bundle_tree_identity_follows_only_its_opened_root(tmp_path):
     assert stat.S_ISLNK(identity["child-link"][2])
 
 
-def _source_database(path: Path) -> None:
+def _source_database(path: Path, *, generation: bool = False) -> None:
     connection = duckdb.connect(str(path))
+    if generation:
+        schema_migrations.migrations()[0].module.bootstrap(connection)
+        connection.execute(
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume,first_fetched_at) "
+            "VALUES ('SPY','2026-09-10',1,1,1,1,1000,'2026-09-10'),"
+            "('QQQ','2026-09-09',1,1,1,1,1000,'2026-09-09')"
+        )
+        connection.execute(
+            "INSERT INTO jobs (id,state) VALUES (1,'done'),(2,'failed')"
+        )
+        connection.execute(
+            "INSERT INTO portfolios (id,name,strategy,config,created,active,cash,"
+            "initial_cash,execution_profile) VALUES "
+            "('paper','Paper','spy_benchmark','{}','2026-01-01',TRUE,100,100,'baseline_v1')"
+        )
+        connection.execute(
+            "INSERT INTO sim_equity (portfolio_id,date,equity,cash,n_positions) "
+            "VALUES ('paper','2026-09-10',100,100,0)"
+        )
+        connection.execute(
+            "INSERT INTO screen_results "
+            "(run_date,ticker,passes_template,new_today,universe_policy) VALUES "
+            "('2026-09-10','SPY',TRUE,TRUE,'all'),"
+            "('2026-09-10','QQQ',FALSE,FALSE,'all')"
+        )
+        connection.close()
+        return
     connection.execute("BEGIN TRANSACTION")
     connection.execute("CREATE TABLE prices (date DATE, ticker VARCHAR, volume BIGINT)")
     connection.execute(
@@ -75,12 +105,30 @@ def _source_database(path: Path) -> None:
     connection.close()
 
 
-def _repo(tmp_path: Path) -> tuple[Path, Path]:
+def _stamp_schema(database: Path) -> None:
+    connection = duckdb.connect(str(database))
+    catalog_hash = schema_migrations.catalog_sha256(connection)
+    migration = schema_migrations.migrations()[0]
+    assert catalog_hash == migration.module.EXPECTED_CATALOG_SHA256
+    connection.execute(
+        "CREATE TABLE schema_migrations (migration_id INTEGER PRIMARY KEY, "
+        "migration_sha256 VARCHAR, source_commit VARCHAR, applied_at TIMESTAMPTZ, "
+        "pre_catalog_sha256 VARCHAR, post_catalog_sha256 VARCHAR, "
+        "recovery_manifest_sha256 VARCHAR)"
+    )
+    connection.execute(
+        "INSERT INTO schema_migrations VALUES (0, ?, ?, now(), ?, ?, ?)",
+        [migration.sha256, "a" * 40, catalog_hash, catalog_hash, "b" * 64],
+    )
+    connection.close()
+
+
+def _repo(tmp_path: Path, *, generation: bool = False) -> tuple[Path, Path]:
     root = tmp_path / "repo's copy"
     root.mkdir()
     source = root / "store" / "market.duckdb"
     source.parent.mkdir()
-    _source_database(source)
+    _source_database(source, generation=generation)
     for relative in backup_database.EVIDENCE_FILES:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -202,8 +250,10 @@ def test_create_and_verify_transactional_bundle(tmp_path):
     connection.close()
 
 
-def test_create_uses_fresh_latest_snapshot_instead_of_live_store(tmp_path):
-    root, source = _repo(tmp_path)
+def test_create_uses_fresh_latest_snapshot_instead_of_live_store(tmp_path, monkeypatch):
+    root, source = _repo(tmp_path, generation=True)
+    monkeypatch.setattr(backup_database, "MIN_FREE_BYTES", 0)
+    _stamp_schema(source)
     published = publish_snapshot.publish_snapshot(root, source)
     destination = tmp_path / "outside" / "snapshot"
 
@@ -212,8 +262,216 @@ def test_create_uses_fresh_latest_snapshot_instead_of_live_store(tmp_path):
     manifest = json.loads((destination / backup_database.MANIFEST_FILENAME).read_text())
     assert manifest["source_database"] == {
         "kind": "repository-relative",
-        "path": f"store/snapshots/{published['snapshot']}",
+        "path": "store/market.duckdb",
     }
+    assert manifest["schema_version"] == 4
+    assert manifest["generation"]["manifest_sha256"] == published["manifest_sha256"]
+
+
+def test_generation_backup_checks_primary_schema_and_restores_cold_rows(
+    tmp_path, monkeypatch,
+):
+    root, source = _repo(tmp_path, generation=True)
+    monkeypatch.setattr(backup_database, "MIN_FREE_BYTES", 0)
+    connection = duckdb.connect(str(source))
+    connection.execute(
+        "INSERT INTO intraday_prices VALUES "
+        "('SPY','2026-09-10 14:30:00','1m',1,2,1,2,10,'fixture','2026-09-10')"
+    )
+    connection.close()
+    _stamp_schema(source)
+    published = publish_snapshot.publish_snapshot(root, source)
+    destination = tmp_path / "outside" / "generation-backup"
+    with duckdb.connect(str(source), read_only=True) as primary:
+        primary_rows = primary.execute(
+            "SELECT * FROM intraday_prices ORDER BY ticker, ts, interval"
+        ).fetchall()
+        primary_snapshot = backup_database.database_snapshot(
+            primary, primary.execute("SELECT current_database()").fetchone()[0]
+        )
+    created = backup_database.create_backup(root, source, destination)
+
+    restored = duckdb.connect(
+        str(destination / backup_database.DATABASE_FILENAME), read_only=True
+    )
+    try:
+        assert restored.execute(
+            "SELECT * FROM intraday_prices ORDER BY ticker, ts, interval"
+        ).fetchall() == primary_rows
+        restored_snapshot = backup_database.database_snapshot(
+            restored, restored.execute("SELECT current_database()").fetchone()[0]
+        )
+    finally:
+        restored.close()
+    assert restored_snapshot == primary_snapshot
+    assert created["status"] == "ok"
+    manifest = json.loads((destination / backup_database.MANIFEST_FILENAME).read_text())
+    assert manifest["generation"]["manifest_sha256"] == published["manifest_sha256"]
+
+
+def test_versioned_database_without_generation_refuses_primary_fallback(tmp_path):
+    root, source = _repo(tmp_path, generation=True)
+    _stamp_schema(source)
+
+    with pytest.raises(backup_database.BackupError, match="no valid published generation"):
+        backup_database.create_backup(
+            root, source, tmp_path / "outside" / "missing-generation",
+        )
+
+
+def test_generation_backup_refuses_commit_retained_in_held_writer_wal(
+    tmp_path, monkeypatch,
+):
+    root, source = _repo(tmp_path, generation=True)
+    monkeypatch.setattr(backup_database, "MIN_FREE_BYTES", 0)
+    _stamp_schema(source)
+    publish_snapshot.publish_snapshot(root, source)
+    destination = tmp_path / "outside" / "stale-generation"
+    writer = duckdb.connect(str(source))
+    try:
+        writer.execute("UPDATE prices SET volume=999 WHERE ticker='SPY'")
+        assert source.with_name(f"{source.name}.wal").is_file()
+        with pytest.raises(backup_database.BackupError, match="live primary schema"):
+            backup_database.create_backup(root, source, destination)
+    finally:
+        writer.close()
+
+    assert not destination.exists()
+
+
+def _alternate_relation(con, factory, tmp_path):
+    if factory == "from_df":
+        return con.from_df(pd.DataFrame({"id": [1]}))
+    if factory == "values":
+        return con.values([1])
+    path = tmp_path / "relation.csv"
+    path.write_text("id\n1\n")
+    return con.read_csv(str(path))
+
+
+@pytest.mark.parametrize("factory", ["from_df", "values", "read_csv"])
+def test_backup_refuses_live_catalog_drift_from_alternate_relation_factory(
+    tmp_path, monkeypatch, capsys, factory,
+):
+    root, source = _repo(tmp_path, generation=True)
+    monkeypatch.setattr(backup_database, "MIN_FREE_BYTES", 0)
+    _stamp_schema(source)
+    publish_snapshot.publish_snapshot(root, source)
+    writer = engine_db.connect(source)
+    try:
+        _alternate_relation(writer, factory, tmp_path).create(f"bypass_{factory}")
+    finally:
+        writer.close()
+    destination = tmp_path / "outside" / f"catalog-drift-{factory}"
+
+    status = backup_database.main([
+        "--repo-root", str(root), "create", str(destination), "--source", str(source),
+    ])
+
+    output = json.loads(capsys.readouterr().out)
+    assert status == 1
+    assert output["status"] == "failed"
+    assert "catalog changed outside" in output["reason"]
+    assert not destination.exists()
+
+
+def test_remote_restore_interface_binds_generation_and_full_restore_checks():
+    interface = backup_database.REMOTE_RESTORE_INTERFACE
+    assert interface["rpo"] == {"config_key": "rpo_hours", "default": 24, "minimum": 1}
+    assert interface["input_manifest_schema_version"] == 4
+    assert "remote_commit" in interface["required_restore_receipt_fields"]
+    assert "generation_manifest_sha256" in interface["required_restore_receipt_fields"]
+    assert "semantic_health_sha256" in interface["required_restore_receipt_fields"]
+    assert "full logical checksum" in interface["partition_contract"]["restore"]
+    assert "no new timer" in interface["scheduler"]
+    assert callable(backup_database.write_remote_restore_plan)
+    assert callable(backup_database.remote_restore_drill)
+
+
+def test_remote_restore_drill_fetches_exact_commit_and_cleans_databases(
+    tmp_path, monkeypatch,
+):
+    root, source = _repo(tmp_path, generation=True)
+    monkeypatch.setattr(backup_database, "MIN_FREE_BYTES", 0)
+    _stamp_schema(source)
+    publish_snapshot.publish_snapshot(root, source)
+    bundle = tmp_path / "bundle"
+    backup_database.create_backup(root, source, bundle)
+    remote = tmp_path / "remote"
+    remote.mkdir()
+    shutil.copytree(bundle, remote / "engine-bundle")
+    research = remote / "research.duckdb"
+    con = duckdb.connect(str(research))
+    con.execute("CREATE TABLE facts (id INTEGER, value VARCHAR)")
+    con.execute("INSERT INTO facts VALUES (1, 'verified')")
+    con.close()
+    plan = backup_database.write_remote_restore_plan(
+        remote, remote / "engine-bundle", [research],
+    )
+    assert plan["research_databases"][0]["sha256"] == backup_database._sha256(research)
+    subprocess.run(("git", "init", "-q"), cwd=remote, check=True)
+    subprocess.run(("git", "add", "."), cwd=remote, check=True)
+    subprocess.run(
+        ("git", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+         "commit", "-qm", "backup fixture"),
+        cwd=remote, check=True,
+    )
+    commit = subprocess.run(
+        ("git", "rev-parse", "HEAD"), cwd=remote, check=True,
+        capture_output=True, text=True,
+    ).stdout.strip()
+    scratch = tmp_path / "scratch"
+    receipt_path = tmp_path / "receipt.json"
+
+    receipt = backup_database.remote_restore_drill(
+        remote.resolve().as_uri(), commit, receipt_path, scratch_parent=scratch,
+    )
+
+    assert receipt["remote_commit"] == commit
+    assert json.loads(receipt_path.read_text()) == receipt
+    assert list(scratch.iterdir()) == []
+
+
+def test_sequence_state_survives_generations_restore_and_next_migration(
+    tmp_path, monkeypatch,
+):
+    root, source = _repo(tmp_path, generation=True)
+    monkeypatch.setattr(backup_database, "MIN_FREE_BYTES", 0)
+    _stamp_schema(source)
+    for offset in range(2):
+        con = duckdb.connect(str(source))
+        order_id = sim_schema.next_order_id(con)
+        con.execute(
+            "INSERT INTO sim_orders (id,status) VALUES (?, 'pending')", [order_id]
+        )
+        con.close()
+        publish_snapshot.publish_snapshot(root, source, now=datetime(
+            2026, 10, 2, 12, 0, offset, tzinfo=timezone.utc,
+        ))
+    destination = tmp_path / "outside" / "generation-backup"
+    created = backup_database.create_backup(root, source, destination)
+    restored_path = destination / backup_database.DATABASE_FILENAME
+    restored = duckdb.connect(str(restored_path))
+    try:
+        assert schema_migrations.require_compatible_schema(restored)["database_schema_id"] == 0
+        assert sim_schema.next_order_id(restored) == 3
+    finally:
+        restored.close()
+
+    monkeypatch.setattr(schema_migrations, "_source_commit", lambda _root: "a" * 40)
+    con = duckdb.connect(str(source), read_only=True)
+    expected_pre = schema_migrations.catalog_sha256(con)
+    con.close()
+    migrated = schema_migrations.apply(
+        source,
+        destination,
+        expected_backup_manifest_sha256=created["manifest_sha256"],
+        expected_source_commit="a" * 40,
+        expected_pre_catalog_sha256=expected_pre,
+        repo_root=root,
+        target_schema_id=1,
+    )
+    assert migrated["applied"] == [1]
 
 
 def test_backup_restores_persisted_p15_look_with_external_anchor(tmp_path):
@@ -1356,7 +1614,7 @@ def test_source_database_location_accepts_producer_forms(source):
         ("update", "message"),
     [
         (lambda payload: payload.update(schema_version=True), "unsupported.*schema"),
-        (lambda payload: payload.update(schema_version=4), "unsupported.*schema"),
+        (lambda payload: payload.update(schema_version=5), "unsupported.*schema"),
         (
             lambda payload: payload["database"].update(size_bytes=True),
             "database size_bytes.*non-negative integer",
@@ -1488,6 +1746,8 @@ def test_verify_accepts_schema_v1_snapshot_without_operational_artifacts(tmp_pat
             payload.pop("operational_artifacts"),
             payload.pop("operational_controls"),
             payload["database"]["snapshot"].pop("index_count"),
+                payload["database"]["snapshot"].pop("sequence_state"),
+                payload["database"]["snapshot"].pop("table_sha256"),
         ),
     )
 

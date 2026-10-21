@@ -178,6 +178,9 @@ class DataSourceHeaderMiddleware:
                     headers.append(
                         (b"x-snapshot-as-of", str(state["snapshot_as_of"]).encode("ascii"))
                     )
+                    headers.append(
+                        (b"x-generation-id", str(state["generation_id"]).encode("ascii"))
+                    )
                     message = {**message, "headers": headers}
                 await send(message)
 
@@ -619,7 +622,7 @@ def agent_shadow_control_status():
 
 @app.get("/paper-trial/status")
 def paper_trial_status():
-    with server_db.prefer_current_snapshot(), _connection(read_con) as con:
+    with _connection(read_con) as con:
         try:
             return p7_trial_status.project(con)
         except p7_trial_status.TrialStatusError as exc:
@@ -634,7 +637,7 @@ def daily_opportunity_status():
 
 @app.get("/agent/evaluation/status")
 def agent_evaluation_status():
-    with server_db.require_fresh_evidence_snapshot(), server_db.prefer_current_snapshot():
+    with server_db.require_fresh_evidence_snapshot():
         with _connection(read_con) as con:
             try:
                 generated_at = datetime.now(timezone.utc)
