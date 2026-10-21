@@ -3955,4 +3955,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs and schema only, plus test path lists; no runtime code.
 - **Next:** land b-jobs (audit-only).
 
+## 2026-10-21 — Land wave-1 b-jobs (audit-only job registry) on the rewritten main
+
+- **Why:** P24 integrate lane; b-jobs was reviewed to ACCEPT on the pre-rewrite revision-15 base. Build plan E3: the registry stays audit-only and no live job migrates.
+- **What:** the lane's 18 commits are rebased onto main. The scheduler monitor keeps main's unit and backup health composition and adds the registry audit to both its invalid and normal results; the ops digest keeps main's schedule contract, invariants, model gateway, skipped-run and log-retention handling and adds the lane's job receipts, registry config errors and projection gaps to the same FAIL/WARN rule; the two test files keep both sides' tests.
+  Main bounded four exec units with a commented `RuntimeMaxSec` after the lane's base, so the legacy renderer gains `runtime_max` (with optional comment lines) and `ops/jobs.toml` records it for agent-shadow, daily-opportunity, p15-scoring and p16-challengers. No unit, timer or crontab entry changes.
+- **Evidence:** `python -m engine.job_contract audit --repo-root .` reports `status: ok`, 26 rendered units, no differences; job contract, runner, scheduler, install, digest, driver, service-unit and catalogue tests pass.
+- **Metrics:** engine +3, ops +8 lines of adaptation over the lane.
+- **Next:** land b-release.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

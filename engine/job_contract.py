@@ -471,7 +471,8 @@ def render_service(spec: JobSpec) -> str:
     lines.extend(f"Environment={value}" for value in service.get("environment", []))
     ordered = (
         ("nice", "Nice"), ("io_scheduling_class", "IOSchedulingClass"),
-        ("timeout_start", "TimeoutStartSec"), ("standard_output", "StandardOutput"),
+        ("timeout_start", "TimeoutStartSec"), ("runtime_max", "RuntimeMaxSec"),
+        ("standard_output", "StandardOutput"),
         ("standard_error", "StandardError"), ("private_tmp", "PrivateTmp"),
         ("protect_system", "ProtectSystem"),
         ("protect_control_groups", "ProtectControlGroups"), ("umask", "UMask"),
@@ -480,6 +481,7 @@ def render_service(spec: JobSpec) -> str:
     )
     for key, rendered in ordered:
         if key in service:
+            lines.extend(service.get(f"{key}_comments", []))
             value = service[key]
             if isinstance(value, bool):
                 value = str(value).lower()

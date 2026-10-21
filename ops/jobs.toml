@@ -313,6 +313,8 @@ environment = ["PYTHONUNBUFFERED=1"]
 nice = 19
 io_scheduling_class = "idle"
 timeout_start = "5min"
+runtime_max_comments = ["# systemd 241 stops applying TimeoutStartSec to Type=exec once exec succeeds."]
+runtime_max = "5min"
 private_tmp = true
 protect_system = "full"
 protect_control_groups = true
@@ -368,6 +370,8 @@ environment = ["PYTHONUNBUFFERED=1"]
 nice = 19
 io_scheduling_class = "idle"
 timeout_start = "10min"
+runtime_max_comments = ["# systemd 241 stops applying TimeoutStartSec to Type=exec once exec succeeds."]
+runtime_max = "10min"
 private_tmp = true
 protect_system = "full"
 protect_control_groups = true
@@ -558,6 +562,8 @@ environment = ["PYTHONUNBUFFERED=1"]
 nice = 19
 io_scheduling_class = "idle"
 timeout_start = "9h"
+runtime_max_comments = ["# systemd 241 stops applying TimeoutStartSec to Type=exec once exec succeeds."]
+runtime_max = "9h"
 private_tmp = true
 protect_system = "full"
 protect_control_groups = true
@@ -742,6 +748,8 @@ environment = ["PYTHONUNBUFFERED=1"]
 nice = 19
 io_scheduling_class = "idle"
 timeout_start = "9h"
+runtime_max_comments = ["# systemd 241 stops applying TimeoutStartSec to Type=exec once exec succeeds."]
+runtime_max = "9h"
 private_tmp = true
 protect_system = "full"
 protect_control_groups = true

@@ -1257,6 +1257,7 @@ def test_last_backup_commit_normalizes_git_time(monkeypatch, tmp_path):
     monkeypatch.setattr(host, "run_bounded", lambda _args: _Completed("", returncode=128))
     assert host.last_backup_commit(tmp_path) is None
 
+
 def _registry_repo(tmp_path: Path) -> Path:
     (tmp_path / "ops").mkdir()
     (tmp_path / "ops/jobs.toml").write_text((ROOT / "ops/jobs.toml").read_text())
