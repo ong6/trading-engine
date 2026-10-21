@@ -1,66 +1,66 @@
-# Paper League — 2026-10-19
+# Paper League — 2026-10-20
 
 | # | Portfolio | Inception | Equity | Total ret | vs SPY | Max DD | Open | Fills | Last 5d |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | Sector ETF Rotation | 2026-07-28 | $43,051 | +10.39% | +6.68% | −1.73% | 3 | 8 | −0.07% |
-| 2 | SPY Buy & Hold | 2026-07-17 | $40,069 | +2.74% | −0.63% | −3.05% | 1 | 1 | −1.49% |
-| 3 | Momentum Top 10 (stop-managed) | 2026-07-28 | $39,711 | +1.82% | −1.89% | −20.61% | 10 | 174 | −11.30% |
-| 4 | Discretionary (paper) | 2026-07-17 | $39,498 | +1.28% | −2.10% | −3.02% | 1 | 1 | −2.69% |
-| 5 | Template Top 5 | 2026-07-17 | $39,108 | +0.28% | −3.10% | −24.43% | 5 | 92 | −10.72% |
-| 6 | Template Top 5 (regime-gated) | 2026-07-17 | $39,108 | +0.28% | −3.10% | −24.43% | 5 | 92 | −10.72% |
-| 7 | PEAD (earnings reaction) | 2026-07-28 | $39,079 | +0.20% | −3.51% | −3.02% | 8 | 42 | −2.43% |
-| 8 | Macro Composite (all-signals) | 2026-08-03 | $38,874 | −0.32% | −1.74% | −1.54% | 1 | 1 | −0.75% |
-| 9 | Turtle Breakout (ATR-stopped) | 2026-07-28 | $38,835 | −0.42% | −4.14% | −5.17% | 9 | 44 | −2.84% |
-| 10 | Mean-Reversion Overlay | 2026-07-17 | $38,763 | −0.61% | −3.98% | −7.99% | 5 | 121 | −4.05% |
-| 11 | Mean-Reversion Overlay (regime-gated) | 2026-07-17 | $38,763 | −0.61% | −3.98% | −7.99% | 5 | 121 | −4.05% |
-| 12 | 52-Week-High Momentum | 2026-07-28 | $38,212 | −2.02% | −5.73% | −4.07% | 24 | 88 | −0.06% |
-| 13 | Dual Momentum (GEM) | 2026-07-17 | $38,127 | −2.24% | −5.61% | −5.32% | 1 | 4 | −1.49% |
-| 14 | Dual Momentum (regime-gated) | 2026-07-17 | $38,127 | −2.24% | −5.61% | −5.32% | 1 | 4 | −1.49% |
-| 15 | Daily Opportunity Agent | 2026-09-21 | $9,474 | −5.26% | −4.35% | −5.44% | 2 | 14 | −3.01% |
-| 16 | Equal-Weight Benchmark | 2026-07-17 | $36,175 | −7.24% | −10.62% | −17.94% | 50 | 184 | −11.60% |
-| 17 | p15_ai_ranked | 2026-09-26 | $9,259 ‡ | −7.41% | −6.78% | −8.48% | 7 | 55 | −5.07% |
-| 18 | Low-Volatility Defensive | 2026-07-28 | $36,076 | −7.50% | −11.21% | −7.69% | 18 | 94 | −0.68% |
-| 19 | p15_hybrid_veto | 2026-09-26 | $8,994 ‡ | −10.06% | −9.42% | −11.43% | 9 | 36 | −7.96% |
-| 20 | EW Screen — 200d Trend Gated | 2026-08-18 | $35,009 | −10.23% | −10.35% | −17.96% | 50 | 114 | −11.62% |
-| 21 | p15_rule_control | 2026-09-26 | $8,893 ‡ | −11.07% | −10.44% | −12.54% | 9 | 37 | −8.79% |
-| 22 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $34,285 | −12.09% | −12.21% | −16.29% | 50 | 119 | −10.47% |
-| 23 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $33,537 | −14.01% | −14.43% | −17.31% | 50 | 50 | −8.25% |
-| 24 | Template Top 10 (banded) | 2026-07-17 | $33,213 | −14.84% | −18.21% | −22.43% | 10 | 198 | −12.33% |
-| 25 | Template Top 10 banded (regime-gated) | 2026-07-17 | $33,213 | −14.84% | −18.21% | −22.43% | 10 | 198 | −12.33% |
+| 1 | Sector ETF Rotation | 2026-07-28 | $43,397 | +11.28% | +7.22% | −1.73% | 3 | 8 | +0.56% |
+| 2 | Momentum Top 10 (stop-managed) | 2026-07-28 | $40,454 | +3.73% | −0.33% | −20.61% | 10 | 174 | −10.21% |
+| 3 | SPY Buy & Hold | 2026-07-17 | $40,203 | +3.08% | −0.64% | −3.05% | 1 | 1 | −1.15% |
+| 4 | Turtle Breakout (ATR-stopped) | 2026-07-28 | $39,601 | +1.54% | −2.52% | −5.17% | 10 | 45 | −0.84% |
+| 5 | Discretionary (paper) | 2026-07-17 | $39,553 | +1.42% | −2.30% | −3.02% | 1 | 1 | −2.46% |
+| 6 | Template Top 5 | 2026-07-17 | $39,399 | +1.02% | −2.70% | −24.43% | 5 | 92 | −11.55% |
+| 7 | Template Top 5 (regime-gated) | 2026-07-17 | $39,399 | +1.02% | −2.70% | −24.43% | 5 | 92 | −11.55% |
+| 8 | PEAD (earnings reaction) | 2026-07-28 | $39,191 | +0.49% | −3.57% | −3.02% | 9 | 43 | −2.16% |
+| 9 | Mean-Reversion Overlay | 2026-07-17 | $39,111 | +0.28% | −3.44% | −7.99% | 4 | 122 | −3.49% |
+| 10 | Mean-Reversion Overlay (regime-gated) | 2026-07-17 | $39,111 | +0.28% | −3.44% | −7.99% | 4 | 122 | −3.49% |
+| 11 | Macro Composite (all-signals) | 2026-08-03 | $38,939 | −0.16% | −1.91% | −1.54% | 1 | 1 | −0.58% |
+| 12 | 52-Week-High Momentum | 2026-07-28 | $38,417 | −1.50% | −5.56% | −4.07% | 24 | 88 | +0.30% |
+| 13 | Dual Momentum (GEM) | 2026-07-17 | $38,255 | −1.91% | −5.63% | −5.32% | 1 | 4 | −1.15% |
+| 14 | Dual Momentum (regime-gated) | 2026-07-17 | $38,255 | −1.91% | −5.63% | −5.32% | 1 | 4 | −1.15% |
+| 15 | Daily Opportunity Agent | 2026-09-21 | $9,514 | −4.86% | −4.28% | −5.44% | 2 | 14 | −2.49% |
+| 16 | Equal-Weight Benchmark | 2026-07-17 | $36,582 | −6.20% | −9.92% | −17.94% | 50 | 184 | −9.33% |
+| 17 | Low-Volatility Defensive | 2026-07-28 | $36,248 | −7.06% | −11.12% | −7.69% | 18 | 94 | +0.02% |
+| 18 | p15_ai_ranked | 2026-09-26 | $9,171 ‡ | −8.29% | −7.99% | −9.34% | 9 | 57 | −6.39% |
+| 19 | p15_hybrid_veto | 2026-09-26 | $9,080 ‡ | −9.20% | −8.90% | −11.43% | 9 | 37 | −5.72% |
+| 20 | EW Screen — 200d Trend Gated | 2026-08-18 | $35,398 | −9.23% | −9.69% | −17.96% | 50 | 114 | −9.36% |
+| 21 | p15_rule_control | 2026-09-26 | $8,985 ‡ | −10.15% | −9.85% | −12.54% | 9 | 38 | −6.16% |
+| 22 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $34,725 | −10.96% | −11.72% | −17.31% | 50 | 50 | −2.43% |
+| 23 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $34,699 | −11.03% | −11.48% | −16.29% | 50 | 119 | −8.07% |
+| 24 | Template Top 10 (banded) | 2026-07-17 | $33,825 | −13.27% | −16.99% | −22.43% | 10 | 198 | −10.71% |
+| 25 | Template Top 10 banded (regime-gated) | 2026-07-17 | $33,825 | −13.27% | −16.99% | −22.43% | 10 | 198 | −10.71% |
 
-_Regime: **risk-on** · each return uses its book's persisted starting capital · as of 2026-10-19._
+_Regime: **risk-on** · each return uses its book's persisted starting capital · as of 2026-10-20._
 
-_‡ marked through 2026-10-16: p15_ai_ranked, p15_hybrid_veto, p15_rule_control. A P15 book is marked by its own window after that session's P15 fills, never provisionally by the league._
+_‡ marked through 2026-10-19: p15_ai_ranked, p15_hybrid_veto, p15_rule_control. A P15 book is marked by its own window after that session's P15 fills, never provisionally by the league._
 
 ## Commission break
 
 | Portfolio | Since break | Fees paid |
 |---|---:|---:|
-| Sector ETF Rotation | −0.02% | $0.00 |
-| SPY Buy & Hold | +0.42% | $0.00 |
-| Momentum Top 10 (stop-managed) | +1.80% | $6.40 |
-| Discretionary (paper) | +0.09% | $0.00 |
-| Template Top 5 | +5.63% | $6.78 |
-| Template Top 5 (regime-gated) | +5.63% | $6.78 |
-| PEAD (earnings reaction) | +0.00% | $0.00 |
-| Macro Composite (all-signals) | +0.21% | $0.00 |
-| Turtle Breakout (ATR-stopped) | +1.40% | $0.95 |
-| Mean-Reversion Overlay | +1.17% | $0.00 |
-| Mean-Reversion Overlay (regime-gated) | +1.17% | $0.00 |
-| 52-Week-High Momentum | +0.42% | $0.00 |
-| Dual Momentum (GEM) | +0.42% | $0.00 |
-| Dual Momentum (regime-gated) | +0.42% | $0.00 |
-| Daily Opportunity Agent | +0.20% | $0.76 |
-| Equal-Weight Benchmark | +2.05% | $0.00 |
-| p15_ai_ranked | +0.00% | $0.00 |
-| Low-Volatility Defensive | +0.18% | $0.00 |
-| p15_hybrid_veto | +0.00% | $0.00 |
-| EW Screen — 200d Trend Gated | +2.05% | $0.00 |
-| p15_rule_control | +0.00% | $0.00 |
-| EW Screen — Inverse-Vol Weighted | +1.74% | $0.00 |
-| XS Momentum 12-1 (unscreened control) | +3.31% | $0.00 |
-| Template Top 10 (banded) | +3.46% | $8.95 |
-| Template Top 10 banded (regime-gated) | +3.46% | $8.95 |
+| Sector ETF Rotation | +0.78% | $0.00 |
+| Momentum Top 10 (stop-managed) | +3.70% | $6.40 |
+| SPY Buy & Hold | +0.76% | $0.00 |
+| Turtle Breakout (ATR-stopped) | +3.40% | $1.46 |
+| Discretionary (paper) | +0.22% | $0.00 |
+| Template Top 5 | +6.42% | $6.78 |
+| Template Top 5 (regime-gated) | +6.42% | $6.78 |
+| PEAD (earnings reaction) | +0.29% | $0.58 |
+| Mean-Reversion Overlay | +2.08% | $0.52 |
+| Mean-Reversion Overlay (regime-gated) | +2.08% | $0.52 |
+| Macro Composite (all-signals) | +0.38% | $0.00 |
+| 52-Week-High Momentum | +0.95% | $0.00 |
+| Dual Momentum (GEM) | +0.76% | $0.00 |
+| Dual Momentum (regime-gated) | +0.76% | $0.00 |
+| Daily Opportunity Agent | +0.62% | $0.76 |
+| Equal-Weight Benchmark | +3.20% | $0.00 |
+| Low-Volatility Defensive | +0.65% | $0.00 |
+| p15_ai_ranked | −0.94% | $0.85 |
+| p15_hybrid_veto | +0.95% | $0.35 |
+| EW Screen — 200d Trend Gated | +3.18% | $0.00 |
+| p15_rule_control | +1.03% | $0.35 |
+| XS Momentum 12-1 (unscreened control) | +6.97% | $0.00 |
+| EW Screen — Inverse-Vol Weighted | +2.97% | $0.00 |
+| Template Top 10 (banded) | +5.36% | $8.95 |
+| Template Top 10 banded (regime-gated) | +5.36% | $8.95 |
 
 _† commissions from the recorded cost-profile break (2026-10-19); evaluation clocks restart at each break._
 
@@ -70,5 +70,5 @@ These names have not TRADED since the date shown, so they are valued at a close 
 
 | Book | Ticker | Qty | Last traded | Sessions stale | Frozen value | % of equity |
 |---|---|---|---|---|---|---|
-| high_52wk | ACVA | 127.3675 | 2026-10-15 | 2 | $1,337.36 | 3.50% |
-| high_52wk | ATKR | 16.0317 | 2026-10-16 | 1 | $1,522.37 | 3.98% |
+| high_52wk | ACVA | 127.3675 | 2026-10-15 | 3 | $1,337.36 | 3.48% |
+| high_52wk | ATKR | 16.0317 | 2026-10-16 | 2 | $1,522.37 | 3.96% |
