@@ -3972,4 +3972,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged beyond the lane.
 - **Next:** land b-study (research-only, E6).
 
+## 2026-10-21 — Land wave-1 b-study (StudySpec runner, research cache) on the rewritten main
+
+- **Why:** P24 integrate lane; b-study was reviewed to ACCEPT (round 8) on the pre-rewrite revision-15 base. Build plan E6: research-only, no edit to a file trial 287 pins.
+- **What:** the lane's 30 commits add only new files under `farm/research/` and rebase onto main tree-identically. No existing `farm/study`, `farm/backtest`, `engine/verify_prices.py` or P18 core file changes, so trial 287's pins and P18 CORE_VERSION are untouched. The lane's alpha-repo half (trial-287 port fixture, study-authoring guide) is left for the orchestrator's alpha merge.
+  The package's tests live in `farm/research/tests`, outside `testpaths`, so CI does not run them; collected together with `tests/`, main's speed plugin asks them for a fixture only `tests/conftest.py` defines.
+- **Evidence:** `pytest -n 2 farm/research/tests` 97 passed (one 5-second sandbox timeout under load 37 on the first run, green on rerun).
+- **Metrics:** farm +research package from the lane; no adaptation.
+- **Next:** full suite under UTC and Asia/Singapore, then revision 16 on its own branch.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
