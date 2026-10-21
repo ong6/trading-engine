@@ -784,3 +784,18 @@ path so replay reproduces it. This replaces the "needs a human decision" carried
 `sim/league.py` and the settlement runbook's "the position stays open and stale". How a delisting
 is detected is a technical decision for the orchestrator. → `product.md`; a P22 fix lane implements it
 before deployment and updates the runbook in the same change.
+
+## 2026-10-21 — Senior-quant review: fix the pipelines, make it faster, find strategies
+
+**Verdict.** The owner asked the orchestrator to act as a senior quant: spread many agents out
+to evaluate and fix the pipelines, improve speed (nightly wall-clock, simulator and backtest
+core, test suite and research evaluators), make alpha generation and the engine work properly,
+and send agents to find new strategies (SEC filings and LLM text, microstructure and auction,
+cross-asset ETF, momentum, and a literature sweep). "You can do anything you want, as long as
+you feel it needs fixing; no need to ask me anything; you can just push."
+
+**Rule change.** P24 is active under this approval (`docs/plans/p24-quant-review-and-speed.md`).
+Work inside its scope is admitted without a per-item reproduction, but every fix still carries
+its evidence in BUILDLOG and every speed change proves identical outputs. The absolute rules in
+`AGENTS.md` are unchanged. → P24 plan, `docs/plans/README.md`.
+
