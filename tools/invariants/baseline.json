@@ -46,9 +46,9 @@
   {
    "invariant": "preopen_not_voided",
    "class": "voided",
-   "through": "2026-10-19",
+   "through": "2026-10-20",
    "owner": "orchestrator",
-   "reason": "Pre-open runs 5, 6 and 12 (2026-10-05, 10-06, 10-16) were voided whole by one keep without new evidence. Immutable history; per-decision validation lands with revision 15. A void after 2026-10-19 is a regression.",
+   "reason": "Pre-open runs 5, 6, 12 and 13 (2026-10-05, 10-06, 10-16, 10-20) were voided whole by one keep without new evidence (run 13: intent 142; every decision was keep, so no outcome changed). Immutable history; per-decision validation (4192910) reached the live checkout after the 10-20 pre-open. A void after 2026-10-20 is a regression.",
    "expires": "2027-04-20",
    "ref": "fix/p15-preopen-reliability"
   },

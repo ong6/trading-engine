@@ -3971,4 +3971,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +4 lines; data 14 values.
 - **Next:** remaining monitor findings.
 
+## 2026-10-21 — Accept the 2026-10-20 pre-open void as pre-fix history
+
+- **Why:** P24 integrity lane, remaining shadow-monitor regression: `preopen_not_voided` run 13 (2026-10-20) is `unavailable`, "pre-open evidence is invalid". Its response has three keep decisions, one (intent 142) citing no new evidence: the class 4192910 fixed by validating each decision on its own. The live checkout ran pre-fix code that morning (the 10-20 nightly log still shows the pre-merge head), and every decision was keep, so no outcome changed.
+- **What:** the existing `voided` exception runs through 2026-10-20 and names run 13; a void after 10-20 is a regression. For the orchestrator to accept or drop.
+- **Evidence:** `check_invariants` on the repaired store copy with this branch: pass, 0 regressions (main's tree on the unrepaired copy: 36).
+- **Metrics:** unchanged.
+- **Next:** full suites under both timezones.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
