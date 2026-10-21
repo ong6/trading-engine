@@ -3931,4 +3931,60 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine, server, farm and tests +330/-48 lines.
 - **Next:** reviewer round 2.
 
+## 2026-10-21 — Price verify prints one line; the summary stays in _meta.json
+
+- **Why:** P24 integrity lane; scope.md 2026-10-10 line. The 2026-10-20 nightly log has a 14,315-line JSON block from the verifier (base64 bodies included, pre-9b547f6 code); with 9b547f6 the summary alone is still ~4.2k lines a night and ~86k a weekly pass (sizes of the current `price_verify` / `price_verify_full` keys).
+- **What:** a run that writes its result prints one `[verify] <key> as_of ...` line with the counts, the newest-session status and the receipt path and size. The complete accounting still goes to the hash-named receipt under `data/price-verify/` and the summary to `_meta.json` (unchanged contract). `--no-meta`/`--self-test` and a failed `_meta.json` write still print the summary JSON, since stdout is then the only output.
+- **Evidence:** `pytest tests/test_verify_prices.py` 23 passed; the main() test asserts one summary line naming the receipt that holds the base64 bodies.
+- **Metrics:** engine +20 lines.
+- **Next:** stale provisional bars (scope.md 2026-10-20 line).
+
+## 2026-10-21 — A split restatement leaves bars already on the new scale alone
+
+- **Why:** P24 integrity lane; scope.md 2026-10-20 line. WLFC 3:1 (ex 07-21): the store copy has 07-15 at close 23.00 between 72.33 and 65.33; the source's current view is 68.99. The ex-date re-fetch stored 07-15 already restated, the next nights stored 07-16..07-17 on the old scale, and the 07-29 reconciler (before the 09-02 provenance rule) divided every bar before the 07-20 break by 3, 07-15 included.
+- **What:** `actions.new_scale_islands` finds bars inside the pre-break window that a ratio-sized drop enters and its inverse leaves within five sessions. `_adjudicate` leaves them out of rule 3 and returns them; `_restate` keeps them as stored and records them in the `split_restated` audit row. Every other path is unchanged; the stored WLFC bar is repaired by `engine.repair_integrity`.
+- **Evidence:** `pytest tests/test_actions.py` 34 passed; the WLFC-shaped test restates 18 bars, keeps the island and leaves one basis (before the change the same series was skipped and left mixed).
+- **Metrics:** engine +35 lines.
+- **Next:** stale provisional bars.
+
+## 2026-10-21 — Never-settled same-night bars are asked for again, then retired
+
+- **Why:** P24 integrity lane; scope.md 2026-10-20 line. DDS and SUNC 2026-10-12 and CIB 2026-10-16 kept their same-night bars (open outside high/low) after newer sessions landed. Reproduced against the source: it answers NaN for DDS and SUNC on 10-12 and 10-13 on every later night, so the 5d re-fetch never replaced them; CIB was deactivated the next night and never asked again, though the source now has its settled 10-16 bar. The store copy holds 30 such never-settled bars dated before the newest session (13 of them on 10-16, all names deactivated on 10-20).
+- **What:** after the nightly incremental fetch, `collect.settle_stale_provisional` re-asks for every never-settled key of the last 31 days (a stored bar last fetched on or before its own session, `data_quality.never_settled_sql`, or a hole whose only observations are rejected geometry faults) and upserts only those keys, never an all-NaN "no bar" answer, through normal admission. Any still unsettled and inadmissible is moved by `price_quarantine.retire_stale_provisional` (original retained as `stale_provisional,<faults>`, key deleted, as the revision-15 cleanup does); a valid unsettled bar stays and is asked again. Best-effort: it never changes the night's fetch record.
+- **Evidence:** `pytest tests/test_collect.py` 23 passed; the new test settles CIB from the source, retires DDS with its original kept, keeps the valid ET bar, and the next pass re-asks for the valid bar and the hole and stores or rejects nothing.
+- **Metrics:** engine +120 lines.
+- **Next:** repair tool for the bars already wrong in the store.
+
+## 2026-10-21 — Repair tool for the split and same-night defects already stored
+
+- **Why:** P24 integrity lane. Shadow monitor on the 2026-10-21 08:34 snapshot copy: `one_split_basis_per_ticker` 3 regressions (WLFC, CRWU, ETHA), `split_recorded_vs_restated` 18. `fix/corporate-actions-split-integrity` landed on main but cannot heal these: its rule 3 reads `first_fetched_at`, which equals the last 5d re-fetch for every bar stored before about 10-16 (reproduced: `_adjudicate` on the copy still skips ETHA, CRWU and 8 of the late-recorded splits), and the watermark keeps a decided split from being re-adjudicated.
+- **What:** `engine.repair_integrity`, dry-run by default, idempotent. Steps: `double` (multiply back bars an applied restatement divided twice, when the source agrees), `unrecorded` (record the flagged names' splits through the nightly actions path), `splits` (restate a skipped or new split through `actions._restate` only when the source's current history puts every pre-break bar at stored/source = ratio, or at 1 for bars kept as already restated, and every later one at 1; a new split that fails is recorded `skipped_source_mismatch`), `stale` (the nightly settle path from `--since`). Originals go to `price_observation_rejects`, each change to `audit_log`. `actions.decide_split` is reconcile's per-split body, unchanged. Baseline: the 7 remaining breaks are real moves (stored equals the source on both sides).
+- **Evidence:** on the copy: split regressions 3 -> 0 and 18 -> 0 (7 baselined), 13 splits restated plus WLFC 07-15 (18,691 bars); afterwards all 26,679 stored bars of those 14 names are within 1% of the source, 21 never-settled bars settled (CIB 10-16 restored); books, cash and orders identical; a second dry-run finds nothing to change. `pytest tests/test_repair_integrity.py` 3 passed.
+- **Metrics:** engine +400, tests +150 lines.
+- **Next:** walk-forward NaN artifacts.
+
+## 2026-10-21 — Walk-forward results store an undefined statistic as null, documented
+
+- **Why:** P24 integrity lane; scope.md 2026-10-20 line. The shadow monitor's `walkforward_results_finite` has 14 regressions: `sector_momentum.json` (fold 0 train Sharpe and worst month) and `earnings_context_pead.json` (every fold's Sharpe) hold NaN, which strict readers (`/meta`, `report.load_results`) reject. Main's runner already writes null since 6661eb2, but these two files predate it; `earnings_context_pead` is inactive and will never be re-run.
+- **What:** the 14 NaN values in the two committed artifacts become null; nothing else in them changes (each file re-serializes byte-identically before the edit, same writer format). The walk-forward README's disclosures now state the representation: null in the file, `·` in the report, never NaN, infinity or a stand-in zero.
+- **Evidence:** `check_invariants` on the repaired store copy with this tree: `walkforward_results_finite` 14 regressions -> 0; `pytest tests/test_walkforward_report.py tests/test_walkforward_replay_regression.py tests/test_stats.py` 52 passed.
+- **Metrics:** farm +4 lines; data 14 values.
+- **Next:** remaining monitor findings.
+
+## 2026-10-21 — Accept the 2026-10-20 pre-open void as pre-fix history
+
+- **Why:** P24 integrity lane, remaining shadow-monitor regression: `preopen_not_voided` run 13 (2026-10-20) is `unavailable`, "pre-open evidence is invalid". Its response has three keep decisions, one (intent 142) citing no new evidence: the class 4192910 fixed by validating each decision on its own. The live checkout ran pre-fix code that morning (the 10-20 nightly log still shows the pre-merge head), and every decision was keep, so no outcome changed.
+- **What:** the existing `voided` exception runs through 2026-10-20 and names run 13; a void after 10-20 is a regression. For the orchestrator to accept or drop.
+- **Evidence:** `check_invariants` on the repaired store copy with this branch: pass, 0 regressions (main's tree on the unrepaired copy: 36).
+- **Metrics:** unchanged.
+- **Next:** full suites under both timezones.
+
+## 2026-10-21 — Repair finds twice-divided bars anywhere before the break
+
+- **Why:** review of the repair on the store copy: RUSHA's source served 08-05 and 08-10 already restated three weeks before its 3:2 ex-date (stored/source = 1 among old-scale bars at 1.5). Tonight's nightly reconcile, with main's rolling actions slice, may adjudicate RUSHA `applied_pending` and divide those two bars again; they sit outside the reconciler's 15-session window, so `new_scale_islands` there does not see them.
+- **What:** the `double` step scans every pre-break bar of an applied split and restores only island dates whose restored bar and both neighbouring bars equal the source. The `--report` file is written atomically.
+- **Evidence:** dry-run on the unrepaired copy still proves only WLFC 07-15; on the repaired copy it finds nothing; new test restores two glitch bars outside the window. `pytest tests/test_repair_integrity.py tests/test_no_bare_connect.py` passed.
+- **Metrics:** engine +20, tests +20 lines.
+- **Next:** orchestrator runs the repair on the live store after merge.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

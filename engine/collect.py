@@ -74,6 +74,8 @@ NO_DATA_REASONS = frozenset({
 # Per-name re-asks for names a batch returned nothing for (a few delisted names
 # a night); past this many, or after one failed re-ask, the rest count as failed.
 MAX_ABSENT_PROBES = 40
+# A never-settled bar this many calendar days old or newer is asked for again.
+STALE_PROVISIONAL_DAYS = 31
 
 
 # --------------------------------------------------------------------------- #
@@ -605,7 +607,98 @@ def mode_incremental(
     )
     if no_data:
         log.info(f"[incremental]   no_data (source has no bars): {' '.join(sorted(no_data))}")
+    if limit is None:
+        # Best-effort: a failed retry leaves the bars for the next night and never
+        # changes this night's fetch record.
+        try:
+            settled = settle_stale_provisional(db_path, today=today)
+            if settled["stale"]:
+                log.info(f"[incremental] stale provisional bars={settled['stale']} "
+                         f"refetched={settled['refetched']} retired={settled['retired']} "
+                         f"{' '.join(settled['retired_keys'][:20])}")
+        except Exception as exc:  # noqa: BLE001 - never fails the fetch stage
+            log.warning(f"[incremental] stale provisional retry failed ({exc})")
     return len(all_yf), failed
+
+
+def stale_provisional_keys(con, since: date) -> list[tuple[str, str, date]]:
+    """(ticker, yf_ticker, date) from `since`, dated before the newest stored session,
+    whose bar was never settled: stored with its last fetch on or before its own
+    session, or absent with only rejected geometry-fault observations (a bar the
+    revision-15 cleanup or `retire_stale_provisional` moved, or ingest refused).
+
+    The next night's 5d re-fetch normally settles a same-night bar. It never did
+    for DDS and SUNC 2026-10-12 (the source answered NaN for that session on every
+    later night) or CIB 2026-10-16 (deactivated the next night, so never asked).
+    """
+    from engine.lib.data_quality import never_settled_sql
+
+    holes = ""
+    if con.execute("SELECT 1 FROM information_schema.tables "
+                   "WHERE table_name = 'price_observation_rejects'").fetchone():
+        holes = (
+            " UNION SELECT r.ticker, r.date FROM price_observation_rejects r "
+            "WHERE r.interval = '1d' AND r.date >= ? AND r.date < (SELECT MAX(date) FROM prices) "
+            "AND r.reason LIKE '%geometry%' AND NOT EXISTS (SELECT 1 FROM prices p "
+            "WHERE p.ticker = r.ticker AND p.date = r.date)")
+    return con.execute(
+        "WITH keys AS (SELECT p.ticker, p.date FROM prices p "
+        "WHERE p.date >= ? AND p.date < (SELECT MAX(date) FROM prices) "
+        f"AND {never_settled_sql('p')}{holes}) "
+        "SELECT k.ticker, COALESCE(u.yf_ticker, k.ticker), k.date FROM keys k "
+        "LEFT JOIN universe u USING (ticker) ORDER BY k.ticker, k.date",
+        [since, *([since] if holes else [])],
+    ).fetchall()
+
+
+def settle_stale_provisional(db_path: str | Path, *, today: date | None = None,
+                             lookback_days: int = STALE_PROVISIONAL_DAYS,
+                             dry_run: bool = False) -> dict:
+    """Ask again for never-settled bars, then retire the ones still inadmissible.
+
+    Only the stale keys themselves are upserted (through the normal admission
+    path, which retains every rejected observation), never a session the source
+    has no bar for; no DuckDB handle is held during HTTP. A bar the source still does not settle and whose geometry fails
+    admission is moved to the rejected observations
+    (`price_quarantine.retire_stale_provisional`); a stale bar with valid geometry
+    stays and is asked for again the next night.
+    """
+    from engine import price_quarantine
+
+    since = (today or datetime.now(timezone.utc).date()) - timedelta(days=lookback_days)
+    con = db.connect(db_path, read_only=True)
+    try:
+        keys = stale_provisional_keys(con, since)
+    finally:
+        con.close()
+    report = {"stale": len(keys), "source_bars": 0, "refetched": 0, "retired": 0,
+              "keys": [f"{ticker} {day}" for ticker, _yf, day in keys]}
+    if not keys:
+        return report
+    wanted = {(ticker, day) for ticker, _yf, day in keys}
+    yf_to_canon = {yft: ticker for ticker, yft, _day in keys}
+    start = min(day for _ticker, _yf, day in keys).isoformat()
+    for batch in _batches(sorted(yf_to_canon), 200):
+        raw = _download(batch, period=None, start=start)
+        df, _got = _extract_long(raw, {y: yf_to_canon[y] for y in batch})
+        if df.empty:
+            continue
+        # Only the wanted keys, and only bars the source has: an all-NaN row is
+        # the source saying it has no bar for that session, not an observation.
+        df = df[[(ticker, day) in wanted
+                 for ticker, day in zip(df.ticker, df.date, strict=True)]]
+        df = df[df[["open", "high", "low", "close"]].notna().any(axis=1)]
+        report["source_bars"] += len(df)
+        if not dry_run:
+            report["refetched"] += _upsert_batch(db_path, df)
+    con = db.connect(db_path, read_only=dry_run)
+    try:
+        retired = price_quarantine.retire_stale_provisional(con, since=since, dry_run=dry_run)
+    finally:
+        con.close()
+    report["retired"] = retired["moved"] if not dry_run else retired["stale_invalid"]
+    report["retired_keys"] = retired["keys"]
+    return report
 
 
 # --------------------------------------------------------------------------- #
