@@ -3979,4 +3979,20 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +23, tests +39.
 - **Next:** walk-forward fold profile (next entry).
 
+## 2026-10-21 — Name the failing field when a model assessment is rejected
+
+- **Why:** orchestrator follow-up to the P24 ops audit. On 2026-10-20 at 15:15 and 16:15 UTC
+  the hourly observer failed with only `daily assessment values are invalid`, and the raw model
+  output is not kept, so which field was rejected could not be determined.
+- **What:** `server/daily_opportunity_runner._validate_assessment` checks each value in turn
+  and raises `daily assessment values are invalid: <ticker> <field>=<value>` (repr capped at
+  120 characters; unknown evidence ids listed as `outside allowed`). It accepts and rejects
+  exactly the same assessments as before.
+- **Evidence:** the new parametrized test (six fields) fails before the change and passes
+  after; the daily-opportunity, evaluation-reporting, intraday and unit suites pass (120), apart
+  from the expected P15 hash pin.
+- **Metrics:** server +13, tests +29. Registered: `server/daily_opportunity_runner.py` (P15
+  pin; the orchestrator re-pins).
+- **Next:** walk-forward fold profile.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
