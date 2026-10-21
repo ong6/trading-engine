@@ -719,6 +719,43 @@ def test_bars_first_stored_after_ex_stay_skipped(con):
     assert _closes(con) == before
 
 
+def test_bar_already_restated_before_the_break_is_not_divided_again(con):
+    """WLFC 3:1 (ex 07-21): the ex-date re-fetch stored 07-15 restated, the next
+    nights stored 07-16..07-17 on the old scale again, and the reconciler divided
+    every bar before the 07-20 break, 07-15 included: 23.00 between 72.33 and
+    65.33, a third basis. The island is left as stored and the series is one basis."""
+    db.init_actions_schema(con)
+    con.execute("ALTER TABLE prices ADD COLUMN IF NOT EXISTS first_fetched_at TIMESTAMP")
+    brk, island = EX_IDX - 1, EX_IDX - 4
+    closes = [300.0 if k < brk and k != island else 100.0 for k in range(len(SESSIONS))]
+    insert_bars(con, TK, SESSIONS, open_=closes, close=closes)
+    for k, d in enumerate(SESSIONS):
+        first = EX if k == island else datetime.combine(d, time(22, 30))
+        con.execute("UPDATE prices SET fetched_at = ?, first_fetched_at = ? "
+                    "WHERE ticker = ? AND date = ?",
+                    [datetime.combine(d, time(22, 30)), first, TK, d])
+    con.execute("INSERT INTO corporate_actions VALUES (?, ?, 'split', 3.0, 'yfinance', now())",
+                [TK, EX])
+
+    actions.reconcile(con)
+
+    assert _verdict(con) == ("applied", SESSIONS[brk], brk - 1)
+    assert list(_closes(con).values()) == pytest.approx([100.0] * len(SESSIONS))
+    (payload,) = con.execute("SELECT payload FROM audit_log WHERE action = 'split_restated'"
+                             ).fetchone()
+    assert json.loads(payload)["kept_on_new_scale"] == [SESSIONS[island].isoformat()]
+
+
+def test_new_scale_island_needs_both_edges_within_five_sessions():
+    days = SESSIONS[:12]
+    short = [300.0, 300.0, 100.0, 100.0, 300.0, 300.0]
+    assert actions.new_scale_islands(list(zip(days, short)), 3.0) == days[2:4]
+    long = [300.0] + [100.0] * 6 + [300.0]
+    assert actions.new_scale_islands(list(zip(days, long)), 3.0) == []
+    # a real one-way move of the ratio's size is not an island
+    assert actions.new_scale_islands(list(zip(days, [300.0, 100.0, 100.0])), 3.0) == []
+
+
 def _liquid(con, ticker: str, closes: list[float], volumes: list[int]) -> None:
     con.execute("INSERT INTO universe (ticker, yf_ticker, active, liquid) "
                 "VALUES (?, ?, TRUE, TRUE)", [ticker, ticker])

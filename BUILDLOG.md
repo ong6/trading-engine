@@ -3939,4 +3939,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +20 lines.
 - **Next:** stale provisional bars (scope.md 2026-10-20 line).
 
+## 2026-10-21 — A split restatement leaves bars already on the new scale alone
+
+- **Why:** P24 integrity lane; scope.md 2026-10-20 line. WLFC 3:1 (ex 07-21): the store copy has 07-15 at close 23.00 between 72.33 and 65.33; the source's current view is 68.99. The ex-date re-fetch stored 07-15 already restated, the next nights stored 07-16..07-17 on the old scale, and the 07-29 reconciler (before the 09-02 provenance rule) divided every bar before the 07-20 break by 3, 07-15 included.
+- **What:** `actions.new_scale_islands` finds bars inside the pre-break window that a ratio-sized drop enters and its inverse leaves within five sessions. `_adjudicate` leaves them out of rule 3 and returns them; `_restate` keeps them as stored and records them in the `split_restated` audit row. Every other path is unchanged; the stored WLFC bar is repaired by `engine.repair_integrity`.
+- **Evidence:** `pytest tests/test_actions.py` 34 passed; the WLFC-shaped test restates 18 bars, keeps the island and leaves one basis (before the change the same series was skipped and left mixed).
+- **Metrics:** engine +35 lines.
+- **Next:** stale provisional bars.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

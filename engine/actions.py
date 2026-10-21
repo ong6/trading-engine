@@ -534,6 +534,34 @@ def _fetched_on(ts) -> date | None:
     return ts.date() if isinstance(ts, datetime) else ts
 
 
+def new_scale_islands(closes: list[tuple[date, float]], ratio: float) -> list[date]:
+    """Dates of bars already on the post-split scale inside an old-scale run.
+
+    An island is entered by a one-session close ratio matching `ratio` and left
+    within BREAK_NEAR_EX_SESSIONS sessions by one matching its inverse. WLFC 3:1
+    (ex 2026-07-21): the ex-date re-fetch stored the 07-15 bar already restated,
+    the next nights' re-fetches stored its neighbours on the old scale again, and
+    the July reconciler divided every bar before the 07-20 break, 07-15 included,
+    putting it on a third basis (1/9 of the old scale).
+    """
+    lr = math.log(ratio)
+    islands: list[date] = []
+    start = None
+    for i in range(1, len(closes)):
+        prev_c, cur_c = closes[i - 1][1], closes[i][1]
+        if prev_c <= 0 or cur_c <= 0:
+            start = None
+            continue
+        lo = math.log(prev_c / cur_c)
+        if abs(lo - lr) <= TOL_LOG:
+            start = i
+        elif start is not None and abs(lo + lr) <= TOL_LOG:
+            if i - start <= BREAK_NEAR_EX_SESSIONS:
+                islands += [closes[k][0] for k in range(start, i)]
+            start = None
+    return islands
+
+
 def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
     """Decide what the STORED series says about this split. Never guesses.
 
@@ -567,7 +595,11 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
          `skipped_sanity`; otherwise the store already matches the post-split
          scale -> `noop_restated`.
 
-    Returns {outcome, break_date, observed}. Outcomes:
+    A bar before the break that sits on an island of the new scale
+    (`new_scale_islands`) is already restated: it is left out of rule 3 and
+    returned as `new_scale_dates`, which `_restate` leaves untouched.
+
+    Returns {outcome, break_date, observed, new_scale_dates}. Outcomes:
       applied_pending          - break located and vetted; caller restates
                                  `date < break_date`
       noop_restated            - no break: the store already matches the
@@ -639,11 +671,13 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
 
     if near is not None:
         _dist, i, break_date, obs = near
+        islands = set(new_scale_islands([(d, c) for d, c, _f, _ff in win[:i]], ratio))
+        old_scale = [row for row in win[:i] if row[0] not in islands]
         # Rule 3: the bars before the break must have been first stored before
         # the ex-date, unless a recorded rewrite shows they were stored on the
         # old scale.
-        stored = [f for _d, _c, f, _ff in win[:i] if f is not None]
-        first = [_fetched_on(ff) for _d, _c, _f, ff in win[:i] if ff is not None]
+        stored = [f for _d, _c, f, _ff in old_scale if f is not None]
+        first = [_fetched_on(ff) for _d, _c, _f, ff in old_scale if ff is not None]
         if first and max(first) >= ex_date and not (
             stored and isinstance(max(stored), datetime)
             and _rewrite_shows_old_scale(con, ticker, ratio, break_date, max(stored))
@@ -651,7 +685,7 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
             return {"outcome": "skipped_already_adjusted", "break_date": break_date,
                     "observed": obs}
         return {"outcome": "applied_pending", "break_date": break_date,
-                "observed": obs}
+                "observed": obs, "new_scale_dates": sorted(islands)}
     if far is not None:
         return {"outcome": "skipped_no_break_near_ex", "break_date": far[2],
                 "observed": far[3]}
@@ -685,11 +719,14 @@ def _rebuild_sim_state(con) -> None:
     portfolio.rebuild_state(con, ids)
 
 
-def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) -> int:
+def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date,
+             keep: list[date] | tuple = ()) -> int:
     """Restate the ticker's pre-break bars to the post-split scale and adjust the
     sim books, in ONE transaction with the watermark row. Returns rows restated.
 
-    Prices: open/high/low/close ÷ ratio, volume × ratio for `date < break_date`.
+    Prices: open/high/low/close ÷ ratio, volume × ratio for `date < break_date`,
+            except the `keep` dates, which are already on the post-split scale
+            (`new_scale_islands`).
     Orders: pending sim_orders.qty × ratio, but only orders SIGNALLED before the
             ex-date — an order sized off a post-split close is already right.
     Sim:    positions are NOT scaled in place. The watermark row is written
@@ -701,12 +738,15 @@ def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) ->
             both paths now share. rebuild_state reproduced the live store's 537
             positions and every book's cash exactly before this was switched on.
     """
+    keep = sorted(set(keep))
+    kept = "".join(" AND date <> ?" for _ in keep)
     n = con.execute(
-        "SELECT COUNT(*) FROM prices WHERE ticker = ? AND date < ?",
-        [ticker, break_date]).fetchone()[0]
+        f"SELECT COUNT(*) FROM prices WHERE ticker = ? AND date < ?{kept}",
+        [ticker, break_date, *keep]).fetchone()[0]
     with db.transaction(con):
         previous = db.observation_rows(con.execute(
-            "SELECT * FROM prices WHERE ticker=? AND date < ?", [ticker, break_date],
+            f"SELECT * FROM prices WHERE ticker=? AND date < ?{kept}",
+            [ticker, break_date, *keep],
         ))
         for bar in previous:
             candidate = {**bar, **{f: None if bar[f] is None else bar[f] / ratio
@@ -722,8 +762,8 @@ def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) ->
         con.execute(
             "UPDATE prices SET open = open / ?, high = high / ?, low = low / ?, "
             "close = close / ?, volume = CAST(ROUND(volume * ?) AS BIGINT) "
-            "WHERE ticker = ? AND date < ?",
-            [ratio, ratio, ratio, ratio, ratio, ticker, break_date],
+            f"WHERE ticker = ? AND date < ?{kept}",
+            [ratio, ratio, ratio, ratio, ratio, ticker, break_date, *keep],
         )
         con.execute(
             "UPDATE sim_orders SET qty = qty * ? WHERE ticker = ? "
@@ -744,6 +784,7 @@ def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) ->
             "ticker": ticker, "ex_date": ex_date, "ratio": ratio,
             "break_date": break_date, "rows_restated": n,
             "positions": "rebuilt from sim_fills (fills before ex_date scaled)",
+            **({"kept_on_new_scale": keep} if keep else {}),
         })
     return n
 
@@ -954,7 +995,8 @@ def reconcile(con) -> dict:
         v = _adjudicate(con, tk, ex, ratio)
         outcome = v["outcome"]
         if outcome == "applied_pending":
-            n = _restate(con, tk, ex, ratio, v["break_date"])
+            n = _restate(con, tk, ex, ratio, v["break_date"],
+                         keep=v.get("new_scale_dates", ()))
             _resolve_split_quarantine(con, tk, ex)
             restated_rows += n
             outcome = "applied"
