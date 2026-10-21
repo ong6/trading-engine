@@ -3939,4 +3939,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +6/-5, tests +59 lines.
 - **Next:** the P24 orchestrator re-pins once after the lane merges.
 
+## 2026-10-21 — Study core never prices a missing bar with a close it cannot know yet
+
+- **Why:** P24 quant-audit lane. In `farm.study`, an equal-weight comparator leg whose name had no bar on the leg's end session but a listing interval ending later took `delisting_exit`, i.e. the name's LAST close inside the interval, which can lie days or years after the leg (and after the run window). Reproduction: a three-name fixture where one name's next print, two sessions later, is +200% returned a comparator leg of +70% instead of +5%. The event path had the mirror image: a name with a missing exit bar and a listing interval ending after the window was closed at its entry-day close labelled `delisting`, while an identical still-listed name was left unfilled.
+- **What:** both paths now treat a listing end as knowledge only once it is inside the window: the comparator skips a still-listed name with a missing bar (a delisting with `listed_through` at or before the leg's end session still uses its last close), and `_exit` books a delisting only when `listed_through` is at or before the run's last session. Delistings inside the window behave exactly as before.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_study_costs_benchmark.py tests/test_study_simulate.py tests/test_study_universe.py tests/test_study_synthetic.py` passes; the two new tests fail on the previous code. No registered study result in this repository was produced by these paths.
+- **Metrics:** farm +12/-0, tests +44 lines.
+- **Next:** none admitted; the alpha-side evaluators keep their own comparators.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -118,3 +118,22 @@ def test_strategy_pays_its_cost_but_gross_benchmark_does_not():
     with pytest.raises(ValueError, match="cannot pay"):
         compare(np.array([0.09]), gross, Benchmark("ticker", "AAA"),
                 allocation_cost_returns=np.array([0.01]))
+
+
+def test_equal_weight_comparator_skips_a_missing_bar_instead_of_reading_a_later_close():
+    """A still-listed name with no bar on the window's end session is skipped; only a
+    delisting known by that session (listed_through <= current) may use a last close."""
+    days = [date(2024, 1, d) for d in (2, 3, 4, 5, 8)]
+    flat = lambda t, d, px: Bar(t, d, px, px, px, px, 1_000_000)  # noqa: E731
+    bars = [flat("AAA", days[0], 100), flat("AAA", days[1], 100), flat("AAA", days[2], 110)]
+    bars += [flat("BBB", days[0], 100), flat("BBB", days[1], 100), flat("BBB", days[4], 300)]
+    bars += [flat("CCC", days[0], 100), flat("CCC", days[1], 100)]
+    source = PriceSource.declared(source="fixture", bars=bars)
+    universe = Universe(source, (
+        ListingInterval("AAA", days[0]),
+        ListingInterval("BBB", days[0], days[4]),      # delists AFTER the window
+        ListingInterval("CCC", days[0], days[2])))     # delisted at the window end
+    equal = gross_returns(Benchmark("equal_weight"), MarketData(source),
+                          [days[1], days[2]], universe=universe)
+    # AAA +10%, CCC's known delisting at its last close (0%), BBB skipped: never +200%
+    assert equal == pytest.approx([0.05])

@@ -323,6 +323,12 @@ def _exit(strategy: EventStrategy, data: MarketData, universe: Universe,
                 actual = later
                 break
     if value is None:
+        # Only a delisting KNOWN inside the run window may close the trade; a
+        # listing interval that ends after `days[-1]` is future knowledge, so the
+        # name is treated exactly like a still-listed one with a missing bar.
+        interval = universe.listing_interval(position.ticker)
+        if interval is None or interval.listed_through is None or interval.listed_through > days[-1]:
+            return None
         delist = universe.delisting_exit(
             position.ticker, held_on=position.entry_session, entry_price=position.entry_price)
         if delist is None:
