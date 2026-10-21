@@ -3964,4 +3964,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
   (P15 pin; the orchestrator re-pins).
 - **Next:** ops audit report for the orchestrator.
 
+## 2026-10-21 — Refuse a weekday walk-forward start inside the producer window
+
+- **Why:** orchestrator follow-up to the P24 ops audit. Reproduction: hand-started drains on
+  Monday 2026-10-19 at 02:53, 07:31 and 11:41 UTC held the store and the drain lock through the
+  producers' window (five TradingView archive failures, the P15 pre-open store-lock failure, both
+  backups skipped), although the driver header already forbade weekday starts in 22:30-13:05.
+- **What:** `engine/run_weekly_walkforward.sh` exits 1 before its header on a weekday start in
+  22:30-13:05 UTC. `TRADING_ENGINE_WALKFORWARD_OVERRIDE=<reason>` permits a supervised run
+  and logs a `WARN: weekday-window override` line with the reason. The Sunday 06:00 cron is
+  unaffected.
+- **Evidence:** `pytest tests/test_drivers.py`: the six new window and override cases fail
+  before the guard; all 43 driver tests pass after.
+- **Metrics:** engine +23, tests +39.
+- **Next:** walk-forward fold profile (next entry).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
