@@ -126,6 +126,26 @@ def test_bar_divided_twice_is_multiplied_back_when_the_source_agrees(tmp_path):
     assert _run(path, source, apply=True)["double"] == []      # idempotent
 
 
+def test_glitch_bar_divided_by_a_restatement_outside_its_window_is_restored(tmp_path):
+    """RUSHA 3:2: the source served 08-05 and 08-10 already restated three weeks
+    before the ex-date; a restatement of every pre-break bar divides them again."""
+    path = tmp_path / "market.duckdb"
+    con = _store(path)
+    con.execute("INSERT INTO universe (ticker, yf_ticker, active, liquid) "
+                "VALUES ('RUSH', 'RUSH', TRUE, TRUE)")
+    glitch = [2, 5]                                   # far outside the 15-session window
+    closes = [100.0 / 1.5 if k in glitch else 100.0 for k in range(len(SESSIONS))]
+    insert_bars(con, "RUSH", SESSIONS, close=closes)
+    con.execute("INSERT INTO split_adjustments VALUES ('RUSH', ?, 1.5, 'applied', 1.5, ?, "
+                "100, now())", [EX, SESSIONS[EX_IDX - 3]])
+    con.close()
+
+    report = _run(path, {"RUSH": [100.0] * len(SESSIONS)}, apply=True)
+
+    assert report["double"][0]["evidence"]["dates"] == [SESSIONS[k] for k in glitch]
+    assert _closes(path, "RUSH") == pytest.approx([100.0] * len(SESSIONS))
+
+
 def test_dry_run_is_the_default_and_never_writes(tmp_path, monkeypatch):
     import sys
 

@@ -3979,4 +3979,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** full suites under both timezones.
 
+## 2026-10-21 — Repair finds twice-divided bars anywhere before the break
+
+- **Why:** review of the repair on the store copy: RUSHA's source served 08-05 and 08-10 already restated three weeks before its 3:2 ex-date (stored/source = 1 among old-scale bars at 1.5). Tonight's nightly reconcile, with main's rolling actions slice, may adjudicate RUSHA `applied_pending` and divide those two bars again; they sit outside the reconciler's 15-session window, so `new_scale_islands` there does not see them.
+- **What:** the `double` step scans every pre-break bar of an applied split and restores only island dates whose restored bar and both neighbouring bars equal the source. The `--report` file is written atomically.
+- **Evidence:** dry-run on the unrepaired copy still proves only WLFC 07-15; on the repaired copy it finds nothing; new test restores two glitch bars outside the window. `pytest tests/test_repair_integrity.py tests/test_no_bare_connect.py` passed.
+- **Metrics:** engine +20, tests +20 lines.
+- **Next:** orchestrator runs the repair on the live store after merge.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

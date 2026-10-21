@@ -55,6 +55,7 @@ from engine import actions, collect
 from engine.lib import db
 from engine.lib.data_quality import observation_reasons
 from engine.lib.log import get_logger
+from engine.lib.resources import write_text_atomic
 from engine.lib.util import table_exists
 
 log = get_logger("repair-integrity")
@@ -111,7 +112,9 @@ def _closes(con, ticker: str) -> list[tuple[date, float]]:
 
 # --------------------------------------------------------------------------- double
 def double_candidates(con, since: date) -> list[dict]:
-    """Applied splits whose pre-break window still holds a new-scale island."""
+    """Applied splits whose pre-break bars still hold a new-scale island anywhere
+    (inside the reconciler's window, as WLFC 07-15, or before it, as RUSHA's
+    08-05 and 08-10 would be after a restatement that missed them)."""
     if not table_exists(con, "split_adjustments"):
         return []
     out = []
@@ -119,30 +122,44 @@ def double_candidates(con, since: date) -> list[dict]:
         "SELECT ticker, ex_date, ratio, break_date FROM split_adjustments "
         "WHERE outcome = 'applied' AND ex_date >= ? AND break_date IS NOT NULL "
         "ORDER BY ex_date, ticker", [since]).fetchall():
-        win = [(d, c) for d, c, _f, _ff in actions._session_window(con, ticker, ex) if d < brk]
-        islands = actions.new_scale_islands(win, float(ratio))
+        pre = [(d, c) for d, c in _closes(con, ticker) if d < brk]
+        islands = actions.new_scale_islands(pre, float(ratio))
         if islands:
+            first = next(i for i, (d, _c) in enumerate(pre) if d == islands[0])
             out.append({"kind": "double", "ticker": ticker, "ex_date": ex,
                         "ratio": float(ratio), "break_date": brk, "dates": islands,
-                        "window": [d for d, _c in win]})
+                        "window": [d for d, _c in pre[max(0, first - 5):]]})
     return out
 
 
 def double_evidence(con, cand: dict, source: dict[date, float]) -> dict:
-    stored = {d: c for d, c in _closes(con, cand["ticker"])
-              if cand["window"][0] <= d <= cand["window"][-1]}
-    island = {d: stored[d] * cand["ratio"] / source[d] for d in cand["dates"]
-              if d in source and d in stored}
-    others = {d: stored[d] / source[d] for d in cand["window"]
-              if d not in cand["dates"] and d in source and d in stored}
-    proven = (len(island) == len(cand["dates"]) and len(others) >= MIN_EVIDENCE_BARS
-              and all(_at(r, 1.0) for r in (*island.values(), *others.values())))
-    return {"proven": proven, "neighbours_compared": len(others),
-            "island_restored_over_source": {str(d): round(r, 6) for d, r in island.items()}}
+    """Each island bar times the ratio equals the source's bar, and so do the
+    stored bars on either side of it as stored; only proven dates are restored."""
+    stored = [(d, c) for d, c in _closes(con, cand["ticker"])
+              if cand["window"][0] <= d < cand["break_date"]]
+    index = {d: i for i, (d, _c) in enumerate(stored)}
+    islands = set(cand["dates"])
+    proven, checked = [], {}
+    for day in cand["dates"]:
+        i = index.get(day)
+        if i is None or day not in source:
+            continue
+        restored = stored[i][1] * cand["ratio"] / source[day]
+        checked[str(day)] = round(restored, 6)
+        before = [row for row in stored[:i] if row[0] not in islands][-1:]
+        after = [row for row in stored[i + 1:] if row[0] not in islands][:1]
+        sides = before + after
+        if _at(restored, 1.0) and len(sides) == 2 and all(
+                d in source and _at(c / source[d], 1.0) for d, c in sides):
+            proven.append(day)
+    return {"proven": bool(proven), "dates": proven,
+            "island_restored_over_source": checked}
 
 
 def apply_double(con, cand: dict, evidence: dict) -> int:
-    dates, ratio = cand["dates"], cand["ratio"]
+    if not evidence["proven"]:
+        return 0
+    dates, ratio = evidence["dates"], cand["ratio"]
     marks = ",".join("?" * len(dates))
     with db.transaction(con):
         previous = db.observation_rows(con.execute(
@@ -384,7 +401,7 @@ def main() -> int:
     report = run(Path(args.db), apply=args.apply, steps=steps, since=args.since)
     text = json.dumps(report, indent=1, sort_keys=True, default=str)
     if args.report:
-        args.report.write_text(text + "\n")
+        write_text_atomic(args.report, text + "\n")
     print(text)
     return 0
 
