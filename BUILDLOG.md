@@ -3948,4 +3948,20 @@ the 42-entry 2026-09-19 C90 complexity series is in
   orchestrator re-pins).
 - **Next:** ops audit report for the orchestrator.
 
+## 2026-10-21 — Resolve a failed TradingView tail window when a wider retry completes
+
+- **Why:** P24 ops audit. Reproduction: a symbol's last backfill window ends at the newest
+  session, so the retry after a failed attempt asks for a wider window; `archive_status`
+  matched failures on the exact (ticker, start, end) and kept the failure unresolved forever,
+  pinning `/meta` `miner_evidence.tradingview_history` at `issues`. On the 10-21 snapshot
+  3,239 of 4,063 symbols are two windows from that tail, so it arrives within weeks.
+- **What:** a failed window counts as resolved when a complete, empty or refused attempt
+  for the same ticker covers it (start on or before, end on or after).
+- **Evidence:** new `test_failed_tail_window_resolves_when_a_wider_window_completes` fails
+  before (`unresolved_failed_windows` 1) and the 12 archive tests pass after; the snapshot
+  copy still reports the two genuine open windows (PSKY, QRVO symbol_error) and 11 refused.
+- **Metrics:** engine +2, tests +23. Registered: `engine/tradingview_history_archive.py`
+  (P15 pin; the orchestrator re-pins).
+- **Next:** ops audit report for the orchestrator.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
