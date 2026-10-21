@@ -123,9 +123,11 @@ def test_inconsistent_provider_bar_is_skipped_and_reported_then_captured_when_he
     fixed_etf_market(con)
     agent_price_observations.init_schema(con)
     valid = _latest(con)
-    other = (valid[0], valid[1] - timedelta(days=1), *valid[2:])
-    # Provider glitch seen 2026-10-20: open below the session low.
-    broken = (*other[:2], other[4] - 0.01, *other[3:])
+    bar_date = valid[1] - timedelta(days=1)
+    same_night = datetime.combine(bar_date, datetime.min.time()) + timedelta(hours=22, minutes=30)
+    # Provider glitch seen 2026-10-20: a same-night bar whose open is below the session low.
+    broken = (valid[0], bar_date, valid[4] - 0.01, *valid[3:8], same_night)
+    other = (valid[0], bar_date, *valid[2:8], same_night + timedelta(hours=14))
 
     result = agent_price_observations._capture_rows(
         con, [valid, broken], observed_at=NOW
@@ -134,7 +136,7 @@ def test_inconsistent_provider_bar_is_skipped_and_reported_then_captured_when_he
     assert result["selected_rows"] == 2
     assert result["inserted_observations"] == 1
     assert result["skipped_inconsistent"] == [
-        {"ticker": "SPY", "market_date": other[1].isoformat(), "reason": "ohlc_inconsistent"}
+        {"ticker": "SPY", "market_date": other[1].isoformat(), "reason": "provisional_open_fault"}
     ]
     assert con.execute(
         "SELECT ticker FROM agent_daily_price_observations"
@@ -148,6 +150,21 @@ def test_inconsistent_provider_bar_is_skipped_and_reported_then_captured_when_he
     assert con.execute(
         "SELECT ticker, classification FROM agent_daily_price_observations ORDER BY id"
     ).fetchall() == [("SPY", "baseline_snapshot"), ("SPY", "baseline_snapshot")]
+
+
+def test_settled_inconsistent_bar_still_fails_the_whole_batch(con):
+    fixed_etf_market(con)
+    agent_price_observations.init_schema(con)
+    valid = _latest(con)
+    bar_date = valid[1] - timedelta(days=1)
+    settled = datetime.combine(bar_date, datetime.min.time()) + timedelta(days=1, hours=12)
+    broken = (valid[0], bar_date, valid[4] - 0.01, *valid[3:8], settled)
+
+    with pytest.raises(agent_price_observations.InconsistentPriceError):
+        agent_price_observations._capture_rows(con, [valid, broken], observed_at=NOW)
+    assert con.execute(
+        "SELECT COUNT(*) FROM agent_daily_price_observations"
+    ).fetchone() == (0,)
 
 
 def test_other_malformed_rows_still_fail_the_whole_batch(con):

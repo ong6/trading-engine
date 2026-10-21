@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import sys
 from datetime import date, datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -11,6 +12,7 @@ from pathlib import Path
 import duckdb
 
 from engine.lib import db as engine_db
+from engine.lib.data_quality import provisional_open_fault
 from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DEFAULT_DB
 from sim.strategies.configs import config_by_id
@@ -184,8 +186,12 @@ def _capture_rows(
                 row, observed_at=observed_at
             )
         except InconsistentPriceError:
+            # Only the fault ingest admits (a same-night bar whose open lies outside
+            # [low, high]) is skipped; a settled inconsistent bar breaks a store invariant.
+            if not provisional_open_fault(row[1], row[2], row[3], row[4], row[8]):
+                raise
             skipped.append({"ticker": row[0], "market_date": row[1].isoformat(),
-                            "reason": "ohlc_inconsistent"})
+                            "reason": "provisional_open_fault"})
             continue
         key = (normalized["ticker"], date.fromisoformat(normalized["market_date"]))
         if key in seen:
@@ -574,6 +580,11 @@ def main(argv: list[str] | None = None) -> int:
     import json
 
     print(json.dumps(result, sort_keys=True))
+    skipped = result.get("skipped_inconsistent") or []
+    if skipped:
+        sample = ", ".join(f"{item['ticker']}/{item['market_date']}" for item in skipped[:5])
+        print(f"[agent-price-observations] warning skipped_provisional_bars={len(skipped)} "
+              f"sample={sample}", file=sys.stderr)
     return 0
 
 
