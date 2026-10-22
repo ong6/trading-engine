@@ -4284,4 +4284,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +25 lines.
 - **Next:** nothing admitted.
 
+## 2026-10-22 — Issue registration revision 17 over the second P24 merge batch
+
+- **Why:** P24 (active); the second merge batch carries pinned-file changes that need one re-pin, and the walk-forward fix must be live before the 2026-10-25 drain.
+- **What:** merged p24/ops-2, p24/sec-time, p24/nightly-speed and p24/sim-speed. Registration revision 17 re-pins the changed files and adds `engine/sec_acceptance.py`; E1 v8, sector v12 and XS v23 keep their versions, and each explicit migration accepts only the deployed revision-16 digest. P18 core bumped to `p18-study-v3` for audit E7/E8. Disclosed: the SEC acceptance fix revives P15's SEC 8-K source (it had rejected 51 of 52 responses). The storage work becomes revision 18.
+- **Evidence:** full suites 5,848 passed, 0 failed under TZ=UTC and Asia/Singapore with warnings as errors; ruff blocking selections pass; trading-alpha's 287 tests (75) pass against this tree; one walk-forward fold 4,872 s → 582 s with identical ledger digests (sim-speed entry).
+- **Metrics:** see the 2026-10-22 snapshot.
+- **Next:** fast-forward main, run the three runtime-contract migrations, watch tonight's intraday stage time and the first P15 SEC 8-K summary.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
