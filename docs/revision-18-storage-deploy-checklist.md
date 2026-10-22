@@ -1,37 +1,45 @@
 # Storage revision (r16-gen + r16-raw, now numbered revision 18) — deploy checklist
 
-Branch `p24/r16` (on top of `p24/integrate-wave1`). Status: **DO NOT DEPLOY — blocked** (B1, B2; B3 fixed on the branch).
-Rehearsed on a store copy only (see "Rehearsal result"). Nothing here was run against the live store.
+Branch `p24/r16` (on top of `p24/integrate-wave1`), blockers B1-B3 fixed on `p24/storage-r18`. Status: **DO NOT DEPLOY —
+blocked** (B4). Rehearsed on store copies only (see "Rehearsal result"). Nothing here was run against the live store.
 
-## Blockers (must be fixed in a lane and re-reviewed before any deploy)
+## Blockers
 
-- **B1 Live catalog is not a supported migration pre-image.** Migration 0000 (`engine/migrations/0000_post_r15_baseline.py`)
-  bootstraps only three exact catalogs (pre-v2 `3ea2d60e…`, v2 `62bf4255…`, r15 `dcd1a8ea…`), all generated from
-  freshly initialised stores. The live store (snapshot 2026-10-21 08:34 and 2026-10-22 02:57, both catalog
-  `865f64aa…`) differs from r15: extra tables `experiment_results`, `job_resolutions`, `sim_settlements`; missing
-  `agent_paper_book_attribution`, `agent_paper_decision_receipts`, `agent_paper_order_attribution`; and 8 tables whose
-  DDL differs (accumulated `ALTER … ADD COLUMN` order/constraints: actions_fetch_log, agent_evaluation_labels,
-  agent_proposals, agent_shadow_attempts, daily_opportunity_execution_quality, daily_opportunity_runs,
-  fundamentals_fetch_log, jobs). `bootstrap()` raises "database is not a supported pre-v2, v2, or r15 catalog".
-- **B2 Lazily created tables are refused after migration.** `sim/settle.ensure_table` creates `sim_settlements` on
-  first applied settlement; on a versioned store the guard raises `SchemaMigrationRequired` (reproduced by
-  `tests/test_p22_round3.py::test_late_recovery_keeps_cash_delisting`, the only non-pin failure on `p24/r16`). Same
-  class: `experiment_results`, `job_resolutions` and any other lazily created table. The baseline must include them
-  (BOOTSTRAP_CALLS) and the live-shape pre-image must be supported (B1).
-- **B3 (fixed on p24/r16) Backup fingerprint cost.** The Python per-row fingerprint took 3,980 s for one backup of the
-  12 GB copy (13.5 GB RSS). It is now computed in DuckDB (`duckdb-row-sha256-v1`): backup 656-661 s, verify 163-168 s.
-  Remaining: `COPY FROM DATABASE` peaks at ~24 GB RSS (pre-existing on main; it cannot run under a 4-6 GB cap because the
-  copy is one uncommitted transaction). Recommended: copy the file bytes under the producer locks (as publication's
-  no-WAL fast path does) and keep the logical-snapshot equality check.
+- **B1 (fixed on p24/storage-r18) Deployed catalog is a supported pre-image.** Migration 0000 accepts the deployed
+  catalog `865f64aa…` exactly (alongside pre-v2, v2 and r15) and rebuilds the eight tables whose DDL drifted through
+  runtime `ADD COLUMN` (actions_fetch_log, agent_evaluation_labels, agent_proposals, agent_shadow_attempts,
+  daily_opportunity_execution_quality, daily_opportunity_runs, fundamentals_fetch_log, jobs): rows are copied by column
+  name and proven equal (EXCEPT ALL both ways), and a table is refused if a stored column would be lost or change type.
+  `actions_fetch_log.attempted_at` stays nullable: 16,435 deployed rows predate the stamp and are kept unstamped.
+  Baseline catalog after migration: `7286ea9b…`.
+- **B2 (fixed on p24/storage-r18) First-use tables are owned by the baseline.** BOOTSTRAP_CALLS now create the 52
+  tables code creates on first use or in inactive stores (`sim_settlements`, `experiment_results` with its forward
+  columns, `job_resolutions`, P16, broker and authority ledgers). `tests/test_baseline_table_coverage.py` fails if any
+  `CREATE TABLE` in engine/, sim/, server/ or tools/ names a table the baseline does not create (separate databases
+  listed).
+- **B3 (fixed) Backup cost.** Fingerprints run in DuckDB (p24/r16). Backup create (pre-migration, unversioned store)
+  now copies the file bytes under the producer locks, replays a pending WAL into the copy, and keeps the
+  logical-snapshot equality check; publication's and the generation-backed backup's DuckDB connections are capped at
+  4 GB / 4 threads and spill to disk. Publication cannot use a byte copy: the hot file must exclude the cold tables.
+  Every rehearsal step now peaks at or under 7.5 GB RSS.
+- **B4 (open) Migration 0000's identity freezes 41 source files.** The migration hash covers the full source of every
+  initializer module in BOOTSTRAP_CALLS (`engine/lib/db.py`, `sim/schema.py`, `server/agent_*.py`,
+  `farm/experiment*.py`, …). After deploy, any later commit touching one of them, even a comment, makes every writer,
+  publication and backup refuse with "database migration 0000 hash does not match source", and no later migration can
+  repair the recorded row. Reproduced on the r15 fixture by appending a comment to `engine/job_resolutions.py`.
+  Proposed fix (orchestrator decision; it replaces `test_baseline_hash_binds_runtime_initializer_source`): freeze the
+  baseline DDL as data inside migration 0000 so its identity is that module alone, and add a CI test that a fresh
+  store built by the current initializers equals the newest migration's catalog.
 - Integrator-owned, already known: registration/runtime re-pin (below), the off-host remote restore drill wiring
   (`write_remote_restore_plan` + `remote_restore_drill` need a generation-backed bundle committed to the private
   backup repo), orchestrator sign-off on pausing TradingView history (E4 evidence of no reader).
 
-## Re-pin needed (do not run until B1 and B2 are fixed)
+## Re-pin needed (do not run until B4 is decided)
 
 Pinned files changed by the storage revision: `engine/lib/db.py` (P15 + E1/sector/XS runtime), `engine/lib/snapshots.py`,
 `tools/backup_database.py`, `tools/publish_snapshot.py`, `engine/queue_runner.py`, `engine/signals.py`,
 `engine/tradingview_history_archive.py` (P15). 104 pin tests fail only for this (list in the integrate report).
+`p24/storage-r18` touches `engine/lib/db.py`, `tools/backup_database.py` and `tools/publish_snapshot.py` again.
 
 ## Pre-flight (all must hold)
 
@@ -50,7 +58,7 @@ export P22_ROOT="$PWD" P22_STATE="$HOME/.local/state/r18-deploy"; mkdir -m 700 -
 source "$P22_STATE/functions.bash"       # helpers saved by that step
 git rev-parse HEAD > "$P22_STATE/predeploy.sha"
 p22_clean_source; p22_quiesce; p22_lock
-R18_BACKUP="$HOME/r18-backups/pre-migration-$(date -u +%Y%m%dT%H%M%SZ)"
+R18_BACKUP="$(readlink -f "$HOME")/r18-backups/pre-migration-$(date -u +%Y%m%dT%H%M%SZ)"  # verify refuses a symlinked parent
 .venv/bin/python -m tools.backup_database create "$R18_BACKUP" --source store/market.duckdb
 .venv/bin/python -m tools.backup_database verify "$R18_BACKUP" | tee "$P22_STATE/backup-verify.json"
 MSHA=$(.venv/bin/python -c 'import json,sys;print(json.load(open(sys.argv[1]))["manifest_sha256"])' "$P22_STATE/backup-verify.json")
@@ -96,22 +104,24 @@ p22_unlock; p22_readers_ready; p22_release_producers
 Raw zstd conversion (`tools/convert_raw_payloads.py --apply`) is a separate, later one-off: run only after the
 restore drill passes, with the producer lock held and TradingView jobs drained; its rollback is the off-host raw archive.
 
-## Rehearsal result (store copy, 2026-10-22, p24/r16 @ 2de9c24e; log: the integrate lane report)
+## Rehearsal result (real store copy, 2026-10-22, p24/storage-r18 @ 2a0d90bd, capped restore @ 8dfeff3d)
 
-Copy: newest published snapshot 2026-10-22 02:57 (SHA-256 = manifest; `store/backups/` is empty). Wall clock (peak RSS):
+Copy: newest published snapshot 2026-10-22 13:37 (12.5 GB, SHA-256 = manifest, catalog `865f64aa…`;
+`store/backups/` is empty), run as `store/market.duckdb` of a worktree at the lane commit. Wall clock (peak RSS);
+the previous column is the p24/r16 rehearsal (real copy where it ran, else its synthetic reconciled copy, marked *).
 
-| Step | Real copy (deploy path) | Synthetic reconciled copy |
+| Step | p24/r16 (before) | p24/storage-r18 (deploy path, real copy) |
 |---|---|---|
-| reconcile (baseline catalog + live rows) | n/a | 212 s (16 GB); `actions_fetch_log` rows violate baseline NOT NULL (left empty); 3 live-only tables dropped |
-| migration plan | 1 s | 1 s after apply: `current` |
-| backup create | 661 s (23.8 GB) | 656 s (23.5 GB) |
-| backup verify | 168 s (5.2 GB) | — |
-| migration apply | **refused** after 324 s: "not a supported pre-v2, v2, or r15 catalog"; copy unchanged | applied, 324 s (5.3 GB) |
-| first generation publish | refused (unmigrated) | 365 s (24 GB); hot 3.0 GB + shared parts, 7.2 GB for two generations |
-| republish (frontier reuse) | — | 268 s (24 GB) |
-| readers | refused: no generation | pin 5 s; board read ok (prices 21.27M, intraday 41.78M rows); evidence read ok right after publish |
-| invariants on generation | — | 6 s, runs (shadow regressions only) |
-| generation-backed backup + verify | — | 491 s (10.7 GB) + 163 s |
-| restore drill | 10 s copy, byte-identical, logical snapshot equal (154 s) | 9 s copy, byte-identical, logical snapshot equal |
+| migration plan | 1 s | 1 s; pre-catalog `865f64aa…`, migrations 0 and 1 pending |
+| backup create | 661 s (23.8 GB) | 506 s (5.0 GB); bundle file byte-identical to the source |
+| backup verify | 168 s (5.2 GB) | 170 s (5.1 GB) |
+| migration apply | **refused** after 324 s | applied, 327 s (5.1 GB); catalog `7286ea9b…`, schema 1; plan after: `current` |
+| first generation publish | 365 s (24 GB)* | 622 s (7.5 GB), writer locks held 612 s; hot 3.0 GB + 1.66 GB cold parts (127), equality check 285 s |
+| readers pin | 5 s* | 5 s pin + board read (prices 21,268,855, intraday 41,779,545); evidence read ok (`sim_settlements` 18 rows) |
+| invariants on generation | 6 s, two missing-table errors* | 11 s (1.4 GB), all ten pass (shadow) |
+| generation-backed backup + verify | 491 s (10.7 GB) + 163 s* | 502 s (10.7 GB) uncapped; capped: 912 s (5.1 GB) + 167 s, logical snapshot identical |
+| restore drill | 10 s copy + 154 s check | pre-migration bundle 14 s + 155 s; generation bundles 11-19 s + 153-156 s; all byte-identical, logical snapshots equal |
 
-The off-host `remote_restore_drill` was not run (needs a generation-backed bundle committed to the private backup repo).
+Publication now holds the producer locks about 10 minutes (was 6) because its DuckDB connections are capped at 4 GB.
+The verify step needs the bundle path without a symlinked parent (hence `readlink -f "$HOME"` above). The off-host
+`remote_restore_drill` was not run (needs a generation-backed bundle committed to the private backup repo).

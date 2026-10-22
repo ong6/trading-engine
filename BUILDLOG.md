@@ -4433,4 +4433,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +70 lines (pinned tools/backup_database.py, tools/publish_snapshot.py), tests +50 lines.
 - **Next:** repeat the real-copy rehearsal.
 
+## 2026-10-22 — Rehearse the revision-18 deploy path on a real store copy (migration now applies)
+
+- **Why:** revision-18 blockers B1-B3 are fixed on this branch; the deploy path must be rehearsed on a copy of the deployed store before any deploy.
+- **What:** on a copy of the newest published snapshot (13:37, catalog `865f64aa…`): plan 1 s; backup create 506 s at 5.0 GB RSS (was 661 s, 23.8 GB), bundle byte-identical to the source; verify 170 s; migration applied in 327 s to schema 1; first generation 622 s at 7.5 GB (was 24 GB); readers pin and read board and evidence data; all ten invariants pass on the generation; generation-backed backup 502 s at 10.7 GB, then 912 s at 5.1 GB once its cold-table rebuild was capped and inserted part by part (same logical snapshot); every restore drill is byte-identical with an equal logical snapshot. Copies deleted afterwards.
+  Still blocking: migration 0000's identity hashes 40 initializer source files, so after deploy any edit to one of them (even a comment) refuses every writer; the checklist records it as B4 with a proposed fix.
+- **Evidence:** `docs/revision-18-storage-deploy-checklist.md` rehearsal table; every step exits 0.
+- **Metrics:** tools +20 lines (pinned tools/backup_database.py).
+- **Next:** the orchestrator decides B4, then the single re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
