@@ -1,5 +1,10 @@
 # Operating contract for agents
 
+- **What we are building:** a public, paper-only trading engine that collects market data, tests strategies and runs paper books, plus a separate private research programme that looks for strategies worth running on it, with AI deciding inside deterministic controls.
+- **End goal:** the [north star](https://github.com/ong6/trading-engine/blob/main/docs/product.md#north-star), "An engine that runs on its own and makes money, with AI in the decision loop" (owner, 2026-09-24).
+- **Live now (2026-10-22):** engine v2 runs 17 paper books, three frozen forward records and the AI profitability evidence loop, on paper only (no broker, no real capital); no strategy, public or private, has a proven edge yet.
+- **Working on now:** P24, the senior-quant review (pipeline fixes, speed, new pre-registered studies), then moving the private research onto its own engine paper account.
+
 This file governs any LLM session in this repository (Claude Code, Codex, or another agent).
 Read it in full before doing anything. It is short on purpose.
 
@@ -9,11 +14,11 @@ documents link here instead of restating the order.
 
 ## Mode: build toward a verdict
 
-The goal is `docs/product.md`'s north star: an engine that runs on its own and makes money with
-AI in the loop. Work inside an approved or active plan is BUILD work and runs until that plan's
-"Done when" holds. Outside a plan, a session verifies, fixes a reproduced defect, reports, and
-stops. The running producers and the calendar-bound deterministic records (E1, sector, XS) are
-never disturbed by either kind of session. Model credit cost is not a reason to stop or to cut
+The goal is the north star in `docs/product.md` (the end goal in the block above). Work inside
+an approved or active plan is BUILD work and runs until that plan's "Done when" holds. Outside
+a plan, a session verifies, fixes a reproduced defect, reports, and stops. The running producers
+and the calendar-bound deterministic records (E1, sector, XS) are never disturbed by either kind
+of session. Model credit cost is not a reason to stop or to cut
 corners (owner, 2026-09-25).
 
 ## Decisions: technical vs product
@@ -36,6 +41,13 @@ real capital and loss limits, and public presentation.
 5. `docs/scope.md`: what is admitted now and what is frozen.
 6. The active plan you are working on, or `data/reports/metrics/README.md` for a verify-only
    session.
+
+**Where truth lives.** What is live, in flight and decided: `docs/product.md` ("Where it stands",
+"Focus now", the decision tables). Plan status: `docs/plans/README.md` (each plan's YAML `status`
+matches its row). What happened and why: `BUILDLOG.md`, newest entries just above its tail marker.
+Runtime state (producers, freshness, forward records, invariants, source control): `GET /meta` and
+the generated reports under `data/reports/`; these beat any prose. The documentation map is
+`docs/README.md`; dated snapshots in `docs/history/` are never current.
 
 `docs/strategy-research-backlog.md` is the queue for *deterministic* strategy research only; AI
 policy work is ordered by `product.md` ("Focus now").
@@ -81,7 +93,7 @@ while reading code is not a defect until it has a reproduction.
 2. If a scheduled producer failed, fix that (it is a demonstrated defect). Otherwise apply the
    admission test to whatever you intended to do.
 3. Do the one admitted thing. Run the tests it touches, then the full suite once, in parallel:
-   `.venv/bin/python -m pytest -q -W error -n auto` (about 2.5 minutes on 16+ cores; `-n 0`
+   `.venv/bin/python -m pytest -q -W error -n 8` (about 6,100 tests in roughly 150 seconds; `-n 0`
    to debug serially). Do not rerun the full suite per commit or per timezone locally: CI runs
    it under `TZ=UTC` and `TZ=Asia/Singapore` on every push, so check CI after pushing and fix
    a red run before moving on.

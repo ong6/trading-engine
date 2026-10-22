@@ -1,10 +1,19 @@
 # Documentation map
 
+- **What we are building:** a public, paper-only trading engine that collects market data, tests strategies and runs paper books, plus a separate private research programme that looks for strategies worth running on it, with AI deciding inside deterministic controls.
+- **End goal:** the [north star](https://github.com/ong6/trading-engine/blob/main/docs/product.md#north-star), "An engine that runs on its own and makes money, with AI in the decision loop" (owner, 2026-09-24).
+- **Live now (2026-10-22):** engine v2 runs 17 paper books, three frozen forward records and the AI profitability evidence loop, on paper only (no broker, no real capital); no strategy, public or private, has a proven edge yet.
+- **Working on now:** P24, the senior-quant review (pipeline fixes, speed, new pre-registered studies), then moving the private research onto its own engine paper account.
+
 Use this page to distinguish current operating truth from dated evidence. A date in a
 document filename or top-level title marks a snapshot: preserve it for provenance, but do
 not assume its counts, process state, or recommendations supersede the current guides. The
 central product document is the current decision ledger; the strategy backlog is only the
 deterministic research queue, and dates inside it label historical measurements.
+
+The dated summary of what is live, in flight and decided is [`product.md`](product.md) ("Where it
+stands"); plan status is [`plans/README.md`](plans/README.md); runtime truth is `GET /meta` and the
+generated reports.
 
 For the plain-language product guide, start with [`site/index.md`](site/index.md), then follow the
 ordered page contract in [`site/README.md`](site/README.md). Internal codes and research terms are
@@ -59,7 +68,7 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   [P22 engine v2 accounts and money foundation](plans/p22-engine-v2-accounts.md),
   [P23 hourly operations digest](plans/p23-hourly-ops-digest.md), and
   [P24 senior-quant review, fixes, speed and research lanes](plans/p24-quant-review-and-speed.md).
-- [`glossary.md`](glossary.md) — plain names for P1–P18, the P15/P16 workstreams, and research
+- [`glossary.md`](glossary.md) — plain names for P1–P24, the P15/P16 workstreams, and research
   terms such as registration, holdout, census, DSR, and walk-forward.
 
 ## Current operating documents
@@ -75,8 +84,6 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   untradeable positions.
 - [`revision-18-storage-deploy-checklist.md`](revision-18-storage-deploy-checklist.md) — storage
   revision deploy and rollback checklist with its store-copy rehearsal (blocked).
-- [`P22 round-4 rehearsals`](history/p22-round4-rehearsals.md) — captured legacy-D0
-  processing and complete revision-13 rollback transcripts.
 - [`../BUILDLOG.md`](../BUILDLOG.md) — v2 implementation log since 2026-09-18; earlier entries
   are in [`history/buildlog-2026-07-15-to-2026-09-17.md`](history/buildlog-2026-07-15-to-2026-09-17.md),
   and the 42-entry 2026-09-19 C90 series in
@@ -215,7 +222,10 @@ and does not authorize work or live trading; `scope.md` is the queue.
 - 2026-09-22 to 09-23: [`agent-trading-review`](history/agent-trading-review-2026-09-22.md),
   [`agent-backtesting-roadmap`](history/agent-backtesting-roadmap-2026-09-23.md),
   [`agent-research-product-completion-audit`](history/agent-research-product-completion-audit-2026-09-23.md)
-- 2026-10-18: [`retired PIT restore identities`](history/retired-pit-restore-2026-10-18.md)
+- 2026-10-05 to 10-18: [`P21 source amendments`](history/p21-source-amendments-2026-10-05.md),
+  [`P22 round-4 rehearsals`](history/p22-round4-rehearsals.md),
+  [`P22 lifecycle brief`](history/p22-lifecycle-brief-2026-10-10.md) (formerly `P22-BRIEF.md`),
+  [`retired PIT restore identities`](history/retired-pit-restore-2026-10-18.md)
 
 ## Generated reports
 
@@ -243,4 +253,3 @@ automatically.
 
 <!-- sources: docs/plans/README.md, docs/product.md, docs/scope.md -->
 
-- [`Operational source amendments`](history/p21-source-amendments-2026-10-05.md) — P21 registered source changes and unchanged evidence/activation boundaries.

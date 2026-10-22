@@ -4442,4 +4442,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +20 lines (pinned tools/backup_database.py).
 - **Next:** the orchestrator decides B4, then the single re-pin.
 
+## 2026-10-22 — Bring the entry docs and public site pages to engine v2 live and P24 active
+
+- **Why:** P24 docs lane, and the owner's 2026-10-22 verdict (`feedback.md`): an agent landing cold must know what we are building, what is live, what is in flight and where truth lives, with nothing stale contradicting it.
+- **What:** `AGENTS.md`, `README.md` and `docs/README.md` open with one shared block (the private alpha repo's entry docs carry it word for word); `product.md` gains "What the owner wants now" and current "Where it stands", "Focus now" and Stage 1 dates; the plan table, P22/P24 progress and `scope.md` match BUILDLOG (the 2026-10-20 and 2026-10-10 proposed lines carry their P24 resolutions); all twelve `docs/site/` pages describe v2, revision 17, the store repair and the audit and speed work in plain language.
+  `P22-BRIEF.md` moved to `docs/history/p22-lifecycle-brief-2026-10-10.md`; nothing referenced it. `scratch/` is untracked runtime space used by the code and stays.
+- **Evidence:** `pytest tests/test_documentation_integrity.py tests/test_operating_contract.py` passes; `python -m tools.public_hygiene --range origin/main..HEAD` PASS.
+- **Metrics:** docs only; code unchanged.
+- **Next:** orchestrator merges `p24/docs` and re-syncs the changed `docs/site/` pages to the website.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

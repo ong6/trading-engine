@@ -26,6 +26,12 @@ claim that the work made money.
 | P16 | Challenger lab, text edge, and evaluation science | Builds shadow challengers, text labs, stronger statistics, portfolio construction, and execution measurement. |
 | P17 | Personal-host IBKR paper execution | A proposed future plan for reconciling a broker paper account on personal hardware; not work for now. |
 | P18 | Shared backtest core | Supplies one public point-in-time evaluator for event and portfolio studies. |
+| P19 | Offline market-data auditor | Measures signal-input coverage against an independent reference population, with a fictional omission demo. |
+| P20 | Engine and paper dashboard review | Reviewed and fixed the engine and dashboard against real host evidence. |
+| P21 | Operational issue closure and separate accounts | Closed operational issues and proved isolated paper accounts for separately held strategies. |
+| P22 | Engine v2 accounts and money | Made the engine the single executor and ledger for paper accounts: commissions, auction and intraday fills, shorts, margin and halts. Live since 2026-10-18. |
+| P23 | Hourly operations digest | Summarizes every scheduled run, stage and log signal each hour so an agent can investigate failures on demand. |
+| P24 | Senior-quant review | The active 2026-10-21 review: pipeline and data-integrity fixes, statistics audit, output-identical speed work, and new private research studies. |
 
 The single source of truth for plan status is [`plans/README.md`](plans/README.md). Completed plans
 remain part of the system's history, but completion does not imply a profitable result.

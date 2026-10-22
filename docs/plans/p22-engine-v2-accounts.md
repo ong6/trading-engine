@@ -226,3 +226,8 @@ deployment; rollback restores the pre-migration database backup and source revis
   the earlier sector no-go; the existing account/legacy/quiescence/revision-13 byte-identical
   rollback proofs remain, and Sunday's source, snapshot, writers and backup still need the
   runbook's execution-time checks. The orchestrator owns the go/no-go and deployment.
+
+- 2026-10-18: deployed at registration revision 14 in the Sunday window; D0 is 2026-10-19
+  (record: `docs/product.md`). The deployed commit, cited before the 2026-10-20 history rewrite
+  as `b0b75c9`, is `481d54fb` on today's `main` (same tree). Revision 15 was installed on 2026-10-21 and the P24 batches
+  followed as revisions 16 and 17. Open: the private-alpha lane (L5) account cutover, still held.

@@ -26,7 +26,7 @@ the internal plans.
 | 7 | [The shared backtest core](backtest-engine.md) | Research | One deterministic evaluator gives event and portfolio studies the same point-in-time data, fills, costs, benchmarks, and statistical checks. |
 | 8 | [Evidence and reliability](evidence-and-reliability.md) | Operations | Frozen identities, validators, snapshots, backups, and stage timing make a result reproducible and a failure diagnosable. |
 | 9 | [Operations](operations.md) | Operations | Locks, schedule checks, read-only fallbacks, verified backups, and on-demand investigation keep unattended paper research recoverable. |
-| 10 | [Roadmap](roadmap.md) | Start here | Near-term work connects private research to live paper observation and speeds honest evaluation; broker paper remains later, separate work. |
+| 10 | [Roadmap](roadmap.md) | Start here | Near-term work finishes the senior-quant review, moves private research onto its own paper account, and keeps the evidence clean; broker paper remains later, separate work. |
 | 11 | [Glossary](glossary.md) | Start here | Plain names for the engine’s plan codes, workstreams, research safeguards, and paper-trading terms. |
 
 ## Suggested paths

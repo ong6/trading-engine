@@ -1,3 +1,5 @@
+> Superseded by the [2026-10-10 feedback entry](../feedback.md#2026-10-10--p22-lifecycle-round-6-binding-orchestrator-rulings) and the [P22 plan](../plans/p22-engine-v2-accounts.md); engine v2 deployed 2026-10-18 (D0 2026-10-19). Moved from the repository root on 2026-10-22.
+
 # P22 lifecycle writer brief
 
 ## 2026-10-10 — P22 lifecycle round 6 (binding orchestrator rulings)

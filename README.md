@@ -1,34 +1,40 @@
 # trading-engine
 
-A paper-only trading research engine with an AI agent in the decision loop, running unattended on
-one always-on Linux host. No broker, no real money, and no broker credentials.
+- **What we are building:** a public, paper-only trading engine that collects market data, tests strategies and runs paper books, plus a separate private research programme that looks for strategies worth running on it, with AI deciding inside deterministic controls.
+- **End goal:** the [north star](https://github.com/ong6/trading-engine/blob/main/docs/product.md#north-star), "An engine that runs on its own and makes money, with AI in the decision loop" (owner, 2026-09-24).
+- **Live now (2026-10-22):** engine v2 runs 17 paper books, three frozen forward records and the AI profitability evidence loop, on paper only (no broker, no real capital); no strategy, public or private, has a proven edge yet.
+- **Working on now:** P24, the senior-quant review (pipeline fixes, speed, new pre-registered studies), then moving the private research onto its own engine paper account.
 
-**Status (2026-10-08):** the profitability evidence loop uses registration revision 14;
-the shared backtest core and offline market-data auditor are complete. Isolated free grouped-daily,
-minute and SEC archives support research; the operational store and frozen evidence stay separate.
-Current collection coverage and failures come from host evidence, not this dated summary.
+**Status (2026-10-22):** engine v2 (accounts and money, P22) has run the paper books since
+2026-10-18, with commissions and restarted evaluation clocks from D0 2026-10-19. The host runs
+`main` at registration revision 17; the senior-quant review (P24) is active, and its storage
+revision (18) is in rehearsal, not live. No policy has demonstrated a prospective edge over its
+frozen control. What is live, in flight and decided is in [`docs/product.md`](docs/product.md)
+("Where it stands"); plan status is in [`docs/plans/README.md`](docs/plans/README.md); live
+state comes from `GET /meta` and the generated reports, never from this dated summary.
 
-- **Research engine.** Real market data in DuckDB, a nightly Minervini screen, **25 active paper
-  portfolios** (including the three profitability evidence loop books (P15) and 18 historically
-  replayable rules), a
-  conservative next-open fill simulator, a weekly walk-forward, and three frozen forward
-  records. No policy has yet demonstrated a prospective gate pass against its frozen control.
-- **Nightly AI agent.** A model reviews the day's standouts and may act only through a locked
-  simulator trade tool: deterministic code owns data admission, sizing, risk, fills, and halts.
+- **Research engine.** Real market data in DuckDB, a nightly Minervini screen, **17 active paper
+  portfolios** (including the three profitability evidence loop books (P15); eight books with no
+  after-cost edge were retired on 2026-10-21), a conservative next-open fill simulator with
+  effective-dated commissions, a weekly walk-forward, and three frozen forward records.
+- **Nightly AI agent.** A model reviews the day's standouts and could act only through a locked
+  simulator trade tool; its v1 book was retired on 2026-10-21, so it now records assessments
+  without orders. Deterministic code owns data admission, sizing, risk, fills, and halts.
   Hourly and four-hour variants run as shadow observers with no order authority.
 - **Evaluation ledger.** Every agent decision is recorded with its information cutoff, exact
   model/prompt/input identities, and later market outcomes, so each AI policy can be judged
   prospectively against its paired control.
 - **Profitability evidence loop (P15; live since 2026-09-29).** Candidate-wide scoring, equal-mechanics
   comparator books, a cancel-only pre-open check, shadow event triggers, and coded
-  profitability gates. Registration revision 14 binds the P22 account runtime on top of the
-  revision-13 validator and label-timing corrections; evidence collection continues.
-- **North star:** [`docs/product.md`](docs/product.md) — an engine that runs on its own and
-  makes money net of trading and data cost, with AI choosing and deterministic code in control.
+  profitability gates. Registration revision 17 binds the P24 fixes (including the SEC
+  acceptance clock that revived its SEC 8-K source) without changing scoring, labels, gates or
+  schedules; evidence collection continues.
+- **What "makes money" means** (net of trading and data cost, against the right comparator,
+  prospectively): [`docs/product.md`](docs/product.md#north-star).
 - **Public engine, private strategies.** This repo is the open infrastructure plus the
   profitability evidence loop (P15) and challenger lab (P16) demo policies. New strategies,
   prompts, and research results are kept in a separate private
-  repository; see [`AGENTS.md`](AGENTS.md).
+  repository; see [`AGENTS.md`](AGENTS.md). No strategy there has a proven edge either.
 
 Generated public data may be pushed only when the current branch has a configured upstream. The
 `source_control` object in `GET /meta` is authoritative for the current tracking state;
@@ -59,7 +65,7 @@ and current strategy/evidence status. The operating runbook is
 - Latest completed nightly league standings: [`data/reports/league.md`](data/reports/league.md).
 - Profitability evidence loop (P15) gate report:
   [`data/reports/agent-eval/p15.md`](data/reports/agent-eval/p15.md).
-- Historical replays of the 18 replayable rules: [`data/reports/backtests/`](data/reports/backtests/).
+- Historical replays of the replayable rules: [`data/reports/backtests/`](data/reports/backtests/).
 - Deterministic Sunday walk-forward re-validation:
   [`data/reports/walkforward/`](data/reports/walkforward/) — run by
   `engine/run_weekly_walkforward.sh`, not by the weekday nightly. The former autonomous model
@@ -98,7 +104,7 @@ the retired implementation or its evidence.
 ```bash
 uv venv --python 3.12 .venv
 uv sync --extra dev --frozen
-.venv/bin/python -m pytest -q -W error -n auto     # full suite, warnings are failures
+.venv/bin/python -m pytest -q -W error -n 8        # ~6,100 tests, ~150 s; warnings are failures
 .venv/bin/ruff check .                             # active Python; archive is immutable history
 .venv/bin/python -m engine.universe                # build the ticker universe
 .venv/bin/python -m engine.collect --bootstrap-floor   # first backfill (hours; see how-it-works)

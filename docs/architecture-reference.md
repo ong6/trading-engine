@@ -199,7 +199,7 @@ actions in `corporate_actions` /
 `split_adjustments` / `actions_fetch_log`, research in `experiment_results`, signals in
 `macro_signals`.
 
-**Revision 15 price admission (deploy after v2).** `db.upsert_prices` and
+**Revision 15 price admission (installed 2026-10-21).** `db.upsert_prices` and
 `db.insert_intraday` validate every canonical observation before cache promotion.
 NULL, nonfinite or nonpositive OHLC, impossible ranges, negative/unrepresentable
 volume, off-calendar sessions and conflicting response duplicates are rejected;
@@ -364,17 +364,19 @@ flags any held name with a >40% one-session move and no corporate-actions row.
 
 ## The league
 
-The live store currently has **25 active paper portfolios**, including the three profitability
-evidence loop (P15)
-comparator books activated on 2026-09-29. All are long-only with persisted initial capital and execution profiles. 18 are historically
-replayable rules. Three are intentionally excluded from historical walk-forward:
+On 2026-10-22 the live store has **17 active paper portfolios** (eight no-edge books were retired
+on 2026-10-21; `GET /meta` `nightly_evidence.active_portfolios` is the live count), including the
+three profitability evidence loop (P15) comparator books activated on 2026-09-29. All are
+long-only with persisted initial capital and execution profiles. Before the retirements 18 were
+historically replayable rules. Three are intentionally excluded from historical walk-forward:
 `discretionary` needs human tickets, `pead_ear` lacks historical point-in-time earnings
 dates, and `macro_composite` lacks a historical point-in-time macro reconstruction. They
 remain valid forward-paper books; they are not silently scored as zero-return backtests.
 
 The replayable cohort includes SPY and equal-weight controls, dual and sector momentum,
 the Minervini template family, mean-reversion overlays, turtle and stopped momentum,
-low-volatility, 52-week-high, and `xs_momentum_12_1`. Every automated book's frozen config
+low-volatility, 52-week-high, and `xs_momentum_12_1` (the turtle, mean-reversion overlay,
+low-volatility, trend-gated and banded-template books were retired on 2026-10-21). Every automated book's frozen config
 carries an expectation and a **kill criterion**; the weekly review judges process, not
 outcome. Current standings: `data/reports/league.md`, whose table contains exactly the active
 portfolios marked in that nightly. `data/reports/league.csv` deliberately remains the
