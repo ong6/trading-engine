@@ -273,7 +273,9 @@ def _normalize_drifted_tables(con: duckdb.DuckDBPyConnection) -> list[str]:
     column name (a baseline-only column takes its declared default, exactly as the runtime
     ``ADD COLUMN`` would) and the copy is proven equal before the original is released.
     """
-    reference = duckdb.connect()
+    from engine.lib import db as engine_db  # runtime import: engine.lib.db loads migrations
+
+    reference = engine_db.connect(":memory:", wait_s=0)
     try:
         _initialized(reference)
         canonical = {
