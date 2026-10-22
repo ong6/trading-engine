@@ -9,7 +9,9 @@ owner entry in `feedback.md`.
 | Component | Runs | Owner action if it fails |
 |---|---|---|
 | Nightly pipeline (`engine/run_daily.sh`) | Weekdays 22:30 UTC | Fix as a defect; reproduce first |
-| Paper league day-step (25 active books, including the three profitability evidence loop books (P15) live since 2026-09-29) | Nightly | Same |
+| Paper league day-step on the engine v2 ledger (17 active books after the 2026-10-21 retirements, including the three profitability evidence loop books (P15) live since 2026-09-29) | Nightly | Same |
+| Late account settlement (P22, `trading-engine-accounts-settle.timer`) | 07:45 and 11:55 UTC Tue–Sat | Same; any fold, settle or verify failure halts the account |
+| Hourly operations digest (P23, `trading-engine-ops-digest.timer`) with the schedule contract and the snapshot invariant monitor in shadow mode | Hourly at :08 UTC; invariants on each new snapshot | Same; shadow regressions are reported, never acted on automatically |
 | Three frozen forward records: sector momentum, XS 12-1, E1 Monday | Nightly / per signal | Never touch the rule; only the monitor may append |
 | Sunday walk-forward revalidation | Weekly | Same |
 | Saturday verifier, Sunday liquidity refresh, Friday postflight | Weekly | Same |
@@ -19,7 +21,7 @@ owner entry in `feedback.md`.
 | Multi-cadence agent tools (P9): hourly and four-hour shadow observers (`trading-engine-{hourly,four-hour}-opportunity.timer`) | Weekdays 10:15–16:15 hourly and 10:30/13:30 America/New_York | Same; missed windows are not replayed (`Persistent=false`) |
 | Agent data capture and agent-only shadow (`trading-engine-agent-{data-capture,shadow}.timer`) | 01:25 and 01:30 UTC Tue–Sat | Same |
 | Forward agent evaluation (P11) and P15 evaluation (`GET /agent/evaluation/status`, JSON and P15 Markdown reports) | After P8; refreshes after P15 scoring | Same; labels are mechanical and never tune a policy |
-| P15 pre-open check, event triggers, and scoring (`trading-engine-p15-{preopen,events,scoring}.timer`) | Pre-open 09:05 and events at 09:35/09:50 then :05/:20/:35/:50 through 15:50 America/New_York on weekdays; scoring 02:30 UTC Tue–Sat | Same; revision 15 adds the accepted data, money, flow, operations, board and test corrections on top of revision 14 while preserving scoring, labels, gates, schedules and frozen valid-data outcomes |
+| P15 pre-open check, event triggers, and scoring (`trading-engine-p15-{preopen,events,scoring}.timer`) | Pre-open 09:05 and events at 09:35/09:50 then :05/:20/:35/:50 through 15:50 America/New_York on weekdays; scoring 02:30 UTC Tue–Sat | Same; registration revision 17 (revision 15 installed 2026-10-21, then the P24 batches as revisions 16 and 17) preserves scoring, labels, gates, schedules and frozen valid-data outcomes |
 | TradingView historical archive (P14; existing queue, bounded slices) | 03:40, 07:40, 11:40, 21:40 and 23:40 UTC weekdays, six four-hourly slices on weekends (`trading-engine-tradingview-history.timer`); nightly enqueue is a fallback | Same; retrieval-time research only, current-universe survivor bias explicit |
 
 Change a running component only through a plan, as a new registered version. Existing versions
@@ -29,10 +31,12 @@ and their evidence are never edited.
 
 Plan status lives in one place: the table in [`plans/README.md`](plans/README.md). Only plans
 marked `approved` or `active` there admit work, subject to their stated prerequisites. The
-profitability evidence loop's activation workstream (P15 W8) activated on 2026-09-29;
-source registration revision 15 adds the accepted price-admission, trusted-money, flow,
-operations, board and test corrections on top of revision 14's P22 commissions, clocks and
-account engine without changing activation, verdict rules, scoring, labels, gates or schedules.
+profitability evidence loop's activation workstream (P15 W8) activated on 2026-09-29; the
+current source registration is revision 17 (revision 15's price-admission, trusted-money, flow,
+operations, board and test corrections, then P24's batches as revisions 16 and 17) on top of
+revision 14's P22 commissions, clocks and account engine, without changing activation, verdict
+rules, scoring, labels, gates or schedules. P24 (active, 2026-10-21) admits its lanes' fixes and
+output-identical speed work; its storage revision (18) is not live until its rehearsal passes.
 Completed outputs from agent paper decisions (P5), the alpha experiment (P6), the 2022 replay
 (P10), forward agent evaluation (P11), the agent research product (P12), market-data source
 hardening (P13), and the TradingView historical archive (P14) stay in scope for operation and
@@ -54,6 +58,7 @@ The owner accepted P22 on 2026-10-15 and admitted the revision-14 defect fixes p
 fix lands on `p22/lifecycle`. Fixes a–k landed on 2026-10-16 with the integrator's
 follow-ups, and revision 14 and the E1, sector and XS runtime contracts were re-pinned once;
 the P22 plan progress records each contract change and why no frozen rule's outcome moves.
+P22 deployed on 2026-10-18 with D0 2026-10-19.
 
 ## Not yet — frozen until its trigger fires
 
@@ -93,12 +98,20 @@ deletes it.
   folds (sector_momentum's first train window, every earnings_context_pead fold), which strict JSON
   readers reject. The 18 unrecorded split-sized breaks and the CRWU and ETHA mixed bases are
   `fix/corporate-actions-split-integrity`'s.
+  **Resolved by P24** (`p24/integrity`, merged at `11a9a1f2`, registration revision 16): stale
+  provisional bars are re-asked and then retired (`settle_stale_provisional`); a restatement leaves
+  bars already on the new scale alone; `engine.repair_integrity` fixed the stored split, WLFC and
+  same-night defects and was applied to the live store on 2026-10-22 (18,798 rows); walk-forward
+  artifacts store an undefined statistic as null (`1ea61488`).
 
 - 2026-10-10 · **Registered-file observability defects (next registration revision)**: since
   `9a37ac0` `engine/verify_prices.py` prints its full evidence JSON (base64 bodies) to stdout,
   ~13k lines a night and 18 MB a weekly verify; fail-soft stages and units exit 0 when they
   skipped work (TradingView archive under the nightly lock). Outside the revision-14 fix set
   (a–k); its third item, the withheld P15 price-fetch record, was fix (e).
+  **Verifier output resolved by P24**: it prints one summary line and keeps its evidence in the
+  receipt (`46e993c3`, merged at `11a9a1f2`, registration revision 16). The fail-soft exit-0 item
+  is still open.
 
 - 2026-10-02 · **Activation of separately held research strategies**: P21 implements the generic
   paper-account specification and stock/ETF intake boundary; new accounts start inactive.

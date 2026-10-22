@@ -32,84 +32,76 @@ accounting, halts, and kill switches. That split is the product, not a temporary
 5. **Inside the drawdown envelope**: a policy that can lose most of the book fails regardless of
    its recent run.
 
-## Where it stands (source state 2026-10-18)
+## Where it stands (2026-10-22)
 
-The engine runs nightly data collection, screening, a paper league, three frozen forward records,
-weekly walk-forward checks, recovery bundles, research-only market data, and the daily opportunity
-agent (P8) with its locked simulator trade tool. The multi-cadence agent tools (P9) add shadow
-observers. Their decisions land in the forward agent evaluation ledger (P11) and agent research
-product (P12).
-**No policy has yet beaten its frozen control prospectively.**
+**No policy has yet beaten its frozen control prospectively.** Everything below is paper only: no
+broker connection, no broker credentials, no real capital. `GET /meta`, the generated reports
+under `data/reports/` and the [plan table](plans/README.md) are the live authority; this section
+is a dated summary of them.
 
-[The profitability evidence loop (P15)](plans/p15-profitability-evidence-loop.md) went live on
-2026-09-29 after a verified 90-table recovery bundle. The current source registration is
-revision 15: price admission, trusted-bar money paths, data-flow and operations corrections,
-rejected-bar/prospective board state, and test-runtime improvements on top of revision 14's P22
-commissions, restarted book-evaluation clocks and account engine. It retains revision 13's exact
-cash-resized SPY validation and nightly event-label maturation, revision 12's bounded
-complete-metadata recovery, and earlier corrections. Scoring, labels, statistical gates,
-schedules and frozen valid-data outcomes are unchanged.
-P15 is `active` and collecting; no performance claim exists before its registered looks.
-Earlier operational revisions introduced stage timings, bounded collection, snapshot throttling,
-cached status projections and queue scratch handling. Revision 10 corrected pending
-nightly-marked book validation; that correction remains in force.
+**Live now.**
 
-[The shared backtest core (P18)](plans/p18-backtest-core.md) is done. It builds one immutable
-columnar price panel and shares it with forked workers. On the registered 3,000-stock × 3,800-session
-benchmark, 16-worker simulation fell from 989.05 to 0.847 seconds (1,167.5×), while all 295 captured
-pre-existing JSON outputs (53,391,323 bytes) stayed byte-identical. Event studies must now declare
-both their window-end treatment and whether they require a complete held-price path.
+- [Engine v2 (P22)](plans/p22-engine-v2-accounts.md) deployed on 2026-10-18 with D0 on
+  2026-10-19: the engine is the sole executor and ledger for paper books and versioned accounts,
+  with auction and deferred intraday fills, effective-dated commissions, stock shorts,
+  margin/PDT controls, account halts and private/public result isolation. Every book pays the
+  registered commission profile from D0, and its evaluation clock restarted there. Options
+  execution stays refused without bid/ask quotes.
+- The host runs `main` at registration revision 17. Revision 15 (price admission, trusted-bar
+  money paths, data-flow, operations and board corrections) was installed on 2026-10-21.
+  Revision 16 (P24 batch 1: store-integrity repairs, quant-audit statistics fixes, operations
+  evidence fixes, test speed) and revision 17 (P24 batch 2: the SEC acceptance clock, batched
+  nightly writes, one summary row for identical intraday re-fetches, the walk-forward dividend
+  fix that cut one fold from 4,872 s to 582 s with identical ledgers, audit fixes E5–E8 and P18
+  core `p18-study-v3`) followed on `main`. Scoring, labels, statistical gates, schedules and
+  frozen valid-data outcomes did not change in any of them.
+- The live store repair ran on 2026-10-22: 18,798 rows corrected (split restatements, the WLFC
+  bar on a third price basis, never-settled same-night bars). The snapshot invariant monitor runs
+  in shadow mode.
+- 17 active paper books after the 2026-10-21 retirement of eight books with no after-cost edge,
+  including the three [P15](plans/p15-profitability-evidence-loop.md) books (live since
+  2026-09-29; collecting, no performance claim before its registered looks). P15's SEC 8-K event
+  source works again since revision 17; it had been rejecting almost every response.
+- The E1 Monday, sector-momentum and XS 12-1 forward records are `ACCUMULATING`.
+- The daily opportunity agent (P8) still assesses nightly standouts; its v1 book was among the
+  retired, so it places no simulator orders. The P9 hourly and four-hour observers and the P15
+  event triggers stay shadow-only.
+- Research-only data runs beside the operational store: the free Massive grouped-daily archive
+  (rolling two years from 2024-10) and minute capture for the frozen USD 1–5M tier, the
+  TradingView history archive, and the nightly SEC Companyfacts and Submissions bulk archives.
+  None of them prices a fill. The 2017 Kaggle archive failed its delisted-name census and was
+  not loaded.
 
-The free Massive key is present in a private owner-only file. The isolated grouped-daily archive
-holds 501 sessions from 2024-10-02 through 2026-10-01, and its daily service keeps the rolling
-window current. Its initial proof date loaded 12,613 US securities. This improves survivor coverage
-but does not provide pre-2024-10 bars or mutate operational prices.
+**In flight.**
 
-The free Massive minute capture is also prepared and running independently. Its frozen host-only
-manifest has 3,302 tickers: SPY, QQQ, IWM, and every Tiingo-admitted USD Stock that entered the
-USD 1--5M point-in-time MDV60 tier in the completed grouped-daily archive. Ten 50-session chunks
-per ticker produce a 33,020-request estimate; the capture is resumable, window-aware, and isolated
-from operational and execution prices.
+- [P24](plans/p24-quant-review-and-speed.md) (active): the 2026-10-21 senior-quant review. Its
+  first two merge batches and the wave-1 lanes (public-hygiene gate, lane tool, release tool in
+  dry-run, audit-only job registry, dataset catalogue, research StudySpec runner and cache)
+  landed by `483564b6`. The storage revision, now numbered 18, is in review and store-copy
+  rehearsal and is **not** live.
+- P22's remaining step is the private alpha's move onto its engine-owned account (lane L5,
+  held for the post-deploy cutover). The Massive options capture stays paused.
+- [P16](plans/p16-challenger-lab-and-text-edge.md)'s evaluation, challenger, filing, replay,
+  construction and execution-measurement work (W1–W9a) is built and inert until W9b
+  registration, rehearsal and activation. [P7](plans/p7-autonomous-paper-trial.md) is built and
+  not activated.
+- Since 2026-09-28, new strategy research runs in a private repository against this engine under
+  the same census and pre-registration rules; its results are not published here, and no strategy
+  there has a proven edge either.
 
-The free 2017 Kaggle price archive was also censused before any loader was built. Only 1 of 247
-sampled Tiingo-ended intervals matched both endpoints within ±5 sessions (0.405%, below the frozen
-30% gate), and just 10 of 8,507 populated archive tickers ended more than 30 sessions before the
-archive boundary. It is a current-at-cutoff, current-vintage-adjusted survivor snapshot; the
-recommendation is skip and zero rows were loaded.
-
-P3's free SEC phase now also admits the nightly Companyfacts and Submissions bulk archives for
-point-in-time core fundamentals and acceptance-timestamped item 2.02 earnings events. The completed
-isolated audit contains 12,170,777 facts for 17,096 companies and 421,723 events, with 93.8%
-combined ticker matching. Raw archives remain host-only; no operational or execution table changed.
-
-[The challenger lab, text edge, and evaluation science plan
-(P16)](plans/p16-challenger-lab-and-text-edge.md) has built its evaluation through broker-paper
-design workstreams (W1–W8) and the cleanup half of activation (W9a). They remain inert. The
-registration, rehearsal, and activation half (W9b) still owns any activation.
-
-Since 2026-09-28, new strategy research runs in a private repository against this engine under
-the same census and pre-registration rules; its results are not published here.
-
-P21 implements the generic [paper-account boundary](paper-account-contract.md). Private alpha
-owns generation, trade specifications and manual/all/auto planning across USD 10k/50k/100k
-tiers; the engine owns each account's funding, holdings, orders, fills, cash and equity. New
-accounts start inactive. Selecting or testing a tier grants no strategy activation. Stock/ETF
-requests use the existing next-open simulator; options and futures are refused until their
-execution models and authority are separately admitted.
-
-[Engine v2 accounts and money (P22)](plans/p22-engine-v2-accounts.md) is active. It makes the
-public engine the sole executor and ledger for versioned private-alpha accounts, adds auction and
-deferred intraday paper fills, effective-dated commissions, stock shorts, margin/PDT controls,
-account halts and private/public result isolation. Existing books change only at an explicit D0
-cost break with restarted evaluation clocks. Account settings live beside the frozen positional
-`portfolios` table in `portfolio_accounts`; options execution remains refused without quotes.
+**Built and finished.** The [shared backtest core (P18)](plans/p18-backtest-core.md): on the
+registered 3,000-stock × 3,800-session benchmark, 16-worker simulation fell from 989.05 to 0.847
+seconds (1,167.5×) with all 295 captured JSON outputs (53,391,323 bytes) byte-identical. The
+[offline market-data auditor (P19)](plans/p19-market-data-auditor.md), the
+[paper-account boundary (P21)](paper-account-contract.md) and the
+[hourly operations digest (P23)](plans/p23-hourly-ops-digest.md) are complete.
 
 ## Stages
 
 | Stage | Goal | Exit | Earliest |
 |---|---|---|---|
-| 0 · Collect | P15 live since 2026-09-29; the autonomous paper trial (P7) built but inactive; P8/P9 keep running | P15 scoring, books, and triggers live with coded gates | In progress |
-| 1 · Judge | Pre-registered verdicts on each AI policy | Each policy passes or is killed by its own gate | P15 and P8 only at their registered looks; the E1 Monday experiment on 2027-05-10; sector momentum on 2027-09-04; P7 at least 12 months after activation |
+| 0 · Collect | P15 live since 2026-09-29; engine v2 live since 2026-10-18 (D0 2026-10-19); the autonomous paper trial (P7) built but inactive; P8/P9 keep running | P15 scoring, books, and triggers live with coded gates | In progress |
+| 1 · Judge | Pre-registered verdicts on each AI policy | Each policy passes or is killed by its own gate | P15 and P8 only at their registered looks; the E1 Monday experiment on 2027-05-10; sector momentum after 2027-10-19 and XS 12-1 after 2031-10-19 (eligibility dates from `/meta`, restarted at D0); P7 at least 12 months after activation |
 | 2 · Broker-paper | Same engine on the owner's own hardware against an IBKR paper account | 1–3 months of broker-paper fills reconciled to the simulator, slippage calibrated, zero unattributed orders | After a Stage 1 pass |
 | 3 · Small live capital | Autonomous live trading, capped and staged | Live results track paper within tolerance at each capital step | After Stage 2 |
 | 4 · Scale | More capital, more policies | Each addition repeats Stages 0–3 | Open |
@@ -125,6 +117,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-21 | Senior-quant review (P24): spread agents to evaluate and fix the pipelines, improve speed, make alpha generation and the engine work properly, and find new strategies; "You can do anything you want, as long as you feel it needs fixing; no need to ask me anything; you can just push." | P24; feedback |
 | 2026-10-21 | Retire paper books with no after-cost edge; agents may retire a no-edge book themselves, recording the evidence. First batch: turtle_breakout, mr_overlay (+gated), daily_opportunity_agent_v1, low_vol, ew_trend_gated, template_top10_banded (+gated); `active = FALSE`, equity history and positions kept, one `portfolio_retired` audit row each | Strategy scorecard 2026-10-20; audit_log |
 | 2026-10-15 | A delisted holding is removed: closed out at its last real traded close | P22; feedback |
 | 2026-10-15 | Engine v2 (P22) is accepted; the pending revision-14 fixes land in v2 before the Sunday 2026-10-18 deployment (D0 2026-10-19) | P22; feedback |
@@ -190,7 +183,7 @@ Each row has the default that applies until the owner decides.
 | **`research-text` dependency group** (`torch`, `transformers` in a separate virtual environment) | P16's time-locked historical text lab | P16 W4 stops after building the corpus |
 | **P8 v1 order authority** once P15 books are live | A single AI book to watch | P8 v1 keeps running unchanged as its own cohort |
 | **P3 data budget**: initial and recurring ceiling for Sharadar (or Norgate) | Survivor-free point-in-time universe and fundamentals before 2024-10; historical stock-selection research | No purchase (decided 2026-10-01); free-source phase 0 only |
-| **Commit metadata rewrite** for 2026-09-18 to 09-23 author and trailer lines that break the public-hygiene rule | Clean public history | Not rewritten (needs a force-push; dates would be kept) |
+| **Commit metadata rewrite** for 2026-09-18 to 09-23 author and trailer lines that break the public-hygiene rule | Clean public history | Not rewritten (needs a force-push; dates would be kept). 2026-10-20: done; the public history was rewritten for author and trailer identity only, with commit dates and trees kept and the old-to-new commit map held privately ([history index](history/README.md)) |
 | **Free API keys** (Alpaca, including the Benzinga news archive; Finnhub; Alpha Vantage) | Extra historical news for the P16 replay lab; a second realtime cross-check | Free bulk archives and scraping only (GDELT, CC-NEWS, EDGAR, wire and IR pages, Wayback) |
 | **Personal execution host** | Stage 2 | Future work, explicitly not now (decided 2026-10-02) |
 | **Model provider for real capital** with a provider-pinned immutable revision | Stage 2+ | Paper only |
@@ -199,34 +192,40 @@ Each row has the default that applies until the owner decides.
 
 ## Focus now (in order)
 
-1. **Keep the evidence clean and the revision 15 registered path green.** Use per-stage timings to
-   watch the bounded collection, shared snapshots, queue, observers, and status projections. Keep
-   scheduled producers green, miss no agent windows, allow no identity drift, and leave no
-   uncommitted work on the host. A broken producer beats every item below.
-2. **Finish P22 engine-v2 integration without disturbing pre-D0 evidence.** The owner accepted
-   v2 on 2026-10-15. Deployed 2026-10-18 at registration revision 14 (main `b0b75c9`); D0 is
-   2026-10-19. Still to do: the private alpha's move onto its engine-owned account, and the
-   commit-identity rewrite of the older public history, which lands with revision 15 because the
-   registration pins a commit SHA. The Massive options capture is paused after its first run
-   failed on provider responses.
-3. **P15 evidence collection.** P15 is active after its scoring, pre-open, event, report, and
-   status checks passed. Keep scheduled windows green and never tune a registered value.
-4. **Finish and audit the free survivor-data captures.** Audit the completed grouped-daily window
+Updated 2026-10-22 for engine v2 live and P24 active.
+
+1. **Keep the evidence clean and the revision 17 registered path green.** Use per-stage timings
+   and the hourly ops digest to watch collection, snapshots, the queue, observers and status
+   projections. Keep scheduled producers green, miss no agent windows, allow no identity drift,
+   and leave no uncommitted work on the host. A broken producer beats every item below.
+2. **Finish P24 without disturbing the frozen records.** Land the remaining lanes only after both
+   timezone suites pass on the merged tree, with one re-pin per batch. The storage revision
+   (revision 18) goes live only after its review findings are fixed and its store-copy rehearsal
+   passes. Watch the invariant monitor (shadow) after the 2026-10-22 store repair.
+3. **Finish the P22 engine-v2 cutover.** Engine v2 deployed 2026-10-18 (D0 2026-10-19); the
+   commit-identity rewrite of the older public history was done on 2026-10-20. Still to do: the
+   private alpha's move onto its engine-owned account. The Massive options capture stays paused
+   after its first run failed on provider responses.
+4. **P15 evidence collection.** P15 is active after its scoring, pre-open, event, report, and
+   status checks passed; its SEC 8-K source works again since revision 17. Keep scheduled windows
+   green and never tune a registered value.
+5. **Finish and audit the free survivor-data captures.** Audit the completed grouped-daily window
    and let the resumable Massive minute service fill its frozen small-stock manifest. Paid
    pre-2024-10 data remains blocked on a future spend decision.
-5. **P16 registration, rehearsal, and activation (W9b).** Register and rehearse, then activate
+6. **P16 registration, rehearsal, and activation (W9b).** Register and rehearse, then activate
    only the components whose gates permit it: the challenger lab and weekly digest first, the
    filing reader only after its remaining dispatch and activation gates pass. The final refine
    pass (W10) follows.
-6. **P16 synthetic proving ground (W11) as the power test.** Plant a known edge and pure noise in the synthetic proving
+7. **P16 synthetic proving ground (W11) as the power test.** Plant a known edge and pure noise in the synthetic proving
    ground, and record how long each gate takes to detect the edge and how often it passes the
    noise. Every "earliest verdict" date on this page should come from that measurement.
-7. **Activate P7.** Backup-gated tri-arm schema and initializer, the recorded SGD/USD opening
+8. **Activate P7.** Backup-gated tri-arm schema and initializer, the recorded SGD/USD opening
    observation, then the tri-arm orchestrator and its status panel. It tests whether the AI
    allocates better than the rule at low turnover, which the research verdicts favour.
-8. **League collapse (P2).** Retire books that answer no open question to cut nightly noise.
-9. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
-   exit path using the P8 FSLY position.
+9. **League collapse (P2).** Retire books that answer no open question to cut nightly noise. The
+   first batch of eight no-edge books was retired on 2026-10-21 (17 books remain active).
+10. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
+    exit path using the P8 FSLY position.
 
 **Build only what the next verdict needs.** The engine already has more built-but-inert
 capability than evidence. A new layer, endpoint, or ledger needs a plan and a verdict that asks

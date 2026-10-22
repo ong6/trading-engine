@@ -69,3 +69,15 @@ workers.
 
 The orchestrator spawns one agent per lane, reviews each branch, merges serially to `main` after
 both timezone suites pass, and does the single re-pin. Lanes never push `main`.
+
+## Progress
+
+- 2026-10-21: merge batch 1 (`p24/integrity`, `p24/quant-audit`, `p24/ops`, `p24/test-speed`)
+  issued as registration revision 16. The storage work then numbered 16 was renumbered.
+- 2026-10-22: merge batch 2 (`p24/ops-2`, `p24/sec-time`, `p24/nightly-speed`, `p24/sim-speed`)
+  issued as registration revision 17; P18 core `p18-study-v3`. Wave 1 (public-hygiene gate, lane
+  tool, release tool dry-run, audit-only job registry, dataset catalogue, StudySpec runner and
+  research cache) landed on `main` at `483564b6`. The live store repair corrected 18,798 rows.
+  Full suites: 5,848 passed under `TZ=UTC` and `TZ=Asia/Singapore`.
+- Open: the storage revision, now numbered 18, is in review and store-copy rehearsal and is not
+  live. The alpha study lanes report in the private repository.

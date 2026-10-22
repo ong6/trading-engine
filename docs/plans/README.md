@@ -12,33 +12,34 @@ each plan's YAML `status` must match its row.
 | Plan | Title | Status | One-line outcome |
 |---|---|---|---|
 | [P1](p1-appliance-mode.md) | Appliance mode | done | Closed 2026-09-26: maintain-only premise superseded; doc-pinning test retirement moved to challenger-lab cleanup and activation (P16 W9) |
-| [P2](p2-league-collapse.md) | League collapse | approved | Retire the frozen eleven-book legacy set; newer separately authorized books are outside that set |
+| [P2](p2-league-collapse.md) | League collapse | approved | Retire the frozen eleven-book legacy set; newer separately authorized books are outside that set. 2026-10-21: eight no-edge books retired under the owner's retirement decision; 17 remain active |
 | [P3](p3-point-in-time-data.md) | Point-in-time data | approved | Free Tiingo, Form 25 and SEC bulk (fundamentals, 8-K earnings) audits complete; Massive daily archive complete and minute capture running; frozen Kaggle census failed the delisted-name gate; paid data spend-blocked |
 | [P4](p4-broker-decision.md) | Broker decision | done | Decided 2026-09-20: IBKR eventually (Moomoo fallback) on personal hardware, via a later execution plan |
 | [P5](p5-agent-paper-decisions.md) | Agent paper decisions | done | Completed 2026-09-18: a constrained agent controls one isolated simulator-only book |
 | [P6](p6-alpha-experiment.md) | Alpha experiment | done | Completed 2026-09-18: one frozen credit-confirmed SPY/BIL experiment |
 | [P7](p7-autonomous-paper-trial.md) | Autonomous paper trial | active | Algorithm vs AI vs hybrid on a cloned S$10k envelope; built but **not yet activated** |
-| [P8](p8-daily-opportunity-agent.md) | Daily opportunity agent | active | Live: nightly standouts, watch/hold/swing assessments, locked simulator trade tool |
+| [P8](p8-daily-opportunity-agent.md) | Daily opportunity agent | active | Live: nightly standouts and watch/hold/swing assessments. Its v1 book was retired 2026-10-21 (no after-cost edge), so the locked simulator tool places no orders |
 | [P9](p9-multi-cadence-agent-tools.md) | Multi-cadence agent tools | active | Live: v5 hourly/four-hour pairable observers plus the unchanged nightly simulator tool path |
 | [P10](p10-2022-agent-replay.md) | 2022 agent replay | done | Contamination-labelled price-only diagnostic; cannot promote anything |
 | [P11](p11-forward-agent-evaluation.md) | Forward agent evaluation | done | Evaluation ledger built; it operates as part of the engine |
 | [P12](p12-agent-research-product.md) | Agent research product | done | Full data, execution, and evaluation programme delivered 2026-09-23; data/news spend external |
 | [P13](p13-market-data-source-hardening.md) | Market-data source hardening | done | TradingView realtime/history active under owner-asserted rights; Alpaca dormant |
 | [P14](p14-tradingview-history-archive.md) | TradingView historical archive | done | Resumable current-liquid-universe daily bars with exact transcripts and research-only authority |
-| [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | active | Revision 15 adds accepted data, money, flow, operations, board and test corrections on top of revision 14; scoring, labels, gates, schedules and frozen valid-data outcomes remain unchanged |
+| [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | active | Collecting at registration revision 17 (revision 15 installed 2026-10-21; 16 and 17 are the P24 batches, and 17 revives the SEC 8-K source); scoring, labels, gates, schedules and frozen valid-data outcomes unchanged |
 | [P16](p16-challenger-lab-and-text-edge.md) | Challenger lab, text edge, evaluation science | active | W0 P15 revision-4 activation complete; W9b registration remains |
 | [P17](p17-personal-host-ibkr-paper-execution.md) | Personal-host IBKR paper execution and reconciliation | proposed | Future work, explicitly not now; requires a Stage 1 pass and owner approval before any implementation or account action |
 | [P18](p18-backtest-core.md) | Shared backtest core | done | Completed: native event/portfolio simulation, deterministic reports, proving ground, and example |
 | [P19](p19-market-data-auditor.md) | Offline market-data auditor | done | Completed 2026-10-03: independent coverage JSON/Markdown sidecars and fictional native-evaluator reversal; full Linux CI green; real-data adapters deferred |
 | [P20](p20-engine-and-board-review.md) | Engine and paper dashboard correctness review | done | Completed 2026-10-05: generic study and forward-projection fixes, responsive status alerts, setup/design documentation, independent review, both-timezone CI and production browser verification |
 | [P21](p21-operational-issues-and-account-isolation.md) | Operational issue closure and separate paper accounts | done | Complete source evidence, isolated paper-account intake, 18/18 public walk-forward refresh and independently verified private recovery; new strategy activation remains gated |
-| [P22](p22-engine-v2-accounts.md) | Engine v2 accounts and money foundation | active | Phase A routes books, commissions and private results; Phase B integrates lanes, rehearses D0 and explicitly rebinds every frozen runtime contract |
+| [P22](p22-engine-v2-accounts.md) | Engine v2 accounts and money foundation | active | Deployed 2026-10-18 at registration revision 14, D0 2026-10-19; open: the private alpha's move onto its engine-owned account (lane L5, held) |
 | [P23](p23-hourly-ops-digest.md) | Hourly operations digest | done | Completed 2026-10-15: hourly digest at :08 UTC with SQLite metrics; `--report` checks every scheduled run and driver stage against the timers and crontab |
-| [P24](p24-quant-review-and-speed.md) | Senior-quant review, pipeline fixes, speed and new research lanes | active | Parallel lanes: producer audit, invariant fixes, nightly/simulator/test speed, quant audit, wave-1 landing, and four new pre-registered studies |
+| [P24](p24-quant-review-and-speed.md) | Senior-quant review, pipeline fixes, speed and new research lanes | active | Batches 1 and 2 live as registration revisions 16 and 17; wave 1 landed at `483564b6`; live store repair 2026-10-22; storage revision 18 in rehearsal, not live |
 
-Recommended order: follow [`../product.md`](../product.md) ("Focus now"). Keep the revision-15
-registered evidence path green, then continue P15 and P7 activation; P8/P9 keep running
-untouched; P2 remains admitted; P3's bounded free captures run while paid data waits.
+Recommended order: follow [`../product.md`](../product.md) ("Focus now"). Keep the revision-17
+registered evidence path green, finish P24 and the P22 alpha cutover, then continue P15 and P7
+activation; P8/P9 keep running untouched; P2 remains admitted; P3's bounded free captures run
+while paid data waits.
 
 ## Plan template
 
