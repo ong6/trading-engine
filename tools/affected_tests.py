@@ -382,8 +382,8 @@ class Graph:
         if text not in self._names:
             modules: set[str] = set()
             files: set[str] = set()
-            for token in TOKEN.findall(text):
-                token = token.strip("./-")
+            for raw_token in TOKEN.findall(text):
+                token = raw_token.strip("./-")
                 if "*" in token:
                     files |= self._globbed(token)
                     continue

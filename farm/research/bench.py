@@ -230,7 +230,8 @@ def panel_benchmark(
         universe_identity, warm, lambda: universe_source,
     )
     warm_candidates = cache.get("feature", candidate_identity)
-    assert warm_candidates is not None
+    if warm_candidates is None:
+        raise RuntimeError("warm feature cache lost the candidates it just stored")
     warm_result = _benchmark_digest(
         MarketData(warm.source, derived_inputs=(_load_candidates(warm_candidates),)),
         warm_universe.universe,

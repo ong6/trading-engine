@@ -625,7 +625,8 @@ def migrate_claims(
             manifest, sort_keys=True, separators=(",", ":")
         ).encode()
     else:
-        assert manifest_path is not None
+        if manifest_path is None:
+            raise ValueError("a migration manifest path is required without --current-ledger")
         manifest, manifest_bytes = _read_json_file(manifest_path, "migration manifest")
     with _claims_lock(root):
         claims_path = root / "CLAIMS.md"

@@ -345,7 +345,8 @@ class RepositoryScanner:
             )
         except OSError as exc:
             raise HygieneError(f"git cat-file failed: {exc}") from exc
-        assert process.stdout is not None
+        if process.stdout is None:
+            raise HygieneError("git cat-file produced no output stream")
         prefix = process.stdout.read(min(size, MAX_TEXT_BYTES) + 1)
         if b"\0" in prefix[:8192]:
             process.kill()

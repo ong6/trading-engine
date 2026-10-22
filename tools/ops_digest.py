@@ -465,9 +465,9 @@ def collect_stages(db: sqlite3.Connection, logs_dir: Path, start: datetime) -> l
              row["ended"], float(row["seconds"]), row["exit"],
              *(flow[field] for field in FLOW_FIELDS)),
         )
-        row = {**row, **flow}
-        if cursor.rowcount and row["ended"][:19] >= _iso(start)[:19]:
-            fresh.append(row)
+        stored = {**row, **flow}
+        if cursor.rowcount and stored["ended"][:19] >= _iso(start)[:19]:
+            fresh.append(stored)
     return fresh
 
 

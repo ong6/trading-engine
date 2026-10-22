@@ -142,7 +142,7 @@ jobs:
         continue-on-error: true  # advisory; see docs/feedback.md 2026-09-26
       - run: .venv/bin/ruff check --select PLW2901 server tools
       - run: .venv/bin/ruff check --select RET504 server tools
-      - run: .venv/bin/ruff check --select S101 engine farm sim server tools
+      - run: .venv/bin/ruff check --select S101 engine farm sim server tools --extend-exclude farm/research/tests  # pytest asserts are the test idiom
       - run: .venv/bin/python -m pytest -q -W error -n 2 farm/research/tests  # outside testpaths
       - run: .venv/bin/python -m compileall -q engine sim server tests farm tools
       - run: find engine -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n

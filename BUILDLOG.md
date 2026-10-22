@@ -4671,4 +4671,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +70, tests +80, tests/content_reads.json +606 (data).
 - **Next:** orchestrator merges.
 
+## 2026-10-22 — Clear the CI lint step's two loop-variable reassignments
+
+- **Why:** reproduction: CI's `checks` job on main `3cc397f3` fails `ruff check --select PLW2901 server tools` (the test shards, audits and UI build are green); locally ruff 0.16.6 reports `tools/ops_digest.py:468` (`row` rebound inside its loop) and `tools/affected_tests.py:386` (`token`).
+- **What:** rename the rebound names (`stored`, `raw_token`); no behaviour change. The next lint step (S101, run after it and so never reached) also fails: wave 1's `farm/research/tests` use pytest asserts, and three production asserts (`farm/research/bench.py`, `tools/lane.py`, `tools/public_hygiene.py`) become explicit errors. The S101 step excludes `farm/research/tests` in `ci.yml`, not in `pyproject.toml`, because `engine/lib/provenance.py` hashes `pyproject.toml`.
+- **Evidence:** every CI lint step passes locally; `pytest tests/test_ops_digest.py tests/test_affected_tests.py` pass.
+- **Metrics:** tools and farm 11 lines; CI 1 line.
+- **Next:** confirm main CI green on GitHub.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
