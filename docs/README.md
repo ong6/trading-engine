@@ -6,6 +6,13 @@ not assume its counts, process state, or recommendations supersede the current g
 central product document is the current decision ledger; the strategy backlog is only the
 deterministic research queue, and dates inside it label historical measurements.
 
+**Current state in one place (2026-10-22).** Engine v2 (P22) is live on paper since 2026-10-18
+(D0 2026-10-19) at registration revision 17; P24, the senior-quant review, is the active build
+plan, and its storage revision (18) is in rehearsal, not live. The dated summary of what is live,
+in flight and decided is [`product.md`](product.md) ("Where it stands"); plan status is
+[`plans/README.md`](plans/README.md); runtime truth is `GET /meta` and the generated reports.
+No strategy, public or private, has a proven edge.
+
 For the plain-language product guide, start with [`site/index.md`](site/index.md), then follow the
 ordered page contract in [`site/README.md`](site/README.md). Internal codes and research terms are
 decoded in [`glossary.md`](glossary.md).
@@ -59,7 +66,7 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   [P22 engine v2 accounts and money foundation](plans/p22-engine-v2-accounts.md),
   [P23 hourly operations digest](plans/p23-hourly-ops-digest.md), and
   [P24 senior-quant review, fixes, speed and research lanes](plans/p24-quant-review-and-speed.md).
-- [`glossary.md`](glossary.md) — plain names for P1–P18, the P15/P16 workstreams, and research
+- [`glossary.md`](glossary.md) — plain names for P1–P24, the P15/P16 workstreams, and research
   terms such as registration, holdout, census, DSR, and walk-forward.
 
 ## Current operating documents
