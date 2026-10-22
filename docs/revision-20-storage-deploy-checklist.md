@@ -4,6 +4,9 @@ Branch `p24/r16` (on top of `p24/integrate-wave1`), blockers B1-B4 fixed on `p24
 454cfc6a). Status: **ready for the single re-pin and orchestrator review**; not yet deployed. Rehearsed on store copies
 only (see "Rehearsal result"). Nothing here was run against the live store.
 
+**Deploy hold:** Hold until trial 287's 2026-11-03 epoch has run, or until the private consumer is switched to
+generations; see pre-flight 6.
+
 ## Blockers
 
 - **B1 (fixed on p24/storage-r18) Deployed catalog is a supported pre-image.** Migration 0000 accepts the deployed
