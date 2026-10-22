@@ -73,8 +73,6 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   paper-league, agent-service, UI/API, and authority-boundary reference.
 - [`settlement-runbook.md`](settlement-runbook.md) — manual adjudication of dead or
   untradeable positions.
-- [`P22 round-4 rehearsals`](history/p22-round4-rehearsals.md) — captured legacy-D0
-  processing and complete revision-13 rollback transcripts.
 - [`../BUILDLOG.md`](../BUILDLOG.md) — v2 implementation log since 2026-09-18; earlier entries
   are in [`history/buildlog-2026-07-15-to-2026-09-17.md`](history/buildlog-2026-07-15-to-2026-09-17.md),
   and the 42-entry 2026-09-19 C90 series in
@@ -213,7 +211,10 @@ and does not authorize work or live trading; `scope.md` is the queue.
 - 2026-09-22 to 09-23: [`agent-trading-review`](history/agent-trading-review-2026-09-22.md),
   [`agent-backtesting-roadmap`](history/agent-backtesting-roadmap-2026-09-23.md),
   [`agent-research-product-completion-audit`](history/agent-research-product-completion-audit-2026-09-23.md)
-- 2026-10-18: [`retired PIT restore identities`](history/retired-pit-restore-2026-10-18.md)
+- 2026-10-05 to 10-18: [`P21 source amendments`](history/p21-source-amendments-2026-10-05.md),
+  [`P22 round-4 rehearsals`](history/p22-round4-rehearsals.md),
+  [`P22 lifecycle brief`](history/p22-lifecycle-brief-2026-10-10.md) (formerly `P22-BRIEF.md`),
+  [`retired PIT restore identities`](history/retired-pit-restore-2026-10-18.md)
 
 ## Generated reports
 
@@ -241,4 +242,3 @@ automatically.
 
 <!-- sources: docs/plans/README.md, docs/product.md, docs/scope.md -->
 
-- [`Operational source amendments`](history/p21-source-amendments-2026-10-05.md) — P21 registered source changes and unchanged evidence/activation boundaries.
