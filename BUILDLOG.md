@@ -4144,4 +4144,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +31, server +102, tests +80 lines (net).
 - **Next:** the remaining nightly stages in this lane (snapshot publish, collect, actions, earnings).
 
+## 2026-10-21 — Append price observations with multi-row inserts (P24 nightly-speed)
+
+- **Why:** P24 nightly-speed. The nightly `collect` stage (median 158 s, before screen and league) spends about 1.7 s per 200-name batch in `upsert_prices`, 1.0 s of it appending replacement predecessors one `executemany` row at a time.
+- **What:** `append_price_observations` inserts through a new `db.insert_values`, which binds up to 500 rows per multi-row VALUES statement. Rows, values and order are unchanged.
+- **Evidence:** store-copy replay of the upsert path (newest session deleted, then the last five sessions of 4,058 liquid names re-upserted in 21 batches): 26.25 s before, 16.02 s after; `prices` hashes identical and `price_observation_rejects` identical as a multiset apart from the random ids and the wall-clock `recorded_at` (16,560 rows). New test compares `insert_values` with `executemany` over 1,203 rows.
+- **Metrics:** engine +13, tests +20 lines (net).
+- **Next:** earnings/actions pacing needs an orchestrator ruling on the Yahoo request rate.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -1019,10 +1019,19 @@ def append_price_observations(con, rows, *, reason: str, batch_id: str,
             timestamp("first_fetched_at"), now, reason, PRICE_VALIDATOR_VERSION,
             _observation_json(row),
         ])
-    con.executemany(
-        "INSERT INTO price_observation_rejects VALUES (" + ",".join(["?"] * 18) + ")",
-        values,
-    )
+    insert_values(con, "INSERT INTO price_observation_rejects VALUES", values, width=18)
+
+
+def insert_values(con, statement: str, rows: list[list], *, width: int,
+                  rows_per_statement: int = 500) -> None:
+    """Run ``statement`` with multi-row VALUES; ``executemany`` executes once per row."""
+    marks = "(" + ",".join("?" * width) + ")"
+    for first in range(0, len(rows), rows_per_statement):
+        part = rows[first:first + rows_per_statement]
+        if any(len(row) != width for row in part):
+            raise ValueError("insert row width does not match its statement")
+        con.execute(f"{statement} {','.join([marks] * len(part))}",
+                    [value for row in part for value in row])
 
 
 def _comparison_value(value):

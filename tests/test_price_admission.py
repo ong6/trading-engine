@@ -281,3 +281,22 @@ def test_invalid_exact_fetch_is_retained_and_never_reported_missing(con):
                                   history=lambda *_: raw, sleep=lambda _: None)
     assert receipt is None and len(parsed) == 1
     assert db.upsert_prices(con, parsed) == 0
+
+
+def test_insert_values_matches_executemany_across_statement_chunks():
+    import duckdb
+    rows = [[i, None if i % 3 else f"v{i}", float(i) / 7 if i % 2 else None,
+             date(2026, 10, 1) if i % 5 else None] for i in range(1203)]
+    stored = []
+    for multi in (False, True):
+        con = duckdb.connect()
+        con.execute("CREATE TABLE t (i INTEGER, s VARCHAR, x DOUBLE, d DATE)")
+        if multi:
+            db.insert_values(con, "INSERT INTO t VALUES", rows, width=4)
+        else:
+            con.executemany("INSERT INTO t VALUES (?,?,?,?)", rows)
+        stored.append(con.execute("SELECT * FROM t ORDER BY i").fetchall())
+        con.close()
+    assert stored[0] == stored[1] and len(stored[1]) == 1203
+    with pytest.raises(ValueError, match="width"):
+        db.insert_values(duckdb.connect(), "INSERT INTO t VALUES", [[1, 2]], width=4)
