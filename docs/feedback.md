@@ -799,3 +799,15 @@ Work inside its scope is admitted without a per-item reproduction, but every fix
 its evidence in BUILDLOG and every speed change proves identical outputs. The absolute rules in
 `AGENTS.md` are unchanged. → P24 plan, `docs/plans/README.md`.
 
+
+## 2026-10-22 — Make the goal and the current direction clear in every entry doc
+
+**Verdict.** "make sure the docs and everything context wise is clear and we know what we are
+building and the end goal and what we want."
+
+**Rule change.** Every agent entry doc states the goal and the current direction, consistent with
+`product.md`. One opening block, word for word, heads `AGENTS.md`, `README.md` and
+`docs/README.md` here and the private alpha repo's `AGENTS.md` and `README.md`; the end goal is
+stated once, in `product.md`'s north star, and other documents link to it instead of restating
+it. `product.md` lists "What the owner wants now" from this ledger, quoting the owner. →
+`AGENTS.md`, `README.md`, `docs/README.md`, `docs/product.md`.

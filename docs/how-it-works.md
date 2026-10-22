@@ -114,7 +114,7 @@ random delay, default one-minute accuracy and four-hour service timeout, that mo
 ends by 05:51, before the 06:00 weekly readers. The old 07:40 slot collided with readers that
 ran until 08:47 on October 11. Other history slices and late persistent catch-up runs still depend
 on the existing queue/lock behavior; schedule avoidance does not change reader or writer ownership.
-Install this timer change only with the post-v2 revision-15 deployment.
+This timer change was installed with revision 15 on 2026-10-21.
 
 The exact five required user-crontab entries above are managed by
 `tools.install_automation`. The auxiliary crontab entry remains outside the five
@@ -345,9 +345,10 @@ consistent copy of the live database. Verification and restore semantics are unc
 
 ## P15 activation record and recovery boundary
 
-P15 activated on 2026-09-29. Registration revision 15 adds accepted price admission, trusted-bar
-money paths, data-flow and operations corrections, rejected-bar/prospective board state and test
-runtime improvements on top of revision 14's P22 account runtime. From the migration `--d0`, books
+P15 activated on 2026-09-29. The current registration is revision 17 (2026-10-22): revision 15
+(installed 2026-10-21) added accepted price admission, trusted-bar money paths, data-flow and
+operations corrections, rejected-bar/prospective board state and test runtime improvements on top
+of revision 14's P22 account runtime, and revisions 16 and 17 bind the P24 merge batches. From the migration `--d0`, books
 pay `ibkr_pro_tiered_v1` commissions and restart their evaluation clocks; scoring, labels, gates,
 schedules and frozen valid-data outcomes are unchanged. The registered source units and three
 timers remain the deployment boundary. The original activation steps are not a procedure to

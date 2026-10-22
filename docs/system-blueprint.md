@@ -89,14 +89,14 @@ flowchart LR
 
 ## Layers: deployed, built-inert, later
 
-| Layer | Deployed (2026-09-29) | P16 built, inactive | Later |
+| Layer | Deployed (2026-10-22; engine v2 since 2026-10-18) | P16 built, inactive | Later |
 |---|---|---|---|
 | Data | EOD store, screens, earnings, headline titles, TradingView research data, the TradingView historical archive (P14); P15 RSS and 8-K event facts and intraday mover scan | Acceptance-timestamped filing capture and gated historical EDGAR/news corpus paths | Point-in-time data (P3; owner spend) |
-| Signals | Daily opportunity agent (P8) nightly pick; multi-cadence agent tools (P9) shadow observers; P15 candidate scoring, deterministic baseline, pre-open cancel, and shadow event triggers; P7 allocator (inactive) | Challenger lab (blinded, memory, tournament, ensemble, ablations) and filing reader | Promoted challengers and separately held strategies gain book authority only through their activation gates |
+| Signals | Daily opportunity agent (P8) nightly assessments (its v1 book retired 2026-10-21, so no orders); multi-cadence agent tools (P9) shadow observers; P15 candidate scoring, deterministic baseline, pre-open cancel, and shadow event triggers; P7 allocator (inactive) | Challenger lab (blinded, memory, tournament, ensemble, ablations) and filing reader | Promoted challengers and separately held strategies gain book authority only through their activation gates |
 | Evaluation | Ledger, 1/5/10/20 labels, contamination probes; P15 paired IC test with looks, book comparison, coded P8 gate | Factor-neutral IC, always-valid sequential tests, deflated Sharpe over the N=139 trial census, time-locked text lab, and post-cutoff replay lockbox | Stage gates computed from live fills |
 | Portfolio | P8 fixed-fraction sizing, 3 names; P15 ATR sizing, SPY core, 8 names; P22 independently funded account risk, margin/PDT, shorts and halts | Score-to-weight optimizer, recovery, and shadow diagnostics | Strategy-specific beta hedge after its own gate |
 | Execution | Next-open and limit-on-open legacy paths; P22 MOO/MOC/deferred intraday fills, effective-dated commissions and one replay ledger | Best-attempt opening measurement and slippage calibration | IBKR paper on personal hardware, then live |
-| Ops | Timers, recovery, metrics; P15 status and report | Isolated P16 status adapter and weekly operator digest | Failures investigated on demand by an agent; no push alerting |
+| Ops | Timers, recovery, metrics; P15 status and report; hourly ops digest with shadow snapshot invariants | Isolated P16 status adapter and weekly operator digest | Failures investigated on demand by an agent; no push alerting |
 
 ## Evaluation science (how "does it work?" gets answered)
 

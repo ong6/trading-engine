@@ -1,17 +1,19 @@
 # Documentation map
 
+- **What we are building:** a public, paper-only trading engine that collects market data, tests strategies and runs paper books, plus a separate private research programme that looks for strategies worth running on it, with AI deciding inside deterministic controls.
+- **End goal:** the [north star](https://github.com/ong6/trading-engine/blob/main/docs/product.md#north-star), "An engine that runs on its own and makes money, with AI in the decision loop" (owner, 2026-09-24).
+- **Live now (2026-10-22):** engine v2 runs 17 paper books, three frozen forward records and the AI profitability evidence loop, on paper only (no broker, no real capital); no strategy, public or private, has a proven edge yet.
+- **Working on now:** P24, the senior-quant review (pipeline fixes, speed, new pre-registered studies), then moving the private research onto its own engine paper account.
+
 Use this page to distinguish current operating truth from dated evidence. A date in a
 document filename or top-level title marks a snapshot: preserve it for provenance, but do
 not assume its counts, process state, or recommendations supersede the current guides. The
 central product document is the current decision ledger; the strategy backlog is only the
 deterministic research queue, and dates inside it label historical measurements.
 
-**Current state in one place (2026-10-22).** Engine v2 (P22) is live on paper since 2026-10-18
-(D0 2026-10-19) at registration revision 17; P24, the senior-quant review, is the active build
-plan, and its storage revision (18) is in rehearsal, not live. The dated summary of what is live,
-in flight and decided is [`product.md`](product.md) ("Where it stands"); plan status is
-[`plans/README.md`](plans/README.md); runtime truth is `GET /meta` and the generated reports.
-No strategy, public or private, has a proven edge.
+The dated summary of what is live, in flight and decided is [`product.md`](product.md) ("Where it
+stands"); plan status is [`plans/README.md`](plans/README.md); runtime truth is `GET /meta` and the
+generated reports.
 
 For the plain-language product guide, start with [`site/index.md`](site/index.md), then follow the
 ordered page contract in [`site/README.md`](site/README.md). Internal codes and research terms are

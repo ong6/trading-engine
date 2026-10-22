@@ -32,6 +32,25 @@ accounting, halts, and kill switches. That split is the product, not a temporary
 5. **Inside the drawdown envelope**: a policy that can lose most of the book fails regardless of
    its recent run.
 
+## What the owner wants now
+
+Built only from [`feedback.md`](feedback.md) entries, newest last, quoting the ledger verbatim. The
+end goal is the north star above. The owner's 2026-10-19 and 2026-10-20 directions (infrastructure
+and the change process) are not yet recorded in the ledger, so they are not listed here.
+
+- **2026-10-15, engine v2:** "we support the v2, I accept it." (Deployed 2026-10-18.)
+- **2026-10-15, delistings:** "A delisted holding is removed: closed out at its last real traded
+  close."
+- **2026-10-21, senior-quant review (P24):** the owner asked the orchestrator to "act as a senior
+  quant: spread many agents out to evaluate and fix the pipelines, improve speed (nightly
+  wall-clock, simulator and backtest core, test suite and research evaluators), make alpha
+  generation and the engine work properly, and send agents to find new strategies (SEC filings and
+  LLM text, microstructure and auction, cross-asset ETF, momentum, and a literature sweep)." "You
+  can do anything you want, as long as you feel it needs fixing; no need to ask me anything; you
+  can just push."
+- **2026-10-22, clear context:** "make sure the docs and everything context wise is clear and we
+  know what we are building and the end goal and what we want."
+
 ## Where it stands (2026-10-22)
 
 **No policy has yet beaten its frozen control prospectively.** Everything below is paper only: no
@@ -117,6 +136,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-22 | Every agent entry doc opens with one shared block stating what we are building, the end goal (linked to the north star), what is live and what we are working on; other docs link to it instead of restating the goal | feedback; `AGENTS.md`, `README.md`, `docs/README.md` |
 | 2026-10-21 | Senior-quant review (P24): spread agents to evaluate and fix the pipelines, improve speed, make alpha generation and the engine work properly, and find new strategies; "You can do anything you want, as long as you feel it needs fixing; no need to ask me anything; you can just push." | P24; feedback |
 | 2026-10-21 | Retire paper books with no after-cost edge; agents may retire a no-edge book themselves, recording the evidence. First batch: turtle_breakout, mr_overlay (+gated), daily_opportunity_agent_v1, low_vol, ew_trend_gated, template_top10_banded (+gated); `active = FALSE`, equity history and positions kept, one `portfolio_retired` audit row each | Strategy scorecard 2026-10-20; audit_log |
 | 2026-10-15 | A delisted holding is removed: closed out at its last real traded close | P22; feedback |

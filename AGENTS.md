@@ -1,5 +1,10 @@
 # Operating contract for agents
 
+- **What we are building:** a public, paper-only trading engine that collects market data, tests strategies and runs paper books, plus a separate private research programme that looks for strategies worth running on it, with AI deciding inside deterministic controls.
+- **End goal:** the [north star](https://github.com/ong6/trading-engine/blob/main/docs/product.md#north-star), "An engine that runs on its own and makes money, with AI in the decision loop" (owner, 2026-09-24).
+- **Live now (2026-10-22):** engine v2 runs 17 paper books, three frozen forward records and the AI profitability evidence loop, on paper only (no broker, no real capital); no strategy, public or private, has a proven edge yet.
+- **Working on now:** P24, the senior-quant review (pipeline fixes, speed, new pre-registered studies), then moving the private research onto its own engine paper account.
+
 This file governs any LLM session in this repository (Claude Code, Codex, or another agent).
 Read it in full before doing anything. It is short on purpose.
 
@@ -9,11 +14,11 @@ documents link here instead of restating the order.
 
 ## Mode: build toward a verdict
 
-The goal is `docs/product.md`'s north star: an engine that runs on its own and makes money with
-AI in the loop. Work inside an approved or active plan is BUILD work and runs until that plan's
-"Done when" holds. Outside a plan, a session verifies, fixes a reproduced defect, reports, and
-stops. The running producers and the calendar-bound deterministic records (E1, sector, XS) are
-never disturbed by either kind of session. Model credit cost is not a reason to stop or to cut
+The goal is the north star in `docs/product.md` (the end goal in the block above). Work inside
+an approved or active plan is BUILD work and runs until that plan's "Done when" holds. Outside
+a plan, a session verifies, fixes a reproduced defect, reports, and stops. The running producers
+and the calendar-bound deterministic records (E1, sector, XS) are never disturbed by either kind
+of session. Model credit cost is not a reason to stop or to cut
 corners (owner, 2026-09-25).
 
 ## Decisions: technical vs product

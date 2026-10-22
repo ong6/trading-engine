@@ -1,7 +1,9 @@
 # trading-engine
 
-A paper-only trading research engine with an AI agent in the decision loop, running unattended on
-one always-on Linux host. No broker, no real money, and no broker credentials.
+- **What we are building:** a public, paper-only trading engine that collects market data, tests strategies and runs paper books, plus a separate private research programme that looks for strategies worth running on it, with AI deciding inside deterministic controls.
+- **End goal:** the [north star](https://github.com/ong6/trading-engine/blob/main/docs/product.md#north-star), "An engine that runs on its own and makes money, with AI in the decision loop" (owner, 2026-09-24).
+- **Live now (2026-10-22):** engine v2 runs 17 paper books, three frozen forward records and the AI profitability evidence loop, on paper only (no broker, no real capital); no strategy, public or private, has a proven edge yet.
+- **Working on now:** P24, the senior-quant review (pipeline fixes, speed, new pre-registered studies), then moving the private research onto its own engine paper account.
 
 **Status (2026-10-22):** engine v2 (accounts and money, P22) has run the paper books since
 2026-10-18, with commissions and restarted evaluation clocks from D0 2026-10-19. The host runs
@@ -27,8 +29,8 @@ state comes from `GET /meta` and the generated reports, never from this dated su
   profitability gates. Registration revision 17 binds the P24 fixes (including the SEC
   acceptance clock that revived its SEC 8-K source) without changing scoring, labels, gates or
   schedules; evidence collection continues.
-- **North star:** [`docs/product.md`](docs/product.md) — an engine that runs on its own and
-  makes money net of trading and data cost, with AI choosing and deterministic code in control.
+- **What "makes money" means** (net of trading and data cost, against the right comparator,
+  prospectively): [`docs/product.md`](docs/product.md#north-star).
 - **Public engine, private strategies.** This repo is the open infrastructure plus the
   profitability evidence loop (P15) and challenger lab (P16) demo policies. New strategies,
   prompts, and research results are kept in a separate private
