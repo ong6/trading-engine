@@ -4597,4 +4597,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +440, tests +240.
 - **Next:** gate CI on content-only pushes with the same rule.
 
+## 2026-10-22 — Skip the full suite, checks and UI build for content-only pushes (P24 cicd)
+
+- **Why:** P24 test speed. Every main push, including the engine's automatic `data/` commits, ran eight full-suite shards, the checks job and the UI build.
+- **What:** a `changes` job runs `tools.affected_tests --ci-plan`: a push or pull request whose changes are all content (`data/**`, `docs/**` except `docs/**/*.py`) runs the `selected` job (contract tests, content readers and every test naming a changed file) in both timezones and skips `test`, `checks` and `ui-build`; anything else, a missing or unreachable base, the new daily schedule and manual runs run the full matrix as before. Documentation integrity reads every Markdown file under `data/` and `docs/` and is a contract test, so content that tests read still runs those tests. Hygiene has no condition. A `ci` job (`if: always()`) fails unless every job the plan required succeeded: one stable check for branch protection, since a skipped job counts as passed.
+  `tests/test_ci_workflow.py` parses the workflow and pins the path lists, the gates, the full matrix and the gate job; actionlint 1.7.12 with shellcheck 0.11.0 reports nothing.
+- **Evidence:** 17 of the 175 first-parent `main` commits since 2026-10-15 are content-only; for 1942c975 (screen, 16 files) the plan is `selected`, 51 test files, one shard per timezone. `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 31 passed.
+- **Metrics:** tools +90, tests +190.
+- **Next:** cache the virtualenv.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

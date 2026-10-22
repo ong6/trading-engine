@@ -1,9 +1,17 @@
 name: ci
 
+# Paths filter (tools/affected_tests.py, pinned by tests/test_ci_workflow.py): a push or
+# pull request that changes only content (data/**, docs/** except docs/**/*.py) runs the
+# selected tests (contract tests, content readers and every test naming a changed file)
+# in both timezones instead of the full suite, the checks job and the UI build. Hygiene
+# always runs. The daily schedule runs the full suite on main whatever changed.
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "37 5 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,7 +31,30 @@ jobs:
           PUBLIC_HYGIENE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           PUBLIC_HYGIENE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: PYTHONPATH="$GITHUB_WORKSPACE" python -m tools.public_hygiene --ci
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      tier: ${{ steps.plan.outputs.tier }}
+      scope: ${{ steps.plan.outputs.scope }}
+      base: ${{ steps.plan.outputs.base }}
+      timezones: ${{ steps.plan.outputs.timezones }}
+      shards: ${{ steps.plan.outputs.shards }}
+      shard_count: ${{ steps.plan.outputs.shard_count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python -m tools.affected_tests --ci-plan "$EVENT" --base "${BASE:-0}"
   test:
+    needs: changes
+    if: needs.changes.outputs.tier == 'full'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -50,7 +81,43 @@ jobs:
           cache-dependency-glob: "uv.lock"
       - run: uv sync --extra dev --frozen
       - run: .venv/bin/python -m pytest -q -W error -n auto --test-shards=4 --test-shard=${{ matrix.shard }}
+  selected:
+    needs: changes
+    if: needs.changes.outputs.tier == 'selected'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: ${{ fromJSON(needs.changes.outputs.timezones) }}
+        shard: ${{ fromJSON(needs.changes.outputs.shards) }}
+    env:
+      TZ: ${{ matrix.tz }}
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      BASE: ${{ needs.changes.outputs.base }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # registration tests read git history for the last registered change
+      - run: ln -sfn "$GITHUB_WORKSPACE" "$HOME/trading-engine"  # service units use %h/trading-engine
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.29"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv sync --extra dev --frozen
+      - name: Run the selected tests
+        run: |
+          .venv/bin/python -m tools.affected_tests --base "$BASE" --head HEAD --explain > "$RUNNER_TEMP/selected"
+          mapfile -t selected < "$RUNNER_TEMP/selected"
+          .venv/bin/python -m pytest -q -W error -n auto --test-shards=${{ needs.changes.outputs.shard_count }} --test-shard=${{ matrix.shard }} "${selected[@]}"
   checks:
+    needs: changes
+    if: needs.changes.outputs.scope == 'code'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -80,6 +147,8 @@ jobs:
       - run: find engine -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
       - run: bash -n server/run_server.sh ui/run_ui.sh
   ui-build:
+    needs: changes
+    if: needs.changes.outputs.scope == 'code'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -101,3 +170,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-next-${{ hashFiles('ui/package-lock.json') }}-
       - run: npm run build
+  # One stable check for branch protection: every job the plan required passed.
+  ci:
+    if: always()
+    needs: [hygiene, changes, test, selected, checks, ui-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: python -m tools.affected_tests --ci-verdict

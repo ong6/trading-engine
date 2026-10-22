@@ -1,0 +1,165 @@
+"""The CI workflow's structure and its paths filter (tools/affected_tests.py)."""
+from __future__ import annotations
+
+import re
+import subprocess
+from pathlib import Path
+
+import pytest
+import yaml
+
+from tests.test_documentation_integrity import DOCUMENTATION_TREES
+from tools import affected_tests as at
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+JOBS = WORKFLOW["jobs"]
+TRIGGERS = WORKFLOW[True]  # YAML 1.1 reads the bare key `on` as a boolean
+
+
+def _runs(job: str) -> str:
+    return "\n".join(step.get("run", "") for step in JOBS[job]["steps"])
+
+
+def test_paths_filter_lists_are_pinned():
+    assert at.CONTENT_PATHS == ("data/", "docs/")
+    assert at.CODE_SUFFIXES_IN_CONTENT == (".py",)
+    assert at.FULL_SUITE_PATHS == (
+        ".github/", "pyproject.toml", "tests/conftest.py", "tests/speed_plugin.py",
+        "tools/affected_tests.py", "uv.lock",
+    )
+    assert at.scope(["data/_meta.json", "docs/scope.md", "data/screens/latest.md"]) == "content"
+    assert at.scope(["docs/history/incident-tools-2026-09-02/repair_restatements.py"]) == "code"
+    assert at.scope(["docs/scope.md", "BUILDLOG.md"]) == "code"
+
+
+def test_content_that_tests_read_still_triggers_those_tests():
+    # Documentation integrity reads every Markdown file under data/ and docs/.
+    assert {"data", "docs"} <= set(DOCUMENTATION_TREES)
+    for name in ("tests/test_documentation_integrity.py", "tests/test_operating_contract.py"):
+        assert name in at.CONTRACT_TESTS and name in at.CONTENT_READERS
+    selection = at.select(["docs/scope-budget.json", "data/reports/league.md"])
+    assert selection["mode"] == "selected"
+    assert set(at.CONTRACT_TESTS) | set(at.CONTENT_READERS) <= set(selection["tests"])
+
+
+def test_triggers_cover_main_pull_requests_the_schedule_and_manual_runs():
+    assert TRIGGERS["push"]["branches"] == ["main"]
+    assert "pull_request" in TRIGGERS
+    assert re.fullmatch(r"\d+ \d+ \* \* \*", TRIGGERS["schedule"][0]["cron"])
+    assert "workflow_dispatch" in TRIGGERS
+    assert WORKFLOW["permissions"] == {"contents": "read"}
+
+
+def test_hygiene_always_runs_and_the_plan_gates_the_rest():
+    assert "if" not in JOBS["hygiene"] and "needs" not in JOBS["hygiene"]
+    assert "tools.public_hygiene --ci" in _runs("hygiene")
+    assert "--ci-plan" in _runs("changes")
+    assert JOBS["changes"]["steps"][0]["with"]["fetch-depth"] == 0
+    gates = {
+        "test": "needs.changes.outputs.tier == 'full'",
+        "selected": "needs.changes.outputs.tier == 'selected'",
+        "checks": "needs.changes.outputs.scope == 'code'",
+        "ui-build": "needs.changes.outputs.scope == 'code'",
+    }
+    for job, condition in gates.items():
+        assert JOBS[job]["needs"] == "changes"
+        assert JOBS[job]["if"] == condition
+
+
+def test_the_full_tier_runs_every_test_in_both_timezones():
+    matrix = JOBS["test"]["strategy"]["matrix"]
+    assert matrix == {"tz": ["UTC", "Asia/Singapore"], "shard": [0, 1, 2, 3]}
+    assert JOBS["test"]["strategy"]["fail-fast"] is False
+    command = next(line for line in _runs("test").splitlines() if "-m pytest" in line)
+    assert "--test-shards=4 --test-shard=${{ matrix.shard }}" in command
+    assert " -m " not in command.split("pytest", 1)[1] and " -k " not in command
+
+
+def test_the_selected_tier_runs_the_tools_selection():
+    assert "tools.affected_tests --base \"$BASE\" --head HEAD" in _runs("selected")
+    matrix = JOBS["selected"]["strategy"]["matrix"]
+    assert matrix["tz"] == "${{ fromJSON(needs.changes.outputs.timezones) }}"
+    assert matrix["shard"] == "${{ fromJSON(needs.changes.outputs.shards) }}"
+
+
+def test_one_gate_job_needs_every_job():
+    gate = JOBS["ci"]
+    assert gate["if"] == "always()"
+    assert set(gate["needs"]) == set(JOBS) - {"ci"}
+    assert "--ci-verdict" in _runs("ci")
+
+
+def test_actions_are_pinned_to_a_major_version():
+    for job in JOBS.values():
+        for step in job["steps"]:
+            if "uses" in step:
+                assert re.fullmatch(r"[\w-]+/[\w-]+(/[\w-]+)*@v\d+", step["uses"]), step["uses"]
+
+
+def _toy(root: Path, files: dict[str, str]) -> str:
+    """A repository with one commit, then ``files`` committed; returns the first commit."""
+    def git(*args):
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+
+    root.mkdir(parents=True, exist_ok=True)
+    git("init", "-q")
+    for name, text in {"engine/__init__.py": "", "tests/test_engine.py": "import engine\n",
+                       "docs/guide.md": "# Guide\n"}.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text)
+    commit = ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "c"]
+    git("add", ".")
+    git(*commit)
+    base = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True,
+                          capture_output=True, text=True).stdout.strip()
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text)
+    git("add", ".")
+    git(*commit)
+    return base
+
+
+def test_a_content_push_selects_and_a_code_push_runs_everything(tmp_path):
+    base = _toy(tmp_path / "content", {"docs/guide.md": "# Guide v2\n", "data/r.json": "{}\n"})
+    plan = at.ci_plan("push", base, root=tmp_path / "content")
+    assert (plan["tier"], plan["scope"], plan["timezones"]) == ("selected", "content",
+                                                                 ["UTC", "Asia/Singapore"])
+    assert plan["shard_count"] == len(plan["shards"]) >= 1
+    base = _toy(tmp_path / "code", {"engine/__init__.py": "VALUE = 1\n"})
+    assert at.ci_plan("push", base, root=tmp_path / "code")["tier"] == "full"
+
+
+@pytest.mark.parametrize(("event", "base"), [
+    ("schedule", "HEAD~1"), ("workflow_dispatch", "HEAD~1"), ("push", "0" * 40),
+    ("push", ""), ("push", "1234567"),
+])
+def test_no_usable_base_or_a_scheduled_run_is_full(tmp_path, event, base):
+    _toy(tmp_path, {"docs/guide.md": "# Guide v2\n"})
+    plan = at.ci_plan(event, base, root=tmp_path)
+    assert (plan["tier"], plan["shard_count"], plan["timezones"]) == (
+        "full", 4, ["UTC", "Asia/Singapore"])
+
+
+def _needs(tier="full", scope="code", **results):
+    jobs = dict.fromkeys(("hygiene", "changes", "test", "selected", "checks", "ui-build"),
+                         "skipped")
+    jobs.update(hygiene="success", changes="success")
+    jobs.update(results)
+    needs = {name: {"result": result, "outputs": {}} for name, result in jobs.items()}
+    needs["changes"]["outputs"] = {"tier": tier, "scope": scope}
+    return needs
+
+
+def test_the_gate_requires_what_the_plan_required():
+    assert at.ci_verdict(_needs(test="success", checks="success", **{"ui-build": "success"})) == []
+    assert at.ci_verdict(_needs("selected", "content", selected="success")) == []
+    assert at.ci_verdict(_needs(checks="success", **{"ui-build": "success"})) == ["test: skipped"]
+    assert at.ci_verdict(_needs("selected", "content", selected="failure")) == ["selected: failure"]
+    assert at.ci_verdict(_needs("selected", "content", selected="success", hygiene="failure")) == [
+        "hygiene: failure"]
+    broken = _needs(changes="failure")
+    assert at.ci_verdict(broken) == ["changes: failure"]
+    assert at.ci_verdict(_needs("selected", "content", selected="success", checks="cancelled")) == [
+        "checks: cancelled"]

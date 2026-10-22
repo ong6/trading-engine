@@ -32,6 +32,7 @@ import argparse
 import ast
 import fnmatch
 import json
+import math
 import os
 import re
 import subprocess
@@ -111,6 +112,13 @@ MAX_NAME_MATCHES = 8
 TOKEN = re.compile(r"[A-Za-z0-9_*][A-Za-z0-9_./*-]*")
 # A glob names files only with a literal extension: not ``*`` or a calendar (``*-*-*``).
 FILE_GLOB = re.compile(r"\.[A-Za-z0-9]+$")
+
+
+# CI (``--ci-plan``): summed recorded seconds of a selection per shard, four workers each.
+SHARD_SECONDS = 240.0
+FULL_SHARDS = 4
+UNKNOWN_FILE_SECONDS = 2.0
+BOTH_TIMEZONES = ["UTC", "Asia/Singapore"]
 
 
 def is_content(path: str) -> bool:
@@ -390,6 +398,73 @@ def select(changed: list[str], graph: Graph | None = None) -> dict:
     return {"mode": "selected", "tests": sorted(tests & graph.file_set), "reasons": reasons}
 
 
+def scope(changed: list[str]) -> str:
+    """The CI paths filter: ``content`` when every changed path is content, else ``code``."""
+    return "content" if all(is_content(path) for path in changed) else "code"
+
+
+def estimated_seconds(tests: list[str], root: Path = REPO_ROOT) -> float:
+    try:
+        recorded = json.loads((root / "tests" / "durations.json").read_text())["files"]
+    except (OSError, ValueError, KeyError):
+        recorded = {}
+    if not tests:
+        return SHARD_SECONDS * FULL_SHARDS
+    return sum(recorded.get(test, UNKNOWN_FILE_SECONDS) for test in tests)
+
+
+def ci_plan(event: str, base: str, *, root: Path = REPO_ROOT) -> dict:
+    """What the CI workflow runs for one event.
+
+    ``tier`` is ``full`` (every test in both timezones on four shards) or ``selected``
+    (``select`` on the changes since ``base``). A push or pull request that changes only
+    content (``scope`` ``content``) is ``selected`` and skips the checks job and the UI
+    build; code changes, the schedule, manual runs and a missing or unreachable base are
+    ``full``.
+    """
+    plan = {"tier": "full", "scope": "code", "base": base, "timezones": BOTH_TIMEZONES,
+            "shards": list(range(FULL_SHARDS)), "reasons": []}
+    changed = None
+    if event in {"schedule", "workflow_dispatch"} or not base.strip("0"):
+        plan["reasons"].append(f"{event}: full run")
+    else:
+        try:
+            changed = changed_files(base, "HEAD", root=root)
+        except subprocess.CalledProcessError:
+            plan["reasons"].append(f"base {base} is not reachable: full run")
+    if changed is not None:
+        plan["scope"] = scope(changed)
+        plan["reasons"].append(f"{len(changed)} changed files, scope {plan['scope']}")
+    if plan["scope"] == "content":
+        selection = select(changed, Graph(root))
+        plan["reasons"] += selection["reasons"]
+        if selection["mode"] == "selected":
+            seconds = estimated_seconds(selection["tests"], root)
+            plan["tier"] = "selected"
+            plan["shards"] = list(range(min(FULL_SHARDS, max(1, math.ceil(seconds / SHARD_SECONDS)))))
+    return plan | {"shard_count": len(plan["shards"])}
+
+
+def ci_verdict(needs: dict) -> list[str]:
+    """Problems with the jobs one plan required; empty when the run passed.
+
+    ``needs`` is the workflow's ``needs`` context. A job the plan required must succeed:
+    hygiene and the plan always, the tier's test job, and for code the checks and UI build.
+    """
+    plan = needs.get("changes", {})
+    outputs = plan.get("outputs") or {}
+    required = {"hygiene", "changes"}
+    if plan.get("result") == "success":
+        required.add("test" if outputs.get("tier") == "full" else "selected")
+        if outputs.get("scope") == "code":
+            required |= {"checks", "ui-build"}
+    problems = [f"{name}: {needs.get(name, {}).get('result', 'missing')}"
+                for name in sorted(required) if needs.get(name, {}).get("result") != "success"]
+    problems += [f"{name}: {job.get('result')}" for name, job in sorted(needs.items())
+                 if name not in required and job.get("result") not in {"success", "skipped"}]
+    return problems
+
+
 def content_readers(record: dict[str, list[str]]) -> list[str]:
     """Test files a ``--record-reads`` record shows reading content."""
     return sorted(
@@ -408,7 +483,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workers", default="8", help="pytest-xdist workers for --run")
     parser.add_argument("--content-readers", metavar="RECORD",
                         help="print the content readers in a --record-reads record and exit")
+    parser.add_argument("--ci-plan", metavar="EVENT",
+                        help="write the CI plan for this GitHub event to $GITHUB_OUTPUT")
+    parser.add_argument("--ci-verdict", action="store_true",
+                        help="fail unless the jobs in $CI_NEEDS that the plan required passed")
     args = parser.parse_args(argv)
+    if args.ci_plan:
+        plan = ci_plan(args.ci_plan, args.base)
+        lines = [f"{key}={json.dumps(value) if isinstance(value, list) else value}"
+                 for key, value in plan.items() if key != "reasons"]
+        print("\n".join([*plan["reasons"], *lines]))
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as handle:
+                handle.write("\n".join(lines) + "\n")
+        return 0
+    if args.ci_verdict:
+        problems = ci_verdict(json.loads(os.environ["CI_NEEDS"]))
+        print("\n".join(problems) or "every required job passed")
+        return 1 if problems else 0
     if args.content_readers:
         print("\n".join(content_readers(json.loads(Path(args.content_readers).read_text()))))
         return 0
