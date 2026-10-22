@@ -44,7 +44,7 @@ LEGACY_PORTFOLIO_DEFAULTS = {"initial_cash": 39_000.0, "execution_profile": "bas
 
 # The runtime initializers that create the baseline in a fresh store. They are not called by
 # this migration; CI runs them to prove they still reproduce the frozen catalog below, and
-# tests/test_baseline_table_coverage.py proves every CREATE TABLE in the code is owned here.
+# tests/test_baseline_table_coverage.py proves every table the code creates is owned here.
 BOOTSTRAP_CALLS = (
     ("engine.lib.db", "init_schema"),
     ("engine.lib.db", "init_queue_schema"),
