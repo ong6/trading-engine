@@ -4480,4 +4480,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs only.
 - **Next:** storage fixes and re-review.
 
+## 2026-10-22 — Read installed timer calendars in systemd's order and spelling (P24 reliability-ops)
+
+- **Why:** P24 reliability-ops. Every hourly digest since the job registry landed is FAIL on four "job registry config error: installed-timer-schedule-mismatch" lines (accounts-settle, four-hour opportunity, P15 events, TradingView history). Reproduction: `systemctl --user show trading-engine-p15-events.timer -p TimersCalendar` lists the 09:35 calendar after the 10..15 one and spells `10..15:05,20,35,50:00`; the audit compared that string with the registry's source-order `"; "` join.
+- **What:** `ops_digest.registry_schedule_audit` compares each timer's calendars as a set, with an omitted seconds field read as `:00`. A different calendar still reports the mismatch.
+- **Evidence:** on the host, `registry_schedule_audit` returns the four mismatches on main and `[]` on this branch; new `test_registry_schedule_audit_reads_systemds_calendar_order_and_seconds` passes and the 08:05-vs-09:05 mismatch test still fails the calendar.
+- **Metrics:** tools +18, tests +27.
+- **Next:** declare the minute capture and host-local units in the schedule contract.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

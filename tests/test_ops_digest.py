@@ -733,6 +733,31 @@ def test_registry_schedule_audit_compares_an_installed_timer_calendar():
     ]
 
 
+def test_registry_schedule_audit_reads_systemds_calendar_order_and_seconds():
+    # systemd 241 lists a timer's calendars newest-first and spells out ":00" seconds.
+    shown = {
+        "trading-engine-p15-events": "Mon..Fri *-*-* 10..15:05,20,35,50:00 America/New_York",
+        "trading-engine-accounts-settle": "Tue..Sat *-*-* 11:55:00 UTC",
+    }
+    later = {
+        "trading-engine-p15-events": "Mon..Fri *-*-* 09:35,50:00 America/New_York",
+        "trading-engine-accounts-settle": "Tue..Sat *-*-* 07:45:00 UTC",
+    }
+
+    def run(args, _timeout):
+        if args[:3] == ["systemctl", "--user", "list-timers"]:
+            return "".join(f"x {name}.timer {name}.service\n" for name in shown)
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return "\n\n".join(
+                f"Unit={name}.service\nTimersCalendar={{ OnCalendar={shown[name]} ; "
+                f"next_elapse=x }}\nTimersCalendar={{ OnCalendar={later[name]} ; "
+                f"next_elapse=y }}\nAccuracyUSec=1min\nRandomizedDelayUSec=0"
+                for name in shown) + "\n"
+        return ""
+
+    assert ops_digest.registry_schedule_audit(run) == []
+
+
 def test_fourteen_day_schedule_change_short_journal_and_dated_receipts(tmp_path):
     start = datetime(2026, 10, 3, tzinfo=UTC)
     end = start + timedelta(days=14)

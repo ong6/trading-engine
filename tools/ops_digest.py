@@ -1529,6 +1529,22 @@ def cron_schedules(run: Runner) -> list[Schedule]:
     return schedules
 
 
+def _timer_spec_key(spec: str) -> frozenset[str]:
+    """One timer's calendars as systemd reports them: any order, seconds ``:00`` explicit.
+
+    systemd 241 lists several ``OnCalendar`` values newest-first and adds the seconds field,
+    so ``10..15:05,20 X`` in a unit file reads back as ``10..15:05,20:00 X``.
+    """
+    calendars = spec.removeprefix("timer ").split("; ")
+    normalized = set()
+    for calendar in calendars:
+        tokens = calendar.split()
+        tokens = [token + ":00" if ":" in token and token.count(":") == 1 else token
+                  for token in tokens]
+        normalized.add(" ".join(tokens))
+    return frozenset(normalized)
+
+
 def registry_schedule_audit(run: Runner, repo_root: Path = REPO_ROOT) -> list[str]:
     """Report installed public-engine schedules absent from the audit-only registry."""
     try:
@@ -1561,7 +1577,8 @@ def registry_schedule_audit(run: Runner, repo_root: Path = REPO_ROOT) -> list[st
         )
         if public and unit not in registered_units:
             errors.append(f"undocumented-installed-timer:{unit}")
-        elif public and schedule.spec != registered_timer_specs[unit]:
+        elif public and _timer_spec_key(schedule.spec) != _timer_spec_key(
+                registered_timer_specs[unit]):
             errors.append(f"installed-timer-schedule-mismatch:{unit}")
     for schedule in cron_schedules(run):
         name = (schedule.driver or schedule.job).replace("_", "-")
