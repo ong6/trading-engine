@@ -4227,4 +4227,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +60 lines.
 - **Next:** store-copy rehearsal.
 
+## 2026-10-22 — Refresh the storage revision on main after merge batches 1 and integrity-2
+
+- **Why:** main took registration revision 16 (batch 1) and the integrity-2 merge; the storage work is now numbered revision 18.
+- **What:** `p24/r16` merges the refreshed `p24/integrate-wave1` (no conflicts). One adaptation: main's new split-reconciler test (`test_break_at_ex_but_history_fetched_after_ex_is_skipped`) sets only `fetched_at`, while the storage revision's fixtures stamp `first_fetched_at`, which the reconciler judges first; the fixture now stamps both.
+- **Evidence:** storage, snapshot, backup, migration, server, raw, install, scheduler, catalogue, invariant and P22 tests pass except `test_late_recovery_keeps_cash_delisting` (blocker B2); the 10 pin-test files have 104 failures, all runtime-contract or registration hash cascades from the seven pinned files this revision changes.
+- **Metrics:** tests +4 lines.
+- **Next:** store-copy rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
