@@ -132,3 +132,62 @@ def test_a_reused_parse_hands_out_independent_copies(monkeypatch):
         second = provider._facts(b"{}", "AAA", "AAA")
     assert second == [{"dataset": "daily_price", "value": {"close": 1.0}}]
     assert len(parsed) == 1
+
+
+def test_a_with_that_writes_is_executed_every_time(raw):
+    raw.con.execute("CREATE TABLE log (k INTEGER)")
+    with request_memo.scope():
+        con = request_memo.connection(raw)
+        for _ in range(3):
+            con.execute("WITH s AS (SELECT 1 AS k) INSERT INTO log SELECT k FROM s").fetchall()
+    assert raw.con.execute("SELECT COUNT(*) FROM log").fetchone() == (3,)
+
+
+def test_executemany_through_the_proxy_clears_the_reuse():
+    raw = duckdb.connect()
+    raw.execute("CREATE TABLE t (k INTEGER)")
+    with request_memo.scope():
+        con = request_memo.connection(raw)
+        assert con.execute("SELECT COUNT(*) FROM t").fetchone() == (0,)
+        con.executemany("INSERT INTO t VALUES (?)", [[1], [2]])
+        assert con.execute("SELECT COUNT(*) FROM t").fetchone() == (2,)
+    raw.close()
+
+
+def test_register_through_the_proxy_clears_the_reuse():
+    import pandas as pd
+
+    raw = duckdb.connect()
+    with request_memo.scope():
+        con = request_memo.connection(raw)
+        con.register("frame", pd.DataFrame({"k": [1]}))
+        assert con.execute("SELECT COUNT(*) FROM frame").fetchone() == (1,)
+        con.register("frame", pd.DataFrame({"k": [1, 2]}))
+        assert con.execute("SELECT COUNT(*) FROM frame").fetchone() == (2,)
+    raw.close()
+
+
+def test_list_and_struct_cells_are_handed_out_as_fresh_copies():
+    raw = duckdb.connect()
+    with request_memo.scope():
+        con = request_memo.connection(raw)
+        query = "SELECT [1, 2] AS l, {'a': 1} AS s"
+        first = con.execute(query).fetchall()
+        first[0][0].append(99)
+        first[0][1]["a"] = 5
+        again = con.execute(query).fetchall()
+        again[0][0].append(98)
+        assert con.execute(query).fetchall() == [([1, 2], {"a": 1})]
+    raw.close()
+
+
+def test_large_results_are_read_through_and_not_kept(raw, monkeypatch):
+    monkeypatch.setattr(request_memo, "MAX_KEPT_ROWS", 2)
+    with request_memo.scope():
+        con = request_memo.connection(raw)
+        for _ in range(2):
+            assert len(con.execute("SELECT k FROM t").fetchall()) == 3
+        for _ in range(2):
+            assert len(con.execute("SELECT k FROM t WHERE k < 3").fetchall()) == 2
+    assert raw.statements.count("SELECT k FROM t") == 2
+    assert raw.statements.count("SELECT k FROM t WHERE k < 3") == 1

@@ -1539,17 +1539,22 @@ def _cache_value_sha256(
 def _daily_price_cache_rows(
     con: duckdb.DuckDBPyConnection, keys: list[tuple[str, date]],
 ) -> dict[tuple[str, date], list[tuple]]:
-    """Every cache row of the given (ticker, date) keys, in one query."""
+    """Every cache row of the given (ticker, date) keys, one query per ticker.
+
+    A single join over all keys scans the whole price table and holds about 0.5 GB; one
+    filtered read per ticker stays as small as the point lookups it replaces.
+    """
     rows: dict[tuple[str, date], list[tuple]] = {}
-    if not keys:
-        return rows
-    for row in con.execute(
-        "SELECT p.ticker, p.date, p.open, p.high, p.low, p.close, p.volume, p.source "
-        "FROM prices p JOIN (SELECT UNNEST(?::VARCHAR[]) AS ticker, "
-        "UNNEST(?::DATE[]) AS date) k ON p.ticker = k.ticker AND p.date = k.date",
-        [[key[0] for key in keys], [key[1] for key in keys]],
-    ).fetchall():
-        rows.setdefault((row[0], row[1]), []).append(row)
+    by_ticker: dict[str, list[date]] = {}
+    for ticker, fact_date in keys:
+        by_ticker.setdefault(ticker, []).append(fact_date)
+    for ticker, dates in sorted(by_ticker.items()):
+        for row in con.execute(
+            "SELECT ticker, date, open, high, low, close, volume, source FROM prices "
+            "WHERE ticker = ? AND date BETWEEN ? AND ? AND list_contains(?::DATE[], date)",
+            [ticker, min(dates), max(dates), sorted(dates)],
+        ).fetchall():
+            rows.setdefault((row[0], row[1]), []).append(row)
     return rows
 
 

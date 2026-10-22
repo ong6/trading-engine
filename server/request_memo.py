@@ -5,10 +5,14 @@ same parameters many times (one calendar or table-existence probe per label) and
 the same stored provider body once per observation that cites it. Inside ``scope()``:
 
 - ``connection(con)`` returns a proxy whose identical SELECTs, with identical
-  parameters, are answered from the first answer. Only plain SELECT/WITH statements
-  without volatile functions are reused, and any other statement clears the reuse. The
-  read models hold one read-only connection for the whole projection, and DuckDB's file
-  lock keeps every writer out while it is open, so a repeated read cannot differ.
+  parameters, are answered from an earlier answer. Only pure reads are reused: a
+  SELECT/WITH without data-changing or session keywords and without volatile functions.
+  Any other statement, and any other call through the proxy (``executemany``,
+  ``register``, ...), clears the reuse. A result is kept only up to ``MAX_KEPT_ROWS``
+  rows, so large one-off reads are not held, and rows holding lists or maps are handed
+  out as fresh copies. The read models hold one read-only
+  connection for the whole projection, and DuckDB's file lock keeps every writer out
+  while it is open, so a repeated read cannot differ.
 - ``reuse(namespace, key, compute)`` returns a pure parse result computed once per key.
   A raising computation is never kept, so a failure is raised again every time.
 
@@ -17,6 +21,7 @@ Nothing is kept between requests; outside ``scope()`` both helpers compute direc
 
 from __future__ import annotations
 
+import copy
 import re
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -30,6 +35,15 @@ _VOLATILE = re.compile(
     r"current_time|get_current_timestamp|setseed|today)\b",
     re.IGNORECASE,
 )
+# A WITH can carry INSERT/UPDATE/DELETE; anything naming a write or session change is not
+# a pure read (an identifier that merely looks like one only costs the reuse).
+_NOT_PURE = re.compile(
+    r"\b(insert|update|delete|merge|upsert|copy|create|drop|alter|attach|detach|pragma|set|"
+    r"reset|call|export|import|install|load|vacuum|checkpoint|truncate|begin|commit|"
+    r"rollback|use)\b",
+    re.IGNORECASE,
+)
+MAX_KEPT_ROWS = 10_000
 _MISSING = object()
 
 
@@ -67,6 +81,15 @@ def _frozen(value: object) -> object:
     return (type(value).__name__, value)
 
 
+def _pure_read(sql: object) -> bool:
+    return (isinstance(sql, str) and bool(_READ.match(sql)) and not _VOLATILE.search(sql)
+            and not _NOT_PURE.search(sql))
+
+
+def _mutable(rows: list) -> bool:
+    return any(isinstance(cell, (list, dict, set, bytearray)) for row in rows for cell in row)
+
+
 class _Result:
     """One statement's rows: replayed from the memo, or read through and then kept."""
 
@@ -75,7 +98,9 @@ class _Result:
         self._raw, self._sql, self._params = raw, sql, params
         self._store = store
         if cached is not None:
-            self.description, rows = cached
+            self.description, rows, mutable = cached
+            # Lists and maps are handed out fresh so a caller's change never leaks.
+            rows = copy.deepcopy(rows) if mutable else rows
             self._rows, self._index, self._live = rows, 0, None
         else:
             self._live = raw.execute(sql, *params)
@@ -83,9 +108,10 @@ class _Result:
             self._rows, self._index = [], 0
 
     def _keep(self, rows: list) -> None:
-        if self._store is not None:
-            self._store((self.description, rows))
-            self._store = None
+        if self._store is not None and len(rows) <= MAX_KEPT_ROWS:
+            mutable = _mutable(rows)
+            self._store((self.description, copy.deepcopy(rows) if mutable else rows, mutable))
+        self._store = None
 
     def fetchall(self) -> list:
         if self._live is None:
@@ -154,15 +180,17 @@ class _ReusingConnection:
             return self._last
         params = args
         key = None
-        if isinstance(sql, str) and _READ.match(sql) and not _VOLATILE.search(sql):
+        if _pure_read(sql):
             try:
                 key = ("sql", sql, _frozen(params))
             except TypeError:
                 key = None
-        else:
+        if key is None:
             self._clear()
-        cached = None if key is None else self._memo.get(key)
-        store = None if key is None or cached is not None else (
+            self._last = _Result(self._raw, sql, params, None, None)
+            return self._last
+        cached = self._memo.get(key)
+        store = None if cached is not None else (
             lambda value, key=key: self._memo.__setitem__(key, value))
         self._last = _Result(self._raw, sql, params, cached, store)
         return self._last
@@ -185,6 +213,9 @@ class _ReusingConnection:
         return self._last.description
 
     def __getattr__(self, name: str):
+        # executemany, register, sql and the rest bypass the memo and may change what a
+        # later read sees, so they clear it.
+        self._clear()
         return getattr(self._raw, name)
 
 

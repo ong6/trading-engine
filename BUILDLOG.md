@@ -4497,6 +4497,7 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** new `test_scheduler_degrades_when_the_latest_backup_run_was_skipped_or_failed[retry|failed]` fails on main (status `ok`) and passes; `node --test ui/tests/header-status.test.mjs` passes with the new case.
 - **Metrics:** server +6, ui +7, tests +45.
 - **Next:** the backup script should record `retry` when another backup holds its lock (it exits 75 without a receipt today); that file lives in the data repository.
+
 ## 2026-10-22 — Answer /daily-opportunities/status in 3 s instead of 45 s (P24 reliability-ops)
 
 - **Why:** P24 reliability-ops item 6. On a 2026-10-22 store copy `daily_opportunity_read_models.status` took 43-48 s, all of it an N+1 in the common-entry label revalidation it embeds (`agent_evaluation.status`): 1,391 labels each re-read the SPY calendar, SPY bars and table existence (41 distinct SPY windows, 14 distinct tables) plus their own bars (204 distinct). A read-only API request holding the store that long also blocks writers.
@@ -4512,5 +4513,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `project(con)` on a read-only copy, clock frozen and the gateway status stubbed, timed in-process: 6.93 s before, 2.38 s after, response SHA-256 `437021bb…027569` before and after; `pytest tests/test_request_memo.py tests/test_p7_trial_status.py tests/test_agent_provider_responses.py tests/test_agent_independent_price_evidence.py tests/test_agent_authority_read_models.py tests/test_server_routes.py` pass.
 - **Metrics:** server +60, tests +50.
 - **Next:** nothing admitted beyond the P24 reliability-ops items.
+
+## 2026-10-22 — Reuse only pure reads in status requests and keep the paper-trial read small (P24 reliability-ops)
+
+- **Why:** review of the two status speed-ups (T2, F4). Reproduced on the request memo: a second identical `WITH … INSERT` was answered from memory and never ran; `executemany()` and `register()` passed through without clearing, so the next read was stale; LIST/STRUCT cells were shared, so a caller's change leaked into later reads. `/paper-trial/status` peak RSS rose from 444 MB to 924 MB: the one-join cache read scanned the whole `prices` table.
+- **What:** the memo reuses only SELECT/WITH statements that name no write, session or volatile keyword; any other statement or proxy call clears it; results over 10,000 rows are not kept; rows with lists or maps are kept and handed out as copies. The cache rows are read with one filtered query per ticker instead of one join.
+- **Evidence:** `pytest tests/test_request_memo.py`: the five new cases fail on the previous memo and pass. Store copy, clock frozen: `/paper-trial/status` 2.0 s, 440 MB (main 6.7 s, 444 MB), digest `437021bb…` unchanged; `/daily-opportunities/status` 2.8 s, digest `66fd7a7b…` unchanged.
+- **Metrics:** server +45, tests +70.
+- **Next:** `agent_provider_responses.py` and `agent_independent_price_evidence.py` are fault-drill sources: on this branch the suite identity is `f3ee735f` (main `fb4699a9`), so rerun the fault drills after deploy.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
