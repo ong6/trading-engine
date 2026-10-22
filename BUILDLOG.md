@@ -4679,4 +4679,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools and farm 11 lines; CI 1 line.
 - **Next:** confirm main CI green on GitHub.
 
+## 2026-10-22 — Mark the P16 calibration-store mutation test slow (P24 ci-green)
+
+- **Why:** CI `test` shard 0 fails on main in both timezones under `--duration-budget=15`. Reproduction in a fresh clone (shard 0 of 4, `-n 2`, budget 15): "1 test(s) over the 15 s budget without @pytest.mark.slow: 16.6 s tests/test_p16_book_store.py::test_calibration_store_recomputes_selection_cases_and_cost_evidence"; serially it takes 16.5 s alone.
+- **What:** the test records one calibration and then recomputes six mutated ones; its recorded 8.4 s came from a full run whose other tests had already filled the calibration memo. It is over the 5 s mark line on its own merit, so it carries `@pytest.mark.slow`. The budget and the test body are unchanged.
+- **Evidence:** the same shard-0 run then reports no test over the budget.
+- **Metrics:** tests +1.
+- **Next:** the `checks` job's `farm/research/tests` step.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
