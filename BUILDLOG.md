@@ -4631,4 +4631,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +75.
 - **Next:** the orchestrator makes `ci` the required check (see the lane report).
 
+## 2026-10-22 — Never cancel a main run, and plan main against its last fully green commit (P24 cicd)
+
+- **Why:** review F1 (high) and F5 of `p24/cicd`. A queued run replaces the pending run of its concurrency group even without `cancel-in-progress`: with A running, a code push B pending and a content push C, B was cancelled and C, planned from `event.before` = B, ran only the selected tests, so B's code never met the full suite. An empty or rewound range planned as content.
+- **What:** each `main` commit has its own concurrency group. The plan for a `main` push looks up the newest `main` run whose eight full `test` jobs all succeeded (`actions: read` on the plan job only) and compares with that commit; every path any commit since then changed counts, so a code change later reverted is still code. No lookup, no such run, a base that is not an ancestor of the head, or an empty range plans the full tier.
+- **Evidence:** `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 43 passed, among them A, B (code), C (content): from B the plan is `selected`, from A `full`; the revert, the empty range (push and pull request), the rewind, the lookup (a selected, a pull-request and a cancelled-shard run are skipped) and a failed lookup. actionlint clean.
+- **Metrics:** tools +60, tests +90.
+- **Next:** review F2: content read through a module.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

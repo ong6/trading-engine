@@ -51,7 +51,11 @@ def test_triggers_cover_main_pull_requests_the_schedule_and_manual_runs():
     assert re.fullmatch(r"\d+ \d+ \* \* \*", TRIGGERS["schedule"][0]["cron"])
     assert "workflow_dispatch" in TRIGGERS
     assert WORKFLOW["permissions"] == {"contents": "read"}
-    assert WORKFLOW["concurrency"]["cancel-in-progress"] == "${{ github.ref != 'refs/heads/main' }}"
+    concurrency = WORKFLOW["concurrency"]
+    assert concurrency["cancel-in-progress"] == "${{ github.ref != 'refs/heads/main' }}"
+    # each main commit has its own group: a queued main run never replaces a pending one
+    assert "github.ref == 'refs/heads/main' && github.sha" in concurrency["group"]
+    assert JOBS["changes"]["permissions"] == {"contents": "read", "actions": "read"}
 
 
 def test_hygiene_always_runs_and_the_plan_gates_the_rest():
@@ -129,27 +133,29 @@ def test_the_ui_build_skips_npm_ci_only_on_an_exact_node_modules_hit():
     assert npm_ci["if"] == "steps.modules.outputs.cache-hit != 'true'"
 
 
+def _commit(root: Path, files: dict[str, str | None]) -> str:
+    """Write (or with None delete) ``files``, commit them and return the commit."""
+    for name, text in files.items():
+        if text is None:
+            (root / name).unlink()
+            continue
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c",
+                    "user.email=t@example.invalid", "commit", "-qm", "c", "--allow-empty"],
+                   check=True, capture_output=True)
+    return subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+
 def _toy(root: Path, files: dict[str, str]) -> str:
     """A repository with one commit, then ``files`` committed; returns the first commit."""
-    def git(*args):
-        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
-
     root.mkdir(parents=True, exist_ok=True)
-    git("init", "-q")
-    for name, text in {"engine/__init__.py": "", "tests/test_engine.py": "import engine\n",
-                       "docs/guide.md": "# Guide\n"}.items():
-        (root / name).parent.mkdir(parents=True, exist_ok=True)
-        (root / name).write_text(text)
-    commit = ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "c"]
-    git("add", ".")
-    git(*commit)
-    base = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True,
-                          capture_output=True, text=True).stdout.strip()
-    for name, text in files.items():
-        (root / name).parent.mkdir(parents=True, exist_ok=True)
-        (root / name).write_text(text)
-    git("add", ".")
-    git(*commit)
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True, capture_output=True)
+    base = _commit(root, {"engine/__init__.py": "", "tests/test_engine.py": "import engine\n",
+                          "docs/guide.md": "# Guide\n"})
+    _commit(root, files)
     return base
 
 
@@ -184,6 +190,73 @@ def test_pull_requests_and_branches_run_the_fast_tier_in_one_timezone(tmp_path):
     plan = at.ci_plan("pull_request", base, "refs/pull/7/merge", root=tmp_path / "project")
     assert (plan["tier"], plan["timezones"], plan["shard_count"]) == ("selected", ["UTC"], 4)
     assert "full-suite path" in plan["reasons"][-1]
+
+
+def test_a_content_push_after_an_untested_code_push_still_runs_everything(tmp_path):
+    # A passed its full run; B (code) was cancelled, failed or skipped; C changes content.
+    a = _toy(tmp_path, {"docs/guide.md": "# Guide v2\n"})
+    b = _commit(tmp_path, {"engine/__init__.py": "VALUE = 1\n"})
+    _commit(tmp_path, {"data/r.json": "{}\n"})
+    assert at.ci_plan("push", b, root=tmp_path)["tier"] == "selected"  # what event.before gave
+    plan = at.ci_plan("push", a, root=tmp_path)  # the last fully green commit
+    assert (plan["tier"], plan["scope"]) == ("full", "code")
+
+
+def test_a_code_change_reverted_within_the_range_is_still_code(tmp_path):
+    base = _toy(tmp_path, {"engine/__init__.py": "VALUE = 1\n"})
+    _commit(tmp_path, {"engine/__init__.py": ""})
+    assert at.changed_files(base, "HEAD", root=tmp_path) == []
+    assert at.ci_plan("push", base, root=tmp_path)["tier"] == "full"
+
+
+def test_an_empty_range_or_a_rewind_is_full(tmp_path):
+    first = _toy(tmp_path, {"docs/guide.md": "# Guide v2\n"})
+    head = _commit(tmp_path, {})  # empty commit
+    for event, ref in (("push", at.MAIN_REF), ("pull_request", "refs/pull/7/merge")):
+        plan = at.ci_plan(event, head, ref, root=tmp_path)
+        assert (plan["tier"], plan["scope"]) == ("full", "code"), plan["reasons"]
+    subprocess.run(["git", "-C", str(tmp_path), "checkout", "-q", first], check=True)
+    plan = at.ci_plan("push", head, root=tmp_path)  # main moved back behind its base
+    assert plan["tier"] == "full" and "not an ancestor" in plan["reasons"][0]
+
+
+def test_the_last_full_success_needs_every_full_test_job_green(monkeypatch):
+    def job(name, conclusion="success"):
+        return {"name": name, "conclusion": conclusion}
+
+    full = [job(f"test ({tz}, {shard})") for tz in ("UTC", "Asia/Singapore") for shard in range(4)]
+    runs = {"workflow_runs": [
+        {"event": "push", "head_sha": "c1", "jobs_url": "j/selected"},
+        {"event": "pull_request", "head_sha": "c2", "jobs_url": "j/full"},
+        {"event": "push", "head_sha": "c3", "jobs_url": "j/red"},
+        {"event": "schedule", "head_sha": "c4", "jobs_url": "j/full"},
+    ]}
+    pages = {"j/selected": [job("selected (UTC, 0)")], "j/full": full,
+             "j/red": [*full[:-1], job("test (Asia/Singapore, 3)", "cancelled")]}
+
+    def fake(url, token):
+        assert token == "t"
+        return runs if "/workflows/ci.yml/runs?" in url else {"jobs": pages[url.split("?")[0]]}
+
+    monkeypatch.setattr(at, "github_json", fake)
+    assert at.last_full_success("o/r", "t") == "c4"
+    runs["workflow_runs"].pop()
+    assert at.last_full_success("o/r", "t") is None
+
+
+@pytest.mark.parametrize("lookup", [None, OSError("no network")])
+def test_main_without_a_fully_green_base_plans_the_full_tier(monkeypatch, tmp_path, lookup):
+    def last(*args):
+        if isinstance(lookup, Exception):
+            raise lookup
+        return lookup
+
+    monkeypatch.setattr(at, "last_full_success", last)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "out"))
+    assert at.main(["--ci-plan", "push", "--ref", at.MAIN_REF, "--base", "HEAD~1"]) == 0
+    assert "tier=full\n" in (tmp_path / "out").read_text()
 
 
 def _needs(tier="full", scope="code", **results):

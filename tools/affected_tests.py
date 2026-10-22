@@ -37,6 +37,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.request
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -415,16 +416,58 @@ def estimated_seconds(tests: list[str], root: Path = REPO_ROOT) -> float:
     return sum(recorded.get(test, UNKNOWN_FILE_SECONDS) for test in tests)
 
 
+def range_files(base: str, *, root: Path = REPO_ROOT) -> list[str]:
+    """Every path any commit in ``base..HEAD`` changed (each against its first parent),
+    plus the net difference: a code change later reverted still counts as code."""
+    names = set(changed_files(base, "HEAD", root=root))
+    for commit in git("rev-list", f"{base}..HEAD", root=root).split():
+        parent = git("rev-list", "--parents", "-n", "1", commit, root=root).split()[1:2]
+        args = ["diff", "--name-only", "--no-renames", parent[0], commit] if parent else [
+            "show", "--name-only", "--format=", commit]
+        names |= set(filter(None, git(*args, root=root).splitlines()))
+    return sorted(names)
+
+
+def github_json(url: str, token: str) -> dict:
+    request = urllib.request.Request(url, headers={
+        "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
+    })
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.load(response)
+
+
+def last_full_success(repository: str, token: str, api: str = "https://api.github.com") -> str | None:
+    """The head commit of the newest ``main`` run of this workflow whose full matrix (every
+    ``test`` job, both timezones, all shards) succeeded, or None."""
+    runs = github_json(f"{api}/repos/{repository}/actions/workflows/ci.yml/runs"
+                       "?branch=main&status=success&per_page=30", token)["workflow_runs"]
+    for run in runs:
+        if run["event"] not in {"push", "schedule", "workflow_dispatch"}:
+            continue
+        jobs = github_json(f"{run['jobs_url']}?per_page=100", token)["jobs"]
+        tests = [job for job in jobs if job["name"].startswith("test (")]
+        if len(tests) == FULL_SHARDS * len(BOTH_TIMEZONES) and all(
+                job["conclusion"] == "success" for job in tests):
+            return run["head_sha"]
+    return None
+
+
 def ci_plan(event: str, base: str, ref: str = MAIN_REF, *, root: Path = REPO_ROOT) -> dict:
     """What the CI workflow runs for one event.
 
     ``tier`` is ``full`` (every test in both timezones on four shards) or ``selected``
-    (``select`` on the changes since ``base``, sharded by recorded durations). A push to
-    ``main`` that changes code, the schedule, manual runs and a missing or unreachable base
-    are ``full``. A push to ``main`` that changes only content (``scope`` ``content``) is
-    ``selected`` in both timezones. Pull requests and pushes to other branches are the fast
-    tier: ``selected`` in one timezone (the full suite there when ``select`` falls back).
-    Content-only runs skip the checks job and the UI build.
+    (``select`` on the changes since ``base``, sharded by recorded durations).
+
+    - ``main``: ``base`` is the last commit whose full run succeeded (``last_full_success``),
+      so a push after a cancelled, failed or skipped full run is still compared with code
+      that passed. The push is ``selected`` in both timezones only when no commit since
+      then touched code (``range_files``); otherwise ``full``.
+    - Pull requests and other branches: the fast tier, ``selected`` in one timezone (the
+      full suite there when ``select`` falls back). It is feedback, not the gate: ``main``'s
+      full run in both timezones is.
+    - ``full`` also for the schedule, manual runs, a missing, unreachable or non-ancestor
+      ``main`` base, and an empty range. Content-only runs skip the checks job and the UI
+      build.
     """
     on_main = event == "push" and ref == MAIN_REF
     plan = {"tier": "full", "scope": "code", "base": base, "timezones": BOTH_TIMEZONES,
@@ -434,9 +477,14 @@ def ci_plan(event: str, base: str, ref: str = MAIN_REF, *, root: Path = REPO_ROO
         plan["reasons"].append(f"{event}: full run")
     else:
         try:
-            changed = changed_files(base, "HEAD", root=root)
+            if on_main:
+                git("merge-base", "--is-ancestor", base, "HEAD", root=root)
+            changed = range_files(base, root=root) if on_main else changed_files(base, "HEAD", root=root)
         except subprocess.CalledProcessError:
-            plan["reasons"].append(f"base {base} is not reachable: full run")
+            plan["reasons"].append(f"base {base} is not reachable or not an ancestor: full run")
+    if changed == []:
+        plan["reasons"].append("nothing changed since the base: full run")
+        changed = None
     if changed is not None:
         plan["scope"] = scope(changed)
         plan["reasons"].append(f"{len(changed)} changed files, scope {plan['scope']}")
@@ -499,7 +547,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="fail unless the jobs in $CI_NEEDS that the plan required passed")
     args = parser.parse_args(argv)
     if args.ci_plan:
-        plan = ci_plan(args.ci_plan, args.base, args.ref)
+        base = args.base
+        if args.ci_plan == "push" and args.ref == MAIN_REF:
+            try:  # fails closed: no lookup means no base, which plans the full tier
+                base = last_full_success(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"],
+                                         os.environ.get("GITHUB_API_URL", "https://api.github.com")) or ""
+            except (KeyError, OSError, ValueError) as error:
+                print(f"last full run lookup failed ({error!r}): full run")
+                base = ""
+        plan = ci_plan(args.ci_plan, base, args.ref)
         lines = [f"{key}={json.dumps(value) if isinstance(value, list) else value}"
                  for key, value in plan.items() if key != "reasons"]
         print("\n".join([*plan["reasons"], *lines]))

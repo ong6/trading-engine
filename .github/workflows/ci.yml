@@ -19,8 +19,10 @@ on:
 permissions:
   contents: read
 
-concurrency:  # a newer push to a branch or pull request supersedes its run; main never does
-  group: ci-${{ github.event_name }}-${{ github.ref }}
+# A newer push to a branch or pull request supersedes its run. Each main commit has a group
+# of its own, so no main run is ever cancelled or replaced while pending.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
@@ -45,6 +47,9 @@ jobs:
           PUBLIC_HYGIENE_BASE_SHA="$base" PYTHONPATH="$GITHUB_WORKSPACE" python -m tools.public_hygiene --ci
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read  # main plans against the last run whose full matrix succeeded
     outputs:
       tier: ${{ steps.plan.outputs.tier }}
       scope: ${{ steps.plan.outputs.scope }}
@@ -62,9 +67,10 @@ jobs:
       - id: plan
         env:
           EVENT: ${{ github.event_name }}
-          # main compares with the previous push, a pull request with its base, a branch
-          # with its merge base on main
-          BASE: ${{ github.event.pull_request.base.sha || (github.ref == 'refs/heads/main' && github.event.before) || 'origin/main' }}
+          # a pull request compares with its base, a branch with its merge base on main;
+          # main looks up its last fully green commit (no lookup: full run)
+          BASE: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: python -m tools.affected_tests --ci-plan "$EVENT" --base "${BASE:-0}" --ref "$GITHUB_REF"
   test:
     needs: changes
