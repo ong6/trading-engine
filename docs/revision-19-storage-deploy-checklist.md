@@ -50,6 +50,8 @@ Pinned files changed by the storage revision: `engine/lib/db.py` (P15 + E1/secto
    with producers quiesced: backup create ~9 min, verify ~3 min, migration ~6 min, first publication ~10-11 min of
    held producer locks (later publications reuse unchanged cold parts), plus the verify steps.
 5. A fresh verified off-host copy exists (trading-data backup current).
+6. Private consumers of `store/snapshots/market-latest.duckdb` that check the schema-1 manifest must be switched to
+   `pin_latest_generation` before deploy; they fail closed on a generation layout.
 
 ## Deploy (from the live checkout, after `git pull`; reuse the runbook helpers)
 
