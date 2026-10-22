@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import time
 from collections import Counter
 from contextlib import closing, contextmanager
 from functools import lru_cache
@@ -214,11 +215,61 @@ class _DurationRecorder:
         self.path.write_text(json.dumps(payload, indent=1) + "\n")
 
 
+_SHARED_SETUP = {"seconds": 0.0}
+_SHARED_BY_PHASE = pytest.StashKey[dict]()
+
+
+@contextmanager
+def _shared_setup():
+    """Count this process's time building or waiting for a run-wide shared entry."""
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        _SHARED_SETUP["seconds"] += time.perf_counter() - start
+
+
+def _phase_shared(item, when):
+    before = _SHARED_SETUP["seconds"]
+    try:
+        return (yield)
+    finally:
+        item.stash.setdefault(_SHARED_BY_PHASE, {})[when] = _SHARED_SETUP["seconds"] - before
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_setup(item):
+    return (yield from _phase_shared(item, "setup"))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
+    return (yield from _phase_shared(item, "call"))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_teardown(item):
+    return (yield from _phase_shared(item, "teardown"))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Carry the phase's shared-setup seconds to the controller (xdist keeps the attribute)."""
+    report = yield
+    shared = item.stash.get(_SHARED_BY_PHASE, {}).get(call.when, 0.0)
+    if shared:
+        report.shared_setup_seconds = round(shared, 6)
+    return report
+
+
 class _DurationBudget:
     """Controller side: a test over the budget must carry the ``slow`` marker.
 
     CI passes ``--duration-budget`` only on ``main``, where runner noise cannot block a
-    pull request; the test still runs and its own result stands.
+    pull request; the test still runs and its own result stands. Time spent building or
+    waiting for a run-wide shared entry (a P16 calibration memo, a closed template) is not
+    charged: whichever test reaches it first, or alongside, would otherwise carry the whole
+    build, so the charge would depend on scheduling. Recorded durations keep it.
     """
 
     def __init__(self, config):
@@ -227,7 +278,8 @@ class _DurationBudget:
         self.slow: set[str] = set()
 
     def pytest_runtest_logreport(self, report):
-        self.seconds[report.nodeid] += report.duration
+        self.seconds[report.nodeid] += report.duration - getattr(
+            report, "shared_setup_seconds", 0.0)
         if "slow" in report.keywords:
             self.slow.add(report.nodeid)
 
@@ -410,10 +462,12 @@ def p16_calibration_memo(request, tmp_path_factory):
         digest = hashlib.sha256(pickle.dumps(key, protocol=5)).hexdigest()
         path = root / f"{digest}.pickle"
         with (root / f"{digest}.lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            with _shared_setup():
+                fcntl.flock(lock, fcntl.LOCK_EX)
             try:
                 if not path.exists():
-                    result = original(cases, grid)
+                    with _shared_setup():
+                        result = original(cases, grid)
                     pending = root / f"{digest}.pending"
                     pending.write_bytes(pickle.dumps(result, protocol=5))
                     pending.replace(path)
@@ -462,7 +516,7 @@ def _shared_templates(request, tmp_path_factory, builders):
     paths = {}
     for name, build in builders.items():
         path = root / f"{name}.duckdb"
-        with (root / f"{name}.lock").open("a") as lock:
+        with (root / f"{name}.lock").open("a") as lock, _shared_setup():
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:
                 if not path.exists():

@@ -60,7 +60,6 @@ def test_contracts_use_full_registration_digest_and_remain_inactive():
     assert projection["execution_authority"] == "none"
 
 
-@pytest.mark.slow  # about 16 s alone: one calibration, then six mutated ones recomputed
 def test_calibration_store_recomputes_selection_cases_and_cost_evidence():
     source = duckdb.connect(":memory:")
     digest = record_p16_calibration(source, REGISTRATION, NOW)

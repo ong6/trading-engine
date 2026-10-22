@@ -307,6 +307,32 @@ def test_the_duration_budget_fails_only_tests_not_marked_slow(workers):
     assert run("--duration-budget=60").returncode == 0
 
 
+def test_the_duration_budget_does_not_charge_shared_setup(monkeypatch):
+    from types import SimpleNamespace
+
+    from _pytest.reports import TestReport
+
+    from tests import speed_plugin
+
+    clock = iter([10.0, 28.0])
+    monkeypatch.setattr(speed_plugin.time, "perf_counter", lambda: next(clock))
+    monkeypatch.setitem(speed_plugin._SHARED_SETUP, "seconds", 0.0)
+    with speed_plugin._shared_setup():  # e.g. waiting for another worker's calibration
+        pass
+    assert speed_plugin._SHARED_SETUP["seconds"] == 18.0
+
+    report = TestReport("t.py::waits", ("t.py", 0, "waits"), {}, "passed", None, "call", [],
+                        duration=20.0)
+    report.shared_setup_seconds = 18.0
+    report = TestReport._from_json(report._to_json())  # as xdist carries it to the controller
+    budget = speed_plugin._DurationBudget(
+        SimpleNamespace(getoption=lambda name: 15.0))
+    budget.pytest_runtest_logreport(report)
+    budget.pytest_runtest_logreport(TestReport(
+        "t.py::slow", ("t.py", 1, "slow"), {}, "passed", None, "call", [], duration=16.0))
+    assert budget.over_budget() == [("t.py::slow", 16.0)]
+
+
 def test_main_runs_the_budget_and_nothing_else_does():
     test_env = JOBS["test"]["env"]
     assert test_env["DURATION_BUDGET"] == "${{ github.ref == 'refs/heads/main' && '15' || '' }}"
