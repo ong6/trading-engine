@@ -597,10 +597,11 @@ def test_eight_generation_readers_do_not_contend_with_primary_writer(tmp_path, m
     root, source = _repo(tmp_path, cold=True)
     publish_snapshot.publish_snapshot(root, source, now=NOW)
     writer = duckdb.connect(str(source))
-    monkeypatch.setattr(engine_db.settings, "DEFAULT_DB", source)
+    from server import db as server_db  # the API's read path pins generations
+    monkeypatch.setattr(server_db, "DEFAULT_DB", source)
 
     def read_generation(_index):
-        with engine_db.connect(source, read_only=True, wait_s=0) as con:
+        with server_db.read_con() as con:
             return con.execute(
                 "SELECT COUNT(*), MIN(event_at) FROM bitemporal_facts"
             ).fetchone()

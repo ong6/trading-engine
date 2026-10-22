@@ -17,7 +17,7 @@ import re
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -265,11 +265,9 @@ class GuardedConnection:
         connection: duckdb.DuckDBPyConnection,
         *,
         versioned: bool,
-        generation_pin=None,
     ):
         self._connection = connection
         self._versioned = versioned
-        self._generation_pin = generation_pin
 
     def _object_exists(self, kind: str, name: str) -> bool:
         source = {"TABLE": "duckdb_tables()", "VIEW": "duckdb_views()",
@@ -516,12 +514,7 @@ class GuardedConnection:
         return self._connection.append(table_name, *args, **kwargs)
 
     def close(self) -> None:
-        try:
-            self._connection.close()
-        finally:
-            if self._generation_pin is not None:
-                self._generation_pin.close()
-                self._generation_pin = None
+        self._connection.close()
 
     def __enter__(self):
         return self
@@ -563,18 +556,8 @@ def connect(path: str | Path | None = None, *,
     After the window the original DuckDB exception is re-raised unchanged.
     """
     path = Path(path) if path is not None else settings.DEFAULT_DB
-    generation_pin = None
-    if (
-        read_only
-        and not _SCHEMA_CHANGE_AUTHORITY.get()
-        and path.absolute() == Path(settings.DEFAULT_DB).absolute()
-    ):
-        from engine.lib.snapshots import GenerationError, pin_latest_generation
-        try:
-            generation_pin = pin_latest_generation(path, max_age=timedelta(hours=24))
-        except GenerationError as exc:
-            raise DBBusyError(str(exc)) from exc
-        path = generation_pin.info.path
+    # Producers (engine/, farm/, sim/, tools/ and the server runners) always read the primary:
+    # only the API's request paths (server/db.py) pin published generations.
     if not read_only:
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -600,13 +583,8 @@ def connect(path: str | Path | None = None, *,
                 except schema_registry.SchemaIdentityError:
                     connection.close()
                     raise
-            return GuardedConnection(
-                connection, versioned=versioned, generation_pin=generation_pin,
-            )
+            return GuardedConnection(connection, versioned=versioned)
         except Exception as exc:  # duckdb.IOException et al.
-            if generation_pin is not None:
-                generation_pin.close()
-                raise
             if isinstance(exc, schema_registry.SchemaIdentityError):
                 raise SchemaMigrationRequired(str(exc)) from exc
             if not is_lock_error(exc) or attempt >= tries:

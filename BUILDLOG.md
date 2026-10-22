@@ -4591,4 +4591,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** registration 7 lines; tests 4 lines.
 - **Next:** the Sunday 2026-10-25 walk-forward is the first to include post-break fees; storage revision 20.
 
+## 2026-10-23 — Producers read the primary; only the API pins generations (storage review finding 1)
+
+- **Why:** storage review (REJECT), finding 1, reproduced: `engine.lib.db.connect` redirected every read-only open of the store to the latest generation, so `python -m engine.market_date` printed 2026-10-01 after the nightly wrote 2026-10-02 (screen and league would skip), and a queue child printed "no such job" for a job enqueued after the last publication.
+- **What:** the redirect is removed; engine/, farm/, sim/, tools/ and the server runners open the primary read-only exactly as on main. Only the API's request path (`server/db.read_con`) pins generations.
+- **Evidence:** `tests/test_producer_reads_primary.py` (the reviewer's two repros) fails with the redirect and passes without it.
+- **Metrics:** engine −20 lines (pinned engine/lib/db.py), tests +60 lines.
+- **Next:** API reads serve the newest generation and flag staleness instead of refusing.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
