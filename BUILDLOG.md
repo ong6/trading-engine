@@ -4743,4 +4743,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** orchestrator decides the budget headroom (proposal in the lane report).
 
+## 2026-10-22 — Give main's test-duration budget headroom over CI runner variance
+
+- **Why:** the `ci-green-3` measurements: on CI the slowest unmarked test reaches 8.7 s raw and runners are 2-4.7x slower per test than this host, so a 15 s budget sits at 1.7x headroom and fails on runner noise; a budget that flakes teaches everyone to ignore it.
+- **What:** main's `DURATION_BUDGET` is 25 s (about 3x the worst unmarked CI test, 5x the 5 s slow-mark line); `tests/test_ci_workflow.py` pins it. The slow marks and the shared-setup exclusion from `ci-green-3` are unchanged.
+- **Evidence:** full suites under both timezones with `--duration-budget=25`.
+- **Metrics:** CI 1 line; tests 1 line.
+- **Next:** confirm main CI green on GitHub.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

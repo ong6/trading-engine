@@ -335,6 +335,6 @@ def test_the_duration_budget_does_not_charge_shared_setup(monkeypatch):
 
 def test_main_runs_the_budget_and_nothing_else_does():
     test_env = JOBS["test"]["env"]
-    assert test_env["DURATION_BUDGET"] == "${{ github.ref == 'refs/heads/main' && '15' || '' }}"
+    assert test_env["DURATION_BUDGET"] == "${{ github.ref == 'refs/heads/main' && '25' || '' }}"
     assert '${DURATION_BUDGET:+--duration-budget=$DURATION_BUDGET}' in _runs("test")
     assert "duration-budget" not in _runs("selected")
