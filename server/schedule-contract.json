@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Every user unit, timer and cron line on the engine host, the live store files each may hold and when. Checked by tools.schedule_contract_check (--static in tests, --live hourly in the ops digest). Paths are relative to the live checkout (engine) or the home directory (home). Times are wall clock in the zone named; windows: schedule = each scheduled start plus window_minutes (default max_runtime + 5 min).",
+  "about": "Every user unit, timer and cron line on the engine host, the live store files each may hold and when. Checked by tools.schedule_contract_check (--static in tests, --live hourly in the ops digest). Paths are relative to the live checkout (engine) or the home directory (home). Times are wall clock in the zone named; windows: schedule = each scheduled start plus window_minutes (default max_runtime + 5 min). Host-local units this repository does not own (another project's timers) are declared in an optional owner-only overlay, ~/.config/trading-engine/schedule-contract.local.json, which may add external units only.",
   "lane_path_markers": ["/engine-lanes/", "/alpha-lanes/", "/.tae/", "/worktrees/"],
   "audited_databases": ["store/market.duckdb", "store/pit/*.duckdb"],
   "host_units": [
@@ -20,6 +20,11 @@
     {"unit": "trading-engine-ui.service", "origin": "repo", "source": "ui/trading-engine-ui.service",
      "state": "enabled", "activation": "boot", "max_runtime": null,
      "store": {"access": "none"}},
+    {"unit": "massive-minute-capture.service", "origin": "repo",
+     "source": "server/massive-minute-capture.service", "state": "enabled", "activation": "boot",
+     "max_runtime": "1d",
+     "store": {"access": "writer", "writes": ["store/pit/massive-minute.duckdb"],
+               "reads": ["store/pit/free-sources.duckdb"], "windows": "always"}},
 
     {"unit": "trading-engine-agent-data-capture.timer", "origin": "repo",
      "source": "server/trading-engine-agent-data-capture.timer", "state": "enabled",
@@ -178,14 +183,10 @@
     {"unit": "alpha.slice", "origin": "external", "managed_by": "operator", "state": "enabled",
      "activation": "slice", "max_runtime": null, "store": {"access": "none"}},
 
-    {"unit": "store-sync.timer", "origin": "external", "managed_by": "personal-data-store", "state": "enabled",
-     "service": "store-sync.service", "calendar": []},
-    {"unit": "store-sync.service", "origin": "external", "managed_by": "personal-data-store", "state": "enabled",
-     "activation": "timer", "timer": "store-sync.timer", "max_runtime": null, "store": {"access": "none"}},
     {"unit": "te-autopush.timer", "origin": "external", "managed_by": "operator", "state": "enabled",
      "service": "te-autopush.service", "calendar": []},
     {"unit": "te-autopush.service", "origin": "external", "managed_by": "operator", "state": "enabled",
-     "activation": "timer", "timer": "te-autopush.timer", "max_runtime": null, "store": {"access": "none"}},
+     "activation": "timer", "timer": "te-autopush.timer", "max_runtime": "5min", "store": {"access": "none"}},
     {"unit": "trae-proxy.service", "origin": "external", "managed_by": "operator", "state": "enabled",
      "activation": "boot", "max_runtime": null, "store": {"access": "none"}}
   ],

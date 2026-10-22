@@ -820,6 +820,52 @@ service_unit = "massive-options-daily.service"
 
 
 [[jobs]]
+job_id = "massive-minute-capture"
+version = 1
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.free_massive_minute"]
+schedules = []
+locks = [
+  { name = "job:massive-minute-capture", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "massive-minute-writer", mode = "exclusive", wait_seconds = 0, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 86400
+overall_seconds = 86400
+
+[jobs.retry]
+deadline_seconds = 86400
+
+[jobs.resources]
+nice = 10
+
+[jobs.legacy.service]
+unit = "massive-minute-capture.service"
+description = "Capture Massive free minute history for the frozen small-stock tier"
+after = ["network-online.target"]
+wants = ["network-online.target"]
+comments = [
+  "# Resumable: each chunk commits in one transaction and a restart skips finished chunks.",
+  "# RuntimeMaxSec recycles a run daily; Restart=on-failure resumes it (exit 0 = complete).",
+]
+type = "exec"
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.free_massive_minute"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 10
+io_scheduling_class = "idle"
+runtime_max = "1d"
+standard_output = "append:%h/.local/state/massive-minute.log"
+standard_error = "append:%h/.local/state/massive-minute.log"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+restart = "on-failure"
+restart_sec = "15min"
+wanted_by = "default.target"
+
+
+[[jobs]]
 job_id = "trading-engine-accounts-settle"
 version = 1
 authority = "paper"

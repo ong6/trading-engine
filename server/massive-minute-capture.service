@@ -1,0 +1,26 @@
+[Unit]
+Description=Capture Massive free minute history for the frozen small-stock tier
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=%h/trading-engine
+# Resumable: each chunk commits in one transaction and a restart skips finished chunks.
+# RuntimeMaxSec recycles a run daily; Restart=on-failure resumes it (exit 0 = complete).
+ExecStart=%h/trading-engine/.venv/bin/python -m tools.free_massive_minute
+Environment=PYTHONUNBUFFERED=1
+Nice=10
+IOSchedulingClass=idle
+RuntimeMaxSec=1d
+StandardOutput=append:%h/.local/state/massive-minute.log
+StandardError=append:%h/.local/state/massive-minute.log
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+UMask=0077
+Restart=on-failure
+RestartSec=15min
+
+[Install]
+WantedBy=default.target

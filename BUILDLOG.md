@@ -4522,4 +4522,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +45, tests +70.
 - **Next:** `agent_provider_responses.py` and `agent_independent_price_evidence.py` are fault-drill sources: on this branch the suite identity is `f3ee735f` (main `fb4699a9`), so rerun the fault drills after deploy.
 
+## 2026-10-22 — Make the minute capture a repo boot unit and declare host-local units in an overlay (P24 reliability-ops)
+
+- **Why:** P24 reliability-ops, owner items 3 and 7. `tools.schedule_contract_check --live` reports 8 violations. The minute capture is a transient unit under the runtime directory (lost at reboot), `Restart=no`, run from a lane clone's venv and undeclared (off-manifest, lane-path, foreign-holder). Another project's study timer and the notes sync are off-manifest; the notes sync and autopush run without a bound.
+- **What:** `ops/jobs.toml` registers `massive-minute-capture` as a boot service (`legacy.service.wanted_by`; the registry checks its command) and renders `server/massive-minute-capture.service`: live checkout, `Type=exec`, `RuntimeMaxSec=1d`, `Restart=on-failure` after 15 min, `WantedBy=default.target`. The manifest declares it (writer of `pit/massive-minute.duckdb`, always), and a boot unit that declares `max_runtime` must enforce it.
+  An optional owner-only overlay (`~/.config/trading-engine/schedule-contract.local.json`) adds external units with an owner and reason and may acknowledge only `lane-path`/`unbounded` for its own unit; it cannot name a repo or manifest unit and an invalid one is ignored whole and reported as an error. The notes sync moves there; autopush declares a 5 min bound.
+- **Evidence:** live check on the host with the proposed overlay from a temporary path: the study units are host-local with two acknowledged exceptions, foreign-holder and off-manifest are gone; left are the minute capture's not-enabled/lane-path/unbounded (until cut-over) and the two unbound sync units (until their drop-ins). `pytest tests/test_schedule_contract.py tests/test_job_contract.py` pass.
+- **Metrics:** server +110, engine +13, tests +125.
+- **Next:** orchestrator installs the overlay and drop-ins and cuts the minute capture over.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

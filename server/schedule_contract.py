@@ -25,6 +25,7 @@ import json
 import math
 import os
 import re
+import stat
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -32,6 +33,15 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 MANIFEST_PATH = Path(__file__).resolve().with_name("schedule-contract.json")
+# Optional host-local overlay for units another project installs on this host. It may only
+# add external units; it never redeclares or silences a unit of this repository.
+OVERLAY_PATH = Path.home() / ".config" / "trading-engine" / "schedule-contract.local.json"
+OVERLAY_MAX_BYTES = 65_536
+OVERLAY_KEYS = frozenset({"unit", "owner", "reason", "state", "activation", "timer", "service",
+                          "calendar", "max_runtime", "window_minutes", "store", "acknowledge"})
+# Rules an overlay entry may acknowledge for its own unit: where another project runs from
+# and how long it may run are that project's decision. Store holders are never acknowledged.
+OVERLAY_ACKNOWLEDGEABLE = frozenset({"lane-path", "unbounded"})
 STATES = frozenset({"enabled", "held", "disabled"})
 ACCESS = frozenset({"writer", "reader", "none"})
 ACTIVATIONS = frozenset({"boot", "timer", "manual", "slice"})
@@ -166,6 +176,86 @@ def _store_problems(entry: dict, store: dict | None, units: dict[str, dict]) -> 
     if _schedule_matcher(entry, units) is None:
         return ["schedule window without a calendar or cron schedule"]
     return []
+
+
+# --------------------------------------------------------------------------- local overlay
+def _overlay_text(path: Path) -> str | None:
+    """The overlay's text, None when absent; refuses links, other owners and open modes."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ValueError(f"unreadable or a symbolic link ({exc.strerror})") from exc
+    with os.fdopen(descriptor, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("not a regular file")
+        if info.st_uid != os.getuid():
+            raise ValueError("not owned by this user")
+        if info.st_mode & 0o077:
+            raise ValueError(f"mode {stat.S_IMODE(info.st_mode):o} is not owner-only")
+        raw = handle.read(OVERLAY_MAX_BYTES + 1)
+    if len(raw) > OVERLAY_MAX_BYTES:
+        raise ValueError("larger than 64 KiB")
+    return raw.decode("utf-8")
+
+
+def _overlay_entry(item: object, reserved: set[str]) -> dict:
+    if not isinstance(item, dict) or not set(item) <= OVERLAY_KEYS:
+        raise ValueError("an entry is not an object of known keys")
+    name = item.get("unit")
+    if not isinstance(name, str) or "/" in name or not name.endswith(UNIT_SUFFIXES):
+        raise ValueError(f"invalid unit name {name!r}")
+    if name in reserved or name.startswith("trading-engine-"):
+        raise ValueError(f"{name} belongs to this repository's manifest")
+    for key in ("owner", "reason"):
+        if not isinstance(item.get(key), str) or not item[key].strip():
+            raise ValueError(f"{name} needs a non-empty {key}")
+    acknowledge = item.get("acknowledge", [])
+    if not isinstance(acknowledge, list) or not set(acknowledge) <= OVERLAY_ACKNOWLEDGEABLE:
+        raise ValueError(f"{name} may acknowledge only {sorted(OVERLAY_ACKNOWLEDGEABLE)}")
+    entry = {key: value for key, value in item.items()
+             if key not in {"owner", "acknowledge"}}
+    entry.update(origin="external", managed_by=item["owner"], local_overlay=True)
+    reason = f"host-local unit of {item['owner']}: {item['reason']}"
+    entry["pinned_exception"] = [{"rule": rule, "reason": reason} for rule in acknowledge]
+    return entry
+
+
+def apply_overlay(manifest: dict, path: Path | None, repo_units: set[str] = frozenset()
+                  ) -> tuple[dict, dict]:
+    """Merge the optional local overlay into a copy of the manifest, with a status report.
+
+    An invalid overlay is ignored as a whole and reported, never half-applied.
+    """
+    report = {"path": str(path) if path else None, "status": "absent", "units": [],
+              "error": None}
+    if path is None:
+        return manifest, report
+    try:
+        text = _overlay_text(path)
+        if text is None:
+            return manifest, report
+        document = json.loads(text)
+        if (not isinstance(document, dict) or set(document) != {"version", "units"}
+                or document["version"] != 1 or not isinstance(document["units"], list)):
+            raise ValueError('expected {"version": 1, "units": [...]}')
+        reserved = set(_units(manifest)) | set(repo_units)
+        entries = [_overlay_entry(item, reserved) for item in document["units"]]
+        merged = {**manifest, "units": [*manifest["units"], *entries]}
+        names = {entry["unit"] for entry in entries}
+        issues = [item for item in _schema_issues(merged) if item["subject"] in names
+                  or item["subject"] == "manifest"]
+        if issues:
+            raise ValueError("; ".join(f"{item['subject']}: {item['detail']['problem']}"
+                                       for item in issues))
+    except (OSError, UnicodeDecodeError, ValueError, TypeError, KeyError) as exc:
+        return manifest, {**report, "status": "invalid", "error": str(exc)[:300]}
+    return merged, {**report, "status": "loaded", "units": [
+        {"unit": entry["unit"], "owner": entry["managed_by"], "reason": entry["reason"],
+         "acknowledged": sorted(rule["rule"] for rule in entry["pinned_exception"])}
+        for entry in entries]}
 
 
 # --------------------------------------------------------------------------- time
@@ -354,6 +444,11 @@ def _apply_exceptions(units: dict[str, dict], violations: list[dict]) -> tuple[l
     return kept, excepted
 
 
+def _bounded_boot(entry: dict | None) -> bool:
+    """A boot service that declares a runtime bound must enforce it like a timer's service."""
+    return bool(entry and entry.get("activation") == "boot" and entry.get("max_runtime"))
+
+
 def _repo_unit_files(repo_root: Path) -> dict[str, str]:
     files = {}
     for folder in ("server", "ui"):
@@ -400,7 +495,7 @@ def static_check(
             calendar = directives.get("OnCalendar", [])
             if target != entry.get("service") or calendar != entry.get("calendar", []):
                 violations.append(_violation("timer-drift", name, unit=target, calendar=calendar))
-        if name in triggered:
+        if name in triggered or _bounded_boot(entry):
             bound = unit_bound_seconds(directives)
             declared_max = span_seconds((entry or {}).get("max_runtime") or "")
             if bound is None:
@@ -535,7 +630,7 @@ def _unit_violations(manifest: dict, blocks: dict[str, dict[str, list[str]]]) ->
         stopped = _stops(block, _protected(units, name))
         if stopped:
             violations.append(_violation("stops-live-unit", name, stops=stopped))
-        if name in triggered:
+        if name in triggered or _bounded_boot(entry):
             bound = _live_bound(block)
             declared = span_seconds((entry or {}).get("max_runtime") or "")
             if bound is None:
@@ -761,8 +856,13 @@ def live_check(
 # --------------------------------------------------------------------------- results
 def check(*, static: bool, live: bool, repo_root: Path, manifest_path: Path = MANIFEST_PATH,
           now: datetime | None = None, autostart: frozenset[str] | None = None,
-          expected_cron: dict[str, str] | None = None, **live_args) -> dict:
-    """Run the requested checks and fold them into one result with an exit status."""
+          expected_cron: dict[str, str] | None = None,
+          overlay_path: Path | None = OVERLAY_PATH, **live_args) -> dict:
+    """Run the requested checks and fold them into one result with an exit status.
+
+    The live check also reads the optional host-local overlay (``overlay_path``); the static
+    check never does, so the checkout alone decides what this repository declares.
+    """
     now = now or datetime.now(UTC)
     result = {"checked_at": now.astimezone(UTC).isoformat(timespec="seconds"),
               "modes": [mode for mode, wanted in (("static", static), ("live", live)) if wanted],
@@ -777,7 +877,12 @@ def check(*, static: bool, live: bool, repo_root: Path, manifest_path: Path = MA
             parts.append(static_check(repo_root, manifest, autostart=autostart,
                                       expected_cron=expected_cron))
         if live:
-            parts.append(live_check(manifest, now=now, **live_args))
+            repo_units = {Path(source).name for source in _repo_unit_files(repo_root)}
+            local, overlay = apply_overlay(manifest, overlay_path, repo_units)
+            result["overlay"] = overlay
+            if overlay["status"] == "invalid":
+                result["errors"].append(f"local overlay invalid: {overlay['error']}")
+            parts.append(live_check(local, now=now, **live_args))
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         return {**result, "status": "error", "errors": [f"manifest malformed: {exc!r}"]}
     for part in parts:
