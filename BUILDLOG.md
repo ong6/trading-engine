@@ -4128,4 +4128,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** migration engine/farm +83/-30, tests +88; the batch itself as its lanes recorded.
 - **Next:** after main moves, run the three runtime migrations and the integrity repair on the live host before the 22:30 UTC nightly.
 
+## 2026-10-21 — Read SEC bulk acceptance labels as New York wall time
+
+- **Why:** P24 sec-time lane; reported by the alpha sec-text lane. Reproduction: 75 filings fetched 2026-10-21 (index page, `.hdr.sgml`, live API, nightly `submissions.zip`); the index "Accepted" equals the SGML `ACCEPTANCE-DATETIME` in 75/75, and the bulk label read as UTC is earlier than it in 21 (12 of a random 30 item 2.02 8-Ks). Before the fix `tests/test_sec_acceptance.py` fails: `0001104659-15-065940` available 08:08:01Z, accepted 12:08:01Z.
+- **What:** `engine/sec_acceptance.py` states the one rule: SGML header (New York) first; else the JSON label's wall clock read as New York time, never earlier than the truth (0, 4–5 or 8–10 h late), capped at the receipt when known; ambiguous DST clocks take the later reading. The bulk store keeps the label's wall clock and its views (`sec_facts_available`, `sec_earnings_events_with_ticker.available_at`) apply the rule, so a store restored from the archive is corrected too; the audit buckets events by New York date. P3 plan and the 2026-10-02 audit carry the amendment.
+- **Evidence:** `pytest tests/test_sec_acceptance.py tests/test_free_sec_bulk.py`: 18 passed; on 388,031 pre-2024-09-25 item 2.02 events (alpha copy of the bulk ZIP) availability moves 4–5 h later and the first tradable open moves later for 58,795 (58,784 pre-open to intraday).
+- **Metrics:** engine +104/-12 lines, tests +133 plus a 77-line recorded fixture, docs +13.
+- **Next:** apply the rule to the P15 live SEC capture.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
