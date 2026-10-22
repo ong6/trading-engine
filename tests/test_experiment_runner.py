@@ -320,6 +320,32 @@ def test_runtime_contract_migration_carries_the_deployed_record(con, tmp_path, m
         experiment_runner.load_oos_series(con, cfg, phash)
 
 
+def test_runtime_contract_migration_replaces_only_the_amended_digest(
+    con, tmp_path, monkeypatch,
+):
+    cfg = _config()
+    phash = _append(con, cfg, _trade(con))
+    monkeypatch.setattr(experiment_runner, "REPORTS_DIR", tmp_path)
+    rows = experiment_runner.load_oos_series(con, cfg, phash)
+    deployed = experiment_runner._checkpoint_payload(cfg, phash, rows)
+    deployed["runtime_contract_sha256"] = experiment_runner.AMENDED_RUNTIME_CONTRACT_SHA256
+    path = experiment_runner.checkpoint_path(cfg)
+    path.write_text(json.dumps(deployed))
+    with pytest.raises(ValueError, match="E1 forward checkpoint is invalid"):
+        experiment_runner._validate_checkpoint(cfg, phash, rows)
+
+    migrated = experiment_runner.migrate_runtime_contract(con, cfg)
+
+    assert migrated == experiment_runner._checkpoint_payload(cfg, phash, rows)
+    assert migrated["prefix_sha256"] == deployed["prefix_sha256"]
+    path.write_text(json.dumps({**deployed, "runtime_contract_sha256": "0" * 64}))
+    with pytest.raises(ValueError, match="prior E1 checkpoint is invalid"):
+        experiment_runner.migrate_runtime_contract(con, cfg)
+    path.write_text(json.dumps({**deployed, "runtime_contract_migration": "changed"}))
+    with pytest.raises(ValueError, match="prior E1 checkpoint is invalid"):
+        experiment_runner.migrate_runtime_contract(con, cfg)
+
+
 def test_runtime_contract_migration_rejects_changed_legacy_prefix(
     con, tmp_path, monkeypatch
 ):

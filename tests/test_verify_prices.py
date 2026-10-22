@@ -476,12 +476,22 @@ def test_main_prints_the_summary_never_the_raw_evidence(monkeypatch, tmp_path, c
     out = capsys.readouterr().out
     assert "body_base64" not in out and "source_evidence" not in out
     assert "store_evidence" not in out
-    printed, _ = json.JSONDecoder().raw_decode(out[out.index("{"):])
-    assert printed["names_checked"] == 1
-    if not extra:
-        receipt = printed["evidence_receipt"]
-        stored = json.loads((meta.parent / receipt["path"]).read_text())
-        assert stored["source_evidence"]["AAA"][0]["body_base64"] == "Ym9keQ=="
+    if extra:
+        printed, _ = json.JSONDecoder().raw_decode(out[out.index("{"):])
+        assert printed["names_checked"] == 1
+        return
+    # A run that writes its result prints one line (the summary was ~4k lines a
+    # night, ~86k a weekly pass); the summary is in _meta.json, the evidence in
+    # the receipt that line names.
+    lines = out.strip().splitlines()
+    assert "{" not in out and len(lines) <= 2  # the summary line and the merge breadcrumb
+    line = next(line for line in lines if line.startswith("[verify] price_verify as_of "))
+    assert line.startswith("[verify] price_verify as_of 2026-10-16: ") and "checked 1 " in line
+    receipt = json.loads(meta.read_text())[verify_prices.META_KEY]["evidence_receipt"]
+    assert f"receipt {receipt['path']} ({receipt['bytes']} bytes)" in line
+    stored = json.loads((meta.parent / receipt["path"]).read_text())
+    assert stored["source_evidence"]["AAA"][0]["body_base64"] == "Ym9keQ=="
+    assert stored["names_checked"] == 1
 
 
 def test_old_unreferenced_receipts_are_pruned(monkeypatch, tmp_path):

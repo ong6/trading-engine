@@ -17,7 +17,9 @@ import pandas as pd
 
 from engine.lib import db
 from engine.lib.data_quality import (
+    never_settled_sql,
     observation_reasons,
+    price_bar_sql,
     provisional_open_only_fault,
     session_schedule,
 )
@@ -80,6 +82,53 @@ def cleanup_hard_invalid_prices(con, *, dry_run: bool = True) -> dict:
         if len(moved) != len(originals):
             raise ValueError("cleanup count changed; rolled back")
         report["moved"] = len(moved)
+    return report
+
+
+STALE_PROVISIONAL = "stale_provisional"
+
+
+def retire_stale_provisional(con, *, since=None, dry_run: bool = True) -> dict:
+    """Move never-settled bars dated before the newest session that fail admission.
+
+    A same-night bar whose only fault is its open is admitted provisionally for the
+    next night's re-fetch to settle. When that re-fetch never lands (the name left
+    the fetch set, or the source answered NaN for the session: DDS and SUNC
+    2026-10-12, CIB 2026-10-16) the bar is stale, and a stale bar is judged as
+    settled, so it is inadmissible. Applying appends each original observation
+    (reason ``stale_provisional,<faults>``) and deletes its cache key atomically,
+    as the revision-15 cleanup does. Default is read-only; never repairs a tuple.
+    """
+    latest = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+    if latest is None:
+        return {"dry_run": dry_run, "stale_invalid": 0, "moved": 0, "keys": []}
+    window = "" if since is None else " AND date >= ?"
+    originals = db.observation_rows(con.execute(
+        f"SELECT * FROM prices WHERE date < ?{window} AND {never_settled_sql()} "
+        f"AND NOT {price_bar_sql()} ORDER BY ticker, date",
+        [latest, *([since] if since is not None else [])],
+    ))
+    reasons = [observation_reasons(row) for row in originals]
+    if any(not reason for reason in reasons):
+        raise ValueError("stale provisional SQL and validator disagree; no rows moved")
+    report = {"dry_run": dry_run, "stale_invalid": len(originals), "moved": 0,
+              "keys": [f"{row['ticker']} {row['date']}" for row in originals]}
+    if dry_run or not originals:
+        return report
+    batch_id = f"{STALE_PROVISIONAL}:{uuid4()}"
+    with db.transaction(con, join_existing=True):
+        for row, reason in zip(originals, reasons, strict=True):
+            db.append_price_observations(
+                con, [row], reason=",".join([STALE_PROVISIONAL, *reason]), batch_id=batch_id)
+        with db.registered_frame(con, "_stale_price_keys",
+                                 pd.DataFrame(originals)[["ticker", "date"]]):
+            moved = con.execute(
+                "DELETE FROM prices USING _stale_price_keys k "
+                "WHERE prices.ticker=k.ticker AND prices.date=k.date RETURNING ticker"
+            ).fetchall()
+        if len(moved) != len(originals):
+            raise ValueError("stale provisional count changed; rolled back")
+    report["moved"] = len(moved)
     return report
 
 

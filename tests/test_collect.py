@@ -788,3 +788,63 @@ def test_collection_metadata_preserves_other_producers(monkeypatch, tmp_path):
     assert result["universe_size"] == 1
     assert result["liquid_count"] == 1
     assert result["failed_this_run"] == 0
+
+
+def test_stale_provisional_bar_is_asked_again_and_retired_when_never_settled(
+    monkeypatch, tmp_path,
+):
+    """DDS and SUNC 2026-10-12 and CIB 2026-10-16 kept their same-night bars (open
+    outside the range) after the newest session moved on: the source answered NaN
+    for DDS/SUNC on every later night, and CIB left the fetch set (deactivated)."""
+    db_path = tmp_path / "market.duckdb"
+    _setup_store(db_path, liquid=True)
+    day, latest = date(2026, 10, 12), date(2026, 10, 13)
+    same_night = datetime(2026, 10, 12, 22, 30)
+    con = db.connect(db_path)
+    try:
+        bars = [("DDS", day, 648.70, 648.54, 618.64, 642.29, same_night),   # open > high
+                ("CIB", day, 95.97, 98.13, 96.87, 97.91, same_night),       # open < low
+                ("ET", day, 18.0, 18.5, 17.5, 18.2, same_night),            # valid, unsettled
+                ("AAA", latest, 10.5, 10.0, 9.0, 9.5, datetime(2026, 10, 13, 22, 30))]
+        con.executemany("INSERT INTO prices (ticker,date,open,high,low,close,volume,"
+                        "fetched_at) VALUES (?,?,?,?,?,?,1000,?)", bars)
+    finally:
+        con.close()
+    asked = []
+
+    def download(tickers, *, period, start):
+        asked.append((tuple(tickers), period, start))
+        frames = {
+            "CIB": pd.DataFrame({"Open": [95.97, 96.0], "High": [98.13, 97.0],
+                                 "Low": [95.97, 95.0], "Close": [97.91, 96.5],
+                                 "Volume": [183_400, 100_000]},
+                                index=pd.DatetimeIndex(["2026-10-12", "2026-10-13"])),
+            **{t: pd.DataFrame({"Open": [float("nan")], "High": [float("nan")],
+                                "Low": [float("nan")], "Close": [float("nan")],
+                                "Volume": [float("nan")]},
+                               index=pd.DatetimeIndex(["2026-10-12"])) for t in ("DDS", "ET")},
+        }
+        return pd.concat({t: frames[t] for t in tickers}, axis=1)
+
+    monkeypatch.setattr(collect, "_download", download)
+    report = collect.settle_stale_provisional(db_path, today=date(2026, 10, 14))
+
+    assert asked == [(("CIB", "DDS", "ET"), None, "2026-10-12")]
+    assert report["stale"] == 3 and report["refetched"] == 1
+    assert report["retired_keys"] == ["DDS 2026-10-12"]
+    rows = _read(db_path, "SELECT ticker, date, open, low FROM prices ORDER BY ticker, date")
+    # CIB settled from the source (only the stale key, never the 10-13 bar of an
+    # inactive name); DDS left the cache with its original retained; ET is valid
+    # and stays to be asked again; the newest session is untouched.
+    assert [(t, d.isoformat()) for t, d, *_ in rows] == [
+        ("AAA", "2026-10-13"), ("CIB", "2026-10-12"), ("ET", "2026-10-12")]
+    assert rows[1][2:] == pytest.approx((95.97, 95.97))
+    assert _read(db_path, "SELECT reason FROM price_observation_rejects WHERE ticker='DDS' "
+                          "AND open = 648.7") == [("stale_provisional,high_geometry",)]
+    # The next night asks again for the valid unsettled ET bar and for DDS's hole;
+    # the source still has no bar for either, so nothing is stored or rejected.
+    rejects = _read(db_path, "SELECT COUNT(*) FROM price_observation_rejects")
+    again = collect.settle_stale_provisional(db_path, today=date(2026, 10, 14))
+    assert again["keys"] == ["DDS 2026-10-12", "ET 2026-10-12"]
+    assert again["refetched"] == 0 and again["retired"] == 0
+    assert _read(db_path, "SELECT COUNT(*) FROM price_observation_rejects") == rejects

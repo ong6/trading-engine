@@ -35,11 +35,20 @@
    "ref": "engine/actions.py rule noop_pre_history"
   },
   {
+   "invariant": "split_recorded_vs_restated",
+   "subjects": ["RAMZ 2026-07-30", "SNDU 2026-07-30", "SNXX 2026-07-30", "REPL 2026-07-31",
+                "AAOZ 2026-08-14", "SMU 2026-09-11", "CTNM 2026-10-12"],
+   "owner": "orchestrator",
+   "reason": "Real moves, not unrecorded splits: on 2026-10-21 the source reported no split near any of them and its current history equals every stored close on both sides of each break (engine.repair_integrity evidence; leveraged ETFs and small caps). SMU 09-11 surfaced once its 1:4 split was restated.",
+   "expires": "2027-01-20",
+   "ref": "p24/integrity source comparison 2026-10-21"
+  },
+  {
    "invariant": "preopen_not_voided",
    "class": "voided",
-   "through": "2026-10-19",
+   "through": "2026-10-20",
    "owner": "orchestrator",
-   "reason": "Pre-open runs 5, 6 and 12 (2026-10-05, 10-06, 10-16) were voided whole by one keep without new evidence. Immutable history; per-decision validation lands with revision 15. A void after 2026-10-19 is a regression.",
+   "reason": "Pre-open runs 5, 6, 12 and 13 (2026-10-05, 10-06, 10-16, 10-20) were voided whole by one keep without new evidence (run 13: intent 142; every decision was keep, so no outcome changed). Immutable history; per-decision validation (4192910) reached the live checkout after the 10-20 pre-open. A void after 2026-10-20 is a regression.",
    "expires": "2027-04-20",
    "ref": "fix/p15-preopen-reliability"
   },

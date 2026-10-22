@@ -1,26 +1,31 @@
 {
   "automatic_action": "none",
   "experiment_id": "e1-spy-monday",
-  "forward_config_sha256": "6d0006f70558813b9376619682d9684f9943d1d4be8c4a4c8b2b1acc83897408",
+  "forward_config_sha256": "0f8038af4bc3c03a958d01f0c8c58cde4e987189c6034d5a95b43b562f4e8cb2",
   "observations": 13,
   "paper_only": true,
   "parent_config_sha256": "5dc40ff465de67a9b887966ba853bf5dfcb310076edd171739c4fd7ebe925d35",
   "prefix_sha256": "804da9a972b14627b60a375b1561b0ea03d02022f8386a4fb43e0cb71894dc85",
   "runtime_contract_files": [
+    "engine/lib/data_quality.py",
     "engine/lib/db.py",
     "engine/lib/provenance.py",
     "engine/lib/resources.py",
+    "engine/lib/util.py",
     "farm/experiment.py",
     "farm/experiment_runner.py",
+    "sim/bar_sources.py",
     "sim/calendar.py",
     "sim/execution.py",
     "sim/fills.py",
-    "sim/nyse.py"
+    "sim/money_inputs.py",
+    "sim/nyse.py",
+    "sim/order_types.py"
   ],
-  "runtime_contract_migration": "Owner decision 2026-10-06: engine books charge ibkr_pro_tiered_v1 commissions from the parameterized D0 and restart book evaluation clocks; additive account schema, monotonic order sequence and shared ledger/replay replace the legacy runtime. Snapshot-copy rehearsal proved pre-D0 league.csv and league.md byte-identical. E1 keeps its frozen 20 bp compatibility cost, seven-observation prefix, strategy and verdict rule unchanged; undeployed revision-14 fixes keep the frozen rule: the store's real-bar predicate also needs a positive open, high and low (E1 reads only its connection and frame helpers), and the migration carries the published record written under the predecessor forward config",
-  "runtime_contract_sha256": "5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280",
-  "runtime_contract_version": 7,
+  "runtime_contract_migration": "Owner decision 2026-10-06: engine books charge ibkr_pro_tiered_v1 commissions from the parameterized D0 and restart book evaluation clocks; additive account schema, monotonic order sequence and shared ledger/replay replace the legacy runtime. Snapshot-copy rehearsal proved pre-D0 league.csv and league.md byte-identical. E1 keeps its frozen 20 bp compatibility cost, seven-observation prefix, strategy and verdict rule unchanged; undeployed revision-14 fixes keep the frozen rule: the store's real-bar predicate also needs a positive open, high and low (E1 reads only its connection and frame helpers), and the migration carries the published record written under the predecessor forward config; revision 15 after v2: r15-data preserves rejected observations and gates scalar/calendar/basis admission; r15-money refuses malformed arithmetic and shares trusted fill/mark bars; r15-flow reduces repeated fetches, offline reports and history copies; r15-ops reports recorded outcomes and moves the Sunday history slot; board-2 shows dated quality and prospective gates; r15-tests reuses private fixtures and caps native threads. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged; undeployed revision 15 amended 2026-10-20 by the reviewed fixes landed after v2: liquid split coverage, first-stored split provenance and a quarantining break scan; same-night provisional bars shown flagged; scratch replays never attach live stores and grids keep one reader; finite walk-forward results; snapshot disk cap and once-daily history publication; pre-open reliability, nightly evidence order and scoring report commits; two reviewed model runtimes by hash; same-night bars whose only fault is the open admitted provisionally for their close, never filled, labeled or scored on that open. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged",
+  "runtime_contract_sha256": "638d09e4ebfb84261a45db58a35a399680bcbd2c4220f84803dfb1790a7f16c5",
+  "runtime_contract_version": 8,
   "schema_version": 2,
-  "superseded_runtime_contract_sha256": "5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612",
+  "superseded_runtime_contract_sha256": "5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280",
   "through": "2026-10-19"
 }

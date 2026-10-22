@@ -6,9 +6,10 @@ import csv
 import io
 import math
 import re
-from datetime import date
+from datetime import date, datetime, time, timezone
 from itertools import zip_longest
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import duckdb
 
@@ -152,14 +153,44 @@ def _validate_screen(
         raise ValueError("screen report does not match stored evidence")
 
 
-def _expected_league_names(
-    con: duckdb.DuckDBPyConnection, latest: date, pending: tuple[str, ...] = ()
-) -> list[str]:
+def _retired_after_session(con: duckdb.DuckDBPyConnection, latest: date) -> dict[str, str]:
+    """{id: name} of books marked for ``latest`` and retired after that session's close.
+
+    The report for ``latest`` was written while they were active, so listing them stays
+    correct until the next session's report drops them. A book retired before the close,
+    or inactive without a ``portfolio_retired`` audit row, is not excused.
+    """
+    if not table_exists(con, "audit_log"):
+        return {}
+    close = datetime.combine(latest, time(16), ZoneInfo("America/New_York"))
+    return dict(con.execute(
+        """
+        SELECT p.id, ANY_VALUE(p.name)
+        FROM portfolios p
+        JOIN sim_equity e ON e.portfolio_id = p.id AND e.date = ?
+        JOIN audit_log a ON a.action = 'portfolio_retired'
+         AND json_extract_string(a.payload, '$.portfolio_id') = p.id
+        WHERE NOT p.active
+        GROUP BY p.id
+        HAVING MIN(a.ts) > ?
+        """,
+        [latest, close.astimezone(timezone.utc).replace(tzinfo=None)],
+    ).fetchall())
+
+
+def _expected_league_books(
+    con: duckdb.DuckDBPyConnection, latest: date, pending: tuple[str, ...] = (),
+    published: tuple[str, ...] = (),
+) -> dict[str, str]:
+    """{id: name} of the public books the ``latest`` standings must list.
+
+    A book retired after ``latest`` closed is expected only when ``published`` lists it.
+    """
     # The league lists a book its publisher has not yet marked for ``latest`` at its
     # prior mark (flagged ‡), so a pending book is expected without a ``latest`` row.
     public_ids = set(_public_portfolio_ids(con))
-    names = [
-        row[1]
+    books = {
+        row[0]: row[1]
         for row in con.execute(
             """
             SELECT p.id, p.name, e.portfolio_id IS NOT NULL
@@ -171,15 +202,22 @@ def _expected_league_names(
             [latest],
         ).fetchall()
         if row[0] in public_ids and (row[2] or row[0] in pending)
-    ]
-    if len(names) != len(set(names)):
+    }
+    books.update({book_id: name for book_id, name in _retired_after_session(con, latest).items()
+                  if book_id in public_ids and name in published})
+    if len(books) != len(set(books.values())):
         raise ValueError("active portfolio names are not unique")
-    return names
+    return books
+
+
+def _active_ids(con: duckdb.DuckDBPyConnection) -> set[str]:
+    return {row[0] for row in con.execute("SELECT id FROM portfolios WHERE active").fetchall()}
 
 
 def _expected_stale_positions(
-    con: duckdb.DuckDBPyConnection, latest: date
+    con: duckdb.DuckDBPyConnection, latest: date, retired_listed: tuple[str, ...] = ()
 ) -> list[tuple[str, str]]:
+    """Stale marks of the active public books and of ``retired_listed`` books."""
     public_ids = set(_public_portfolio_ids(con))
     return [row for row in con.execute(
         """
@@ -187,12 +225,12 @@ def _expected_stale_positions(
         FROM sim_positions pos
         JOIN portfolios p ON p.id = pos.portfolio_id
         JOIN prices pr ON pr.ticker = pos.ticker
-        WHERE p.active AND pos.qty > 0
+        WHERE (p.active OR list_contains(?, p.id)) AND pos.qty > 0
         GROUP BY pos.portfolio_id, pos.ticker, pos.qty
         HAVING MAX(pr.date) FILTER (WHERE pr.volume > 0) < ?
         ORDER BY pos.portfolio_id, pos.ticker
         """,
-        [latest],
+        [list(retired_listed), latest],
     ).fetchall() if row[0] in public_ids]
 
 
@@ -210,11 +248,13 @@ def _validate_league_markdown(
     if league_text.splitlines()[0] != f"# Paper League — {latest.isoformat()}":
         raise EvidenceState("stale", "league-report-behind")
     published_names = _league_portfolio_names(league_text)
-    if sorted(published_names) != _expected_league_names(con, latest, pending):
+    books = _expected_league_books(con, latest, pending, tuple(published_names))
+    if sorted(published_names) != sorted(books.values()):
         raise ValueError("league report portfolios do not match active equity")
 
     published_stale = _league_stale_positions(league_text)
-    if sorted(published_stale) != _expected_stale_positions(con, latest):
+    retired_listed = tuple(sorted(set(books) - _active_ids(con)))
+    if sorted(published_stale) != _expected_stale_positions(con, latest, retired_listed):
         raise ValueError("league report stale marks do not match active exposure")
 
 

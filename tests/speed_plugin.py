@@ -1,8 +1,13 @@
-"""Reuse expensive synthetic setup while keeping each test's database private."""
+"""Test speed: shared synthetic setup, balanced workers and shards, RAM temp files.
+
+Every test keeps its own private databases and runs exactly once per run.
+"""
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
+from collections import Counter
 from contextlib import closing, contextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -10,31 +15,194 @@ from pathlib import Path
 import duckdb
 import pytest
 
+DURATIONS = Path(__file__).with_name("durations.json")
+# Recorded per-test seconds at or above this go first when tests are distributed.
+SLOW_TEST_SECONDS = 1.0
+# Estimate for a file absent from the recorded durations (new since the last record).
+UNKNOWN_TEST_SECONDS = 0.1
+# Leave tmpfs alone unless this much is free; a full -n 8 run peaked at 3.3 GiB.
+MEMORY_TEMP_MIN_FREE = 6 << 30
+
 
 def pytest_addoption(parser):
     group = parser.getgroup("test speed")
     group.addoption("--test-shards", type=int, default=1, help="Number of CI file shards")
     group.addoption("--test-shard", type=int, default=0, help="Zero-based CI shard index")
+    group.addoption("--record-durations", metavar="PATH", default=None,
+                    help="Write per-file and slow-test durations from this run as JSON")
 
 
+@pytest.hookimpl(tryfirst=True)  # before the tmp_path factory reads --basetemp
 def pytest_configure(config):
     count, index = config.getoption("test_shards"), config.getoption("test_shard")
     if count < 1 or not 0 <= index < count:
         raise pytest.UsageError("require --test-shards >= 1 and 0 <= --test-shard < --test-shards")
+    if hasattr(config, "workerinput"):
+        return
+    if config.getoption("record_durations"):
+        config.pluginmanager.register(_DurationRecorder(config), "test-speed-durations")
+    _use_memory_temp(config)
+
+
+def _use_memory_temp(config, root=Path("/dev/shm")):
+    """Put tmp_path and TMPDIR on tmpfs when there is room; files are unchanged.
+
+    Most of the suite's waiting is fsync from DuckDB checkpoints and copied
+    stores on disk. A RAM-backed base keeps every file operation real (locks,
+    renames, copies, checkpoints) without the device flush. Workers inherit the
+    base and TMPDIR, so dry-run copies stay on the same filesystem as tmp_path.
+    The run directory is removed at exit; TEST_SPEED_TMPFS=0 or an explicit
+    --basetemp keeps pytest's default on-disk temporary directories.
+    """
+    import getpass
+    import os
+    import tempfile
+
+    if config.option.basetemp or os.environ.get("TEST_SPEED_TMPFS") == "0":
+        return
+    try:
+        if shutil.disk_usage(root).free < MEMORY_TEMP_MIN_FREE or not os.access(root, os.W_OK):
+            return
+        parent = root / f"pytest-of-{getpass.getuser()}"
+        parent.mkdir(mode=0o700, exist_ok=True)
+        for stale in parent.glob("run-*"):
+            if not _process_alive(stale.name.removeprefix("run-")):
+                shutil.rmtree(stale, ignore_errors=True)
+        run = parent / f"run-{os.getpid()}"
+        (run / "tmp").mkdir(parents=True)
+    except OSError:
+        return
+    previous = os.environ.get("TMPDIR")
+    os.environ["TMPDIR"] = str(run / "tmp")
+    tempfile.tempdir = None
+    config.option.basetemp = str(run / "base")
+
+    def cleanup():
+        if previous is None:
+            os.environ.pop("TMPDIR", None)
+        else:
+            os.environ["TMPDIR"] = previous
+        tempfile.tempdir = None
+        shutil.rmtree(run, ignore_errors=True)
+
+    config.add_cleanup(cleanup)
+
+
+def _process_alive(pid):
+    import os
+
+    try:
+        os.kill(int(pid), 0)
+    except (ValueError, ProcessLookupError):
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _recorded_durations():
+    try:
+        recorded = json.loads(DURATIONS.read_text())
+    except (OSError, ValueError):
+        return {}, {}
+    return recorded.get("files", {}), recorded.get("slow_tests", {})
+
+
+def shard_files(filenames, counts, file_seconds, shards):
+    """Longest-first file assignment to the least-loaded shard; a partition.
+
+    Every shard collects the same files, so each computes the same mapping.
+    Stale or missing durations only change balance, never which tests run.
+    """
+    def cost(name):
+        return file_seconds.get(name, counts[name] * UNKNOWN_TEST_SECONDS)
+
+    loads = [0.0] * shards
+    assignment = {}
+    for name in sorted(filenames, key=lambda name: (-cost(name), name)):
+        shard = min(range(shards), key=lambda index: (loads[index], index))
+        assignment[name] = shard
+        loads[shard] += cost(name)
+    return assignment
 
 
 def pytest_collection_modifyitems(config, items):
-    """Stable file shards keep fixture caches together; the default runs everything."""
+    """Balance CI file shards and start known-slow tests first under xdist.
+
+    The default run selects everything; serial runs keep collection order.
+    """
+    file_seconds, slow_tests = _recorded_durations()
     count, index = config.getoption("test_shards"), config.getoption("test_shard")
-    if count == 1:
-        return
-    selected, excluded = [], []
-    for item in items:
-        filename = item.nodeid.split("::", 1)[0]
-        bucket = int.from_bytes(hashlib.sha256(filename.encode()).digest()[:8], "big") % count
-        (selected if bucket == index else excluded).append(item)
-    items[:] = selected
-    config.hook.pytest_deselected(items=excluded)
+    if count > 1:
+        counts = Counter(item.nodeid.split("::", 1)[0] for item in items)
+        assignment = shard_files(counts, counts, file_seconds, count)
+        selected, excluded = [], []
+        for item in items:
+            filename = item.nodeid.split("::", 1)[0]
+            (selected if assignment[filename] == index else excluded).append(item)
+        items[:] = selected
+        config.hook.pytest_deselected(items=excluded)
+    if hasattr(config, "workerinput"):
+        # Every worker orders the same collection identically, as xdist requires.
+        items[:] = slow_first(items, slow_tests, config.workerinput["workercount"])
+
+
+def slow_first(items, slow_tests, workers):
+    """Give each worker's first block a longest-first share of the slow tests.
+
+    With --dist=worksteal xdist splits the ordered collection into one
+    contiguous block per worker (each the remaining count divided by the
+    remaining workers) and an idle worker later steals the back half of the
+    longest queue. Slow tests are binned longest-first onto the least-loaded
+    block and placed at its front, so they never queue behind each other or
+    get stolen; the other tests fill the blocks in collection order and keep
+    their file locality. Only the order changes, never the set.
+    """
+    slow = sorted(
+        (item for item in items if slow_tests.get(item.nodeid, 0.0) >= SLOW_TEST_SECONDS),
+        key=lambda item: -slow_tests[item.nodeid],
+    )
+    bins, loads = [[] for _ in range(workers)], [0.0] * workers
+    for item in slow:
+        lightest = min(range(workers), key=lambda index: (loads[index], index))
+        bins[lightest].append(item)
+        loads[lightest] += slow_tests[item.nodeid]
+    chosen = {id(item) for item in slow}
+    rest = [item for item in items if id(item) not in chosen]
+    ordered, remaining, start = [], len(items), 0
+    for index, block in enumerate(bins):
+        size = remaining // (workers - index)
+        remaining -= size
+        if len(block) > size:  # too few tests to give every worker a block
+            return [*slow, *rest]
+        ordered += block + rest[start:start + size - len(block)]
+        start += size - len(block)
+    return ordered
+
+
+class _DurationRecorder:
+    """Controller-side setup+call+teardown totals; workers report every phase."""
+
+    def __init__(self, config):
+        self.path = Path(config.getoption("record_durations"))
+        self.seconds = Counter()
+
+    def pytest_runtest_logreport(self, report):
+        self.seconds[report.nodeid] += report.duration
+
+    def pytest_sessionfinish(self, session):
+        files = Counter()
+        for nodeid, seconds in self.seconds.items():
+            files[nodeid.split("::", 1)[0]] += seconds
+        payload = {
+            "comment": "Recorded by --record-durations; used only to order and shard tests.",
+            "files": {name: round(value, 2) for name, value in sorted(files.items())},
+            "slow_tests": {
+                nodeid: round(value, 2) for nodeid, value in sorted(self.seconds.items())
+                if value >= SLOW_TEST_SECONDS
+            },
+        }
+        self.path.write_text(json.dumps(payload, indent=1) + "\n")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -60,6 +228,104 @@ def test_duckdb_threads():
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(duckdb, "connect", connect)
+        yield
+
+
+class _Uncacheable(Exception):
+    pass
+
+
+def _canonical(value):
+    """Exact, type-tagged form of solver inputs; anything else is not cached."""
+    import numpy as np
+
+    kind = type(value)
+    if value is None or kind in (bool, int, str):
+        return (kind.__name__, value)
+    if kind is float:
+        return ("float", value.hex())
+    if kind is np.ndarray and value.dtype != object:
+        return ("ndarray", value.dtype.str, value.shape, value.tobytes())
+    if isinstance(value, np.generic) and not isinstance(value, np.object_):
+        return ("scalar", value.dtype.str, value.tobytes())
+    if kind in (list, tuple):
+        return (kind.__name__, tuple(_canonical(item) for item in value))
+    if kind is dict and all(type(key) is str for key in value):
+        return ("dict", tuple(sorted((key, _canonical(item)) for key, item in value.items())))
+    raise _Uncacheable(kind.__name__)
+
+
+def _without_timings(value):
+    if isinstance(value, dict):
+        return {key: _without_timings(item) for key, item in value.items()
+                if key not in {"solve_seconds", "solve_seconds_total"}}
+    if isinstance(value, list):
+        return [_without_timings(item) for item in value]
+    return value
+
+
+@pytest.fixture(scope="session", autouse=True)
+def p16_calibration_memo(request, tmp_path_factory):
+    """Share each deterministic P16 lambda calibration across the run.
+
+    `calibrate_lambda` is a pure function of its cases and grid apart from the
+    retained solve timings (which no reader compares with a recomputation).
+    The same synthetic cohorts are calibrated by many tests and again by the
+    store's validation, about seven seconds each. A result is reused only for a
+    byte-identical input while the calibration, optimizer and projection
+    modules are unpatched; a test that substitutes any of them runs the real
+    call. TEST_SPEED_VERIFY_MEMO=1 recomputes every reuse and fails on any
+    difference outside the timings, or on an input the call mutated.
+    """
+    import fcntl
+    import os
+    import pickle
+
+    from farm import p16_calibration, p16_optimizer, p16_projection
+
+    original = p16_calibration.calibrate_lambda
+    verify = os.environ.get("TEST_SPEED_VERIFY_MEMO") == "1"
+    base = tmp_path_factory.getbasetemp()
+    if hasattr(request.config, "workerinput"):
+        base = base.parent
+    root = base / "p16-calibration-memo"
+    root.mkdir(exist_ok=True)
+    modules = (p16_calibration, p16_optimizer, p16_projection)
+
+    def calibrate_lambda(cases, grid=None):
+        if not all(len(vars(module)) == len(state) and all(
+                vars(module).get(name, state) is value for name, value in state.items())
+                for module, state in pristine):
+            return original(cases, grid)
+        try:
+            key = _canonical([cases, grid, p16_calibration.DEFAULT_LAMBDA_GRID])
+        except _Uncacheable:
+            return original(cases, grid)
+        digest = hashlib.sha256(pickle.dumps(key, protocol=5)).hexdigest()
+        path = root / f"{digest}.pickle"
+        with (root / f"{digest}.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                if not path.exists():
+                    result = original(cases, grid)
+                    pending = root / f"{digest}.pending"
+                    pending.write_bytes(pickle.dumps(result, protocol=5))
+                    pending.replace(path)
+                    return result
+                cached = pickle.loads(path.read_bytes())
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+        if verify:
+            fresh = original(cases, grid)
+            assert _canonical([cases, grid, p16_calibration.DEFAULT_LAMBDA_GRID]) == key, (
+                "calibrate_lambda mutated its input")
+            assert _canonical(_without_timings(fresh)) == _canonical(
+                _without_timings(cached)), "memoized calibration differs from a fresh solve"
+        return cached
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(p16_calibration, "calibrate_lambda", calibrate_lambda)
+        pristine = [(module, dict(vars(module))) for module in modules]
         yield
 
 

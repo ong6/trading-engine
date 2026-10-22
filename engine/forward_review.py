@@ -93,7 +93,7 @@ RUNTIME_CONTRACT_VERSION = 12
 SUPERSEDED_RUNTIME_CONTRACT_SHA256 = 'c7c868a9176172eafab99427723ce7edf5bdb7326693cb9f351ff29ab52d9168'
 RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. Sector strategy, paired control, baseline prefix and kill criterion are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, a split-like re-fetch triggers back-adjustment, and this migration compares the deployed report's fill model and clock fields as published; second pre-deploy amendment 2026-10-17 under D1 fixes the same retained-prefix continuity defect class found by the fresh rehearsal: evaluated and retained counts are partitioned at the prior clock, with schema-v1 behavior, complete equity hashes, baselines and forward ledgers unchanged; revision 15 after v2: r15-data preserves rejected observations and gates scalar/calendar/basis admission; r15-money refuses malformed arithmetic and shares trusted fill/mark bars; r15-flow reduces repeated fetches, offline reports and history copies; r15-ops reports recorded outcomes and moves the Sunday history slot; board-2 shows dated quality and prospective gates; r15-tests reuses private fixtures and caps native threads. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged; binding orchestrator October 18 cleanup rulings: P15 session identity is captured SPY price dates union hard-invalid rejected dates, with XNYS membership for basis holds; stored labels and hashes remain immutable; missing trusted P15 bars and sleeve sizing wait with audited untrusted_bar and no substitute price; cold UI readiness uses a bounded five-minute wait; undeployed revision 15 amended 2026-10-20 by the reviewed fixes landed after v2: liquid split coverage, first-stored split provenance and a quarantining break scan; same-night provisional bars shown flagged; scratch replays never attach live stores and grids keep one reader; finite walk-forward results; snapshot disk cap and once-daily history publication; pre-open reliability, nightly evidence order and scoring report commits; two reviewed model runtimes by hash; same-night bars whose only fault is the open admitted provisionally for their close, never filled, labeled or scored on that open. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged"
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "988456c3c146085a591edf1cad86e07f36d540ae15135014f520a0e060d4d986"
+    "7e6d1d4c0aa46676b50740816f1f864a1ffe29b75edf60d3707223c8f50719b7"
 )
 PRIOR_RUNTIME_CONTRACT_FILES = (
     'engine/forward_review.py',
@@ -163,6 +163,10 @@ RUNTIME_CONTRACT_FILES = (
     'sim/strategies/spy_benchmark.py',
     'sim/valuation.py',
 )
+# The deployed code identity of this same contract version (revision 15, installed
+# 2026-10-21). Revision 16 changed pinned bytes but not what the sector pair computes,
+# so the version stays and an explicit migration replaces only this digest.
+AMENDED_RUNTIME_CONTRACT_SHA256 = '988456c3c146085a591edf1cad86e07f36d540ae15135014f520a0e060d4d986'
 PRIOR_RUNTIME_CONTRACT_VERSION = 11
 PRIOR_RUNTIME_CONTRACT_SHA256 = 'c7c868a9176172eafab99427723ce7edf5bdb7326693cb9f351ff29ab52d9168'
 PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = '8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce'
@@ -723,23 +727,34 @@ def _validate_published_runtime(prior_result: dict | None) -> None:
         raise ValueError("published sector runtime contract requires explicit migration")
 
 
+def _predecessor_runtime(prior_result: dict) -> dict:
+    """The predecessor contract metadata a migration accepts for this published report:
+    the current version under its deployed digest when the report carries it, otherwise
+    the prior version."""
+    published = prior_result.get("frozen_runtime") or {}
+    if (
+        published.get("runtime_contract_version") == RUNTIME_CONTRACT_VERSION
+        and published.get("runtime_contract_sha256") == AMENDED_RUNTIME_CONTRACT_SHA256
+    ):
+        return {**_runtime_metadata(), "runtime_contract_sha256": AMENDED_RUNTIME_CONTRACT_SHA256}
+    return {
+        "runtime_contract_version": PRIOR_RUNTIME_CONTRACT_VERSION,
+        "runtime_contract_sha256": PRIOR_RUNTIME_CONTRACT_SHA256,
+        "superseded_runtime_contract_sha256": PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256,
+        "runtime_contract_migration": PRIOR_RUNTIME_CONTRACT_MIGRATION,
+        "runtime_contract_files": list(PRIOR_RUNTIME_CONTRACT_FILES),
+    }
+
+
 def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
-    """Replace only the exact prior sector contract metadata."""
+    """Replace only the exact predecessor sector contract metadata."""
     prior_result = _last_valid_result(prior_result)
     if prior_result is None:
         raise ValueError("published sector forward report is required for migration")
 
     current = evaluate(con)
     expected_prior = copy.deepcopy(current)
-    expected_prior["frozen_runtime"].update(
-        {
-            "runtime_contract_version": PRIOR_RUNTIME_CONTRACT_VERSION,
-            "runtime_contract_sha256": PRIOR_RUNTIME_CONTRACT_SHA256,
-            "superseded_runtime_contract_sha256": PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256,
-            "runtime_contract_migration": PRIOR_RUNTIME_CONTRACT_MIGRATION,
-            "runtime_contract_files": list(PRIOR_RUNTIME_CONTRACT_FILES),
-        }
-    )
+    expected_prior["frozen_runtime"].update(_predecessor_runtime(prior_result))
     # The deployed v10 report predates P22: it publishes fill model v4 and its observation
     # has no cost-break clock. Compare each such field in the form it was published in.
     if (prior_result.get("frozen_runtime") or {}).get("fill_model") == PRIOR_FILL_MODEL_VERSION:

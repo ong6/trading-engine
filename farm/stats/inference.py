@@ -30,10 +30,13 @@ Formulas (all documented in the report generator too):
      gamma = Euler-Mascheroni ~= 0.5772, N = number of variants tried, and V is
      the variance of the trial Sharpe ratios. We do not have every trial's
      realized SR, so we use the sampling variance of the SR estimator under the
-     null (Lo 2002 / Mertens), V = (1 - g3*SR + ((g4 - 1)/4)*SR^2) / (n - 1) —
-     i.e. the same denominator that appears inside the PSR, per observation.
-     This is a documented, conservative fallback; it is stated as an assumption
-     in the report.
+     null of zero skill (Lo 2002 / Mertens at SR = 0), V = 1 / (n - 1) per
+     observation. Until 2026-10-21 the fallback plugged the CANDIDATE's own SR,
+     skew and kurtosis into the Mertens variance, so a positively skewed
+     candidate lowered the hurdle it was measured against (and a negatively
+     skewed one raised it); the zero-skill trials the hurdle describes have
+     neither. This is a documented fallback; it is stated as an assumption in
+     the report.
 """
 from __future__ import annotations
 
@@ -112,13 +115,14 @@ def deflated_sharpe(returns: np.ndarray, n_trials: int,
     `var_sr` is V in the SR0 formula: the VARIANCE OF THE TRIAL SHARPES. Bailey
     & Lopez de Prado want the observed dispersion of SR across the N variants
     actually tried; the module docstring's fallback (the sampling variance of
-    the SR estimator under the null) exists only because the historical-backtest
-    caller does not have the other trials to hand. A PARAMETER SWEEP DOES — every
-    cell of the grid is a trial and its fold returns are on disk — so the sweep
-    passes the real cross-trial variance here rather than the fallback, and the
-    report says which of the two it used. Leaving `var_sr=None` reproduces the
-    previous behaviour exactly, so `compute()` and the backtest farm are
-    untouched by this seam.
+    the SR estimator under the null, 1/(n-1)) exists only because the
+    historical-backtest caller does not have the other trials to hand. A
+    PARAMETER SWEEP DOES — every cell of the grid is a trial and its fold
+    returns are on disk — so the sweep passes the real cross-trial variance
+    here rather than the fallback, and the report says which of the two it
+    used. The fallback never reads the candidate's own moments: zero-skill
+    trials have SR = 0, and the hurdle must not fall because the candidate
+    happens to be positively skewed.
     """
     n = len(returns)
     if n < 3:
@@ -128,9 +132,8 @@ def deflated_sharpe(returns: np.ndarray, n_trials: int,
     if std <= 0:
         return float("nan"), 0.0, 0.0
     sr = m / std
-    denom_sq = max(1e-12, 1.0 - skew * sr + ((kurt - 1.0) / 4.0) * sr ** 2)
     if var_sr is None:
-        var_sr = denom_sq / (n - 1)      # SR-estimator sampling variance (fallback V)
+        var_sr = 1.0 / (n - 1)           # null (SR = 0) sampling variance of SR_hat
     sr0 = expected_max_sharpe(var_sr, n_trials)
     dsr = probabilistic_sharpe(sr, sr0, n, skew, kurt)
     return dsr, sr, sr0

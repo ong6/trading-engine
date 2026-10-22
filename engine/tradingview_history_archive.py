@@ -324,12 +324,14 @@ def archive_status(con: duckdb.DuckDBPyConnection, cohort_id: str) -> dict:
         "ON a.cohort_id=s.cohort_id AND a.ticker=s.ticker WHERE s.cohort_id=? "
         "GROUP BY s.ticker)", [target_through or date.max, cohort_id],
     ).fetchone()
+    # A later window covering the failed one resolves it: a symbol's tail window ends at
+    # the newest session, so its retry after a failure asks for a wider range.
     unresolved = int(con.execute(
         "SELECT COUNT(DISTINCT (a.ticker,a.start_date,a.end_date)) "
         "FROM tradingview_history_attempts a WHERE a.cohort_id=? "
         "AND a.status='failed' AND NOT EXISTS (SELECT 1 FROM tradingview_history_attempts b "
         "WHERE b.cohort_id=a.cohort_id AND b.ticker=a.ticker "
-        "AND b.start_date=a.start_date AND b.end_date=a.end_date "
+        "AND b.start_date<=a.start_date AND b.end_date>=a.end_date "
         "AND b.status IN ('complete','empty','refused'))", [cohort_id],
     ).fetchone()[0])
     refused = int(con.execute(
