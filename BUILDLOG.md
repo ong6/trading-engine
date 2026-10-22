@@ -4128,4 +4128,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** migration engine/farm +83/-30, tests +88; the batch itself as its lanes recorded.
 - **Next:** after main moves, run the three runtime migrations and the integrity repair on the live host before the 22:30 UTC nightly.
 
+## 2026-10-22 — Repair dry-run says what --apply will do and never reads a failed fetch as "no split"
+
+- **Why:** the 2026-10-21 11:45 live dry-run read as if nothing would be restated: each item showed the reconciler's own verdict (the input the source evidence overrides) and `rows_changed` 0, which a dry-run always reports. Two real defects: a failed actions fetch was listed as "no split" (IESC and RUSHA dropped out of a 10-21 dry-run), and an empty source answer was reported as "no break" (QBTX and SMU in a 10-22 05:2x dry-run on a fresh live copy, proven on the next run).
+- **What:** each item carries `reconciler_verdict`, `action` (restore / restate / record_skipped_source_mismatch / none) and `rows_planned`; the report has a per-step `summary`. Each actions fetch reports ok / empty / failed; an empty source answer is retried once and otherwise reported as `source_unavailable`, never as evidence. A sanity-skipped split's break is found from the window bars only.
+- **Evidence:** fresh live copy (2026-10-22 05:20): monitor 15 regressions; dry-run plans WLFC 1 row, 14 splits 18,790 rows, 7 stale bars; apply changed exactly those; monitor 0 regressions; re-run dry-run plans nothing; no fill predates a restated ex-date. `pytest tests/test_repair_integrity.py` 6 passed.
+- **Metrics:** engine +70, tests +60 lines.
+- **Next:** orchestrator applies on the live store.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
