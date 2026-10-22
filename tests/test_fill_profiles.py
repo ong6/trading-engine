@@ -61,3 +61,14 @@ def test_baseline_v2_prices_are_unchanged(con):
     _bars(con)
     assert _next_open(con, 10, None).fill_px == 102 * (1 + (5.0 + 5.0) / 1e4)
     assert _moo(con, 10, None).fill_px == 102 * (1 + 2.5 / 1e4)
+
+
+def test_zero_median_dollar_volume_rejects_as_illiquid(con):
+    _bars(con, volume=0)
+    for result in (
+        _next_open(con, 10, None),
+        _moo(con, 10, None),
+        fills.attempt_fill(con, "XYZ", "buy", 10, date(2026, 10, 9), SESSION),
+    ):
+        assert result.status == "rejected"
+        assert result.reject_reason.startswith("illiquid:")

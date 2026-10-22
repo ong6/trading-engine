@@ -150,9 +150,10 @@ def attempt_fill(
         selected, side=side, qty=qty, open_px=open_px,
         median_dollar_volume=mdv)
 
-    # Liquidity guard (partial fills not modeled v1).
-    if (mdv is not None
-            and components["participation"] > selected.max_participation):
+    # Liquidity guard (partial fills not modeled v1). A name with zero median
+    # dollar volume has unbounded participation, not zero.
+    if mdv is not None and (
+            mdv <= 0 or components["participation"] > selected.max_participation):
         return FillResult(
             status="rejected",
             reject_reason=f"illiquid: notional ${qty * open_px:,.0f} > "
@@ -215,7 +216,7 @@ def _v2_result(
     participation = (
         0.0 if mdv is None or mdv <= 0 else qty * reference_px / mdv
     )
-    if mdv is not None and participation > selected.max_participation:
+    if mdv is not None and (mdv <= 0 or participation > selected.max_participation):
         return FillResult(
             status="rejected",
             reject_reason=f"illiquid: notional ${qty * reference_px:,.0f} > "
@@ -223,7 +224,7 @@ def _v2_result(
             f"(profile {selected.id})",
             open_px=reference_px,
             median_dollar_vol=mdv,
-            participation=participation,
+            participation=participation if mdv > 0 else None,
             execution_profile=selected.id,
             fill_kind=fill_kind,
             price_source=price_source,
