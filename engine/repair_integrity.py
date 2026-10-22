@@ -48,6 +48,7 @@ import argparse
 import json
 import math
 import tempfile
+import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -69,6 +70,7 @@ EVIDENCE_TOL_LOG = math.log(1.01)
 MIN_EVIDENCE_BARS = 3
 POST_BREAK_SESSIONS = 10
 MAX_HISTORY_START = "1970-01-01"
+SOURCE_RETRY_S = 10
 SKIPPED_OUTCOMES = ("skipped_already_adjusted", "skipped_sanity")
 RESTATABLE = ("applied_pending", *SKIPPED_OUTCOMES)
 MISMATCH = "skipped_source_mismatch"
@@ -208,6 +210,22 @@ def recorded_skips(con, since: date) -> list[dict]:
     return [cand for cand in found if cand is not None]
 
 
+def _source_flip(ratios: list[tuple[date, float | None]], ratio: float,
+                 window: set[date]) -> date | None:
+    """The window bar whose predecessor sits at stored/source = `ratio` while it
+    and the next POST_BREAK_SESSIONS bars sit at 1. Only these bars are read: a
+    newer bar can still be a same-night provisional one that differs from the
+    settled source (QBTX and SMU on 2026-10-22: their 10-21 closes)."""
+    def at(k: int, factor: float) -> bool:
+        return ratios[k][1] is not None and _at(ratios[k][1], factor)
+
+    for k in range(1, len(ratios)):
+        after = range(k, min(k + POST_BREAK_SESSIONS, len(ratios)))
+        if ratios[k][0] in window and at(k - 1, ratio) and all(at(j, 1.0) for j in after):
+            return ratios[k][0]
+    return None
+
+
 def split_evidence(con, cand: dict, source: dict[date, float]) -> dict:
     """Classify every stored bar against the source's current, restated history.
 
@@ -218,11 +236,7 @@ def split_evidence(con, cand: dict, source: dict[date, float]) -> dict:
     ratios = [(d, c / source[d] if d in source else None) for d, c in stored]
     brk = cand["break_date"]
     if brk is None:
-        tail = len(ratios)
-        while tail > 0 and ratios[tail - 1][1] is not None and _at(ratios[tail - 1][1], 1.0):
-            tail -= 1
-        brk = ratios[tail][0] if tail < len(ratios) and ratios[tail][0] in cand["window"] \
-            else None
+        brk = _source_flip(ratios, cand["ratio"], set(cand["window"]))
     report = {"proven": False, "break_date": str(brk) if brk else None}
     if brk is None:
         return {**report, "reason": "no break where the source flips to the stored scale"}
@@ -286,9 +300,11 @@ def _unadjudicated(con, tickers: list[str]) -> list[tuple[str, date, float]]:
 
 
 def record_unrecorded(db_path: Path, names: list[str], *, apply: bool, since: date,
-                      fetch_actions) -> tuple[dict, list[dict]]:
-    """Record the flagged names' splits; return (report, split candidates)."""
+                      fetch_actions) -> tuple[dict, list[dict], dict[str, str]]:
+    """Record the flagged names' splits; return (report, split candidates, the
+    per-name actions fetch outcome)."""
     found: dict[str, list[dict]] = {name: [] for name in names}
+    fetch: dict[str, str] = {}
     if apply and names:
         meta = Path(tempfile.mkdtemp(prefix="repair-integrity-")) / "_meta.json"
         actions.run_connection_narrowed(
@@ -298,10 +314,20 @@ def record_unrecorded(db_path: Path, names: list[str], *, apply: bool, since: da
     try:
         if apply:
             pending = _unadjudicated(con, names)
+            fetch = {name: status for name, status in con.execute(
+                "SELECT ticker, arg_max(status, attempted_at) FROM actions_fetch_log "
+                f"WHERE ticker IN ({','.join('?' * len(names))}) GROUP BY ticker",
+                names).fetchall()} if names else {}
         else:
             pending = []
             for name in names:
-                rows = actions._rows_from_actions(name, fetch_actions(_yf(con, name)))
+                # A failed or empty answer is said so: a dry-run that silently
+                # lists no split for a name (IESC, RUSHA on 2026-10-21 11:45) under-
+                # reports what --apply, which asks again, will restate.
+                answer = fetch_actions(_yf(con, name))
+                rows = actions._rows_from_actions(name, answer)
+                fetch[name] = ("failed" if answer is None else
+                               "empty" if not rows else "ok")
                 pending += [(name, row["ex_date"], row["value"]) for row in rows
                             if row["kind"] == "split" and row["ex_date"] >= since
                             and not con.execute(
@@ -321,27 +347,50 @@ def record_unrecorded(db_path: Path, names: list[str], *, apply: bool, since: da
             found[ticker].append(item)
     finally:
         con.close()
-    return found, cands
+    return found, cands, fetch
 
 
 # --------------------------------------------------------------------------- driver
+def planned_rows(cand: dict, evidence: dict) -> int:
+    """Rows --apply changes for this candidate: the proven island dates, or every
+    old-scale bar before the break (`_restate` keeps the already-restated ones)."""
+    if not evidence["proven"]:
+        return 0
+    return len(evidence["dates"]) if cand["kind"] == "double" else evidence["pre_old_scale"]
+
+
+def _action(cand: dict, evidence: dict) -> str:
+    if cand["kind"] == "double":
+        return "restore" if evidence["proven"] else "none"
+    if evidence["proven"]:
+        return "restate"
+    return f"record_{MISMATCH}" if cand["new"] else "none"
+
+
 def _item(cand: dict, evidence: dict, rows: int) -> dict:
-    keep = ("ticker", "ex_date", "ratio", "break_date", "dates", "verdict", "new")
+    """`reconciler_verdict` is what the reconciler alone says (the input this step
+    overrides with source evidence); `action` and `rows_planned` are what --apply
+    does; `rows_changed` is what it did (always 0 in a dry-run)."""
+    keep = ("ticker", "ex_date", "ratio", "break_date", "dates", "new")
     out = {k: (str(v) if isinstance(v, date) else v) for k, v in cand.items() if k in keep}
     if "dates" in out:
         out["dates"] = [str(d) for d in out["dates"]]
-    return {**out, "evidence": _public(evidence), "rows_changed": rows}
+    if "verdict" in cand:
+        out["reconciler_verdict"] = cand["verdict"]
+    return {**out, "evidence": _public(evidence), "action": _action(cand, evidence),
+            "rows_planned": planned_rows(cand, evidence), "rows_changed": rows}
 
 
 def run(db_path: Path, *, apply: bool, steps: tuple[str, ...] = STEPS,
         since: date = DEFAULT_SINCE, today: date | None = None,
-        source=source_closes, fetch_actions=actions._fetch_actions) -> dict:
+        source=source_closes, fetch_actions=actions._fetch_actions,
+        breaks=None) -> dict:
     today = today or datetime.now(timezone.utc).date()
     report: dict = {"db": Path(db_path).name, "apply": apply, "since": since.isoformat(),
                     "steps": list(steps)}
     con = db.connect(db_path, read_only=True)
     try:
-        breaks = unrecorded_breaks(con) if "unrecorded" in steps else []
+        breaks = (breaks or unrecorded_breaks)(con) if "unrecorded" in steps else []
         double = double_candidates(con, since) if "double" in steps else []
     finally:
         con.close()
@@ -351,8 +400,9 @@ def run(db_path: Path, *, apply: bool, steps: tuple[str, ...] = STEPS,
 
     new_splits: list[dict] = []
     if "unrecorded" in steps:
-        report["unrecorded"]["splits"], new_splits = record_unrecorded(
-            db_path, names, apply=apply, since=since, fetch_actions=fetch_actions)
+        report["unrecorded"]["splits"], new_splits, report["unrecorded"]["fetch"] = \
+            record_unrecorded(db_path, names, apply=apply, since=since,
+                              fetch_actions=fetch_actions)
 
     con = db.connect(db_path, read_only=True)
     try:
@@ -360,10 +410,18 @@ def run(db_path: Path, *, apply: bool, steps: tuple[str, ...] = STEPS,
         splits += new_splits if "splits" in steps else []
         evidence = {}
         for cand in (*double, *splits):
-            history = source(_yf(con, cand["ticker"]), cand["ticker"],
-                             cand["window"][0] if cand["kind"] == "double" else None)
+            start = cand["window"][0] if cand["kind"] == "double" else None
+            history = source(_yf(con, cand["ticker"]), cand["ticker"], start)
+            if not history:
+                time.sleep(SOURCE_RETRY_S)
+                history = source(_yf(con, cand["ticker"]), cand["ticker"], start)
             check = double_evidence if cand["kind"] == "double" else split_evidence
-            evidence[id(cand)] = check(con, cand, history)
+            # A source that answers nothing is not evidence either way: said so, so a
+            # dry-run never reads as "no break" when the history was unavailable
+            # (QBTX, SMU on 2026-10-22 05:2x; IESC, RUSHA actions on 10-21).
+            evidence[id(cand)] = check(con, cand, history) if history else {
+                "proven": False, "dates": [], "source_unavailable": True,
+                "reason": "the source returned no history"}
     finally:
         con.close()
 
@@ -382,7 +440,34 @@ def run(db_path: Path, *, apply: bool, steps: tuple[str, ...] = STEPS,
     if "stale" in steps:
         report["stale"] = collect.settle_stale_provisional(
             db_path, today=today, lookback_days=(today - since).days, dry_run=not apply)
+    report["summary"] = _summary(report)
     return report
+
+
+def _summary(report: dict) -> dict:
+    """Totals per step. In a dry-run every `changed` is 0 by design; `planned` is
+    what --apply would change (stale: bars the source has for the wanted keys,
+    which admission may still hold back)."""
+    out = {"mode": "apply" if report["apply"] else "dry-run"}
+    for name in ("double", "splits"):
+        if name in report:
+            out[name] = {"candidates": len(report[name]),
+                         "proven": sum(i["evidence"]["proven"] for i in report[name]),
+                         "source_unavailable": sorted(
+                             i["ticker"] for i in report[name]
+                             if i["evidence"].get("source_unavailable")),
+                         "rows_planned": sum(i["rows_planned"] for i in report[name]),
+                         "rows_changed": sum(i["rows_changed"] for i in report[name])}
+    if "unrecorded" in report:
+        fetch = report["unrecorded"].get("fetch", {})
+        out["unrecorded"] = {"names": len(fetch), "fetch_failed": sorted(
+            name for name, status in fetch.items() if status == "failed")}
+    if "stale" in report:
+        out["stale"] = {"keys": report["stale"]["stale"],
+                        "rows_planned": report["stale"]["source_bars"],
+                        "rows_changed": report["stale"]["refetched"],
+                        "retired": report["stale"]["retired"]}
+    return out
 
 
 def main() -> int:
