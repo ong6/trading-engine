@@ -163,10 +163,10 @@ RUNTIME_CONTRACT_FILES = (
     'sim/strategies/spy_benchmark.py',
     'sim/valuation.py',
 )
-# The deployed code identity of this same contract version (revision 16, installed
-# 2026-10-21). Revision 17 changed pinned bytes but not what the sector pair computes,
+# The deployed code identity of this same contract version (revision 19, installed
+# 2026-10-22). Revision 20 changed pinned bytes but not what the sector pair computes,
 # so the version stays and an explicit migration replaces only this digest.
-AMENDED_RUNTIME_CONTRACT_SHA256 = '7e6d1d4c0aa46676b50740816f1f864a1ffe29b75edf60d3707223c8f50719b7'
+AMENDED_RUNTIME_CONTRACT_SHA256 = 'bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea'
 PRIOR_RUNTIME_CONTRACT_VERSION = 11
 PRIOR_RUNTIME_CONTRACT_SHA256 = 'c7c868a9176172eafab99427723ce7edf5bdb7326693cb9f351ff29ab52d9168'
 PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = '8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce'

@@ -95,10 +95,10 @@ RUNTIME_CONTRACT_FILES = (
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
     "2c8ec5b06a93edbca6104569c1bb5c66514cd6476f209169ca1f6041cd470538"
 )
-# The deployed code identity of this same contract version (revision 16, installed
-# 2026-10-21). Revision 17 changed pinned bytes but not what E1 selects, prices, stores
+# The deployed code identity of this same contract version (revision 19, installed
+# 2026-10-22). Revision 20 changed pinned bytes but not what E1 selects, prices, stores
 # or judges, so the version stays and an explicit migration replaces only this digest.
-AMENDED_RUNTIME_CONTRACT_SHA256 = '638d09e4ebfb84261a45db58a35a399680bcbd2c4220f84803dfb1790a7f16c5'
+AMENDED_RUNTIME_CONTRACT_SHA256 = '2c8ec5b06a93edbca6104569c1bb5c66514cd6476f209169ca1f6041cd470538'
 PRIOR_RUNTIME_CONTRACT_VERSION = 7
 PRIOR_RUNTIME_CONTRACT_SHA256 = '5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280'
 PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = '5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612'
