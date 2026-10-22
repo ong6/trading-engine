@@ -554,7 +554,13 @@ def test_dated_observer_receipts_are_used_before_text_tail_coverage(tmp_path):
     ("snapshot younger than 120 minutes; publication skipped", None),
     ("skip: not on main", None), ("SKIP: another ensure_scraper is running", None),
     ('{"status": "no_session"}', None),
-    ("already successfully backed up today", None)])
+    ("already successfully backed up today", None),
+    # 2026-10-21 nightly: a clean drain summary was counted as an error line.
+    ("[queue] drain outcome: 4 done, 0 timed out, 0 failed, 0 left pending of 4 selected", None),
+    ("[queue] drain outcome: 3 done, 0 timed out, 0 failed, 1 left pending of 4 selected", "warn"),
+    ("[queue] drain outcome: 2 done, 1 timed out, 0 failed, 0 left pending of 3 selected", "error"),
+    ("[queue] drain outcome: 2 done, 0 timed out, 1 failed, 0 left pending, 1 other of 4 selected",
+     "error")])
 def test_host_failure_and_fail_soft_messages(line, level):
     assert ops_digest.classify(line) == level
 
@@ -871,3 +877,19 @@ def test_hourly_digest_embeds_the_model_gateway_preflight(tmp_path, health, stat
     assert "## Model gateway" in hour["text"] and detail in hour["text"]
     gateway = [url for url in requested if url.startswith(ops_digest.GATEWAY_URL)]
     assert gateway == [ops_digest.GATEWAY_URL + "/healthz", ops_digest.GATEWAY_URL + "/v1/models"]
+
+
+def test_timer_slot_inside_a_run_in_progress_is_not_missing():
+    # 2026-10-21: committee_development ran 20:15-21:46 and 23:30-01:15; the report
+    # listed every quarter-hour slot inside those runs as "no run".
+    timer = ops_digest.Schedule("committee_development", "timer *-*-* *:00,15,30,45:00",
+                                None, unit="committee_development.service")
+    at = lambda h, m: datetime(2026, 10, 21, h, m, tzinfo=UTC)  # noqa: E731
+    slots = [at(20, 15), at(20, 30), at(21, 45), at(22, 0), at(23, 0)]
+    runs = [ops_digest.JobRun(at(20, 15) + timedelta(seconds=17), 91 * 60 + 9, False,
+                              "exit-code"),
+            ops_digest.JobRun(at(22, 50), None, None, "running")]
+    assert ops_digest._unmatched(timer, slots, runs) == [at(22, 0)]
+
+    cron = ops_digest.Schedule("run_daily", "cron 30 22 * * 1-5", None)
+    assert ops_digest._unmatched(cron, [at(23, 0)], runs) == [at(23, 0)]

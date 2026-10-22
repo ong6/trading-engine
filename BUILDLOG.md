@@ -4136,4 +4136,31 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +70, tests +60 lines.
 - **Next:** orchestrator applies on the live store.
 
+## 2026-10-22 — Classify the queue drain summary by its counts
+
+- **Why:** P24 ops check of the 2026-10-21 nightly. Reproduction: `[queue] drain outcome: 4 done,
+  0 timed out, 0 failed, 0 left pending of 4 selected` (run log and TradingView archive log)
+  matched the generic `[queue] … failed` host-failure pattern, so the ops digest counted a clean
+  drain as an error line in three hours and listed it among the loudest error signals.
+- **What:** `tools/ops_digest.classify` reads the drain summary's counts: any timed-out or failed
+  job is an error, jobs left pending a warning, and a clean drain no signal.
+- **Evidence:** four new `test_host_failure_and_fail_soft_messages` cases; the clean and pending
+  ones fail before and all 30 cases pass after.
+- **Metrics:** tools +7, tests +7.
+- **Next:** stop reporting timer slots inside a run in progress as missing (next entry).
+
+## 2026-10-22 — Stop reporting timer slots inside a run in progress as missing
+
+- **Why:** P24 ops check of the 2026-10-21 nightly. Reproduction: `ops_digest --report --hours 12`
+  listed 13 `committee_development` slots as "no run", every one inside a run that was still
+  active (20:15-21:46, 23:31-01:15). A timer that fires while its service is active starts
+  nothing, so those slots were taken, not missed.
+- **What:** `tools/ops_digest._unmatched` treats a timer slot as occupied when a run of that unit
+  started before it and was still running then (or is still running). Cron slots are unchanged:
+  cron starts another process, and a lock refusal stays visible.
+- **Evidence:** new `test_timer_slot_inside_a_run_in_progress_is_not_missing` fails before and
+  passes after; the live 12-hour report from the clone now has no Missing runs section.
+- **Metrics:** tools +11, tests +15.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
