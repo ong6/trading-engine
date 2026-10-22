@@ -4580,4 +4580,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** the Next.js advisories that fail `npm audit`.
 
+## 2026-10-22 — Bump Next.js to 16.4.1 for three server-side advisories (P24 ci-green)
+
+- **Why:** the CI `ui-build` job fails `npm audit --omit=dev --audit-level=moderate` since 2026-10-22: next 16.0.0–16.4.0 has GHSA-2464-fhr4-w9xw and GHSA-673q-mjm6-r5xr (critical, remote code execution) and GHSA-p3m5-59mp-jv5r (high, denial of service).
+- **What:** `next` 16.3.8 to 16.4.1, the smallest release outside every advisory range (npm suggests 16.4.2, the newest; 16.4.1 audits clean). The lock changes only `next`, `@next/env` and the `@next/swc-*` binaries.
+- **Evidence:** `npm ci && npm audit --omit=dev --audit-level=moderate`: before "1 critical severity vulnerability", after "found 0 vulnerabilities"; `npm test` 73 pass and `npm run build` compiles on Node 20 and 23.
+- **Metrics:** unchanged.
+- **Next:** orchestrator reviews and lands the series; the live host runs `uv sync` and redeploys the UI.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
