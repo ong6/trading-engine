@@ -4460,4 +4460,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine 1 line (pinned engine/lib/db.py), tools +4 lines.
 - **Next:** freeze the baseline DDL inside migration 0000 (B4).
 
+## 2026-10-22 — Freeze the baseline catalog inside migration 0000 (B4)
+
+- **Why:** orchestrator decision on blocker B4: migration 0000's recorded hash covered the source of 40 initializer files, so after deploy a comment-only edit to any of them (reproduced with `engine/job_resolutions.py`) would refuse every writer, publication and backup with "database migration 0000 hash does not match source", and no later migration could repair the recorded row.
+- **What:** migration 0000 now carries the baseline as data (159 tables, 3 indexes, 1 view, 1 sequence, generated from the fresh initializers) plus the per-pre-image rebuild plan (the deployed store rebuilds six tables; its `actions_fetch_log` and `jobs` already match), and its identity is that file alone. Bootstrap never calls the runtime initializers; legacy pre-v2 portfolios take the initializer's former backfill values as frozen constants.
+  `test_baseline_hash_binds_runtime_initializer_source` is replaced by a CI test that runs the fresh initializers on an empty store and requires the newest migration's exact catalog, naming each drifted object with "add a migration". The guarantee moves from runtime to CI and gets stronger: it compares the catalog the code creates, not the text of the files, so a semantic schema change can no longer hide behind a re-pinned hash, and a harmless edit no longer stops the store. A regression test edits initializer files on a migrated store and proves writers, publication and backup still open.
+  The baseline keeps the 52 empty first-use tables, including the inactive P16, broker and authority stores, in the market catalog (accepted by the orchestrator); they authorize nothing and stay empty until their own gates.
+- **Evidence:** `pytest tests/test_schema_migrations.py tests/test_backup_database.py tests/test_baseline_table_coverage.py` passes; a mutated `job_resolutions` initializer fails with "… in ['tables:job_resolutions']: add a migration".
+- **Metrics:** engine +270 lines (migration 0000 data), tests +60 lines.
+- **Next:** repeat plan, apply and publish on a fresh real copy.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

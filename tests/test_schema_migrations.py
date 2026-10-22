@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import importlib
 import json
 import zlib
 from pathlib import Path
@@ -384,7 +385,7 @@ def test_baseline_refuses_to_normalize_a_drifted_column_type():
         con.execute("CREATE TABLE jobs (id INTEGER PRIMARY KEY, kind VARCHAR, timeout_s VARCHAR)")
         con.execute("INSERT INTO jobs VALUES (1, 'collect', '60')")
         with pytest.raises(ValueError, match="cannot be normalized"):
-            module._normalize_drifted_tables(con)
+            module._rebuild(con, ("jobs",))
         assert con.execute("SELECT * FROM jobs").fetchall() == [(1, "collect", "60")]
     finally:
         con.close()
@@ -700,18 +701,55 @@ def test_versioned_connection_rejects_every_cold_rewrite_form(
         con.close()
 
 
-def test_baseline_hash_binds_runtime_initializer_source(monkeypatch):
+def test_fresh_initializers_reproduce_the_newest_migration_catalog():
+    """CI owns the initializer/migration agreement; the migration identity does not."""
+    loaded = schema_migrations.migrations()
+    baseline = loaded[0].module
+    fresh = duckdb.connect()
+    reference = duckdb.connect()
+    try:
+        for module_name, function_name in baseline.BOOTSTRAP_CALLS:
+            getattr(importlib.import_module(module_name), function_name)(fresh)
+        baseline.bootstrap(reference)
+        for migration in loaded[1:]:
+            for statement in migration.statements:
+                reference.execute(statement)
+        expected, actual = (
+            schema_migrations.catalog(connection) for connection in (reference, fresh)
+        )
+        drifted = sorted(
+            f"{kind}:{name}"
+            for kind in ("tables", "views", "indexes", "sequences")
+            for name in {row[1] for row in expected[kind]} | {row[1] for row in actual[kind]}
+            if [row for row in expected[kind] if row[1] == name]
+            != [row for row in actual[kind] if row[1] == name]
+        )
+        assert not drifted, (
+            f"runtime initializers no longer reproduce migration {loaded[-1].migration_id:04d}'s "
+            f"catalog in {drifted}: add a migration"
+        )
+        assert schema_migrations.catalog_sha256(fresh) == (
+            loaded[-1].module.EXPECTED_CATALOG_SHA256
+        )
+    finally:
+        fresh.close()
+        reference.close()
+
+
+def test_baseline_identity_is_its_own_module(monkeypatch):
     before = schema_migrations.migrations()[0].sha256
+    assert schema_migrations.migrations()[0].module.__dict__.get("DEPENDENCIES", ()) == ()
     original = Path.read_bytes
 
-    def changed_dependency(path):
-        content = original(path)
-        if path.name == "bitemporal_facts.py":
-            return content + b"\n# changed dependency\n"
-        return content
+    def changed(name):
+        def read(path):
+            content = original(path)
+            return content + b"\n# changed\n" if path.name == name else content
+        return read
 
-    monkeypatch.setattr(Path, "read_bytes", changed_dependency)
-
+    monkeypatch.setattr(Path, "read_bytes", changed("bitemporal_facts.py"))
+    assert schema_migrations.migrations()[0].sha256 == before
+    monkeypatch.setattr(Path, "read_bytes", changed("0000_post_r15_baseline.py"))
     assert schema_migrations.migrations()[0].sha256 != before
 
 

@@ -313,6 +313,33 @@ def test_create_uses_fresh_latest_snapshot_instead_of_live_store(tmp_path, monke
     assert manifest["generation"]["manifest_sha256"] == published["manifest_sha256"]
 
 
+def test_initializer_edit_after_migration_keeps_writers_publish_and_backup_open(
+    tmp_path, monkeypatch,
+):
+    root, source = _repo(tmp_path, generation=True)
+    monkeypatch.setattr(backup_database, "MIN_FREE_BYTES", 0)
+    _stamp_schema(source)
+    original = Path.read_bytes
+    edited = {"db.py", "schema.py", "job_resolutions.py", "agent_store.py"}
+
+    def later_commit(path):  # a comment-only edit to initializer modules after deploy
+        content = original(path)
+        return content + b"\n# later edit\n" if path.name in edited else content
+
+    monkeypatch.setattr(Path, "read_bytes", later_commit)
+
+    con = engine_db.connect(source, wait_s=0)
+    try:
+        con.execute("INSERT INTO jobs (id,state) VALUES (9,'done')")
+    finally:
+        con.close()
+    published = publish_snapshot.publish_snapshot(root, source)
+    created = backup_database.create_backup(root, source, tmp_path / "outside" / "bundle")
+
+    assert published["row_counts"]["main.jobs"] == 3
+    assert created["status"] == "ok"
+
+
 def test_generation_backup_checks_primary_schema_and_restores_cold_rows(
     tmp_path, monkeypatch,
 ):

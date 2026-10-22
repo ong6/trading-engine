@@ -1,17 +1,18 @@
 # Storage revision (r16-gen + r16-raw, now numbered revision 18) — deploy checklist
 
-Branch `p24/r16` (on top of `p24/integrate-wave1`), blockers B1-B3 fixed on `p24/storage-r18`. Status: **DO NOT DEPLOY —
-blocked** (B4). Rehearsed on store copies only (see "Rehearsal result"). Nothing here was run against the live store.
+Branch `p24/r16` (on top of `p24/integrate-wave1`), blockers B1-B4 fixed on `p24/storage-r18` (main merged at
+454cfc6a). Status: **ready for the single re-pin and orchestrator review**; not yet deployed. Rehearsed on store copies
+only (see "Rehearsal result"). Nothing here was run against the live store.
 
 ## Blockers
 
 - **B1 (fixed on p24/storage-r18) Deployed catalog is a supported pre-image.** Migration 0000 accepts the deployed
-  catalog `865f64aa…` exactly (alongside pre-v2, v2 and r15) and rebuilds the eight tables whose DDL drifted through
-  runtime `ADD COLUMN` (actions_fetch_log, agent_evaluation_labels, agent_proposals, agent_shadow_attempts,
-  daily_opportunity_execution_quality, daily_opportunity_runs, fundamentals_fetch_log, jobs): rows are copied by column
-  name and proven equal (EXCEPT ALL both ways), and a table is refused if a stored column would be lost or change type.
-  `actions_fetch_log.attempted_at` stays nullable: 16,435 deployed rows predate the stamp and are kept unstamped.
-  Baseline catalog after migration: `7286ea9b…`.
+  catalog `865f64aa…` exactly (alongside pre-v2, v2 and r15). Of its eight drifted tables, six are rebuilt into the
+  baseline DDL (agent_evaluation_labels, agent_proposals, agent_shadow_attempts, daily_opportunity_execution_quality,
+  daily_opportunity_runs, fundamentals_fetch_log): rows are copied by column name and proven equal (EXCEPT ALL both
+  ways), and a table is refused if a stored column would be lost or change type. actions_fetch_log and jobs already
+  match: the baseline now declares `jobs.timeout_s` and keeps `actions_fetch_log.attempted_at` nullable (16,435 deployed
+  rows predate the stamp and are kept unstamped). Baseline catalog after migration: `7286ea9b…`.
 - **B2 (fixed on p24/storage-r18) First-use tables are owned by the baseline.** BOOTSTRAP_CALLS now create the 52
   tables code creates on first use or in inactive stores (`sim_settlements`, `experiment_results` with its forward
   columns, `job_resolutions`, P16, broker and authority ledgers). `tests/test_baseline_table_coverage.py` fails if any
@@ -22,19 +23,18 @@ blocked** (B4). Rehearsed on store copies only (see "Rehearsal result"). Nothing
   logical-snapshot equality check; publication's and the generation-backed backup's DuckDB connections are capped at
   4 GB / 4 threads and spill to disk. Publication cannot use a byte copy: the hot file must exclude the cold tables.
   Every rehearsal step now peaks at or under 7.5 GB RSS.
-- **B4 (open) Migration 0000's identity freezes 41 source files.** The migration hash covers the full source of every
-  initializer module in BOOTSTRAP_CALLS (`engine/lib/db.py`, `sim/schema.py`, `server/agent_*.py`,
-  `farm/experiment*.py`, …). After deploy, any later commit touching one of them, even a comment, makes every writer,
-  publication and backup refuse with "database migration 0000 hash does not match source", and no later migration can
-  repair the recorded row. Reproduced on the r15 fixture by appending a comment to `engine/job_resolutions.py`.
-  Proposed fix (orchestrator decision; it replaces `test_baseline_hash_binds_runtime_initializer_source`): freeze the
-  baseline DDL as data inside migration 0000 so its identity is that module alone, and add a CI test that a fresh
-  store built by the current initializers equals the newest migration's catalog.
+- **B4 (fixed on p24/storage-r18) Migration identity no longer freezes initializer files.** Migration 0000 carries
+  the baseline DDL and the per-pre-image rebuild plan as data; its recorded hash covers that file alone. CI
+  (`test_fresh_initializers_reproduce_the_newest_migration_catalog`) requires the fresh initializers to reproduce the
+  newest migration's exact catalog and names any drifted object ("add a migration"); a regression test edits
+  initializer files on a migrated store and proves writers, publication and backup still open.
+- **Accepted by the orchestrator:** the canonical backup path (`readlink -f "$HOME"`, below); publication holding the
+  producer locks about 10 minutes; the empty inactive-store tables (P16, broker, authority) in the market catalog.
 - Integrator-owned, already known: registration/runtime re-pin (below), the off-host remote restore drill wiring
   (`write_remote_restore_plan` + `remote_restore_drill` need a generation-backed bundle committed to the private
   backup repo), orchestrator sign-off on pausing TradingView history (E4 evidence of no reader).
 
-## Re-pin needed (do not run until B4 is decided)
+## Re-pin needed (once, at merge)
 
 Pinned files changed by the storage revision: `engine/lib/db.py` (P15 + E1/sector/XS runtime), `engine/lib/snapshots.py`,
 `tools/backup_database.py`, `tools/publish_snapshot.py`, `engine/queue_runner.py`, `engine/signals.py`,
@@ -46,7 +46,9 @@ Pinned files changed by the storage revision: `engine/lib/db.py` (P15 + E1/secto
 1. `main` contains the merged branch; both timezone suites green after the single re-pin; `ruff check .` clean.
 2. `.venv/bin/python -m engine.job_contract audit` → `status: ok`; `python -m tools.schedule_contract_check --static` clean.
 3. Free space ≥ 70 GiB on the store filesystem (restore reserve) plus 2× store size for backup + first generation.
-4. Window outside 13:00-21:00, 02:20-02:50, 07:30-07:50 UTC weekdays; no queue drain running.
+4. Window outside 13:00-21:00, 02:20-02:50, 07:30-07:50 UTC weekdays; no queue drain running. Allow about 45 minutes
+   with producers quiesced: backup create ~9 min, verify ~3 min, migration ~6 min, first publication ~10-11 min of
+   held producer locks (later publications reuse unchanged cold parts), plus the verify steps.
 5. A fresh verified off-host copy exists (trading-data backup current).
 
 ## Deploy (from the live checkout, after `git pull`; reuse the runbook helpers)
