@@ -549,6 +549,7 @@ def test_agent_evaluation_status_delegates_and_closes_connection(monkeypatch):
 
     assert main.agent_evaluation_status() == {
         **base, **validation, "schema_version": 3, **extra,
+        "generation": None,  # no request context: no served generation recorded
     }
     assert con.closed is True
 
