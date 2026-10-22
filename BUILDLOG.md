@@ -4527,4 +4527,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** registration 7 lines; tests 4 lines.
 - **Next:** storage revision 19; the reliability lanes' pinned-file changes join its re-pin.
 
+## 2026-10-22 — Refuse store writes, backups and snapshot copies below a free-space reserve; bound DuckDB per connection (P24 reliability-ops)
+
+- **Why:** P24 reliability-ops, owner items 1 and 5. Nothing refused a write before the store filesystem filled: free space fell to 46 GB on 2026-10-17 (ops digest footprint) while a copy needs the 12.5 GB database again. Every store connection ran with DuckDB's defaults, 32 threads and 50.1 GiB each.
+- **What:** the connection factory refuses a writer open inside this checkout's `store/` (compared on resolved paths, since the home directory links to the data volume) unless `TRADING_ENGINE_MIN_FREE_GIB` (default 10 GiB) stays free. Snapshot publication and the file-copy backup refuse, inside the exclusive backup window so the two cannot spend the same space, unless the database and WAL plus the reserve are free; a generation restore keeps its own reserve check. Store connections get readers 4 threads / 4GB, writers 8 / 16GB (`TRADING_ENGINE_DUCKDB_THREADS`/`_MEMORY`). `store_limits.py` joins the release tool's recovery sources.
+- **Evidence:** `pytest tests/test_store_limits.py` (symlinked home and in-window ordering included) with the publish, backup, server-db, migration and installer tests pass. Store copy: the five slowest GETs return identical digests at 32 threads/50GB and at the reader limits (`/daily-opportunities/status` 43.8 s vs 41.3 s, peak RSS 633 vs 575 MB); review: rebuilding `intraday_prices`' key peaks at 9.7 GB and passes at 16GB.
+- **Metrics:** engine +12, tools +30, tests +110.
+- **Next:** orchestrator re-pins the registration and runtime contracts once (db.py, backup_database.py, publish_snapshot.py, release_manifest.py).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

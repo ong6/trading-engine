@@ -23,6 +23,7 @@ from pathlib import Path
 
 import duckdb
 
+from engine.lib import store_limits
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
@@ -1645,6 +1646,15 @@ def create_backup(
                     )
             else:
                 with _exclusive_backup_window(repo_root):
+                    # Checked inside the window, so a snapshot cannot spend the same space.
+                    # (A generation restore checks its own reserve above.)
+                    try:
+                        store_limits.require_free_space(
+                            destination.parent, purpose="create a store backup",
+                            need_bytes=store_limits.file_bytes(source),
+                        )
+                    except store_limits.DiskSpaceError as exc:
+                        raise BackupError(str(exc)) from exc
                     backup_source = source
                     with _open_source_database(backup_source) as (
                         source_parent_fd,

@@ -24,7 +24,7 @@ from uuid import uuid4
 import duckdb
 import pandas as pd
 
-from engine.lib import settings
+from engine.lib import settings, store_limits
 from engine.lib import snapshots as schema_registry
 from engine.lib.data_quality import (
     PRICE_VALIDATOR_VERSION,
@@ -577,6 +577,10 @@ def connect(path: str | Path | None = None, *,
         path = generation_pin.info.path
     if not read_only:
         path.parent.mkdir(parents=True, exist_ok=True)
+        # A producer refuses before it starts writing into a nearly full store filesystem.
+        if store_limits.store_path_guarded(path):
+            store_limits.require_free_space(path.parent, purpose=f"open {path.name} for writing")
+    threads, memory_limit = store_limits.duckdb_limits(read_only)
 
     if wait_s is None:
         wait_s = settings.lock_wait_s()
@@ -590,6 +594,10 @@ def connect(path: str | Path | None = None, *,
             # Naive TIMESTAMP columns hold UTC: a timezone-aware value (fetch stamps)
             # must not be cast through the host's local zone on a non-UTC host.
             connection.execute("SET TimeZone='UTC'")
+            # DuckDB defaults to every core and 80% of RAM per connection; the API, the
+            # producers and research jobs share one host. A job may raise its own values.
+            connection.execute(f"SET threads={int(threads)}")
+            connection.execute(f"SET memory_limit='{memory_limit}'")
             versioned = connection.execute(
                 "SELECT 1 FROM information_schema.tables "
                 "WHERE table_schema='main' AND table_name=?", [MIGRATION_TABLE],

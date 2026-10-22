@@ -23,7 +23,7 @@ from pathlib import Path
 import duckdb
 
 from engine.lib import db as engine_db
-from engine.lib import resources
+from engine.lib import resources, store_limits
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from engine.lib.snapshots import (
     COLD_APPEND_FRONTIERS,
@@ -892,6 +892,16 @@ def _publish_locked(
     try:
         lock_started = time.monotonic()
         with backup_database._exclusive_backup_window(repo_root, skip_locks=held_locks):
+            # Checked inside the window, so a backup cannot spend the same free space. A
+            # generation rewrites the hot part and appends cold parts; the database size
+            # is the conservative bound.
+            try:
+                store_limits.require_free_space(
+                    directory, purpose="publish a store snapshot",
+                    need_bytes=store_limits.file_bytes(source),
+                )
+            except store_limits.DiskSpaceError as exc:
+                raise SnapshotError(str(exc)) from exc
             source_connection = _bounded(
                 duckdb.connect(str(source), read_only=True), directory,
             )
