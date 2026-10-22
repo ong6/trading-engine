@@ -11,20 +11,26 @@ Run from repo root:  .venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8
 
 from __future__ import annotations
 
+import json
+import os
+import pathlib
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timezone
-from threading import Lock
+from threading import Event, Lock, Thread
 from typing import Annotated, Any, Iterator, Literal, TypeAlias, TypeVar
 
 import duckdb
 from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from engine import p15_evaluation
+from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DATA_DIR, META_PATH
 from tools import agent_trial_register
 
@@ -129,6 +135,13 @@ P15_AUDITED_TABLES = (
 )
 _EVALUATION_CACHE_LOCK = Lock()
 _EVALUATION_CACHE: tuple[tuple, tuple[dict, dict]] | None = None
+EVALUATION_CACHE_FILE = "evaluation-projection-cache.json"
+# The warmer checks the newest generation this often (and at once when a request found the
+# inputs changed), so a publication's new inputs are projected about a minute after it.
+EVALUATION_WARM_INTERVAL_S = 60.0
+EVALUATION_WARMER_ENABLED = os.environ.get("TRADING_ENGINE_EVALUATION_WARMER", "1") == "1"
+_PROJECTION_STATE: ContextVar[bool | None] = ContextVar("evaluation_projection_current",
+                                                       default=None)
 
 
 def _is_allowed_host_header(value: str) -> bool:
@@ -267,21 +280,132 @@ def _evaluation_generation_key(con: duckdb.DuckDBPyConnection) -> tuple:
     return registration, tuple(generations)
 
 
+def _compute_p15_projection(con, generated_at: datetime) -> tuple[dict, dict]:
+    evidence_status = agent_evaluation.validate_p15_evidence(con, generated_at) or {}
+    p15 = p16_status_adapter.with_primary_kill(
+        p15_evaluation.project(con, generated_at=generated_at),
+    )
+    return evidence_status, p15
+
+
+def _cache_path():
+    """Beside the primary, or ``TRADING_ENGINE_EVALUATION_CACHE`` (empty: memory only)."""
+    override = os.environ.get("TRADING_ENGINE_EVALUATION_CACHE")
+    if override is not None:
+        return None if override == "" else pathlib.Path(override)
+    return server_db.db_path().with_name(EVALUATION_CACHE_FILE)
+
+
+def _store_evaluation_cache(key: tuple, value: tuple[dict, dict]) -> None:
+    """Keep the projection in memory and on disk, keyed by the identity of its inputs."""
+    global _EVALUATION_CACHE
+    with _EVALUATION_CACHE_LOCK:
+        _EVALUATION_CACHE = key, deepcopy(value)
+    path = _cache_path()
+    if path is None:
+        return
+    try:
+        write_text_atomic(path, json.dumps(
+            {"key": jsonable_encoder(key), "value": jsonable_encoder(value)}, sort_keys=True,
+        ))
+    except OSError:
+        pass  # the in-memory copy still serves; the next process recomputes once
+
+
+def _loaded_evaluation_cache() -> tuple | None:
+    """The in-memory projection, or the one a previous API process left on disk."""
+    global _EVALUATION_CACHE
+    with _EVALUATION_CACHE_LOCK:
+        if _EVALUATION_CACHE is not None:
+            return _EVALUATION_CACHE
+    path = _cache_path()
+    if path is None:
+        return None
+    try:
+        stored = json.loads(path.read_text())
+        key = _json_key(stored["key"])
+        value = tuple(stored["value"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    with _EVALUATION_CACHE_LOCK:
+        if _EVALUATION_CACHE is None:
+            _EVALUATION_CACHE = key, value
+        return _EVALUATION_CACHE
+
+
+def _json_key(key) -> tuple:
+    return tuple(json.loads(json.dumps(jsonable_encoder(key))))
+
+
 def _cached_p15_projection(
     con: duckdb.DuckDBPyConnection, generated_at: datetime,
 ) -> tuple[dict, dict]:
-    global _EVALUATION_CACHE
-    key = _evaluation_generation_key(con)
-    with _EVALUATION_CACHE_LOCK:
-        if _EVALUATION_CACHE is not None and _EVALUATION_CACHE[0] == key:
-            return deepcopy(_EVALUATION_CACHE[1])
-        evidence_status = agent_evaluation.validate_p15_evidence(con, generated_at) or {}
-        p15 = p16_status_adapter.with_primary_kill(
-            p15_evaluation.project(con, generated_at=generated_at),
-        )
-        value = evidence_status, p15
-        _EVALUATION_CACHE = key, deepcopy(value)
-        return value
+    """The P15 projection for the served generation's evidence inputs.
+
+    The cache is keyed by the identity of the inputs (registration plus each audited table's
+    row count and highest id), so a republication that changed none of them reuses it, in
+    this process or, through the file beside the primary, in the next one. When the inputs
+    changed, the previous projection is served (flagged by ``evaluation_projection_current``)
+    while the background warmer recomputes it, so no request waits for the cold projection;
+    only a store that never had one computes it in the request.
+    """
+    key = _json_key(_evaluation_generation_key(con))
+    cached = _loaded_evaluation_cache()
+    if cached is not None and cached[0] == key:
+        _PROJECTION_STATE.set(True)
+        return deepcopy(cached[1])
+    if cached is not None:
+        _PROJECTION_STATE.set(False)
+        _evaluation_warmer.request()
+        return deepcopy(cached[1])
+    value = _compute_p15_projection(con, generated_at)
+    _store_evaluation_cache(key, value)
+    _PROJECTION_STATE.set(True)
+    return deepcopy(value)
+
+
+class _EvaluationWarmer:
+    """Recompute the projection off the request path whenever its inputs change."""
+
+    def __init__(self) -> None:
+        self._wake = Event()
+        self._started = False
+        self._lock = Lock()
+
+    def request(self) -> None:
+        with self._lock:
+            if not self._started and EVALUATION_WARMER_ENABLED:
+                Thread(target=self._run, name="evaluation-warmer", daemon=True).start()
+                self._started = True
+        self._wake.set()
+
+    def warm_once(self) -> bool:
+        """Recompute for the newest generation if its inputs changed; True if it did."""
+        try:
+            con = read_con()
+        except DBBusyError:
+            return False
+        try:
+            key = _json_key(_evaluation_generation_key(con))
+            cached = _loaded_evaluation_cache()
+            if cached is not None and cached[0] == key:
+                return False
+            _store_evaluation_cache(key, _compute_p15_projection(con, datetime.now(timezone.utc)))
+            return True
+        finally:
+            con.close()
+
+    def _run(self) -> None:  # pragma: no cover - exercised by the rehearsal, not unit tests
+        while True:
+            self._wake.wait(EVALUATION_WARM_INTERVAL_S)
+            self._wake.clear()
+            try:
+                self.warm_once()
+            except Exception:  # noqa: BLE001 - a failed warm leaves the previous projection
+                time.sleep(EVALUATION_WARM_INTERVAL_S)
+
+
+_evaluation_warmer = _EvaluationWarmer()
 
 
 def _reset_evaluation_cache() -> None:
@@ -660,8 +784,11 @@ def agent_evaluation_status():
                           "trial_count_register": agent_trial_register.project(con, generated_at)}
             except (OSError, ValueError, agent_evaluation.EvaluationError) as exc:
                 raise HTTPException(503, "agent evaluation status unavailable") from exc
+            served = server_db.served_generation()
+            if served is not None:
+                served = {**served, "evaluation_projection_current": _PROJECTION_STATE.get()}
             return {**result, "p16": p16_status_adapter.project(con, generated_at=generated_at),
-                    "generation": server_db.served_generation()}
+                    "generation": served}
 
 
 @app.post("/agent/proposals/shadow", dependencies=JSON_MUTATION_DEPENDENCY)

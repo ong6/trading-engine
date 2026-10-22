@@ -623,13 +623,28 @@ def test_agent_evaluation_validation_and_projection_cache_by_generation(monkeypa
     )
     monkeypatch.setattr(main.p16_status_adapter, "with_primary_kill", lambda value: value)
 
+    requested = []
+    monkeypatch.setattr(main._evaluation_warmer, "request", lambda: requested.append(1))
+
+    class Connection:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(main, "read_con", lambda: Connection())
+
     first = main._cached_p15_projection(object(), datetime.now(timezone.utc))
     second = main._cached_p15_projection(object(), datetime.now(timezone.utc))
     generation[0] = 2
+    # Changed inputs: the request is served the previous projection at once ...
     third = main._cached_p15_projection(object(), datetime.now(timezone.utc))
+    assert calls == ["validate", "project"] and requested == [1]
+    # ... and the warmer recomputes it off the request path.
+    assert main._evaluation_warmer.warm_once() is True
+    fourth = main._cached_p15_projection(object(), datetime.now(timezone.utc))
 
-    assert first == second == third
+    assert first == second == third == fourth
     assert calls == ["validate", "project", "validate", "project"]
+    assert main._PROJECTION_STATE.get() is True
 
 
 def test_agent_evaluation_generation_key_covers_count_and_max_id(con, monkeypatch):
@@ -652,3 +667,46 @@ def test_agent_evaluation_generation_key_covers_count_and_max_id(con, monkeypatc
             ("audit_missing", 0, None),
         ),
     )
+
+
+def test_evaluation_projection_survives_a_republication_with_unchanged_inputs(
+    monkeypatch, tmp_path,
+):
+    cache = tmp_path / "evaluation-projection-cache.json"
+    monkeypatch.setenv("TRADING_ENGINE_EVALUATION_CACHE", str(cache))
+    main._reset_evaluation_cache()
+    keys = iter([("inputs", 1), ("inputs", 1), ("inputs", 2)])
+    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con: next(keys))
+    computed = []
+    monkeypatch.setattr(main, "_compute_p15_projection", lambda _con, _at: computed.append(1)
+                        or ({"validated": len(computed)}, {"p15": {"n": len(computed)}}))
+    requested = []
+    monkeypatch.setattr(main._evaluation_warmer, "request", lambda: requested.append(1))
+    now = datetime(2026, 10, 22, tzinfo=timezone.utc)
+
+    first = main._cached_p15_projection(object(), now)   # cold: computed once, persisted
+    main._reset_evaluation_cache()                         # a new API process / generation
+    second = main._cached_p15_projection(object(), now)  # same inputs: read from disk
+    third = main._cached_p15_projection(object(), now)   # inputs changed: previous, warmer asked
+
+    assert computed == [1] and first == second == third
+    assert main._PROJECTION_STATE.get() is False and requested == [1]
+    assert cache.is_file()
+
+
+def test_evaluation_warmer_recomputes_only_when_inputs_change(monkeypatch):
+    main._reset_evaluation_cache()
+
+    class Connection:
+        def close(self):
+            pass
+
+    keys = iter([("inputs", 1), ("inputs", 1), ("inputs", 2)])
+    monkeypatch.setattr(main, "read_con", lambda: Connection())
+    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con: next(keys))
+    computed = []
+    monkeypatch.setattr(main, "_compute_p15_projection",
+                        lambda _con, _at: computed.append(1) or ({}, {}))
+
+    assert [main._evaluation_warmer.warm_once() for _ in range(3)] == [True, False, True]
+    assert computed == [1, 1]

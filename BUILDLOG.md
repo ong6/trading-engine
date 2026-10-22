@@ -4719,4 +4719,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +12, tools +30, tests +110.
 - **Next:** orchestrator re-pins the registration and runtime contracts once (db.py, backup_database.py, publish_snapshot.py, release_manifest.py).
 
+## 2026-10-23 — Keep the evaluation projection warm across publications and API restarts
+
+- **Why:** the rehearsal measured the first `/agent/evaluation/status` call on a new API process at 4.6 min (the cold P15 projection), and the in-request recompute after any evidence input change blocked every evaluation request for that long; publish-on-change makes new generations up to every 30 minutes.
+- **What:** the projection cache was already keyed by the identity of its inputs (registration plus each audited table's row count and highest id), not the generation id; it now also persists beside the primary (`evaluation-projection-cache.json`), so a restarted API with unchanged inputs serves it at once. When the inputs changed, the request gets the previous projection with `generation.evaluation_projection_current: false` and a background warmer recomputes it; the warmer also checks the newest generation every 60 s, so a publication's new inputs are projected about a minute after it, off the request path. Only a store with no projection at all computes it in the request.
+- **Evidence:** `pytest tests/test_agent_routes.py`: unchanged inputs read the persisted projection without recomputing; changed inputs serve the previous one and wake the warmer, which recomputes only when the inputs differ. Store-copy timings are in the rehearsal entry.
+- **Metrics:** server +110 lines, tests +60 lines.
+- **Next:** the single re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
