@@ -4418,7 +4418,7 @@ the 42-entry 2026-09-19 C90 complexity series is in
 
 ## 2026-10-22 — Migrate the deployed catalog exactly and own every first-use table in the baseline
 
-- **Why:** revision-18 blockers B1 and B2: migration 0000 refused the deployed catalog (`865f64aa…`, rebuilt from a published store copy) and a versioned store refuses first-use `CREATE TABLE` (`tests/test_p22_round3.py::test_late_recovery_keeps_cash_delisting` failed with SchemaMigrationRequired for `sim_settlements`).
+- **Why:** revision-19 blockers B1 and B2: migration 0000 refused the deployed catalog (`865f64aa…`, rebuilt from a published store copy) and a versioned store refuses first-use `CREATE TABLE` (`tests/test_p22_round3.py::test_late_recovery_keeps_cash_delisting` failed with SchemaMigrationRequired for `sim_settlements`).
 - **What:** the deployed catalog is a fifth exact pre-image (schema-only fixture). Bootstrap now rebuilds any existing table whose DDL differs from the fresh initializers' (column order, NOT NULL from accumulated `ADD COLUMN`), copying rows by column name and proving the copy equal (EXCEPT ALL both ways); it refuses if a stored column is missing from the baseline or changes type. The baseline gains the 52 tables code creates on first use or in inactive stores (`experiment_results` with its forward columns, `job_resolutions`, `sim_settlements`, P16, broker and authority ledgers); a new test fails if any `CREATE TABLE` in engine/, sim/, server/ or tools/ names a table the baseline does not create, apart from listed separate databases.
   `jobs.timeout_s` is now declared by the initializer (it exists live). `actions_fetch_log.attempted_at` stays nullable: 16,435 of 22,419 deployed rows (fetched before 2026-09-07) were logged before the stamp existed, and inventing a time would fabricate evidence; writers always stamp it and readers already order it `NULLS LAST`, skip it in `arg_max`, or require a datetime. `fundamentals_fetch_log.attempted_at` keeps the initializer's nullable declaration (deployed rows are all stamped). New baseline catalog `7286ea9b…`.
 - **Evidence:** `pytest tests/test_schema_migrations.py tests/test_baseline_table_coverage.py tests/test_p22_round3.py` passes, including every deployed row kept across the rebuild.
@@ -4427,18 +4427,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 
 ## 2026-10-22 — Back up a quiesced store by copying its file bytes
 
-- **Why:** revision-18 rehearsal: backup create peaked at 23.8 GB RSS in `COPY FROM DATABASE` (one uncommitted transaction; it fails out of memory under a 4-6 GB cap), above the 8 GB budget for work beside the producers.
+- **Why:** revision-19 rehearsal: backup create peaked at 23.8 GB RSS in `COPY FROM DATABASE` (one uncommitted transaction; it fails out of memory under a 4-6 GB cap), above the 8 GB budget for work beside the producers.
 - **What:** with every producer lock held, backup create now takes the source's logical snapshot, copies the file bytes (and a pending WAL, replayed and checkpointed into the copy), then requires the copy's logical snapshot to equal the source's, as before. The other `_copy_database` callers (P15/P16 scratch copies) are unchanged. Publication's DuckDB connections are capped at 4 GB and 4 threads and spill under the snapshot directory; publication cannot take the byte route because a generation's hot file must leave out the cold tables (DuckDB does not return a dropped table's blocks, so a byte copy would make every hot file the full 12 GB).
 - **Evidence:** new tests: the bundle file is byte-identical to the source and `COPY FROM DATABASE` is never used; an uncheckpointed WAL row reaches the bundle and verify passes. Store-copy numbers are in the next entry.
 - **Metrics:** tools +70 lines (pinned tools/backup_database.py, tools/publish_snapshot.py), tests +50 lines.
 - **Next:** repeat the real-copy rehearsal.
 
-## 2026-10-22 — Rehearse the revision-18 deploy path on a real store copy (migration now applies)
+## 2026-10-22 — Rehearse the revision-19 deploy path on a real store copy (migration now applies)
 
-- **Why:** revision-18 blockers B1-B3 are fixed on this branch; the deploy path must be rehearsed on a copy of the deployed store before any deploy.
+- **Why:** revision-19 blockers B1-B3 are fixed on this branch; the deploy path must be rehearsed on a copy of the deployed store before any deploy.
 - **What:** on a copy of the newest published snapshot (13:37, catalog `865f64aa…`): plan 1 s; backup create 506 s at 5.0 GB RSS (was 661 s, 23.8 GB), bundle byte-identical to the source; verify 170 s; migration applied in 327 s to schema 1; first generation 622 s at 7.5 GB (was 24 GB); readers pin and read board and evidence data; all ten invariants pass on the generation; generation-backed backup 502 s at 10.7 GB, then 912 s at 5.1 GB once its cold-table rebuild was capped and inserted part by part (same logical snapshot); every restore drill is byte-identical with an equal logical snapshot. Copies deleted afterwards.
   Still blocking: migration 0000's identity hashes 40 initializer source files, so after deploy any edit to one of them (even a comment) refuses every writer; the checklist records it as B4 with a proposed fix.
-- **Evidence:** `docs/revision-18-storage-deploy-checklist.md` rehearsal table; every step exits 0.
+- **Evidence:** `docs/revision-19-storage-deploy-checklist.md` rehearsal table; every step exits 0.
 - **Metrics:** tools +20 lines (pinned tools/backup_database.py).
 - **Next:** the orchestrator decides B4, then the single re-pin.
 
@@ -4469,5 +4469,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `pytest tests/test_schema_migrations.py tests/test_backup_database.py tests/test_baseline_table_coverage.py` passes; a mutated `job_resolutions` initializer fails with "… in ['tables:job_resolutions']: add a migration".
 - **Metrics:** engine +270 lines (migration 0000 data), tests +60 lines.
 - **Next:** repeat plan, apply and publish on a fresh real copy.
+
+## 2026-10-22 — Renumber the storage revision to 19
+
+- **Why:** main takes registration revision 18 for the meta-split change (orchestrator, 2026-10-22), so the storage work becomes revision 19.
+- **What:** the deploy checklist is now `docs/revision-19-storage-deploy-checklist.md` (deploy variables `R19_BACKUP`, `r19-deploy`); `docs/README.md`, `docs/product.md`, the P24 row of `docs/plans/README.md` and this lane's storage entries say revision 19; the integrate lane's earlier entries keep their wording. The branch keeps its name.
+- **Evidence:** `pytest tests/test_documentation_integrity.py tests/test_operating_contract.py` passes.
+- **Metrics:** docs only.
+- **Next:** finish the store-copy rehearsal and merge main's newest head.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
