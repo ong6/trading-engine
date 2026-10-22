@@ -4655,4 +4655,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +55, tests +35.
 - **Next:** review F4 and the uv-version nit.
 
+## 2026-10-22 — Fail the CI gate closed on an unknown plan; one uv version in the setup action (P24 cicd)
+
+- **Why:** review F4 (low) and a nit of `p24/cicd`. The gate required `checks` and `ui-build` only when the scope was exactly `code`, so any other value passed with them skipped; the setup action wrote the uv version twice.
+- **What:** `checks` and `ui-build` are required unless the scope is `content`; an unknown tier requires both test jobs. The setup action takes `uv-version` as an input used for the install and the cache key.
+- **Evidence:** `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 66 passed (scopes `other`, missing and empty and an unknown tier fail); actionlint clean.
+- **Metrics:** tools +3, tests +5.
+- **Next:** orchestrator merges after the ci-green lane.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

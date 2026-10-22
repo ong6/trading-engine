@@ -595,14 +595,16 @@ def ci_verdict(needs: dict) -> list[str]:
     """Problems with the jobs one plan required; empty when the run passed.
 
     ``needs`` is the workflow's ``needs`` context. A job the plan required must succeed:
-    hygiene and the plan always, the tier's test job, and for code the checks and UI build.
+    hygiene and the plan always, the tier's test job (both for an unknown tier), and the
+    checks and UI build unless the scope is ``content``: anything unknown fails closed.
     """
     plan = needs.get("changes", {})
     outputs = plan.get("outputs") or {}
     required = {"hygiene", "changes"}
     if plan.get("result") == "success":
-        required.add("test" if outputs.get("tier") == "full" else "selected")
-        if outputs.get("scope") == "code":
+        tier = outputs.get("tier")
+        required |= {"full": {"test"}, "selected": {"selected"}}.get(tier, {"test", "selected"})
+        if outputs.get("scope") != "content":
             required |= {"checks", "ui-build"}
     problems = [f"{name}: {needs.get(name, {}).get('result', 'missing')}"
                 for name in sorted(required) if needs.get(name, {}).get("result") != "success"]

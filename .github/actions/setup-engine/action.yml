@@ -4,6 +4,10 @@ description: >-
   the exact Python version and uv.lock; a stale one restored by prefix is brought to the
   lock by `uv sync --frozen`, which removes anything the lock does not list. It is saved
   right after the sync, before any test can write into it.
+inputs:
+  uv-version:
+    description: uv release to install; part of the virtualenv cache key
+    default: "0.11.29"
 runs:
   using: composite
   steps:
@@ -15,15 +19,15 @@ runs:
         python-version: "3.12"
     - uses: astral-sh/setup-uv@v6
       with:
-        version: "0.11.29"
+        version: ${{ inputs.uv-version }}
         enable-cache: false  # every locked package is a wheel, which its pruned cache drops
     - id: venv
       uses: actions/cache/restore@v4
       with:
         path: .venv
-        key: venv-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-uv0.11.29-${{ hashFiles('uv.lock') }}
+        key: venv-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-uv${{ inputs.uv-version }}-${{ hashFiles('uv.lock') }}
         restore-keys: |
-          venv-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-uv0.11.29-
+          venv-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-uv${{ inputs.uv-version }}-
     - run: uv sync --extra dev --frozen
       shell: bash
     - if: steps.venv.outputs.cache-hit != 'true'

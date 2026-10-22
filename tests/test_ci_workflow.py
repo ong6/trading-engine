@@ -277,6 +277,10 @@ def test_the_gate_requires_what_the_plan_required():
     assert at.ci_verdict(_needs("selected", "content", selected="failure")) == ["selected: failure"]
     assert at.ci_verdict(_needs("selected", "content", selected="success", hygiene="failure")) == [
         "hygiene: failure"]
+    for tier, scope in (("full", "other"), ("full", None), ("selected", "")):
+        assert at.ci_verdict(_needs(tier, scope, test="success", selected="success")) == [
+            "checks: skipped", "ui-build: skipped"]
+    assert at.ci_verdict(_needs("?", "content", test="success")) == ["selected: skipped"]
     broken = _needs(changes="failure")
     assert at.ci_verdict(broken) == ["changes: failure"]
     assert at.ci_verdict(_needs("selected", "content", selected="success", checks="cancelled")) == [
