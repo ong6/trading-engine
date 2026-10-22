@@ -4564,4 +4564,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +3, tests +15.
 - **Next:** orchestrator lands series A.
 
+## 2026-10-22 — Keep the ops digest tests off the host's model CLI (P24 ci-green)
+
+- **Why:** CI test shards have been red since 2026-10-21 (the failing shard moved as files were added). Reproduction: a clone with `HOME` pointing elsewhere and no model CLI on `PATH`, `pytest tests/test_ops_digest.py`: 9 failed (`'WARN' == 'OK'`), 75 passed; on a host with the CLI installed all pass.
+- **What:** the gateway preflight resolves the installed CLI from `PATH` or `~/.local/bin` before asking the fake runner for its version; without one it reports "installed unknown" and the hour is WARN. The test module's autouse fixture now resolves a fixed fake path, so the fake runner answers on every host. Production code is unchanged.
+- **Evidence:** same reproduction after the change: 84 passed under `TZ=UTC` and `TZ=Asia/Singapore`.
+- **Metrics:** tests +3.
+- **Next:** clear the runtime dependency advisories that fail `pip-audit` and `npm audit`.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -38,6 +38,9 @@ def _no_host_units(tmp_path, monkeypatch):
     monkeypatch.setattr(ops_digest, "HOST_LOG_GLOBS", ())
     monkeypatch.setattr(ops_digest, "contract_probe", lambda _now: CONTRACT_OK)
     monkeypatch.setattr(ops_digest, "invariants_probe", lambda _ops_dir: INVARIANTS_IDLE)
+    # The gateway preflight reads the installed CLI's version through the fake runner.
+    # Resolve a fixed path so a host without the CLI on PATH (CI) builds the same report.
+    monkeypatch.setattr(ops_digest.model_gateway_check, "runtime_binary", lambda: "/opt/cli")
 
 
 def _entry(stamp: str, message: str, ident: str = "python") -> str:
