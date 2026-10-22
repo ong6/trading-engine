@@ -65,9 +65,9 @@ from engine.lib.provenance import research_provenance
 from engine.lib.settings import DATA_DIR, REPO_ROOT
 from engine.lib.util import num, table_exists
 from farm.backtest import hist_screen, stats
-from sim import execution, league, ledger
+from sim import book_breaks, execution, league, ledger
 from sim import portfolio as _pf
-from sim.schema import INITIAL_CASH, init_sim_schema
+from sim.schema import INITIAL_CASH, init_sim_schema, set_portfolio_account
 from sim.strategies.configs import CONFIGS, config_by_id
 
 log = get_logger("replay")
@@ -174,6 +174,57 @@ def registered_assumptions(live_con, config_id: str) -> tuple[float, str]:
     if row is None:
         return INITIAL_CASH, execution.DEFAULT_PROFILE_ID
     return float(row[0]), str(row[1])
+
+
+def cost_assumptions(live_con, config_id: str) -> dict:
+    """The live book's dollar-fee profile and its recorded cost-profile breaks.
+
+    A replayed or walk-forward fold book is a fresh row in a scratch store with
+    no `portfolio_accounts` row, so `book_breaks.effective_cost_profile` read it
+    as `baseline_v1` and charged $0 on every session, while the live book pays
+    `ibkr_pro_tiered_v1` from its D0 break. Carrying the same profile and break
+    makes a fold charge exactly what the book would: nothing before the break
+    (pre-D0 evidence unchanged), the profile's dollar fees from it.
+    """
+    out = {"cost_profile": book_breaks.BASELINE_COST_PROFILE, "breaks": []}
+    if not table_exists(live_con, "portfolio_accounts"):
+        return out
+    row = live_con.execute(
+        "SELECT cost_profile FROM portfolio_accounts WHERE portfolio_id = ?",
+        [config_id]).fetchone()
+    if row is not None and row[0]:
+        out["cost_profile"] = str(row[0])
+    if table_exists(live_con, "sim_book_breaks"):
+        out["breaks"] = [
+            {"break_date": day.isoformat(), "from_value": old, "to_value": new}
+            for day, old, new in live_con.execute(
+                "SELECT break_date, from_value, to_value FROM sim_book_breaks "
+                "WHERE portfolio_id = ? AND kind = ? ORDER BY break_date",
+                [config_id, book_breaks.COST_PROFILE_BREAK]).fetchall()]
+    return out
+
+
+def install_cost_assumptions(con, portfolio_id: str, assumptions: dict | None) -> None:
+    """Give a scratch book the live book's cost profile and breaks (idempotent)."""
+    if not assumptions:
+        return
+    con.execute("DELETE FROM portfolio_accounts WHERE portfolio_id = ?", [portfolio_id])
+    con.execute("DELETE FROM sim_book_breaks WHERE portfolio_id = ? AND kind = ?",
+                [portfolio_id, book_breaks.COST_PROFILE_BREAK])
+    if assumptions["cost_profile"] != book_breaks.BASELINE_COST_PROFILE:
+        set_portfolio_account(con, portfolio_id, cost_profile=assumptions["cost_profile"],
+                              updated_at=None)
+    for item in assumptions["breaks"]:
+        con.execute(
+            "INSERT INTO sim_book_breaks (portfolio_id, break_date, kind, from_value, "
+            "to_value, note) VALUES (?, ?, ?, ?, ?, 'copied from the live book')",
+            [portfolio_id, date.fromisoformat(item["break_date"]),
+             book_breaks.COST_PROFILE_BREAK, item["from_value"], item["to_value"]])
+
+
+def dollar_fees(con, portfolio_id: str) -> float:
+    """Dollar fees the scratch book paid (`sim_fill_fees`, charged in cash)."""
+    return book_breaks.fees_paid(con, portfolio_id)
 
 # Books that read `screen_results` (everything else skips the screen build).
 NEEDS_SCREEN = {"template_top5", "template_top10_banded", "mr_overlay",
@@ -399,6 +450,7 @@ def run_replay(live_con, config_id: str, window: str, *,
     if not initial_cash > 0:
         raise ValueError("initial_cash must be positive")
     profile = execution.resolve_profile(execution_profile or registered_profile)
+    cost = cost_assumptions(live_con, config_id)
     cfg = registered_config(live_con, config_id)
     # Freeze before any historical work starts. A replay can run for hours;
     # stamping at write time could describe source edited after this process
@@ -465,6 +517,7 @@ def run_replay(live_con, config_id: str, window: str, *,
             [config_id, cfg["name"], cfg["strategy"], json.dumps(cfg), start,
              initial_cash, initial_cash, profile.id],
         )
+        install_cost_assumptions(con, config_id, cost)
         _require_single_portfolio(con)
 
         t_step = time.time()
@@ -506,6 +559,7 @@ def run_replay(live_con, config_id: str, window: str, *,
             "COALESCE(MAX(c.participation), 0) "
             "FROM sim_fills f LEFT JOIN sim_fill_costs c USING (order_id) "
             "WHERE f.portfolio_id = ?", [config_id]).fetchone()
+        fees_usd = dollar_fees(con, config_id)
         n_div = con.execute(
             "SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM sim_dividends "
             "WHERE portfolio_id = ?", [config_id]).fetchone()
@@ -544,7 +598,10 @@ def run_replay(live_con, config_id: str, window: str, *,
             "gross_traded_notional": float(costs[0]),
             "turnover_on_initial_cash": float(costs[0]) / initial_cash,
             "modeled_price_cost_dollars": float(costs[1]),
-            "modeled_total_cost_dollars": float(costs[2]),
+            # Dollar fees are cash debits (sim_fill_fees), never in the bps above.
+            "modeled_total_cost_dollars": float(costs[2]) + fees_usd,
+            "dollar_fees": fees_usd,
+            "cost_profile": cost,
             "n_dividend_credits": n_div[0],
             "dividend_cash": float(n_div[1]),
             "corporate_actions_dividend_rows": n_actions,

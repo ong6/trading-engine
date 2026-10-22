@@ -4432,4 +4432,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +17, tests +20 lines.
 - **Next:** orchestrator lands the repair commits and runs the MNST dry-run on the live store.
 
+## 2026-10-22 — Backtest and walk-forward fold books pay the live book's dollar fees from its break
+
+- **Why:** P24 reliability-data lane (owner handoff 2026-10-21, item 1). Reproduction on a copy of the 2026-10-22 15:52 snapshot: every live book pays `ibkr_pro_tiered_v1` from its 2026-10-19 break, but a scratch book has no `portfolio_accounts` row and resolved to `baseline_v1`: `sim_bench replay --book spy_benchmark --window 2026-10-16:2026-10-22` bought 50.78 SPY on 10-19 with no `sim_fill_fees` row, while the result's runtime contract claims `ibkr_pro_tiered_v1`.
+- **What:** `replay.cost_assumptions` reads the live book's cost profile and cost-profile breaks; the backtest replay and each walk-forward fold install them on the scratch book, so `effective_cost_profile` charges nothing before the break and the profile's dollar fees (cash debits, never in the fill price) from it. A candidate `book` without them keeps the compatibility profile. Results carry `cost_profile` and `dollar_fees` (fold and replay); the replay's `modeled_total_cost_dollars` adds the dollar fees to the bps costs.
+- **Evidence:** same replay after: one fee row, $0.44 (0.35 + 0.0762 + 0.0102 + 0.0003 + 0.0002, hand-computed), equity lower by $0.44. `wf_check` dual_momentum anchor 10-16 (pre-D0): result and ledger digests identical to main. template_top5, one 12+3-month fold anchored 10-21: main $0 fees, branch $9.77, validate return 0.117645 -> 0.117482. `pytest tests/test_replay_dollar_fees.py`: 4 failed on main, 4 passed (hand-computed $0.37 IBKR fee on a 10-share open-auction buy).
+- **Metrics:** farm +70, tests +114 lines. Registered (P15 pins): `farm/backtest/replay.py`, `farm/walkforward/runner.py`.
+- **Next:** no stored walk-forward or backtest result changes (all end on or before 2026-10-16); the 2026-10-25 walk-forward is the first to charge post-D0 fees.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

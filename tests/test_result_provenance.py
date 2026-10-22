@@ -204,6 +204,8 @@ def test_backtest_result_keeps_provenance_captured_before_work(monkeypatch, tmp_
     monkeypatch.setattr(replay, "registered_config", lambda *_: cfg)
     monkeypatch.setattr(replay, "registered_assumptions",
                         lambda *_: (39_000.0, "baseline_v1"))
+    monkeypatch.setattr(replay, "cost_assumptions", lambda *_: None)
+    monkeypatch.setattr(replay, "dollar_fees", lambda *_: 0.0)
     monkeypatch.setattr(replay, "_provenance", lambda config: {
         "source_sha256": "start", "config_sha256": "config-start",
         "config": dict(config)})
@@ -240,6 +242,8 @@ def test_backtest_closes_scratch_connection_before_failure_cleanup(monkeypatch, 
     monkeypatch.setattr(replay, "registered_config", lambda *_: cfg)
     monkeypatch.setattr(replay, "registered_assumptions",
                         lambda *_: (39_000.0, "baseline_v1"))
+    monkeypatch.setattr(replay, "cost_assumptions", lambda *_: None)
+    monkeypatch.setattr(replay, "dollar_fees", lambda *_: 0.0)
     monkeypatch.setattr(replay, "_provenance", lambda _config: {})
     monkeypatch.setattr(replay, "data_snapshot", lambda _con: {})
     monkeypatch.setattr(

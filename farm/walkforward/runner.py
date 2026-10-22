@@ -54,6 +54,9 @@ from farm.backtest.replay import (
     REQUIRED,
     REQUIRED_LOOKBACK,
     build_scratch,
+    cost_assumptions,
+    dollar_fees,
+    install_cost_assumptions,
     is_reader,
 )
 from farm.walkforward import monthly as wf_monthly
@@ -210,6 +213,7 @@ def active_books(live_con) -> list[dict]:
                     "created": created.isoformat() if created else None,
                     "initial_cash": float(initial_cash),
                     "execution_profile": profile_id,
+                    "cost": cost_assumptions(live_con, pid),
                     "config_json": cfg_json,
                     "excluded": protocol.excluded_reason(pid, strat)})
     return out
@@ -266,6 +270,9 @@ def _insert_book(con, book: dict, created: date, initial_cash: float,
         " VALUES (?, ?, ?, ?, ?, TRUE, ?, ?, ?)",
         [book["id"], book["name"], book["strategy"], book["config_json"],
          created, initial_cash, initial_cash, execution_profile])
+    # A live book's fold pays its dollar fees from the book's own break (D0);
+    # a candidate `book` without "cost" keeps the compatibility profile.
+    install_cost_assumptions(con, book["id"], book.get("cost"))
 
 
 def _slice(eq: list[tuple], lo: date | None, hi: date | None) -> tuple[list, list]:
@@ -347,6 +354,7 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
     n_fills = con.execute(
         "SELECT COUNT(*) FROM sim_fills WHERE portfolio_id = ?",
         [book["id"]]).fetchone()[0]
+    fees_usd = dollar_fees(con, book["id"])
     n_rej = con.execute(
         "SELECT COUNT(*) FROM sim_orders WHERE portfolio_id = ? AND "
         "status = 'rejected'", [book["id"]]).fetchone()[0]
@@ -448,6 +456,7 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
         "last_session": sessions[-1].isoformat(),
         "split_session": split.isoformat(),
         "n_fills": n_fills,
+        "dollar_fees": fees_usd,
         "n_validate_fills": n_val_fills,
         "n_rejected": n_rej,
         "n_pending": n_pending,
@@ -661,6 +670,7 @@ def run_book(live_con, config_id: str, *,
             "description": book["config"].get("description"),
             "initial_cash": initial_cash,
             "execution_profile": profile.as_dict(),
+            "cost_profile": book.get("cost"),
             "data_quality_class": (
                 book.get("data_quality_class") or quality_class(book["strategy"])
             ),
