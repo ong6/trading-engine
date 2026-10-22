@@ -52,6 +52,7 @@ REGISTERED_PATHS = {
     "engine/lib/resources.py",
     "engine/lib/settings.py",
     "engine/lib/snapshots.py",
+    "engine/lib/store_limits.py",
     "engine/lib/util.py",
     "engine/market_date.py",
     "engine/money/alerts.py",
@@ -278,8 +279,8 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 19
-    assert registration["revision_reason"] == "Revision 19 after deployed revision 18 (installed 2026-10-22), from the P24 reliability-data change: backtest replays and walk-forward fold books, which have no portfolio_accounts row, now take the live book's cost profile and its effective-dated break, so sessions from the 2026-10-19 break pay the ibkr_pro_tiered_v1 dollar fees the live books pay (before, they resolved to baseline_v1 and paid none, although the walk-forward runtime contract already stated ibkr from D0); fees remain cash debits in sim_fill_fees, never part of the fill price, and results report dollar_fees inside modeled_total_cost_dollars. No stored walk-forward or backtest result includes a session after the break, so no stored outcome changes; candidate and experiment books passed as a book dict keep baseline_v1. Runtime contracts E1 v8, sector v12 and XS v23 are untouched. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. The storage work previously numbered revision 19 becomes revision 20."
+    assert registration["registration_revision"] == 20
+    assert registration["revision_reason"] == "Revision 20 after deployed revision 19 (installed 2026-10-22), from the P24 storage revision: the operational store is versioned by explicit schema migrations whose baseline is frozen as data (the deployed catalog is an exact pre-image; drifted tables are rebuilt with every row kept and proven equal); API reads serve immutable hot/cold generations, flagged stale or pending publication instead of refused, while every producer keeps reading the primary; publication copies the primary under the producer locks and builds from the copy, and a publish-on-change timer keeps generations within their budgets; backups copy the quiesced file bytes and record the DuckDB version and WAL identity; new raw payloads stay in the legacy encoding until a later conversion one-off; unread TradingView history and option collection stay paused; and a free-space reserve with per-role DuckDB limits bounds store connections. What is fetched, admitted, stored, priced, filled, scored and labeled is unchanged. Runtime contracts E1 v8, sector v12 and XS v23 keep their versions and what they compute; each explicit migration replaces only the deployed revision-19 digest. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged."
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
     assert recorded == canonical_sha256(registration)

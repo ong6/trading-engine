@@ -4982,4 +4982,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** ops +30 lines.
 - **Next:** the re-pin.
 
+## 2026-10-23 — Issue registration revision 20 over the storage revision
+
+- **Why:** orchestrator instruction: do the single re-pin on the storage branch, following the revision-17 pattern (registration, then same-version runtime-contract migrations and rebinds).
+- **What:** `server/p15-registration.json` is revision 20: twelve changed pinned files get their new hashes, `engine/lib/store_limits.py` (now imported by `engine/lib/db.py`) joins the registered closure, `source_commit` is the newest registered-change commit (the contract rebind), and the revision reason says what changed and that frozen rules and outcomes do not. E1 v8, sector v12 and XS v23 keep their versions: each runner's `--migrate-runtime-contract` accepts only the deployed revision-19 digest (2c8ec5b0, bad25764, d00ee812, read from the live checkpoint and reports), and each contract hash is recomputed over its frozen file list. Test expectations follow (revision, reason, registered paths, `sim_book_breaks` revision).
+- **Evidence:** the 104 formerly failing pin tests pass; `registration_sha256` is `canonical_sha256` of the body.
+- **Metrics:** registration 31 lines; tests 6 lines.
+- **Next:** rehearse the deploy, the contract migrations and a real nightly with valid E1, sector and XS records.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
