@@ -673,10 +673,24 @@ def _require_destination_parent_identity(
         raise BackupError(f"backup destination parent changed {phase}")
 
 
+def _wal_identity(source_parent_fd: int, source_name: str) -> tuple | None:
+    """The stat identity of the source's WAL beside it, or None when it has none."""
+    try:
+        info = os.stat(f"{source_name}.wal", dir_fd=source_parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise BackupError("source database WAL is unreadable") from exc
+    if not stat.S_ISREG(info.st_mode):
+        raise BackupError("source database WAL is not a regular file")
+    return _stat_identity(info)
+
+
 def _require_source_database_identity(
-    source: Path, source_parent_fd: int, source_fd: int, initial: os.stat_result
+    source: Path, source_parent_fd: int, source_fd: int, initial: os.stat_result,
+    initial_wal: tuple | None = None,
 ) -> None:
-    """Require the no-follow source chain and opened database to remain unchanged."""
+    """Require the no-follow source chain, opened database and WAL to remain unchanged."""
     anchor = Path(source.anchor)
     parts = source.relative_to(anchor).parts
     try:
@@ -699,6 +713,9 @@ def _require_source_database_identity(
         or _stat_identity(anchored) != _stat_identity(visible)
     ):
         raise BackupError("source database changed during backup")
+    # A writer outside the producer locks commits to the WAL first: its identity must hold.
+    if _wal_identity(source_parent_fd, parts[-1]) != initial_wal:
+        raise BackupError("source database WAL changed during backup")
 
 
 def _require_verified_bundle_identity(
@@ -1659,12 +1676,16 @@ def create_backup(
                         source_initial,
                     ):
                         source_read_path = _descriptor_path(source_fd)
+                        source_initial_wal = _wal_identity(
+                            source_parent_fd, backup_source.name,
+                        )
                         database = temporary / DATABASE_FILENAME
                         with _open_source_wal(source_parent_fd, backup_source.name) as wal:
                             snapshot = _copy_database_file(source_read_path, database, wal)
                         database.chmod(0o600)
                         _require_source_database_identity(
-                            backup_source, source_parent_fd, source_fd, source_initial
+                            backup_source, source_parent_fd, source_fd, source_initial,
+                            source_initial_wal,
                         )
                         body = _manifest_body(
                             repo_root,
@@ -1684,7 +1705,8 @@ def create_backup(
                         result = _verify_backup_at_descriptor(temporary_fd)
                         _sync_bundle(temporary, temporary_fd)
                         _require_source_database_identity(
-                            backup_source, source_parent_fd, source_fd, source_initial
+                            backup_source, source_parent_fd, source_fd, source_initial,
+                            source_initial_wal,
                         )
                         _require_destination_parent_identity(
                             destination.parent, parent_fd, published=False
@@ -1696,7 +1718,8 @@ def create_backup(
                         published = True
                         _sync_directory_fd(parent_fd, label="backup parent directory")
                         _require_source_database_identity(
-                            backup_source, source_parent_fd, source_fd, source_initial
+                            backup_source, source_parent_fd, source_fd, source_initial,
+                            source_initial_wal,
                         )
                         _require_destination_parent_identity(
                             destination.parent, parent_fd, published=True

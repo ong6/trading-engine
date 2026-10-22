@@ -2146,3 +2146,42 @@ def test_bundles_without_a_recorded_duckdb_version_still_verify(tmp_path):
     _rewrite_manifest(destination, lambda payload: payload["database"].pop("duckdb_version"))
 
     assert backup_database.verify_backup(destination)["status"] == "ok"
+
+
+@pytest.mark.parametrize("when", ["before_copy", "after_copy"])
+def test_create_refuses_a_wal_commit_by_a_writer_outside_the_locks(tmp_path, monkeypatch, when):
+    root, source = _repo(tmp_path)
+    destination = tmp_path / "outside" / "snapshot"
+    writer = (
+        "import duckdb, os, sys\n"
+        "c = duckdb.connect(sys.argv[1])\n"
+        "c.execute(\"SET checkpoint_threshold='1TB'\")\n"
+        "c.execute(\"INSERT INTO prices VALUES ('2026-09-01','LATE',5)\")\n"
+        "os._exit(0)\n"
+    )
+    original_copy = backup_database._copy_database_file
+    original_copyfile = backup_database.shutil.copyfile
+    committed = []
+
+    def late_commit():
+        subprocess.run([sys.executable, "-c", writer, str(source)], check=True)
+        committed.append(when)
+
+    def commit_then_copyfile(*args, **kwargs):  # after the source snapshot, before the bytes
+        if when == "before_copy" and not committed:
+            late_commit()
+        return original_copyfile(*args, **kwargs)
+
+    def copy_then_commit(source_path, database, wal=None):
+        result = original_copy(source_path, database, wal)
+        if when == "after_copy":
+            late_commit()
+        return result
+
+    monkeypatch.setattr(backup_database.shutil, "copyfile", commit_then_copyfile)
+    monkeypatch.setattr(backup_database, "_copy_database_file", copy_then_commit)
+
+    with pytest.raises(backup_database.BackupError, match="changed during backup|do not match"):
+        backup_database.create_backup(root, source, destination)
+    assert committed == [when]
+    assert not destination.exists()

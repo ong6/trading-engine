@@ -4639,4 +4639,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +25 lines (pinned engine/lib/snapshots.py), tools +20 lines (pinned tools/backup_database.py, tools/publish_snapshot.py), tests +45 lines.
 - **Next:** check the WAL's identity during backup and widen the table-coverage scan.
 
+## 2026-10-23 — Check the source WAL's identity during backup (review finding 8)
+
+- **Why:** storage review finding 8, reproduced: a writer outside the producer locks that commits only to the WAL between the source snapshot and the byte copy, or after the copy, left the main file's identity unchanged, so backup create published a bundle missing that commit.
+- **What:** backup create records the WAL's presence and stat identity (no-follow, through the source's parent descriptor) when it opens the source and requires it unchanged at every identity check, refusing with "source database WAL changed during backup".
+- **Evidence:** `pytest tests/test_backup_database.py -k wal_commit`: a WAL-only commit before the copy and one after it are both refused and no bundle is published.
+- **Metrics:** tools +20 lines (pinned tools/backup_database.py), tests +45 lines.
+- **Next:** widen the baseline coverage scan to columns, indexes and farm/.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
