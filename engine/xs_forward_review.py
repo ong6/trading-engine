@@ -159,10 +159,10 @@ EXPECTED_RUNTIME_CONTRACT_SHA256 = (
     "8640edca20744de9f2b6de4db7a82c48a44ee1b9027be87a30e1df5a5c0c4a06"
 )
 
-# The deployed code identity of this same contract version (revision 15, installed
-# 2026-10-21). Revision 16 changed pinned bytes but not what the XS pair computes, so
+# The deployed code identity of this same contract version (revision 16, installed
+# 2026-10-21). Revision 17 changed pinned bytes but not what the XS pair computes, so
 # the version stays and an explicit migration replaces only this digest.
-AMENDED_RUNTIME_CONTRACT_SHA256 = 'ad612219f50335bac6c30a41bd6d7f49062e37278582ede146a8fd4a0145643a'
+AMENDED_RUNTIME_CONTRACT_SHA256 = '8640edca20744de9f2b6de4db7a82c48a44ee1b9027be87a30e1df5a5c0c4a06'
 PRIOR_RUNTIME_CONTRACT_VERSION = 22
 PRIOR_RUNTIME_CONTRACT_SHA256 = 'c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70'
 PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = 'f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac'
