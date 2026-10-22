@@ -2,8 +2,9 @@
 
 ``python -m tools.affected_tests`` prints the test files to run for the changes since the
 merge base with ``origin/main`` (committed, staged, unstaged and untracked); ``--run`` runs
-ruff, compileall and pytest on them. CI still runs the full suite in both timezones on
-``main``; this tool only decides what runs earlier.
+ruff, compileall and pytest on them. The fast tier (this selection, locally and on pull
+requests and branches) is quick feedback, not the gate: ``main``'s full run in both
+timezones is, and a lane is merged only after both timezone suites pass.
 
 Selection is static and errs towards running more:
 
@@ -23,8 +24,10 @@ Selection is static and errs towards running more:
 - ``CONTRACT_TESTS`` always run; ``CONTENT_READERS`` run whenever content changes.
 - The full suite runs for ``FULL_SUITE_PATHS``, for anything every test session loads
   (``tests/conftest.py``'s module-level imports, the speed plugin and the files they name),
-  for a deleted non-content file (what used it cannot be traced), and for a changed file no
-  test reaches (an unknown dependency is never assumed to be none).
+  for a deleted non-content file (what used it cannot be traced), for a module under a
+  package some file imports by a computed name (``import_module(f"engine.{x}")``,
+  ``["-m", name]``; with no literal prefix, the importing file's own package), and for a
+  changed file no test reaches (an unknown dependency is never assumed to be none).
 """
 from __future__ import annotations
 
@@ -58,7 +61,6 @@ CONTRACT_TESTS = (
     "tests/test_live_store_paths.py",  # live-store lint
     "tests/test_operating_contract.py",
     "tests/test_p15_registration.py",
-    "tests/test_p16_challenger_runner.py",  # reads docs/ two imports away
     "tests/test_public_hygiene.py",
     "tests/test_r15_integration.py",
     "tests/test_registration_identity.py",
@@ -67,6 +69,21 @@ CONTRACT_TESTS = (
     "tests/test_walkforward_evidence.py",
     "tests/test_xs_forward_review.py",
     "tests/test_xs_forward_status.py",
+    # Known misses: a full run's recorded reads show these read units, registration JSON,
+    # README.md or docs/ through modules two or more imports away, which the graph misses.
+    "tests/test_agent_evaluation_reporting.py",
+    "tests/test_agent_release_review_store.py",
+    "tests/test_backup_database.py",
+    "tests/test_dataset_catalogue.py",
+    "tests/test_install_automation.py",
+    "tests/test_log_retention.py",
+    "tests/test_p15_preopen.py",
+    "tests/test_p16_challenger_runner.py",
+    "tests/test_p16_eval_inputs.py",
+    "tests/test_p16_operator_digest.py",
+    "tests/test_p16_reporting.py",
+    "tests/test_release_deploy.py",
+    "tests/test_service_units.py",
 )
 # Content: reports, screens, documents and images under these trees, and nothing that runs.
 # Any other suffix there (.py, .sh, .sql, .toml, .yaml, none), a tracked symlink and the
@@ -118,6 +135,8 @@ MAX_NAME_MATCHES = 8
 TOKEN = re.compile(r"[A-Za-z0-9_*][A-Za-z0-9_./*-]*")
 # A glob names files only with a literal extension: not ``*`` or a calendar (``*-*-*``).
 FILE_GLOB = re.compile(r"\.[A-Za-z0-9]+$")
+# ``-m`` followed by a module name with a computed part, in an f-string.
+COMPUTED_DASH_M = re.compile(r"-m\s+([\w.]*)\x00")
 
 
 # CI (``--ci-plan``): summed recorded seconds of a selection per shard, four workers each.
@@ -203,6 +222,7 @@ def python_facts(root: str, path: str) -> tuple | None:
         package = package[:-1]
     imports: list[tuple[str, bool]] = []
     strings: list[str] = []
+    computed: list[str] = []
     docstrings: set[int] = set()
     top_level = {id(node) for node in tree.body}
     for node in ast.walk(tree):  # breadth first: a definition comes before its docstring
@@ -224,7 +244,42 @@ def python_facts(root: str, path: str) -> tuple | None:
                 strings.append(node.value)
         elif isinstance(node, (ast.BinOp, ast.Call)):
             strings += joined_paths(node)
-    return imports, strings
+            if isinstance(node, ast.Call):
+                computed += computed_imports(node)
+        elif isinstance(node, ast.JoinedStr):
+            computed += [match.group(1).strip(".") for match in
+                         COMPUTED_DASH_M.finditer(_template(node))]
+        elif isinstance(node, (ast.List, ast.Tuple)):
+            for flag, value in zip(node.elts, node.elts[1:], strict=False):
+                if (isinstance(flag, ast.Constant) and flag.value == "-m"
+                        and not isinstance(value, ast.Constant)):
+                    computed.append(_literal_head(value))
+    package_name = ".".join(package)
+    return imports, strings, [prefix or package_name for prefix in computed]
+
+
+def _template(node: ast.JoinedStr) -> str:
+    """An f-string's literal parts with NUL where a value is formatted in."""
+    return "".join(part.value if isinstance(part, ast.Constant) else "\0" for part in node.values)
+
+
+def _literal_head(node: ast.AST) -> str:
+    """The module-name prefix fixed before the first computed part: ``f"engine.{x}"`` gives
+    ``engine``; a name computed entirely gives the empty string."""
+    if isinstance(node, ast.JoinedStr):
+        return re.sub(r"[^\w.]", "", _template(node).split("\0", 1)[0]).strip(".")
+    return ""
+
+
+def computed_imports(node: ast.Call) -> list[str]:
+    """``import_module(name)`` or ``__import__(name)`` with a name not written out."""
+    func = node.func
+    name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+    if name not in {"import_module", "__import__"} or not node.args:
+        return []
+    if isinstance(node.args[0], ast.Constant):
+        return []
+    return [_literal_head(node.args[0])]
 
 
 def joined_paths(node: ast.AST) -> list[str]:
@@ -277,6 +332,7 @@ class Graph:
             facts = dict(zip(python, pool.map(python_facts, [str(root)] * len(python), python,
                                               chunksize=32), strict=True))
         self.symlinked = symlinked_paths(root)
+        self.computed: dict[str, set[str]] = {}  # module prefix -> files importing under it
         for path in self.files:
             if (root / path).is_symlink():  # the link runs whatever it points at
                 target = Path(os.path.normpath(os.path.join(os.path.dirname(path),
@@ -335,7 +391,9 @@ class Graph:
         if path.endswith(".py"):
             if facts is None:  # unparsable: compileall fails; the file itself is selected
                 return imported, read
-            imports, strings = facts
+            imports, strings, computed = facts
+            for prefix in computed:
+                self.computed.setdefault(prefix, set()).add(path)
             module_level: set[str] = set()
             for name, top in imports:
                 files = self._module_files(name)
@@ -409,6 +467,12 @@ def select(changed: list[str], graph: Graph | None = None) -> dict:
     present = [path for path in changed if path in graph.file_set]
     for path in sorted(set(present) & graph.session_files()):
         return full(f"{path}: loaded by every test session")
+    for path in changed:
+        name = module_name(path) or ""
+        for prefix, importers in sorted(graph.computed.items()):
+            if name and (not prefix or name == prefix or name.startswith(f"{prefix}.")):
+                return full(f"{path}: {sorted(importers)[0]} imports a computed name under "
+                            f"{prefix or 'any package'}")
     for path in sorted(set(changed) - set(present)):
         if not is_content(path, graph.symlinked) and not is_test_file(path):
             return full(f"{path}: deleted; what used it cannot be traced")

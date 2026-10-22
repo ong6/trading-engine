@@ -4647,4 +4647,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +35, tests +40.
 - **Next:** review F3: known misses and computed imports.
 
+## 2026-10-22 — Always run the known misses, and run everything for a package imported by computed name (P24 cicd)
+
+- **Why:** review F3 (medium) of `p24/cicd`. A one-line change to `server/run_tradingview_history_archive.sh` selected 24 files and left `test_dataset_catalogue.py` (which lists every unit and script) failing unselected; `import_module(f"engine.{x}")` or `-m` with a computed name was missed whenever a static importer existed. Orchestrator decision: `main`'s full run in both timezones is the gate (lanes land only after both timezone suites pass locally); the fast tier is feedback.
+- **What:** the 13 test files the recorded reads show reading units, registration JSON, `README.md` or `docs/` two or more imports away (`test_dataset_catalogue.py` among them) are contract tests. A module under a package that some file imports by a computed name (literal prefix of an f-string; with none, the importing file's own package) selects the full suite: today `farm.research` (`worker.py`) and `tools` (`release_deploy._python_module` runs `-m *args`). The selector's docstring, `CONTRIBUTING.md` and `docs/architecture-reference.md` state that the fast tier is feedback, not the gate.
+- **Evidence:** the `.sh` change now selects 36 files including `test_dataset_catalogue.py`; 0224be4e/5cd07a1d/d4268854 select 163/39/65 files, be025cd2 (touches `tools/`) the full suite. `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 66 passed.
+- **Metrics:** tools +55, tests +35.
+- **Next:** review F4 and the uv-version nit.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

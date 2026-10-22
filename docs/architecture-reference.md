@@ -829,6 +829,10 @@ target text is read relative to the same stable parent boundary without followin
 changing symlink is reported as an unstable working-tree path.
 CI uses the same locked environment, builds a wheel, then
 runs Ruff, compilation, shell syntax, tests with warnings as errors, and the UI production build.
+On `main` every code push runs every test under `TZ=UTC` and `TZ=Asia/Singapore`; that run is
+the gate, and a lane lands only after both timezone suites pass. Pull requests and other
+branches run the fast tier (`tools.affected_tests`: the tests a change can affect plus the
+contract tests, in one timezone), which is quick feedback, not the gate.
 A static packaging test rejects bare internal imports and undeclared direct dependencies before
 they can become environment-dependent failures.
 

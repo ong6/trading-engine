@@ -33,6 +33,13 @@ TOY = {
     "docs/guide.md": "# Guide\n",
     "data/reports/r.json": "{}\n",
     "data/impl.txt": "VALUE = 1\n",
+    "engine/plugins/__init__.py": "",
+    "engine/plugins/alpha.py": "ALPHA = 1\n",
+    "engine/loader.py": (
+        "import importlib\n\n\ndef load(name):\n"
+        '    return importlib.import_module(f"engine.plugins.{name}")\n'
+    ),
+    "tests/test_loader.py": "from engine import loader\n",
     "tests/test_link.py": "from engine import link\n",
     "tests/conftest.py": "from engine import base\n\n\ndef helper():\n    from engine import unused\n",
     "tests/speed_plugin.py": "",
@@ -170,6 +177,27 @@ def test_content_is_a_document_or_image_under_data_or_docs(path, content):
     assert at.is_content(path) is content
 
 
+def test_a_module_a_computed_import_can_name_runs_the_full_suite(graph):
+    selection = at.select(["engine/plugins/alpha.py"], graph)
+    assert selection["mode"] == "full"
+    assert "engine/loader.py imports a computed name under engine.plugins" in selection["reasons"][0]
+
+
+@pytest.mark.parametrize(("source", "computed"), [
+    ('import importlib\nimportlib.import_module(f"engine.jobs.{n}")\n', ["engine.jobs"]),
+    ("from importlib import import_module\nimport_module(name)\n", ["tools.sub"]),
+    ('__import__(prefix + "x")\n', ["tools.sub"]),
+    ('ARGS = [python, "-m", module]\n', ["tools.sub"]),
+    ('ARGS = ("python", "-m", *rest)\n', ["tools.sub"]),
+    ('CMD = f"python -m farm.{name} --x"\n', ["farm"]),
+    ('import importlib\nimportlib.import_module("engine.collect")\nARGS = ["-m", "a.b"]\n', []),
+])
+def test_computed_imports_are_found_with_their_literal_prefix(tmp_path, source, computed):
+    (tmp_path / "tools" / "sub").mkdir(parents=True)
+    (tmp_path / "tools" / "sub" / "run.py").write_text(source)
+    assert at.python_facts(str(tmp_path), "tools/sub/run.py")[2] == computed
+
+
 def test_joined_literal_path_parts_name_one_path():
     node = ast.parse('root / "data" / "reports" / name / "a" / "b.json"').body[0].value
     assert at.joined_paths(node) == ["data/reports", "a/b.json"]
@@ -189,7 +217,7 @@ def test_content_readers_come_from_a_read_record():
 def test_pinned_lists_name_real_tests_and_the_full_suite_triggers():
     tracked = set(_git(REPO_ROOT, "ls-files").splitlines())
     for names in PINNED.values():
-        assert names == tuple(sorted(set(names)))
+        assert len(names) == len(set(names))
         for name in names:
             assert name in tracked, name
     assert set(at.FULL_SUITE_PATHS) >= {
