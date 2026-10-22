@@ -15,6 +15,10 @@ from engine import free_sources, raw_payload
 from tools import free_massive_minute as capture
 from tools import free_sources as daily_capture
 
+# These writers are tested on a converted store; tests/test_raw_payload_legacy.py covers
+# the legacy plain encoding they use until the conversion flag is set.
+pytestmark = pytest.mark.usefixtures("zstd_raw_payloads")
+
 ET = ZoneInfo("America/New_York")
 ALLOWED = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc)
 START, END = date(2026, 9, 28), date(2026, 9, 29)

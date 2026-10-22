@@ -70,6 +70,7 @@ def _entry(path: Path, *, base: Path, apply: bool) -> dict:
     if apply and path.exists():
         target = raw_payload.seal(
             path, body, expected_sha256=match.group("sha"), mode=stat.S_IMODE(info.st_mode),
+            compressed=True,
         )
     if target.exists():
         if target.is_symlink() or not target.is_file():
@@ -400,7 +401,7 @@ def verify_manifest(manifest_path: Path, *, base: Path) -> dict:
 def convert(
     roots: list[Path], *, base: Path, apply: bool = False,
     remove_originals: bool = False, manifest_path: Path | None = None,
-    producer_lock: Path | None = None,
+    producer_lock: Path | None = None, encoding_flag: Path | None = None,
 ) -> dict:
     if remove_originals and not apply:
         raise FreeSourceError("--remove-originals requires --apply")
@@ -449,7 +450,22 @@ def convert(
             if remove_originals:
                 for entry in entries:
                     _remove_original_at(entry, base_descriptor)
+            _record_zstd_flag(encoding_flag or raw_payload.encoding_marker_path(), manifest)
         return manifest
+
+
+def _record_zstd_flag(path: Path, manifest: dict) -> None:
+    """Switch new raw payloads to zstd: the irreversible step, after a verified conversion."""
+    write_text_atomic(path, json.dumps({
+        "schema_version": 1,
+        "encoding": "zstd",
+        "conversion_manifest_sha256": manifest["manifest_sha256"],
+    }, indent=2, sort_keys=True) + "\n")
+    path.chmod(0o600)
+    raw_payload.fsync_file(path)
+    raw_payload.fsync_directory(path.parent)
+    if not raw_payload.zstd_writes_enabled(path):
+        raise FreeSourceError("raw payload encoding flag verification failed")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -460,12 +476,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--remove-originals", action="store_true")
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--producer-lock", type=Path)
+    parser.add_argument(
+        "--encoding-flag", type=Path, default=None,
+        help="store flag switching new raw payloads to zstd (default: beside the primary)",
+    )
     args = parser.parse_args(argv)
     try:
         manifest = convert(
             args.paths, base=args.base, apply=args.apply,
             remove_originals=args.remove_originals, manifest_path=args.manifest,
-            producer_lock=args.producer_lock,
+            producer_lock=args.producer_lock, encoding_flag=args.encoding_flag,
         )
     except (OSError, FreeSourceError, json.JSONDecodeError) as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))

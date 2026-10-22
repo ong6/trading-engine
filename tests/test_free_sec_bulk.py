@@ -15,6 +15,10 @@ import requests
 from engine import free_sec_bulk, free_sources, raw_payload
 from tools import free_sec_bulk as capture
 
+# These writers are tested on a converted store; tests/test_raw_payload_legacy.py covers
+# the legacy plain encoding they use until the conversion flag is set.
+pytestmark = pytest.mark.usefixtures("zstd_raw_payloads")
+
 CIK = 1000
 CIK_NAME = "CIK0000001000.json"
 FIRST = "0000001000-26-000001"

@@ -18,6 +18,10 @@ from engine import free_sources, raw_payload
 from tools import free_massive_options as capture
 from tools import provider_contracts as contracts
 
+# These writers are tested on a converted store; tests/test_raw_payload_legacy.py covers
+# the legacy plain encoding they use until the conversion flag is set.
+pytestmark = pytest.mark.usefixtures("zstd_raw_payloads")
+
 AS_OF = date(2026, 10, 6)
 NOW = datetime(2026, 10, 6, 11, 35, tzinfo=timezone.utc)
 OCC = "SPY261106C00500000"

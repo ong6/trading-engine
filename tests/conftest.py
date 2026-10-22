@@ -42,6 +42,23 @@ _P16_CALIBRATION_PAYLOADS = {}
 
 
 @pytest.fixture(autouse=True)
+def raw_payload_encoding_flag(monkeypatch, tmp_path_factory):
+    """Isolate the store's raw-payload encoding flag; absent means the legacy encoding."""
+    from engine import raw_payload
+
+    flag = tmp_path_factory.mktemp("raw-encoding") / raw_payload.ENCODING_MARKER_NAME
+    monkeypatch.setattr(raw_payload, "encoding_marker_path", lambda: flag)
+    return flag
+
+
+@pytest.fixture
+def zstd_raw_payloads(raw_payload_encoding_flag):
+    """A store whose raw payloads were converted: new payloads are sealed as zstd."""
+    raw_payload_encoding_flag.write_text('{"encoding": "zstd", "schema_version": 1}\n')
+    return raw_payload_encoding_flag
+
+
+@pytest.fixture(autouse=True)
 def utc_duckdb_connections(monkeypatch):
     """Mirror the host's explicit UTC storage contract under any test process TZ."""
     original = duckdb.connect

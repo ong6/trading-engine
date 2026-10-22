@@ -15,6 +15,10 @@ from sim import nyse
 from tools import free_source_audit
 from tools import free_sources as capture
 
+# These writers are tested on a converted store; tests/test_raw_payload_legacy.py covers
+# the legacy plain encoding they use until the conversion flag is set.
+pytestmark = pytest.mark.usefixtures("zstd_raw_payloads")
+
 # Fixed entry time: writestr(name, ...) stamps the current time, so two fixtures
 # built across a 2-second tick hash differently.
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)

@@ -12,6 +12,10 @@ from engine import free_sources, raw_payload
 from tools import free_sources as capture
 from tools import provider_contracts as contracts
 
+# These writers are tested on a converted store; tests/test_raw_payload_legacy.py covers
+# the legacy plain encoding they use until the conversion flag is set.
+pytestmark = pytest.mark.usefixtures("zstd_raw_payloads")
+
 FETCHED_BEFORE = datetime(2026, 1, 2, 12, tzinfo=timezone.utc)
 FETCHED_AFTER = datetime(2026, 1, 5, 12, tzinfo=timezone.utc)
 SPLIT_BODY = json.dumps({

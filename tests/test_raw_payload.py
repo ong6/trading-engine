@@ -17,6 +17,10 @@ from engine.free_sources import FreeSourceError
 from tools import convert_raw_payloads
 from tools import free_sources as free_capture
 
+# These writers are tested on a converted store; tests/test_raw_payload_legacy.py covers
+# the legacy plain encoding they use until the conversion flag is set.
+pytestmark = pytest.mark.usefixtures("zstd_raw_payloads")
+
 
 def _producer_lock(base: Path) -> Path:
     return base / ".producer.lock"

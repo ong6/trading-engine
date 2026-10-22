@@ -4623,4 +4623,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +40 lines (pinned tools/publish_snapshot.py), ops +40 lines, two unit files, tests +60 lines.
 - **Next:** measure publish and republish times on the store copy; fix the checklist's lock order and scripts.
 
+## 2026-10-23 — Keep new raw payloads main-readable until the conversion flips a store flag (review finding 6)
+
+- **Why:** storage review finding 6, reproduced: the branch sealed every new raw payload as `.json.zst` and named it in receipts, and main's reader refuses it ("Massive cache receipt is invalid"), so a rollback after release would lose every raw payload written since.
+- **What:** `raw_payload.seal` writes the legacy plain `<sha>.json` (atomic, mode-checked, hash-verified) unless the store flag `raw-payload-encoding.json` beside the primary says `zstd`; readers keep reading both encodings. Only `tools.convert_raw_payloads --apply` forces zstd, and it records the flag (with its conversion manifest's hash) after the verified conversion, which makes that later one-off the single irreversible step. A file flag needs no schema migration and survives a code rollback untouched; an unreadable or unknown flag refuses rather than guessing. Tests isolate the flag per test (a conversion test had written it into the checkout's `store/`).
+- **Evidence:** `tests/test_raw_payload_legacy.py`: main@1fae615d's vendored Massive-cache reader parses what the branch writes before the flag; after a conversion writers seal zstd and the branch reads both; only the conversion tool forces zstd.
+- **Metrics:** engine +60 lines, tools +20 lines, tests +150 lines.
+- **Next:** record the DuckDB version in manifests and fix the memory-limit restore.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

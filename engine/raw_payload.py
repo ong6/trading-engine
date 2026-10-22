@@ -1,9 +1,16 @@
-"""Durable zstd storage for sealed, content-addressed raw payloads."""
+"""Durable storage for sealed, content-addressed raw payloads (plain, or zstd once enabled).
+
+New payloads are written in the legacy plain encoding (``<sha>.json``, the bytes main's
+readers parse) until ``tools.convert_raw_payloads --apply`` completes and records the store
+flag ``raw-payload-encoding.json`` beside the primary; only then do writers seal zstd. A code
+rollback before that point therefore loses no raw payload's readability.
+"""
 from __future__ import annotations
 
 import ctypes
 import hashlib
 import io
+import json
 import os
 import stat
 import tempfile
@@ -21,6 +28,28 @@ MAX_DECODED_BYTES = 512_000_000
 MAX_COMPRESSED_BYTES = 512_000_000
 STREAM_INPUT_BYTES = 128 * 1024
 FRAME_HEADER_BYTES = 18
+ENCODING_MARKER_NAME = "raw-payload-encoding.json"
+
+
+def encoding_marker_path() -> Path:
+    """The store flag that switches new raw payloads to zstd (beside the primary)."""
+    from engine.lib import settings
+
+    return Path(settings.DEFAULT_DB).with_name(ENCODING_MARKER_NAME)
+
+
+def zstd_writes_enabled(marker: Path | None = None) -> bool:
+    """Whether the conversion one-off has recorded the zstd flag for this store."""
+    path = encoding_marker_path() if marker is None else marker
+    try:
+        payload = json.loads(path.read_text())
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError) as exc:
+        raise FreeSourceError("raw payload encoding flag is unreadable") from exc
+    if not isinstance(payload, dict) or payload.get("encoding") != "zstd":
+        raise FreeSourceError("raw payload encoding flag is invalid")
+    return True
 
 
 class _ZSTDInBuffer(ctypes.Structure):
@@ -342,15 +371,58 @@ def fsync_file(path: Path) -> None:
         os.close(descriptor)
 
 
+def _seal_plain(logical: Path, body: bytes, digest: str, mode: int) -> Path:
+    """Atomically install and verify the legacy plain encoding (or keep an identical copy)."""
+    target = compressed_path(logical)
+    logical.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    logical.parent.chmod(0o700)
+    if logical.is_symlink() or target.is_symlink():
+        raise FreeSourceError("sealed raw payload path is unsafe")
+    if logical.exists() or target.exists():
+        existing = read(logical, expected_sha256=digest, expected_size=len(body))
+        if existing != body:
+            raise FreeSourceError("raw payload differs from its content identity")
+        return logical if logical.exists() else target
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=logical.parent, prefix=f".{logical.name}.", delete=False,
+        ) as output:
+            temporary = Path(output.name)
+            output.write(body)
+            output.flush()
+            os.fsync(output.fileno())
+        temporary.chmod(mode)
+        os.replace(temporary, logical)
+        temporary = None
+        fsync_directory(logical.parent)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    _verify(
+        _read_regular(logical, compressed=False, expected_size=len(body)),
+        expected_sha256=digest, expected_size=len(body),
+    )
+    if stat.S_IMODE(logical.stat().st_mode) != mode:
+        raise FreeSourceError("sealed raw payload permissions are invalid")
+    return logical
+
+
 def seal(
     path: Path, body: bytes, *, expected_sha256: str | None = None,
-    level: int = ZSTD_LEVEL, mode: int = 0o600,
+    level: int = ZSTD_LEVEL, mode: int = 0o600, compressed: bool | None = None,
 ) -> Path:
-    """Atomically install and verify one zstd encoding, retaining any plain copy."""
+    """Atomically install and verify one payload encoding, retaining any other copy.
+
+    ``compressed=None`` follows the store flag: plain until the conversion one-off enables
+    zstd. The conversion tool itself passes ``compressed=True``.
+    """
     logical = Path(path)
     digest = hashlib.sha256(body).hexdigest()
     if expected_sha256 is not None and digest != expected_sha256:
         raise FreeSourceError("raw payload differs from its content identity")
+    if not (zstd_writes_enabled() if compressed is None else compressed):
+        return _seal_plain(logical, body, digest, mode)
     target = compressed_path(logical)
     logical.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     logical.parent.chmod(0o700)
