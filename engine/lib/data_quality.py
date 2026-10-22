@@ -168,6 +168,14 @@ def provisional_open_fault(bar_date, open_, high, low, fetched_at) -> bool:
     return not inside and bar_is_provisional(bar_date, fetched_at)
 
 
+def never_settled_sql(table: str = "") -> str:
+    """SQL twin of ``bar_is_provisional`` without ``latest_session``: the bar's last
+    fetch fell on or before its own New York session date (naive UTC as stored)."""
+    p = f"{table}." if table else ""
+    return (f"({p}fetched_at IS NOT NULL AND CAST(timezone('America/New_York', "
+            f"timezone('UTC', {p}fetched_at)) AS DATE) <= {p}date)")
+
+
 def provisional_open_fault_sql(table: str = "") -> str:
     """SQL twin of a never-settled bar whose open lies outside [low, high].
 

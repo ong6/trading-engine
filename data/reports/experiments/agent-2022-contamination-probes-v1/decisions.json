@@ -61,7 +61,7 @@
     "proxy_version": "0.7",
     "request_sha256": "ec911de4231d00a86a0418812c601c8ce93a1c6860d9188d949c7b3f1a6af7a7",
     "response_id": "resp_8c5eace7aeaf4a18a0e5100fc58910bb",
-    "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "traecli_runtime": "traecli 0.205.1(internal edition)",
     "upstream_model_family": "gpt-5.6-sol",
     "upstream_request_id": "e41e10d9-2edd-4817-a523-1739f0e5fd03",
     "usage": {
@@ -133,7 +133,7 @@
     "proxy_version": "0.7",
     "request_sha256": "446a68c1d3f2f54a047c01cdf881d4d8a0d4f5a9a9655a800e706deaf6bfe326",
     "response_id": "resp_deef838763f740e68b0c3e46ec71a8fd",
-    "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "traecli_runtime": "traecli 0.205.1(internal edition)",
     "upstream_model_family": "gpt-5.6-sol",
     "upstream_request_id": "d5d0caa3-a049-485e-92e5-4d6d0fe6eca0",
     "usage": {
@@ -205,7 +205,7 @@
     "proxy_version": "0.7",
     "request_sha256": "8993f526c237239ac96a60c033bcc4f6bd107a8768a5d9e56d7fb82beaa94901",
     "response_id": "resp_a6bf8d3a12db485f8b31931aaef8585d",
-    "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "traecli_runtime": "traecli 0.205.1(internal edition)",
     "upstream_model_family": "gpt-5.6-sol",
     "upstream_request_id": "388cdbbb-d763-44bc-926e-e8ea7548e9c8",
     "usage": {
@@ -277,7 +277,7 @@
     "proxy_version": "0.7",
     "request_sha256": "7235c3c266dd463e5d5ac9bad59336e210832e6e036f6c0edc55e2e2ce7368af",
     "response_id": "resp_08954c73caa044ab8fa597e57c5a21a4",
-    "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "traecli_runtime": "traecli 0.205.1(internal edition)",
     "upstream_model_family": "gpt-5.6-sol",
     "upstream_request_id": "9a8695cf-4f93-4dcb-929a-3503eab82780",
     "usage": {
@@ -401,7 +401,7 @@
     "proxy_version": "0.7",
     "request_sha256": "bbfdea34cf1caa53d46a223b22511927fbd17bc9ed1d09c260ed5efb0642cb30",
     "response_id": "resp_811ab0b117f348cf90759f6f0b7e91ec",
-    "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "traecli_runtime": "traecli 0.205.1(internal edition)",
     "upstream_model_family": "gpt-5.6-sol",
     "upstream_request_id": "cae3fede-ff8b-43f0-863d-e8b38e58c6a9",
     "usage": {
@@ -525,7 +525,7 @@
     "proxy_version": "0.7",
     "request_sha256": "5ad33733ae03b8ae01cbd9fd03e833bfab31209b94d272d495349cddf0aa3a2e",
     "response_id": "resp_97c81fa36d25427cb5196963e7006ec5",
-    "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "traecli_runtime": "traecli 0.205.1(internal edition)",
     "upstream_model_family": "gpt-5.6-sol",
     "upstream_request_id": "fbc47c17-954d-4526-a194-204c1e3c9908",
     "usage": {
@@ -649,7 +649,7 @@
     "proxy_version": "0.7",
     "request_sha256": "658272976d5a890dac32855443bf2e3a44969408a12377ad19bab0f07db35ce5",
     "response_id": "resp_aff7dfc31da5447eb2c329e167955d73",
-    "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "traecli_runtime": "traecli 0.205.1(internal edition)",
     "upstream_model_family": "gpt-5.6-sol",
     "upstream_request_id": "ca9d1b95-1094-41c7-8bc8-7c7ea863b15b",
     "usage": {
@@ -773,7 +773,7 @@
     "proxy_version": "0.7",
     "request_sha256": "64c0323158407bae66ce1d76a388d91f015a88f22b3100b4dbf5e07798c455dd",
     "response_id": "resp_b2e24fba9eb448a9aeee155fa32808ed",
-    "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "traecli_runtime": "traecli 0.205.1(internal edition)",
     "upstream_model_family": "gpt-5.6-sol",
     "upstream_request_id": "2f5376bf-83f9-4cb9-ae2c-5ea8cc135365",
     "usage": {
@@ -901,7 +901,7 @@
     "proxy_version": "0.7",
     "request_sha256": "62a47670056ac23fe804c0560bde27ded7e3684c373031c3dc68ff4bf298476e",
     "response_id": "resp_3d328afe54db4723b096e9c3913e9287",
-    "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "traecli_runtime": "traecli 0.205.1(internal edition)",
     "upstream_model_family": "gpt-5.6-sol",
     "upstream_request_id": "1a9c72eb-581d-48b2-9120-1562c630fe2a",
     "usage": {
@@ -1029,7 +1029,7 @@
     "proxy_version": "0.7",
     "request_sha256": "78556c1375a64c437983988f8a3e8dc49d3a658d8b9376709ad999c0dfe012f2",
     "response_id": "resp_0771873087364bab9190adf0445a2eaa",
-    "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "traecli_runtime": "traecli 0.205.1(internal edition)",
     "upstream_model_family": "gpt-5.6-sol",
     "upstream_request_id": "3cd16869-c2dc-4da6-ac4d-d7110b0447de",
     "usage": {
@@ -1157,7 +1157,7 @@
     "proxy_version": "0.7",
     "request_sha256": "902c463d8be63ff5a5a87830128d22fbdd192ccab316c90d5b0e4e2572688c9e",
     "response_id": "resp_36c7227e21d74a8b86b254f122017489",
-    "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "traecli_runtime": "traecli 0.205.1(internal edition)",
     "upstream_model_family": "gpt-5.6-sol",
     "upstream_request_id": "5387ce1f-05c5-4f5e-97dd-0ab28a3b7aa1",
     "usage": {
@@ -1285,7 +1285,7 @@
     "proxy_version": "0.7",
     "request_sha256": "6db630c35948412f88b9772cd01bd2d2fde6ec05ae4db664c96bb214035fd63c",
     "response_id": "resp_2db5ae8149a8481896fe202b4340b4bd",
-    "traecli_runtime_sha256": "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
+    "traecli_runtime": "traecli 0.205.1(internal edition)",
     "upstream_model_family": "gpt-5.6-sol",
     "upstream_request_id": "068bece2-e7c4-4bcd-b593-13490447a75a",
     "usage": {

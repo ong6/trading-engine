@@ -821,3 +821,32 @@ def test_runner_and_trade_tool_wait_out_a_concurrent_store_reader(tmp_path, monk
             assessment_id, database=path, now=NOW, lock_path=tmp_path / "tool.lock",
             generate=lambda _payload: pytest.fail("a watch assessment must not call the tool"),
         )
+
+
+_VALID_ASSESSMENT = {
+    "ticker": "AAA", "decision": "ignore", "action": "none", "horizon_sessions": 5,
+    "confidence": 0.6, "thesis": "t", "invalidation": "i", "evidence_ids": ["q:AAA"],
+    "alert": None,
+}
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("decision", "buy", "AAA decision='buy'"),
+    ("action", "short", "AAA action='short'"),
+    ("horizon_sessions", 30, "AAA horizon_sessions=30"),
+    ("confidence", 1.5, "AAA confidence=1.5"),
+    ("evidence_ids", [], "AAA evidence_ids=[]"),
+    ("evidence_ids", ["q:AAA", "news:9"], "AAA evidence_ids outside allowed=['news:9']"),
+])
+def test_invalid_assessment_value_names_ticker_field_and_value(field, value, message):
+    # 2026-10-20 15:15/16:15 UTC the hourly observer failed twice with only
+    # "daily assessment values are invalid": the failing field was unknowable.
+    raw = {**_VALID_ASSESSMENT, field: value}
+    bundle = {"market_date": "2026-10-20", "candidates": [{"ticker": "AAA"}]}
+    with pytest.raises(daily_opportunity_runner.DailyOpportunityError) as raised:
+        daily_opportunity_runner._validate_assessment(
+            raw, bundle, ["AAA"], {"AAA": {"q:AAA"}}, set())
+    assert str(raised.value) == f"daily assessment values are invalid: {message}"
+    assert daily_opportunity_runner._validate_assessment(
+        dict(_VALID_ASSESSMENT), bundle, ["AAA"], {"AAA": {"q:AAA"}}, set()
+    )["confidence"] == 0.6

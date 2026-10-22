@@ -326,3 +326,26 @@ def test_run_publishes_monitorable_archive_metadata(tmp_path):
     assert payload["attempted_this_run"] == payload["completed_this_run"] == 1
     assert payload["failed_this_run"] == 0
     assert payload["last_run"] == NOW.isoformat()
+
+
+def test_failed_tail_window_resolves_when_a_wider_window_completes(tmp_path):
+    # A symbol's last backfill window ends at the newest session, so the retry after a
+    # failure asks for a wider window; the old exact-window match kept the failure
+    # unresolved forever and pinned the miner at issues.
+    path = tmp_path / "market.duckdb"
+    _database(path)
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("TradingView request failed")
+
+    base = {"cohort_id": "tail-retry-v1", "start": "2022-01-01", "max_chunks": 1,
+            "pause_seconds": 0, "symbols": ["IBM"]}
+    with pytest.raises(archive.ArchiveError, match="all 1"):
+        archive.run_connection_narrowed({**base, "through": "2022-01-31"}, path,
+                                        capture=fail, clock=lambda: NOW)
+    result = archive.run_connection_narrowed({**base, "through": "2022-02-07"}, path,
+                                             capture=_success, clock=lambda: NOW)
+
+    assert result["completed_this_run"] == 1 and result["checkpoint_end"] == "2022-02-07"
+    assert result["attempts"]["failed"] == 1
+    assert result["unresolved_failed_windows"] == 0

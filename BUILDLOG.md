@@ -3931,6 +3931,203 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine, server, farm and tests +330/-48 lines.
 - **Next:** reviewer round 2.
 
+## 2026-10-21 — Price verify prints one line; the summary stays in _meta.json
+
+- **Why:** P24 integrity lane; scope.md 2026-10-10 line. The 2026-10-20 nightly log has a 14,315-line JSON block from the verifier (base64 bodies included, pre-9b547f6 code); with 9b547f6 the summary alone is still ~4.2k lines a night and ~86k a weekly pass (sizes of the current `price_verify` / `price_verify_full` keys).
+- **What:** a run that writes its result prints one `[verify] <key> as_of ...` line with the counts, the newest-session status and the receipt path and size. The complete accounting still goes to the hash-named receipt under `data/price-verify/` and the summary to `_meta.json` (unchanged contract). `--no-meta`/`--self-test` and a failed `_meta.json` write still print the summary JSON, since stdout is then the only output.
+- **Evidence:** `pytest tests/test_verify_prices.py` 23 passed; the main() test asserts one summary line naming the receipt that holds the base64 bodies.
+- **Metrics:** engine +20 lines.
+- **Next:** stale provisional bars (scope.md 2026-10-20 line).
+
+## 2026-10-21 — A split restatement leaves bars already on the new scale alone
+
+- **Why:** P24 integrity lane; scope.md 2026-10-20 line. WLFC 3:1 (ex 07-21): the store copy has 07-15 at close 23.00 between 72.33 and 65.33; the source's current view is 68.99. The ex-date re-fetch stored 07-15 already restated, the next nights stored 07-16..07-17 on the old scale, and the 07-29 reconciler (before the 09-02 provenance rule) divided every bar before the 07-20 break by 3, 07-15 included.
+- **What:** `actions.new_scale_islands` finds bars inside the pre-break window that a ratio-sized drop enters and its inverse leaves within five sessions. `_adjudicate` leaves them out of rule 3 and returns them; `_restate` keeps them as stored and records them in the `split_restated` audit row. Every other path is unchanged; the stored WLFC bar is repaired by `engine.repair_integrity`.
+- **Evidence:** `pytest tests/test_actions.py` 34 passed; the WLFC-shaped test restates 18 bars, keeps the island and leaves one basis (before the change the same series was skipped and left mixed).
+- **Metrics:** engine +35 lines.
+- **Next:** stale provisional bars.
+
+## 2026-10-21 — Never-settled same-night bars are asked for again, then retired
+
+- **Why:** P24 integrity lane; scope.md 2026-10-20 line. DDS and SUNC 2026-10-12 and CIB 2026-10-16 kept their same-night bars (open outside high/low) after newer sessions landed. Reproduced against the source: it answers NaN for DDS and SUNC on 10-12 and 10-13 on every later night, so the 5d re-fetch never replaced them; CIB was deactivated the next night and never asked again, though the source now has its settled 10-16 bar. The store copy holds 30 such never-settled bars dated before the newest session (13 of them on 10-16, all names deactivated on 10-20).
+- **What:** after the nightly incremental fetch, `collect.settle_stale_provisional` re-asks for every never-settled key of the last 31 days (a stored bar last fetched on or before its own session, `data_quality.never_settled_sql`, or a hole whose only observations are rejected geometry faults) and upserts only those keys, never an all-NaN "no bar" answer, through normal admission. Any still unsettled and inadmissible is moved by `price_quarantine.retire_stale_provisional` (original retained as `stale_provisional,<faults>`, key deleted, as the revision-15 cleanup does); a valid unsettled bar stays and is asked again. Best-effort: it never changes the night's fetch record.
+- **Evidence:** `pytest tests/test_collect.py` 23 passed; the new test settles CIB from the source, retires DDS with its original kept, keeps the valid ET bar, and the next pass re-asks for the valid bar and the hole and stores or rejects nothing.
+- **Metrics:** engine +120 lines.
+- **Next:** repair tool for the bars already wrong in the store.
+
+## 2026-10-21 — Repair tool for the split and same-night defects already stored
+
+- **Why:** P24 integrity lane. Shadow monitor on the 2026-10-21 08:34 snapshot copy: `one_split_basis_per_ticker` 3 regressions (WLFC, CRWU, ETHA), `split_recorded_vs_restated` 18. `fix/corporate-actions-split-integrity` landed on main but cannot heal these: its rule 3 reads `first_fetched_at`, which equals the last 5d re-fetch for every bar stored before about 10-16 (reproduced: `_adjudicate` on the copy still skips ETHA, CRWU and 8 of the late-recorded splits), and the watermark keeps a decided split from being re-adjudicated.
+- **What:** `engine.repair_integrity`, dry-run by default, idempotent. Steps: `double` (multiply back bars an applied restatement divided twice, when the source agrees), `unrecorded` (record the flagged names' splits through the nightly actions path), `splits` (restate a skipped or new split through `actions._restate` only when the source's current history puts every pre-break bar at stored/source = ratio, or at 1 for bars kept as already restated, and every later one at 1; a new split that fails is recorded `skipped_source_mismatch`), `stale` (the nightly settle path from `--since`). Originals go to `price_observation_rejects`, each change to `audit_log`. `actions.decide_split` is reconcile's per-split body, unchanged. Baseline: the 7 remaining breaks are real moves (stored equals the source on both sides).
+- **Evidence:** on the copy: split regressions 3 -> 0 and 18 -> 0 (7 baselined), 13 splits restated plus WLFC 07-15 (18,691 bars); afterwards all 26,679 stored bars of those 14 names are within 1% of the source, 21 never-settled bars settled (CIB 10-16 restored); books, cash and orders identical; a second dry-run finds nothing to change. `pytest tests/test_repair_integrity.py` 3 passed.
+- **Metrics:** engine +400, tests +150 lines.
+- **Next:** walk-forward NaN artifacts.
+
+## 2026-10-21 — Walk-forward results store an undefined statistic as null, documented
+
+- **Why:** P24 integrity lane; scope.md 2026-10-20 line. The shadow monitor's `walkforward_results_finite` has 14 regressions: `sector_momentum.json` (fold 0 train Sharpe and worst month) and `earnings_context_pead.json` (every fold's Sharpe) hold NaN, which strict readers (`/meta`, `report.load_results`) reject. Main's runner already writes null since 6661eb2, but these two files predate it; `earnings_context_pead` is inactive and will never be re-run.
+- **What:** the 14 NaN values in the two committed artifacts become null; nothing else in them changes (each file re-serializes byte-identically before the edit, same writer format). The walk-forward README's disclosures now state the representation: null in the file, `·` in the report, never NaN, infinity or a stand-in zero.
+- **Evidence:** `check_invariants` on the repaired store copy with this tree: `walkforward_results_finite` 14 regressions -> 0; `pytest tests/test_walkforward_report.py tests/test_walkforward_replay_regression.py tests/test_stats.py` 52 passed.
+- **Metrics:** farm +4 lines; data 14 values.
+- **Next:** remaining monitor findings.
+
+## 2026-10-21 — Accept the 2026-10-20 pre-open void as pre-fix history
+
+- **Why:** P24 integrity lane, remaining shadow-monitor regression: `preopen_not_voided` run 13 (2026-10-20) is `unavailable`, "pre-open evidence is invalid". Its response has three keep decisions, one (intent 142) citing no new evidence: the class 4192910 fixed by validating each decision on its own. The live checkout ran pre-fix code that morning (the 10-20 nightly log still shows the pre-merge head), and every decision was keep, so no outcome changed.
+- **What:** the existing `voided` exception runs through 2026-10-20 and names run 13; a void after 10-20 is a regression. For the orchestrator to accept or drop.
+- **Evidence:** `check_invariants` on the repaired store copy with this branch: pass, 0 regressions (main's tree on the unrepaired copy: 36).
+- **Metrics:** unchanged.
+- **Next:** full suites under both timezones.
+
+## 2026-10-21 — Repair finds twice-divided bars anywhere before the break
+
+- **Why:** review of the repair on the store copy: RUSHA's source served 08-05 and 08-10 already restated three weeks before its 3:2 ex-date (stored/source = 1 among old-scale bars at 1.5). Tonight's nightly reconcile, with main's rolling actions slice, may adjudicate RUSHA `applied_pending` and divide those two bars again; they sit outside the reconciler's 15-session window, so `new_scale_islands` there does not see them.
+- **What:** the `double` step scans every pre-break bar of an applied split and restores only island dates whose restored bar and both neighbouring bars equal the source. The `--report` file is written atomically.
+- **Evidence:** dry-run on the unrepaired copy still proves only WLFC 07-15; on the repaired copy it finds nothing; new test restores two glitch bars outside the window. `pytest tests/test_repair_integrity.py tests/test_no_bare_connect.py` passed.
+- **Metrics:** engine +20, tests +20 lines.
+- **Next:** orchestrator runs the repair on the live store after merge.
+
+## 2026-10-21 — Deflated-Sharpe hurdle uses the zero-skill sampling variance
+
+- **Why:** P24 quant-audit lane. `farm.stats.inference.deflated_sharpe` claimed a fallback V equal to the SR estimator's sampling variance "under the null", but plugged the candidate's own Sharpe, skew and kurtosis into the Mertens variance. A positively skewed candidate therefore lowered the expected-best-of-N hurdle it was measured against, a negatively skewed one raised it; zero-skill trials have neither. Reproduction: the new test (two series, same n and N, one Gaussian and one exponential) returned different SR0 values.
+- **What:** the fallback is now V = 1/(n-1), the Bailey & Lopez de Prado null (SR = 0). Callers that pass the real cross-trial variance (`var_sr`) are unchanged. Three independent checks join the suite: SR0 against a Monte-Carlo maximum of N normals, the PSR denominator against the Monte-Carlo variance of a skewed Sharpe (non-excess kurtosis, sign of the skew term), and the day-clustered SE against the closed-form t-test on daily means.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_stats.py tests/test_study_stats.py` passes (new tests fail on the previous code). Recorded effect: the 12 pooled walk-forward monthly DSR values move by at most 0.096 and none crosses the 0.95 context bar; the 13 recorded `experiment_results` SR0 values change by at most 3.5%. `farm/stats/inference.py` is pinned by the P15 registration: re-pin needed, not done here.
+- **Metrics:** farm +6/-5, tests +59 lines.
+- **Next:** the P24 orchestrator re-pins once after the lane merges.
+
+## 2026-10-21 — Study core never prices a missing bar with a close it cannot know yet
+
+- **Why:** P24 quant-audit lane. In `farm.study`, an equal-weight comparator leg whose name had no bar on the leg's end session but a listing interval ending later took `delisting_exit`, i.e. the name's LAST close inside the interval, which can lie days or years after the leg (and after the run window). Reproduction: a three-name fixture where one name's next print, two sessions later, is +200% returned a comparator leg of +70% instead of +5%. The event path had the mirror image: a name with a missing exit bar and a listing interval ending after the window was closed at its entry-day close labelled `delisting`, while an identical still-listed name was left unfilled.
+- **What:** both paths now treat a listing end as knowledge only once it is inside the window: the comparator skips a still-listed name with a missing bar (a delisting with `listed_through` at or before the leg's end session still uses its last close), and `_exit` books a delisting only when `listed_through` is at or before the run's last session. Delistings inside the window behave exactly as before.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_study_costs_benchmark.py tests/test_study_simulate.py tests/test_study_universe.py tests/test_study_synthetic.py` passes; the two new tests fail on the previous code. No registered study result in this repository was produced by these paths.
+- **Metrics:** farm +12/-0, tests +44 lines.
+- **Next:** none admitted; the alpha-side evaluators keep their own comparators.
+
+## 2026-10-21 — Dividend withholding applies to receipts, never to a short's liability
+
+- **Why:** P24 quant-audit lane. `farm.study.simulate` multiplied the signed dividend cash by `(1 - dividend_withholding)` in both the event and portfolio paths, so a short position paid 70% of the dividend it owed under the 30% Singapore withholding. Reproduction: a one-share-class short over a USD 1 ex-date booked -7 of -10 per 10 shares, and a portfolio short of 1,000 shares booked -700 of -1,000.
+- **What:** `_after_withholding` keeps the full gross for a negative (owed) amount and withholds only from a positive receipt; the portfolio path applies it per holding so a mixed long/short book is right. Long-only behaviour and the gross-of-withholding ledger fields are unchanged.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_study_followup2.py` passes; the new short test fails on the previous code. The sim/ledger account path already debited shorts at full gross; only the study core differed.
+- **Metrics:** farm +9/-3, tests +29 lines.
+- **Next:** none admitted.
+
+## 2026-10-21 — Keep a league report current when its books are retired after the session
+
+- **Why:** P24 ops audit. Reproduction: after eight books were retired at 08:22 UTC
+  (`portfolio_retired` audit rows), `/meta` read `nightly_evidence=invalid` and the API logged
+  `league report portfolios do not match active equity` on every probe: the 2026-10-20 report
+  correctly lists the 25 books marked that session, but the check compared it with today's
+  `active` flag. Agents may now retire books themselves, so this recurs on every retirement.
+- **What:** `server/nightly_reports.py` also accepts, in the standings and stale-mark tables, a
+  public book marked for the report's session whose first `portfolio_retired` row is after
+  that session's 16:00 ET close. Unaudited or pre-close retirements still fail closed.
+- **Evidence:** `pytest tests/test_nightly_reports.py`: the new retirement test fails before
+  (ValueError) and 17 pass after; on a copy of the 08:34 snapshot with the live 10-20
+  `league.md`, `_validate_league_markdown` raised before and passes after.
+- **Metrics:** server +40, tests +49. Registered: `server/nightly_reports.py` (P15 pin; the
+  orchestrator re-pins).
+- **Next:** ops audit report for the orchestrator.
+
+## 2026-10-21 — Resolve a failed TradingView tail window when a wider retry completes
+
+- **Why:** P24 ops audit. Reproduction: a symbol's last backfill window ends at the newest
+  session, so the retry after a failed attempt asks for a wider window; `archive_status`
+  matched failures on the exact (ticker, start, end) and kept the failure unresolved forever,
+  pinning `/meta` `miner_evidence.tradingview_history` at `issues`. On the 10-21 snapshot
+  3,239 of 4,063 symbols are two windows from that tail, so it arrives within weeks.
+- **What:** a failed window counts as resolved when a complete, empty or refused attempt
+  for the same ticker covers it (start on or before, end on or after).
+- **Evidence:** new `test_failed_tail_window_resolves_when_a_wider_window_completes` fails
+  before (`unresolved_failed_windows` 1) and the 12 archive tests pass after; the snapshot
+  copy still reports the two genuine open windows (PSKY, QRVO symbol_error) and 11 refused.
+- **Metrics:** engine +2, tests +23. Registered: `engine/tradingview_history_archive.py`
+  (P15 pin; the orchestrator re-pins).
+- **Next:** ops audit report for the orchestrator.
+
+## 2026-10-21 — Refuse a weekday walk-forward start inside the producer window
+
+- **Why:** orchestrator follow-up to the P24 ops audit. Reproduction: hand-started drains on
+  Monday 2026-10-19 at 02:53, 07:31 and 11:41 UTC held the store and the drain lock through the
+  producers' window (five TradingView archive failures, the P15 pre-open store-lock failure, both
+  backups skipped), although the driver header already forbade weekday starts in 22:30-13:05.
+- **What:** `engine/run_weekly_walkforward.sh` exits 1 before its header on a weekday start in
+  22:30-13:05 UTC. `TRADING_ENGINE_WALKFORWARD_OVERRIDE=<reason>` permits a supervised run
+  and logs a `WARN: weekday-window override` line with the reason. The Sunday 06:00 cron is
+  unaffected.
+- **Evidence:** `pytest tests/test_drivers.py`: the six new window and override cases fail
+  before the guard; all 43 driver tests pass after.
+- **Metrics:** engine +23, tests +39.
+- **Next:** walk-forward fold profile (next entry).
+
+## 2026-10-21 — Name the failing field when a model assessment is rejected
+
+- **Why:** orchestrator follow-up to the P24 ops audit. On 2026-10-20 at 15:15 and 16:15 UTC
+  the hourly observer failed with only `daily assessment values are invalid`, and the raw model
+  output is not kept, so which field was rejected could not be determined.
+- **What:** `server/daily_opportunity_runner._validate_assessment` checks each value in turn
+  and raises `daily assessment values are invalid: <ticker> <field>=<value>` (repr capped at
+  120 characters; unknown evidence ids listed as `outside allowed`). It accepts and rejects
+  exactly the same assessments as before.
+- **Evidence:** the new parametrized test (six fields) fails before the change and passes
+  after; the daily-opportunity, evaluation-reporting, intraday and unit suites pass (120), apart
+  from the expected P15 hash pin.
+- **Metrics:** server +13, tests +29. Registered: `server/daily_opportunity_runner.py` (P15
+  pin; the orchestrator re-pins).
+- **Next:** walk-forward fold profile.
+
+## 2026-10-21 — Record the revision-15 install (R15.1–R15.3, 08:03–08:48 UTC)
+
+- **Why:** orchestrator follow-up to the P24 ops audit: the install ran on the host with no
+  BUILDLOG record. Evidence is the deploy state directory, the checkout reflog and the units.
+- **What:** deploy gate passed on `71d3b0d` at 08:04 (invariants warn only). R15.1: inventory
+  and quiescence 08:03, backup of revision-14 `9e9acc5` verified, recovery-ready 08:06.
+  R15.2: fast-forward to `71d3b0d` at 08:18, registration revision 15, three runtime
+  migrations, cleanup dry run 155 invalid rows on 127 tickers, 332 provisional kept, 0 moved.
+  R15.3: cleanup applied 08:22 (155 moved), forward reviews and P15 reporting, snapshot
+  published 08:34, API 08:35 and UI 08:36 restarted, history timer enabled, board and positions
+  captured 08:37 (after the validation block, under `set -e`), producers released. Amendment:
+  install-automation audit and apply 08:47–08:48 (re-audit: no changes left, options timer held,
+  P16 challengers disabled per contract), model gateway ok (startup 0.205.1, installed 0.210.1).
+- **Evidence:** deployed `/meta`: E1 v8, sector v12, XS v23, all ACCUMULATING; every timer
+  scheduled. Later fast-forwards: `6f4086d` (gated 08:58), then docs-only `7875093`, `05b3515`.
+- **Metrics:** unchanged (record only).
+- **Next:** tonight's 22:30 nightly is the first revision-15 nightly; Sunday 10-25 the first
+  walk-forward with the 7 h job timeout.
+
+## 2026-10-21 — Start each test worker on its share of the slow tests and balance CI shards
+
+- **Why:** P24 test-speed lane. Baseline `pytest -q -W error -n 8`: 210.9s wall, last worker done at 205s against a 153s median, because worksteal's contiguous blocks left the four 33s `test_generated_delivery_matches_on_time_accounting` seeds queued on one worker; CI's hashed file shards held 447/294/270/245s of work.
+- **What:** under xdist, `tests/speed_plugin.py` reorders the collection so each worker's first worksteal block opens with a longest-first share of the tests recorded at 1s or more in `tests/durations.json`; the other tests keep collection order and file locality. CI shards take files longest-first onto the least-loaded shard (a file missing from the record counts 0.1s a test). `--record-durations PATH` rewrites the record. Order and shard membership change; the set of tests does not.
+- **Evidence:** replaying the recorded per-test times through xdist's worksteal rules gives 206s for the old order (205s measured) and 158s for the new; the worst 4-worker shard goes from 121s to 79s. `--collect-only` lists 5,762 nodes before and after, and the four shards' union equals that list exactly under UTC and Asia/Singapore.
+- **Metrics:** server/tools/product unchanged; tests +119/-12 lines plus the 558-line duration record.
+- **Next:** reuse the repeated P16 lambda calibrations.
+
+## 2026-10-21 — Reuse identical P16 lambda calibrations across test workers
+
+- **Why:** the P16 book, runner, store and transfer tests called `calibrate_lambda` 30 times at about 7s each (216s); the conftest helper and the store's validation recompute only 13 distinct synthetic cohorts.
+- **What:** a session fixture in `tests/speed_plugin.py` keeps one result per byte-identical input (type-tagged cases, grid and default grid), shared by all workers under a file lock. It is used only while the calibration, optimizer and projection modules are unpatched, so tests that inject solver failures or a fake calibration still run the real path. The validation still recomputes and compares; only the repeated deterministic solve is reused. `TEST_SPEED_VERIFY_MEMO=1` re-solves every reuse and fails if anything other than the timings differs, or if the inputs were changed.
+- **Evidence:** a verify-mode run of nine P16 files: 29 reuses, all identical to fresh solves, inputs unchanged, every test passes. Same files at `-n 8`: child CPU 304s before, 191s and 185s after.
+- **Metrics:** server/tools/product unchanged; tests +99 lines.
+- **Next:** take the suite's fsync waits off the shared disk.
+
+## 2026-10-21 — Keep test temporary files on tmpfs when there is room
+
+- **Why:** after the two changes above, the DuckDB-file-heavy tests (daily opportunities, backup, filing runner, P15 scoring, ops digest) spent 2-4x their CPU time waiting on disk flushes. Those five files at `-n 8` took 31-38s wall on disk and 12s on `/dev/shm`, with the same CPU.
+- **What:** when no `--basetemp` is given and `/dev/shm` has at least 6 GiB free, the controller puts the pytest base directory and `TMPDIR` under `/dev/shm/pytest-of-<user>/run-<pid>`; xdist workers inherit both. Files, locks, renames and checkpoints stay real. The run directory is removed at exit and runs whose process is gone are pruned; `TEST_SPEED_TMPFS=0` restores pytest's on-disk default. A full `-n 8` run peaked at 3.3 GiB.
+- **Evidence:** `nice -n 10 .venv/bin/python -m pytest -q -W error -n 8`: 210.9s before; 148.2s under UTC and 143.8s under Asia/Singapore after, with host load at 42-51 against 18-20 for the baseline. 5,762 executed, 5,761 passed, 0 skipped; the one failure (`docs/README.md` does not link the P24 plan) is on `main` before and after.
+- **Metrics:** server/tools/product unchanged; tests +61 lines.
+- **Next:** speed up row-at-a-time price-observation capture (75% of the broker human-paper tests) in a production lane.
+
+## 2026-10-21 — Integrate the first P24 merge batch as registration revision 16
+
+- **Why:** P24 plan, merge batch 1. Revision 15 is deployed (installed 2026-10-21 08:03–08:48), so the batch is a new registration revision. Reproduction for the migration: on a copy of the 08:34 snapshot and the live reports, amending the E1 v8, sector v12 and XS v23 digests in place made every run fail closed (E1 "checkpoint is invalid", sector and XS "requires explicit migration") and all three `--migrate-runtime-contract` calls refused, since only the prior versions migrate.
+- **What:** merged `p24/integrity` (600dea4b), `p24/quant-audit` (5b9d41f6), `p24/ops` (3c0746c0) and `p24/test-speed` (3684c5c7) in that order; only BUILDLOG conflicted, entries kept in merge order.
+  Each runner pins its deployed digest (`AMENDED_RUNTIME_CONTRACT_SHA256`); its explicit migration accepts the current version under exactly that digest with every other field current (XS also moves its signal boundary's digest), and still compares prefixes, equity and ledgers exactly.
+  Re-pin: E1 v8, sector v12 and XS v23 hashes recomputed, versions unchanged; registration revision 16 re-pins 13 of 166 files, source_commit 7ba8b289, registration_sha256 8309cf51. The storage work previously numbered revision 16 (r16-gen, r16-raw) becomes revision 17.
+- **Evidence:** on the snapshot copy the three migrations pass and the next E1, sector and XS runs are ACCUMULATING with reports identical to main's except the runtime digest; full suites 5,799 passed under UTC (142.6s) and Asia/Singapore (143.5s) at `-n 8` with warnings as errors; ruff blocking selections pass; deploy gate passes (invariants shadow warning only).
+- **Metrics:** migration engine/farm +83/-30, tests +88; the batch itself as its lanes recorded.
+- **Next:** after main moves, run the three runtime migrations and the integrity repair on the live host before the 22:30 UTC nightly.
+
 ## 2026-10-21 — Land wave-1 b-platform (hygiene gate, lane tool) on the rewritten main
 
 - **Why:** P24 integrate lane; b-platform was reviewed to ACCEPT on the pre-rewrite revision-15 base.

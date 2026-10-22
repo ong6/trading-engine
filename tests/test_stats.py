@@ -199,3 +199,47 @@ def test_max_drawdown_single_definition_equivalence():
     # compute() still reports the same drawdown as before the split
     net = np.array([0.10, -0.05, 0.02, 0.03])
     assert fs.compute(net, net, years=2.0, variants_tried=None).max_drawdown == -0.050000000000000155
+
+
+# ---------------------------- independent checks of the DSR machinery ----- #
+
+def test_deflation_benchmark_uses_the_null_sampling_variance():
+    """SR0 is the expected best of N ZERO-SKILL trials, so its fallback variance
+    is the null sampling variance 1/(n-1); the candidate's own skew, kurtosis
+    and Sharpe must not move the hurdle it is measured against."""
+    rng = np.random.default_rng(7)
+    n, trials = 400, 317
+    gaussian = rng.normal(0.002, 0.01, n)
+    skewed = rng.exponential(0.01, n) - 0.008          # skew ~2, kurtosis ~9
+    assert fs.deflated_sharpe(skewed, 1)[1] > 0        # a positive-Sharpe candidate
+    sr0_gaussian = fs.deflated_sharpe(gaussian, trials)[2]
+    sr0_skewed = fs.deflated_sharpe(skewed, trials)[2]
+    assert sr0_skewed == pytest.approx(sr0_gaussian)
+    assert sr0_skewed == pytest.approx(fs.expected_max_sharpe(1.0 / (n - 1), trials))
+
+
+def test_expected_max_sharpe_matches_a_monte_carlo_maximum():
+    """Bailey & Lopez de Prado's E[max] approximation against brute force."""
+    rng = np.random.default_rng(20261021)
+    trials, draws = 317, 100_000
+    observed = rng.standard_normal((draws, trials)).max(axis=1).mean()
+    assert fs.expected_max_sharpe(1.0, trials) == pytest.approx(observed, abs=0.03)
+
+
+def test_psr_denominator_matches_the_sampling_variance_of_a_skewed_sharpe():
+    """The PSR non-normality terms (Mertens): Var[SR_hat] = (1 - g3 SR + (g4-1)/4 SR^2)/(n-1)
+    with g4 the NON-excess kurtosis. Checked against the Monte-Carlo variance of the
+    Sharpe estimator for shifted exponential returns (g3 = 2, g4 = 9)."""
+    rng = np.random.default_rng(3)
+    n, reps, scale, shift = 250, 20_000, 0.01, 0.003
+    samples = rng.exponential(scale, (reps, n)) - (scale - shift)
+    sharpes = samples.mean(axis=1) / samples.std(axis=1, ddof=1)
+    true_sr = shift / scale
+    formula = (1 - 2.0 * true_sr + (9.0 - 1.0) / 4.0 * true_sr ** 2) / (n - 1)
+    gaussian_formula = 1.0 / (n - 1)
+    assert sharpes.var(ddof=1) == pytest.approx(formula, rel=0.15)
+    assert abs(sharpes.var(ddof=1) - gaussian_formula) > 3 * abs(sharpes.var(ddof=1) - formula)
+    # and the same denominator is what probabilistic_sharpe divides by
+    z = fs.probabilistic_sharpe(true_sr, 0.0, n, 2.0, 9.0)
+    from statistics import NormalDist
+    assert z == pytest.approx(NormalDist().cdf(true_sr / math.sqrt(formula)))

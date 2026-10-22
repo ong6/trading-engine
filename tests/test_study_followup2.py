@@ -203,3 +203,32 @@ def _report(data, ledger, benchmark):
                    "trades": 1, "one_sided_t": 0.0}], folds=[], hard_max_date=D2,
         ledger=ledger, runtime_seconds=0.0, worker_count=1, job_count=1,
         serial_parallel_identical=True)
+
+
+def _short_order(view, session):
+    return ([Order("AAA", "short", FillPoint.open_auction(),
+                   ExitRule.after_n_sessions(2, at=FillPoint.close_auction()), 1_000)]
+            if session == D0 else [])
+
+
+def _short_weights(view, session):
+    return {"AAA": -1.0}
+
+
+def test_short_dividend_liability_is_never_reduced_by_withholding():
+    """Withholding is taken from dividends RECEIVED; a short owes the full gross."""
+    warmup = date(2024, 1, 1)
+    dividend = Dividend("AAA", D1, 1.0, datetime(2024, 1, 2, 12, tzinfo=timezone.utc))
+    bars = [_bar(ticker, day) for ticker in ("AAA", "BBB") for day in (warmup, D0, D1, D2)]
+    data, universe = _market(bars, dividends=(dividend,))
+    ledger = simulate_events(
+        EventStrategy("short", "pre_open", _short_order, 1, 1_000, dividend_withholding=0.3),
+        data, universe, (D0, D2), COSTS, Benchmark("cash"))
+    trade = ledger.trades[0]
+    assert (trade.gross_dividend_cash, trade.dividend_cash) == pytest.approx((-10, -10))
+    assert trade.gross_return == pytest.approx(-0.01)
+    portfolio = simulate_portfolio(
+        PortfolioStrategy("short", "pre_open", _short_weights, (D0,),
+                          FillPoint.open_auction(), dividend_withholding=0.3),
+        data, universe, (D0, D2), COSTS, Benchmark("cash"))
+    assert sum(row.dividend_cash for row in portfolio.days) == pytest.approx(-1_000)
