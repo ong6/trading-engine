@@ -4152,4 +4152,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +13, tests +20 lines (net).
 - **Next:** earnings/actions pacing needs an orchestrator ruling on the Yahoo request rate.
 
+## 2026-10-22 — Cache session bounds in the price validator (P24 nightly-speed)
+
+- **Why:** P24 nightly-speed, raised by the ops lane: the 2026-10-21 nightly's `intraday` job ran about 22:45-01:02 (usually 145-212 s), the first night with revision-15 admission. It validates every fetched bar (about 2.4M 1m and 4.1M 5m) and retains each already-stored one as an `intraday_existing_key` observation; a pandas schedule-row lookup was 130 of about 190 microseconds per bar, and the observations were inserted one row at a time.
+- **What:** `observation_reasons` reads each day's NYSE open and close through an `lru_cache`d `_session_bounds`, the same `session_schedule` row as before. With the multi-row observation insert, both per-bar costs are gone; reasons are unchanged.
+- **Evidence:** store-copy replay of the nightly insert path for 40 names (newest session deleted, then 7 days of 1m and 60 days of 5m bars in 50-name batches, 211,392 rows): 234.6 s on main, 51.6 s on this branch; `intraday_prices` identical and the 194,723 retained observations identical apart from random ids and wall-clock stamps. New test compares cached reasons with the schedule-row logic across holidays, an early close and DST.
+- **Metrics:** engine +11, tests +27 lines (net).
+- **Next:** orchestrator ruling on retaining every repeated intraday bar as an observation (about 6M rows a night).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

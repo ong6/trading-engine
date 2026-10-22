@@ -35,6 +35,18 @@ def session_schedule(year: int) -> pd.DataFrame:
     )
 
 
+@lru_cache(maxsize=4096)
+def _session_bounds(day: date) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    """One session's (open, close), or None off the calendar; a pandas row lookup
+    per bar dominated validating a night's intraday bars."""
+    schedule = session_schedule(day.year)
+    key = pd.Timestamp(day)
+    if key not in schedule.index:
+        return None
+    row = schedule.loc[key]
+    return row.market_open, row.market_close
+
+
 def price_bar_reasons(bar, *, check_volume: bool = True) -> list[str]:
     """Scalar invariants only: unusual returns and flat trades are valid."""
     reasons = []
@@ -91,18 +103,17 @@ def observation_reasons(bar, *, intraday: bool = False) -> list[str]:
             if pd.isna(ts) or ts.time() != datetime.min.time():
                 raise ValueError("not a daily date")
             day = ts.date()
-        schedule = session_schedule(day.year)
-        key = pd.Timestamp(day)
-        if key not in schedule.index:
+        bounds = _session_bounds(day)
+        if bounds is None:
             reasons.append("off_calendar")
         elif intraday:
-            row = schedule.loc[key]
+            market_open, market_close = bounds
             interval = bar.get("interval")
             if interval not in ("1m", "5m"):
                 reasons.append("invalid_interval")
-            elif not row.market_open <= ts < row.market_close:
+            elif not market_open <= ts < market_close:
                 reasons.append("off_calendar")
-            elif (ts - row.market_open).total_seconds() % (60 if interval == "1m" else 300):
+            elif (ts - market_open).total_seconds() % (60 if interval == "1m" else 300):
                 reasons.append("invalid_interval")
     except (TypeError, ValueError, OverflowError):
         reasons.append("invalid_date")
