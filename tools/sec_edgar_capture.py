@@ -7,7 +7,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from datetime import time as day_time
 from pathlib import Path
 from typing import Callable
@@ -15,7 +15,7 @@ from typing import Callable
 import duckdb
 import requests
 
-from engine import bitemporal_facts
+from engine import bitemporal_facts, sec_acceptance
 from engine.lib import db
 from engine.lib.settings import DEFAULT_DB
 from engine.lib.util import table_exists
@@ -25,6 +25,7 @@ SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 SOURCE_VERSION = "sec_submissions_v1"
 MAX_TICKERS = 5
 REQUEST_DELAY_SECONDS = 0.15
+LABEL_DATE_LEAD = timedelta(days=7)
 FORMS = frozenset({"10-K", "10-K/A", "10-Q", "10-Q/A", "8-K", "8-K/A",
                    "20-F", "20-F/A", "40-F", "40-F/A", "6-K", "6-K/A"})
 TICKER = re.compile(r"^[A-Z0-9.^=-]{1,32}$")
@@ -127,17 +128,20 @@ def filing_facts(response: Response, ticker: str, cik: str) -> list[dict]:
         accession = recent["accessionNumber"][index]
         try:
             filing_date = date.fromisoformat(recent["filingDate"][index])
+            label = recent["acceptanceDateTime"][index]
+            wall = sec_acceptance.label_wall_clock(label)
             report_raw = recent["reportDate"][index]
             report_date = filing_date if not report_raw else date.fromisoformat(report_raw)
-            accepted = datetime.fromisoformat(
-                recent["acceptanceDateTime"][index].replace("Z", "+00:00")
-            ).astimezone(timezone.utc)
+            accepted = sec_acceptance.label_available_at(label, received_at=response.received_at)
         except (AttributeError, TypeError, ValueError) as exc:
             raise SecCaptureError("SEC filing timestamp is invalid") from exc
         primary = recent["primaryDocument"][index]
+        # The label's date may precede the filing date (after-cutoff filings roll forward
+        # over a long weekend) or follow it (the label runs up to ten hours late, and
+        # paper or hardship filings keep an earlier filing date); it never runs early.
         if (not isinstance(accession, str) or ACCESSION.fullmatch(accession) is None
                 or not isinstance(primary, str) or not primary or "/" in primary
-                or accepted.date() != filing_date or report_date > filing_date):
+                or wall.date() < filing_date - LABEL_DATE_LEAD or report_date > filing_date):
             raise SecCaptureError("SEC filing identity is invalid")
         facts.append({
             "ticker": ticker, "cik": cik, "accession": accession, "form": form,
@@ -259,8 +263,9 @@ def capture(
             )
             for fact in facts:
                 accepted = datetime.fromisoformat(fact["acceptance_datetime"])
-                event = datetime.combine(date.fromisoformat(fact["report_date"]), day_time.min,
-                                         tzinfo=timezone.utc)
+                # An after-cutoff filing can carry its later filing date as report date.
+                event = min(accepted, datetime.combine(
+                    date.fromisoformat(fact["report_date"]), day_time.min, tzinfo=timezone.utc))
                 bitemporal_facts.record_fact(
                     con, entity_id=f"sec-cik:{item['cik']}", security_id=ticker,
                     fact_type=f"sec.filing:{fact['accession']}", event_at=event,

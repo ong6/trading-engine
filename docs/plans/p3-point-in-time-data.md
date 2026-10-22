@@ -126,6 +126,14 @@ window, 62.6% have a same-ticker item 2.02 event within ±1 day and 64.8% within
 [`../sec-bulk-audit-2026-10-02.md`](../sec-bulk-audit-2026-10-02.md) records the annual counts,
 ordered tag fallbacks, denominators and 30-miss sample. No operational or execution table changed.
 
+**Acceptance-clock amendment (P24, 2026-10-21).** The submissions `acceptanceDateTime` label's `Z`
+is not trustworthy: against 75 recorded SGML headers its wall clock was the true Eastern time (21
+bulk rows), true UTC, or Eastern plus twice the New York offset, never earlier than the true
+acceptance. Reading it as UTC was 4–5 hours early on the first kind. The store now keeps the label's
+wall clock and every view reads it as America/New_York (`engine/sec_acceptance.py` states the rule:
+SGML header first, else label wall clock as New York time, capped at the receipt when known), which
+also corrects a store restored from the archive. Event dates in the audit use the New York date.
+
 ## Phase 0 part 3: Massive grouped daily capture — active 2026-10-02
 
 The individual-use free key now exists in a private owner-only file. A resumable background capture

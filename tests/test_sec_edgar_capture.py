@@ -57,7 +57,8 @@ def test_sec_capture_retains_acceptance_time_and_current_map_limit(con):
         "SELECT event_at,published_at,available_at,normalized_payload "
         "FROM bitemporal_facts WHERE fact_type LIKE 'sec.filing:%'"
     ).fetchone()
-    assert filing[:3] == (datetime(2026, 6, 30), datetime(2026, 9, 22, 16, 30, 1),
+    # The label's wall clock is read as New York time (engine.sec_acceptance rule 2).
+    assert filing[:3] == (datetime(2026, 6, 30), datetime(2026, 9, 22, 20, 30, 1),
                           NOW.replace(tzinfo=None) + timedelta(seconds=1))
     assert json.loads(filing[3])["accession"] == "0000320193-26-000001"
     assert con.execute("SELECT COUNT(*) FROM source_response_receipts").fetchone() == (2,)
@@ -80,14 +81,27 @@ def test_sec_capture_keeps_invalid_response_receipt_but_no_filing(con):
     assert con.execute("SELECT COUNT(*) FROM source_response_receipts").fetchone() == (2,)
 
 
-def test_sec_filing_rejects_acceptance_date_mismatch():
-    bad = _submissions(accepted="2026-09-23T00:00:00Z")
+def test_sec_filing_rejects_label_far_before_filing_date():
+    bad = _submissions(accepted="2026-09-14T16:00:00.000Z")
     try:
         sec_edgar_capture.filing_facts(bad, "AAPL", "0000320193")
     except sec_edgar_capture.SecCaptureError as exc:
         assert "identity" in str(exc)
     else:
-        raise AssertionError("acceptance outside filing date must fail")
+        raise AssertionError("a label a week before its filing date must fail")
+
+
+def test_sec_filing_accepts_label_dated_after_filing_and_caps_at_receipt():
+    # 0001493152-26-037377: accepted 2026-08-12 16:30:31 ET, filing date 2026-08-12, live
+    # label 2026-08-13T00:30:31Z (ET plus twice the offset). The old date check rejected the
+    # whole response; a receipt earlier than the label reading caps the clock.
+    late = _submissions(accepted="2026-09-23T00:30:31.000Z")
+    facts = sec_edgar_capture.filing_facts(late, "AAPL", "0000320193")
+    assert facts[0]["acceptance_datetime"] == "2026-09-23T04:30:31+00:00"
+    early_receipt = sec_edgar_capture.Response(
+        late.body, late.content_type, 200, NOW, datetime(2026, 9, 23, 2, tzinfo=timezone.utc))
+    capped = sec_edgar_capture.filing_facts(early_receipt, "AAPL", "0000320193")
+    assert capped[0]["acceptance_datetime"] == "2026-09-23T02:00:00+00:00"
 
 
 def test_sec_fetch_requires_operator_contact_identity(monkeypatch):
@@ -119,3 +133,26 @@ def test_sec_cli_waits_without_a_candidate_cohort(tmp_path, capsys):
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == "waiting"
     assert result["historical_membership_authority"] is False
+
+
+def test_sec_capture_records_after_cutoff_filing_dated_next_session(con):
+    # Accepted Friday 2026-09-18 17:45 ET (label wall clock); filing and report date are the
+    # following Monday. The old date check rejected the ticker; the event time is now bounded
+    # by the publication instant so the fact stays consistent.
+    payload = {"cik": "0000320193", "filings": {"recent": {
+        "accessionNumber": ["0000320193-26-000003"], "filingDate": ["2026-09-21"],
+        "reportDate": ["2026-09-21"], "acceptanceDateTime": ["2026-09-18T17:45:00.000Z"],
+        "form": ["8-K"], "primaryDocument": ["aapl-8k.htm"],
+    }}}
+
+    def fetch(url):
+        return _mapping() if url == sec_edgar_capture.TICKERS_URL else _response(payload, seconds=1)
+
+    result = sec_edgar_capture.capture(
+        con, ["AAPL"], fetch=fetch, sleep=lambda _seconds: None,
+        ingested_at=NOW + timedelta(seconds=2),
+    )
+    assert result["status"] == "complete" and result["filing_fact_count"] == 1
+    assert con.execute(
+        "SELECT event_at,published_at FROM bitemporal_facts WHERE fact_type LIKE 'sec.filing:%'"
+    ).fetchone() == (datetime(2026, 9, 18, 21, 45), datetime(2026, 9, 18, 21, 45))
