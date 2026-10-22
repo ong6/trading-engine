@@ -4572,4 +4572,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +3.
 - **Next:** clear the runtime dependency advisories that fail `pip-audit` and `npm audit`.
 
+## 2026-10-22 — Bump certifi to 2026.10.19 for the revoked emSign intermediates (P24 ci-green)
+
+- **Why:** the CI `checks` job has failed its `pip-audit` step on every main push since 2026-10-20: `pip-audit -r <runtime requirements> --strict` reports certifi 2026.7.22, PYSEC-2026-4320 (GHSA-6q48-6c7w-9gw2), fixed in 2026.10.19.
+- **What:** `uv lock --upgrade-package certifi==2026.10.19`; only the certifi entry of `uv.lock` changes. certifi is transitive (via requests and curl-cffi), so `pyproject.toml` is unchanged. Nothing registered or pinned hashes `uv.lock` or the certifi version.
+- **Evidence:** the CI audit command on the exported runtime requirements: before "Found 1 known vulnerability in 1 package", after "No known vulnerabilities found".
+- **Metrics:** unchanged.
+- **Next:** the Next.js advisories that fail `npm audit`.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
