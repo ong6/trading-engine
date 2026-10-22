@@ -4367,4 +4367,20 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs only; code unchanged.
 - **Next:** orchestrator merges `p24/docs` and re-syncs the changed `docs/site/` pages to the website.
 
+## 2026-10-22 — Stop the hygiene gate refusing data pushes and context-variable code
+
+- **Why:** reproduction: `python -m tools.public_hygiene --range` over main's newest data push (`703e8595`, `run_p15_scoring`) fails `text_size_limit` on `data/_meta.json` (3.9 MB against a 2 MB cap), so the CI `hygiene` job goes red on every data push; `--worktree` also flags four `token = _VAR.set(` lines in `server/db.py` and `server/host_command.py` as `credential_assignment`.
+- **What:** the text cap is 16 MB so every changed file stays scanned; an unquoted credential candidate followed by `(` is a call expression, not a literal, and is skipped. Two tests: a call expression next to a real unquoted token yields exactly one finding, and a 4 MB text file is scanned rather than refused.
+- **Evidence:** `pytest tests/test_public_hygiene.py` passed; `public_hygiene --range 158cb95~1..703e8595` and `--range 158cb95~1..454cfc6a` against the live checkout PASS; `--worktree` PASS.
+- **Metrics:** tools +10 lines, tests +27 lines.
+- **Next:** `data/_meta.json` carries 2.4 MB of per-name detail (`price_verify_full.name_results`, `intraday.coverage`) rewritten on every data push; move it to its own report file.
+
+## 2026-10-22 — Run the research package's tests in CI
+
+- **Why:** the wave-1 StudySpec runner's 97 tests live in `farm/research/tests`, outside `testpaths`, so no CI job ran them.
+- **What:** the `checks` job runs `pytest -W error -n 2 farm/research/tests` as its own step; the sharded suite is unchanged.
+- **Evidence:** `pytest -q -W error -n 4 farm/research/tests` 97 passed in 15 s.
+- **Metrics:** CI +1 line.
+- **Next:** none.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

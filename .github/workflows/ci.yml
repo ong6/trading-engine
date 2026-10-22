@@ -75,6 +75,7 @@ jobs:
       - run: .venv/bin/ruff check --select PLW2901 server tools
       - run: .venv/bin/ruff check --select RET504 server tools
       - run: .venv/bin/ruff check --select S101 engine farm sim server tools
+      - run: .venv/bin/python -m pytest -q -W error -n 2 farm/research/tests  # outside testpaths
       - run: .venv/bin/python -m compileall -q engine sim server tests farm tools
       - run: find engine -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
       - run: bash -n server/run_server.sh ui/run_ui.sh
