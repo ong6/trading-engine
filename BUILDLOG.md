@@ -4448,4 +4448,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +15, tests +20 lines.
 - **Next:** nothing admitted.
 
+## 2026-10-22 — Study exit fees under an entry-notional basis use the shares held
+
+- **Why:** review of the study fee change. Reproduction: with `exit_cost_basis="entry_notional"` the `ibkr_pro_tiered_v1` exit fee was charged on notional / exit price shares (10,000 / 110 = 90.91) instead of the 100 held: $0.53 instead of $0.55.
+- **What:** `costs.calculate` takes `traded_shares`, used only by the effective-dated engine profile; the event simulator passes the position's shares at exit. Other profiles and the entry-notional bps basis are unchanged.
+- **Evidence:** new `test_entry_notional_exit_basis_charges_dollar_fees_on_the_shares_held` (hand-computed $0.55 under both bases) fails before and passes after; `pytest tests/test_study_simulate.py tests/test_study_costs_benchmark.py` passes.
+- **Metrics:** farm +7, tests +18 lines.
+- **Next:** end-to-end replay fee test.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

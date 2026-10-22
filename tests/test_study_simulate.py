@@ -392,3 +392,19 @@ def test_effective_dated_dollar_fee_profile_charges_each_fill_in_dollars():
         "entry": 0.52, "exit": 0.55, "funding": 0.0, "total": pytest.approx(1.07)}
     assert trade.net_returns_by_profile["ibkr_pro_tiered_v1"] == pytest.approx(
         0.10 - 1.07 / 10_000)
+
+
+def test_entry_notional_exit_basis_charges_dollar_fees_on_the_shares_held():
+    """Review finding: with exit_cost_basis="entry_notional" the per-share IBKR exit
+    fee was charged on 10,000 / 110 = 90.91 shares instead of the 100 held."""
+    data, universe = _fixture([_bar("AAA", D0, 100, 110)])
+    costs = CostSelection("baseline_v1", ("ibkr_pro_tiered_v1",))
+    exits = {}
+    for basis in ("market_value", "entry_notional"):
+        ledger = simulate_events(
+            EventStrategy("one", "pre_open", _one_order, 1, 10_000, exit_cost_basis=basis),
+            data, universe, [D0], costs, Benchmark("cash"))
+        exits[basis] = ledger.trades[0].costs_by_profile["ibkr_pro_tiered_v1"]["exit"]
+    # 100 shares at the close: 0.35 + 100 x 0.0016 + 100 x 0.0002 + 0.000259
+    # + 100 x 0.000003 + 100 x 0.000195 = 0.550059 -> $0.55 (90.91 shares gave $0.53).
+    assert exits == {"market_value": 0.55, "entry_notional": 0.55}

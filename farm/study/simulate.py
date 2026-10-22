@@ -439,7 +439,8 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
                               else position.shares * exit_price)
                 exit_cost = (calculate(profile, side=exit_side, notional=exit_value,
                                        fill_price=exit_price, mdv60=mdv,
-                                       **_dated(exit_session, exit_field)).total
+                                       **_dated(exit_session, exit_field),
+                                       traded_shares=position.shares).total
                              if exit_value > 0 else 0.0)
                 funding = 0.0
                 if resolve(profile).funding_from_data:

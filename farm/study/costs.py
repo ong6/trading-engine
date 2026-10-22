@@ -110,7 +110,8 @@ def calculate(profile: str | StudyCostProfile, *, side: str, notional: float,
               fill_price: float, mdv60: float | None = None,
               funding_rate: float = 0.0, session_date=None,
               fill_kind: str = "moo", instrument="stock",
-              fractional_shares: bool = False) -> CostBreakdown:
+              fractional_shares: bool = False,
+              traded_shares: float | None = None) -> CostBreakdown:
     """Return exact per-side dollar costs; funding_rate is signed for the position."""
     selected = resolve(profile)
     if side not in {"buy", "sell"}:
@@ -124,7 +125,11 @@ def calculate(profile: str | StudyCostProfile, *, side: str, notional: float,
     if selected.engine_profile:
         if session_date is None:
             raise ValueError("session_date is required by effective-dated cost profiles")
-        charged_shares = shares if fractional_shares else math.floor(shares)
+        # `traded_shares`, when given, is the quantity actually traded: a per-share
+        # fee schedule charges it even when the study books costs on another basis
+        # (exit_cost_basis="entry_notional").
+        traded = float(traded_shares) if traded_shares is not None else shares
+        charged_shares = traded if fractional_shares else math.floor(traded)
         if charged_shares <= 0:
             raise ValueError("whole-share cost calculation has zero executable shares")
         charged = engine_costs.charge(
