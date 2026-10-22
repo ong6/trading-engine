@@ -766,6 +766,7 @@ datasets:
   - {<<: *remote_file, id: files.frozen_archive, kind: file_set, location: "store/pit/frozen-archive/**", schema_owner: [tools/free_frozen_archive.py], producer: [retired frozen-archive collector], registration: [P3 frozen archive evidence]}
   - {<<: *verifier_file, id: files.price_verifier_receipts, kind: file_set, location: "data/price-verify/**"}
   - {<<: *meta_file, id: files.meta, kind: file_set, location: "data/_meta.json"}
+  - {<<: *derived_file, id: files.producer_detail_reports, kind: file_set, location: "data/reports/producer-detail/**", schema_owner: [engine/verify_prices.py, engine/intraday.py], producer: [independent price verifier, intraday archiver], readers: [engine.intraday coverage resume, operators], backup: Committed data history; a missing coverage report only makes the next intraday run fetch full windows., registration: [operational metadata projection detail]}
   - {<<: *universe_csv_file, id: files.universe_csv, kind: file_set, location: "data/universe.csv"}
   - {<<: *eod_file, id: files.eod_reports, kind: file_set, location: "data/eod/**"}
   - {<<: *screen_file, id: files.screen_reports, kind: file_set, location: "data/screens/**"}

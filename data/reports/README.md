@@ -26,6 +26,15 @@ paper promotion, broker connection, or live capital.
 - [`weekly/`](weekly/) contains the compact Sunday operator digest composed after walk-forward from
   the existing P15/P16 evidence and producer-health projections. It grants no execution authority.
 
+## Producer detail
+
+- `producer-detail/` holds the per-ticker detail that `../_meta.json` only
+  points to, so the summary stays small on every data commit. Each file has a stable name and is
+  rewritten in place by its producer: `price-verify.json` (nightly sample) and
+  `price-verify-full.json` (weekly full universe) carry every named verification result, cited by
+  `name_results_report` (with its sha256); `intraday-coverage.json` carries the archiver's
+  per-ticker, per-session completed coverage, cited by `intraday.coverage_report`.
+
 ## Historical and implementation evidence
 
 - [`walkforward/GUIDE.md`](walkforward/GUIDE.md) maps the latest published historical

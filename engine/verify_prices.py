@@ -45,10 +45,11 @@ WHAT IS COMPARED, AND WHAT IS DELIBERATELY NOT
     is compared at the pre-registered tolerance below.
 
 HARD RULES
-  * This module NEVER writes a price row. It opens the store read-only and its
-    only write anywhere is one key in data/_meta.json (merged, never clobbered):
-    `price_verify` for the nightly sample, `price_verify_full` for the weekly
-    full-universe pass, so neither overwrites the other. If the two sources
+  * This module NEVER writes a price row. It opens the store read-only and
+    writes only its evidence receipt, its per-name detail report under
+    data/reports/producer-detail/ and one key in data/_meta.json (merged, never
+    clobbered): `price_verify` for the nightly sample, `price_verify_full` for
+    the weekly full-universe pass, so neither overwrites the other. If the two sources
     disagree the honest output is a flagged disagreement, not a silent
     correction — we do not know which one is right.
   * It NEVER invents a number. A name the source does not return, cannot be
@@ -96,6 +97,10 @@ from engine.lib.util import median
 log = get_logger("verify")
 META_KEY = "price_verify"            # nightly sample (run_daily.sh)
 FULL_META_KEY = "price_verify_full"  # weekly full universe (run_weekly_verify.sh)
+# Per-name results, relative to `_meta.json`'s directory. Each is rewritten in place
+# per run so a data commit does not carry ~1.5 MB of per-ticker rows in `_meta.json`.
+DETAIL_REPORTS = {META_KEY: "reports/producer-detail/price-verify.json",
+                  FULL_META_KEY: "reports/producer-detail/price-verify-full.json"}
 
 API_URL = "https://api.nasdaq.com/api/quote/{sym}/historical"
 SOURCE_LABEL = "api.nasdaq.com/api/quote/{ticker}/historical"
@@ -979,6 +984,25 @@ def retain_evidence(accounting: dict, directory: Path) -> dict:
     return summary
 
 
+def publish_detail(summary: dict, data_dir: Path, meta_key: str) -> dict:
+    """Write the per-name results to the key's detail report; return the summary
+    that `_meta.json` carries, with a pointer to that report in their place."""
+    summary = dict(summary)
+    results = summary.pop("name_results", [])
+    relative = DETAIL_REPORTS[meta_key]
+    report = {"meta_key": meta_key, "last_run": summary.get("last_run"),
+              "as_of": summary.get("as_of"),
+              "evidence_receipt": (summary.get("evidence_receipt") or {}).get("sha256"),
+              "name_results": results}
+    body = json.dumps(report, separators=(",", ":"), allow_nan=False) + "\n"
+    rsc.write_text_atomic(data_dir / relative, body)
+    summary["name_results_report"] = {
+        "path": relative, "names": len(results), "bytes": len(body.encode()),
+        "sha256": hashlib.sha256(body.encode()).hexdigest(),
+    }
+    return summary
+
+
 def summary_line(meta_key: str, summary: dict) -> str:
     """One stdout line for a run whose result went to `_meta.json` and its receipt.
 
@@ -1103,6 +1127,7 @@ def main() -> int:
     receipts = Path(args.meta).parent / "price-verify"
     try:
         summary = retain_evidence(acc, receipts)
+        summary = publish_detail(summary, Path(args.meta).parent, args.meta_key)
         rsc.merge_meta(args.meta, {args.meta_key: summary})
         log.info(f"[verify] merged '{args.meta_key}' into {args.meta}")
     except Exception as exc:
