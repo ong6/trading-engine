@@ -4623,4 +4623,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +15, tests +20.
 - **Next:** mark the slow tests and add the duration budget on `main`.
 
+## 2026-10-22 — Mark the slow tests and hold the rest to a duration budget on main (P24 cicd)
+
+- **Why:** P24 test speed. Nothing named the slow tests, so the local fast tier could not leave them out and a new slow test went unnoticed.
+- **What:** `pytest.mark.slow` is registered in `pyproject.toml` (replacing `test_study_bench.py`'s private-API registration) and marks the 15 functions (18 tests) that took over 5 s, setup to teardown, in a full `-n 8` junit run: next largest 4.96 s. Every run still runs them. `--duration-budget SECONDS` (speed plugin, controller side, xdist included) fails a run in which a test without the mark took longer. CI passes `--duration-budget=15` only on `main` (`DURATION_BUDGET` is empty for pull requests), three times the mark line, so runner noise and first-use template builds do not flake it. `tools.affected_tests --run --skip-slow` leaves the slow tests out locally.
+- **Evidence:** `pytest tests/test_study_bench.py tests/test_affected_tests.py::test_joined_literal_path_parts_name_one_path --duration-budget=0.000001` fails naming only the unmarked test, serially and with `-n 2`; `--duration-budget=60` passes. The largest selection measured (157 files) runs in 138 s at `-n 8`, 109 s without the slow tests.
+- **Metrics:** tests +75.
+- **Next:** the orchestrator makes `ci` the required check (see the lane report).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

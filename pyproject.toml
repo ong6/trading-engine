@@ -32,6 +32,10 @@ farm = ["experiments/*.json", "experiments/*.yaml"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --dist=worksteal"
+# `slow`: over about 5 s (setup, call and teardown) in a full -n 8 run. Every run still
+# runs them; `-m "not slow"` is for local iteration. On main, CI fails a test that is not
+# marked slow and takes longer than --duration-budget seconds (tests/speed_plugin.py).
+markers = ["slow: takes over about 5 seconds; still part of every full run"]
 # Parallel by default: pytest -n auto (pytest-xdist). Use -n 0 to debug serially.
 # Steal pending tests from busy workers instead of leaving a late heavy chunk;
 # tests/speed_plugin.py starts each worker on its share of the recorded slow

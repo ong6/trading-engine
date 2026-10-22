@@ -345,6 +345,7 @@ def test_source_snapshot_uses_only_the_completed_retained_p15_grid(tmp_path, mon
     assert snapshot["source_identity"]["p15_run_trace_sha256"] == "1" * 64
 
 
+@pytest.mark.slow
 def test_runner_closes_writer_during_calls_records_all_members_and_replays(
     tmp_path, monkeypatch,
 ):

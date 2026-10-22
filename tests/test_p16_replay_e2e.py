@@ -387,6 +387,7 @@ def _run_fixture(root):
     return canonical_sha256(stable), stable, snapshot, first_context, postmortem_inputs
 
 
+@pytest.mark.slow
 def test_fixture_http_to_real_parsers_executor_notes_and_report_is_deterministic(tmp_path):
     first_digest, first, snapshot, first_context, postmortems = _run_fixture(
         (tmp_path / "first").resolve()

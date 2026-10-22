@@ -80,12 +80,14 @@ jobs:
       OPENBLAS_NUM_THREADS: "1"
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
+      # main only: fail a test over 15 s that is not marked slow (local mark line: about 5 s)
+      DURATION_BUDGET: ${{ github.ref == 'refs/heads/main' && '15' || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # registration tests read git history for the last registered change
       - uses: ./.github/actions/setup-engine
-      - run: .venv/bin/python -m pytest -q -W error -n auto --test-shards=4 --test-shard=${{ matrix.shard }}
+      - run: .venv/bin/python -m pytest -q -W error -n auto --test-shards=4 --test-shard=${{ matrix.shard }} ${DURATION_BUDGET:+--duration-budget=$DURATION_BUDGET}
   selected:
     needs: changes
     if: needs.changes.outputs.tier == 'selected'

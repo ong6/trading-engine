@@ -32,6 +32,9 @@ def pytest_addoption(parser):
                     help="Write per-file and slow-test durations from this run as JSON")
     group.addoption("--record-reads", metavar="PATH", default=None,
                     help="Write the repository files each test file opens or lists as JSON")
+    group.addoption("--duration-budget", type=float, metavar="SECONDS", default=None,
+                    help="Fail the run if a test not marked slow takes longer than this "
+                         "(setup, call and teardown)")
 
 
 @pytest.hookimpl(tryfirst=True)  # before the tmp_path factory reads --basetemp
@@ -45,6 +48,8 @@ def pytest_configure(config):
         return
     if config.getoption("record_durations"):
         config.pluginmanager.register(_DurationRecorder(config), "test-speed-durations")
+    if config.getoption("duration_budget") is not None:
+        config.pluginmanager.register(_DurationBudget(config), "test-speed-budget")
     _use_memory_temp(config)
 
 
@@ -207,6 +212,44 @@ class _DurationRecorder:
             },
         }
         self.path.write_text(json.dumps(payload, indent=1) + "\n")
+
+
+class _DurationBudget:
+    """Controller side: a test over the budget must carry the ``slow`` marker.
+
+    CI passes ``--duration-budget`` only on ``main``, where runner noise cannot block a
+    pull request; the test still runs and its own result stands.
+    """
+
+    def __init__(self, config):
+        self.budget = config.getoption("duration_budget")
+        self.seconds = Counter()
+        self.slow: set[str] = set()
+
+    def pytest_runtest_logreport(self, report):
+        self.seconds[report.nodeid] += report.duration
+        if "slow" in report.keywords:
+            self.slow.add(report.nodeid)
+
+    def over_budget(self):
+        return sorted(
+            (nodeid, seconds) for nodeid, seconds in self.seconds.items()
+            if seconds > self.budget and nodeid not in self.slow
+        )
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_sessionfinish(self, session):
+        over = self.over_budget()
+        if not over:
+            return
+        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+        lines = [f"{len(over)} test(s) over the {self.budget:g} s budget without "
+                 "@pytest.mark.slow:"]
+        lines += [f"  {seconds:.1f} s {nodeid}" for nodeid, seconds in over]
+        if reporter is not None:
+            reporter.write_line("\n".join(lines), red=True)
+        if session.exitstatus == pytest.ExitCode.OK:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 class _ReadRecorder:

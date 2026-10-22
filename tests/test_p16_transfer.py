@@ -180,6 +180,7 @@ def _database():
     return con, signal_date, holding_date
 
 
+@pytest.mark.slow
 def test_producer_emits_all_five_books_with_spy_excluded_primary():
     con, signal_date, holding_date = _database()
     result = p16_transfer.produce(

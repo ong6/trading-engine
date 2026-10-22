@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -206,3 +207,29 @@ def test_the_gate_requires_what_the_plan_required():
     assert at.ci_verdict(broken) == ["changes: failure"]
     assert at.ci_verdict(_needs("selected", "content", selected="success", checks="cancelled")) == [
         "checks: cancelled"]
+
+
+@pytest.mark.parametrize("workers", [["-n", "0"], ["-n", "2"]])
+def test_the_duration_budget_fails_only_tests_not_marked_slow(workers):
+    marked = "tests/test_study_bench.py"  # marked slow, about a second
+    unmarked = "tests/test_affected_tests.py::test_joined_literal_path_parts_name_one_path"
+
+    def run(*args):
+        return subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *workers,
+             marked, unmarked, *args],
+            cwd=REPO_ROOT, capture_output=True, text=True, timeout=300,
+        )
+
+    over = run("--duration-budget=0.000001")
+    assert over.returncode == 1, over.stdout[-2000:]
+    assert "1 test(s) over the 1e-06 s budget without @pytest.mark.slow:" in over.stdout
+    assert unmarked in over.stdout and "test_study_bench" not in over.stdout.split("budget")[-1]
+    assert run("--duration-budget=60").returncode == 0
+
+
+def test_main_runs_the_budget_and_nothing_else_does():
+    test_env = JOBS["test"]["env"]
+    assert test_env["DURATION_BUDGET"] == "${{ github.ref == 'refs/heads/main' && '15' || '' }}"
+    assert '${DURATION_BUDGET:+--duration-budget=$DURATION_BUDGET}' in _runs("test")
+    assert "duration-budget" not in _runs("selected")

@@ -209,6 +209,7 @@ def test_run_session_filters_notes_and_exposes_them_only_to_later_sessions(tmp_p
     assert seen[1][0] == second and seen[1][1][0]["source_session"] == first.isoformat()
 
 
+@pytest.mark.slow
 def test_multi_session_crash_resume_matches_uninterrupted_books(tmp_path):
     root = (tmp_path / "research").resolve()
     root.mkdir()

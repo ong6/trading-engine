@@ -79,6 +79,7 @@ def _queue(con, instance, *, limit=101.5, qty=10):
     return created
 
 
+@pytest.mark.slow
 def test_filled_limit_attempt_writes_all_parity_ledgers_and_exact_retry(con):
     insert_bars(con, "AAA", SESSIONS[:31], open_=100, close=100, high=101, low=99)
     instance = _book(con)
@@ -521,6 +522,7 @@ def test_running_window_blocks_later_claim_and_mismatched_predecessor(con):
     assert con.execute("SELECT COUNT(*) FROM p16_book_state").fetchone() == (1,)
 
 
+@pytest.mark.slow
 def test_gap_cost_cannot_turn_a_whole_share_buy_into_fractional_fill(con):
     insert_bars(con, "AAA", SESSIONS[:31], open_=100, close=100, high=101, low=99)
     instance = _book(con)
@@ -632,6 +634,7 @@ def test_failure_inside_terminal_accounting_rolls_back_every_ledger(con, monkeyp
         assert con.execute(f"SELECT COUNT(*) FROM {table}").fetchone() == (0,)
 
 
+@pytest.mark.slow
 def test_inactive_book_never_processes_or_marks(con):
     insert_bars(con, "AAA", SESSIONS[:31], open_=100, close=100, high=101, low=99)
     [instance, _] = p16_book_store.initialize_contracts(
@@ -686,6 +689,7 @@ def test_first_window_drawdown_is_measured_from_initial_capital(con):
     assert halted is True
 
 
+@pytest.mark.slow
 def test_partial_rebalance_sell_keeps_open_position_rule(con):
     insert_bars(con, "AAA", SESSIONS[:32], open_=100, close=100, high=101, low=99)
     instance = _book(con)

@@ -487,6 +487,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--explain", action="store_true", help="print why tests are selected")
     parser.add_argument("--run", action="store_true", help="run ruff, compileall and pytest")
     parser.add_argument("--workers", default="8", help="pytest-xdist workers for --run")
+    parser.add_argument("--skip-slow", action="store_true",
+                        help="with --run, leave out tests marked slow (CI still runs them)")
     parser.add_argument("--content-readers", metavar="RECORD",
                         help="print the content readers in a --record-reads record and exit")
     parser.add_argument("--ci-plan", metavar="EVENT",
@@ -527,7 +529,8 @@ def main(argv: list[str] | None = None) -> int:
     steps = [
         [python, "-m", "ruff", "check", "."],
         [python, "-m", "compileall", "-q", "engine", "sim", "server", "tests", "farm", "tools"],
-        [python, "-m", "pytest", "-q", "-W", "error", "-n", args.workers, *tests],
+        [python, "-m", "pytest", "-q", "-W", "error", "-n", args.workers,
+         *(["-m", "not slow"] if args.skip_slow else []), *tests],
     ]
     for step in steps:
         code = subprocess.run(step, cwd=REPO_ROOT).returncode

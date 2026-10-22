@@ -2,7 +2,6 @@ import pytest
 
 from farm.study.bench import build_market, run_benchmark
 
-pytest.mark._config.addinivalue_line("markers", "slow: deterministic performance benchmark")
 pytestmark = pytest.mark.slow
 
 
