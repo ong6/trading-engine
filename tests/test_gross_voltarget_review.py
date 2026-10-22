@@ -58,6 +58,7 @@ def _write_fixture(tmp_path, *, provenance=True):
     return dynamic_dir, static_dir
 
 
+@pytest.mark.slow  # about 5.5 s alone, nearly all in review.evaluate
 def test_evaluate_uses_nearest_static_fold_and_never_promotes(tmp_path):
     dynamic_dir, static_dir = _write_fixture(tmp_path)
 
@@ -73,11 +74,13 @@ def test_evaluate_uses_nearest_static_fold_and_never_promotes(tmp_path):
     ]
 
 
+@pytest.mark.slow  # about 5.5 s alone, nearly all in review.evaluate
 def test_evaluate_marks_missing_provenance_as_legacy(tmp_path):
     dynamic_dir, static_dir = _write_fixture(tmp_path, provenance=False)
     assert review.evaluate(dynamic_dir, static_dir)["provenance_complete"] is False
 
 
+@pytest.mark.slow  # about 5.5 s alone, nearly all in review.evaluate
 def test_evaluate_ignores_duplicate_benchmark_run_timing(tmp_path):
     dynamic_dir, static_dir = _write_fixture(tmp_path)
     path = static_dir / "ew_benchmark.json"

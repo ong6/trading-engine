@@ -4724,7 +4724,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Why:** `test (UTC, 0)` failed on main (run 436) under `--duration-budget=15`. A throwaway branch running shard 0 three times per timezone failed 5 of 6: `test_p16_book_store.py::test_contracts_use_full_registration_digest_and_remain_inactive` at 15.5–27.5 s (6.5 s in the passing run). Both P16 store tests start first on their workers and need the same P16 calibration; one builds it in the shared memo, the other waits on its lock, so both are charged the build. Locally, `-n 2 --duration-budget=4 tests/test_p16_book_store.py`: both 15 s, one flagged; at `-n 0` the calibration-store test takes 0.27 s once the calibration exists.
 - **What:** the speed plugin times the build of, and the wait for, a shared memo entry or closed template and carries it on each phase report; the budget charges the rest. Recorded durations keep the full time. The calibration-store test loses the slow mark added this morning: its 16 s was the shared build, not its own work.
 - **Evidence:** the same local run flags nothing; new `test_the_duration_budget_does_not_charge_shared_setup` (the attribute survives the xdist report round trip).
-- **Metrics:** tests +55.
+- **Metrics:** tests +79.
 - **Next:** mark the unmarked tests that are over 5 s on their own.
+
+## 2026-10-22 — Mark the gross vol-target evaluations and P15 entrypoint discovery slow (P24 ci-green)
+
+- **Why:** across eight CI shard runs under the budget the unmarked tests nearest it were the three `test_gross_voltarget_review.py` evaluations (5.2–12.0 s) and `test_p15_entrypoints_are_discovered_without_manual_seeds` (7.7–9.9 s). Alone they take 5.5–5.8 s and 4.6 s locally (recorded 5.0–5.3 s in a full `-n 8` run), over the 5 s mark line.
+- **What:** the four tests carry `@pytest.mark.slow`; their bodies are unchanged.
+- **Evidence:** the unmarked maximum across the eight runs drops to 9.8 s (`test_shakedown_require_survives_optimized_python`, 3.3 s alone).
+- **Metrics:** tests +6.
+- **Next:** orchestrator decides the budget headroom (proposal in the lane report).
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
