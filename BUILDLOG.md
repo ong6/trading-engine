@@ -4497,5 +4497,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** new `test_scheduler_degrades_when_the_latest_backup_run_was_skipped_or_failed[retry|failed]` fails on main (status `ok`) and passes; `node --test ui/tests/header-status.test.mjs` passes with the new case.
 - **Metrics:** server +6, ui +7, tests +45.
 - **Next:** the backup script should record `retry` when another backup holds its lock (it exits 75 without a receipt today); that file lives in the data repository.
+## 2026-10-22 — Answer /daily-opportunities/status in 3 s instead of 45 s (P24 reliability-ops)
+
+- **Why:** P24 reliability-ops item 6. On a 2026-10-22 store copy `daily_opportunity_read_models.status` took 43-48 s, all of it an N+1 in the common-entry label revalidation it embeds (`agent_evaluation.status`): 1,391 labels each re-read the SPY calendar, SPY bars and table existence (41 distinct SPY windows, 14 distinct tables) plus their own bars (204 distinct). A read-only API request holding the store that long also blocks writers.
+- **What:** `server/request_memo.py`: inside `scope()`, `connection(con)` answers an identical SELECT with identical parameters from its first answer (only SELECT/WITH without volatile functions; any other statement clears it; a result is kept only when read whole) and `reuse()` keeps one pure parse per key, never a failure. `status` runs inside a scope; no registered file changes.
+- **Evidence:** `status(con)` on a read-only copy, clock frozen at 2026-10-22T17:00Z, timed in-process: 44.83 s before, 3.04 s after, response SHA-256 `66fd7a7b…f09461` before and after; `pytest tests/test_request_memo.py tests/test_daily_opportunities.py` pass.
+- **Metrics:** server +208 (new module 201), tests +86.
+- **Next:** the same reuse for `/paper-trial/status`.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

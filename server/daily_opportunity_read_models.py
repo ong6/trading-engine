@@ -5,7 +5,7 @@ import duckdb
 
 from engine.lib.util import table_exists
 
-from . import agent_evaluation
+from . import agent_evaluation, request_memo
 from .daily_opportunity_store import PORTFOLIO_ID
 from .json_utils import loads_object, loads_strict
 
@@ -13,6 +13,12 @@ ASSESSMENT_LIMIT = 20
 
 
 def status(con: duckdb.DuckDBPyConnection) -> dict:
+    """Pipeline status; the label revalidation reuses its identical calendar reads."""
+    with request_memo.scope():
+        return _status(request_memo.connection(con))
+
+
+def _status(con: duckdb.DuckDBPyConnection) -> dict:
     required = ("daily_opportunity_runs", "daily_opportunity_assessments",
                 "daily_opportunity_alerts", "daily_opportunity_alert_events")
     if any(not table_exists(con, table) for table in required):
