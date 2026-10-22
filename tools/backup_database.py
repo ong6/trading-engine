@@ -1377,12 +1377,22 @@ def _copy_generation_cohort(
     return copied
 
 
+RESTORE_MEMORY_LIMIT = "4GB"
+RESTORE_THREADS = 4
+
+
 def _restore_generation(info: SnapshotInfo, destination: Path) -> dict:
     """Materialize a complete ordinary DuckDB from one pinned generation."""
     shutil.copyfile(info.path, destination)
     destination.chmod(0o600)
+    spill = destination.parent.parent / f".{destination.parent.name}.spill"
     connection = duckdb.connect(str(destination))
     try:
+        # Bounded like publication: DuckDB's default lets the cold-table rebuild cache
+        # toward 80% of host memory (10.7 GB RSS on the 12 GB store copy).
+        connection.execute(f"SET memory_limit='{RESTORE_MEMORY_LIMIT}'")
+        connection.execute(f"SET threads={RESTORE_THREADS}")
+        connection.execute(f"SET temp_directory={_sql_string(str(spill))}")
         connection.execute(
             f"ATTACH {_sql_string(str(info.path))} AS generation_source (READ_ONLY)"
         )
@@ -1392,7 +1402,21 @@ def _restore_generation(info: SnapshotInfo, destination: Path) -> dict:
             source = ".".join(map(_identifier, ("generation_source", schema, table)))
             connection.execute(f"DROP VIEW {qualified}")
             connection.execute(spec["create_sql"])
-            connection.execute(f"INSERT INTO {qualified} SELECT * FROM {source}")
+            # One committed insert per cold part, in the view's part order: a single
+            # whole-table insert cannot commit under the memory cap.
+            paths = [
+                str(info.path.parent / record["path"])
+                for record in info.parts if record["table"] == qualified_name
+            ]
+            for path in paths:
+                connection.execute(
+                    f"INSERT INTO {qualified} SELECT * FROM read_parquet({_sql_string(path)})"
+                )
+            counts = connection.execute(
+                f"SELECT (SELECT COUNT(*) FROM {qualified}), (SELECT COUNT(*) FROM {source})"
+            ).fetchone()
+            if counts[0] != counts[1]:
+                raise BackupError(f"restored cold table row count differs: {qualified_name}")
             for sql in spec["indexes"]:
                 connection.execute(sql)
         connection.execute("DETACH generation_source")
@@ -1405,6 +1429,7 @@ def _restore_generation(info: SnapshotInfo, destination: Path) -> dict:
         raise BackupError(f"generation restore failed: {exc}") from exc
     finally:
         connection.close()
+        shutil.rmtree(spill, ignore_errors=True)
     if snapshot != info.source_snapshot:
         raise BackupError("restored generation invariants do not match its source")
     if schema_identity != {
