@@ -4488,4 +4488,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +18, tests +27.
 - **Next:** declare the minute capture and host-local units in the schedule contract.
 
+
+
+## 2026-10-22 — A skipped or failed latest backup run degrades the scheduler (P24 reliability-ops)
+
+- **Why:** P24 reliability-ops, owner item 2. The data backup exits 75 on busy engine locks and its unit maps 75 to success. The ops digest already shows such a run as `skipped/retry` and WARN (d6944074) and the backup receipt records `retry`, but `/meta` scheduler stayed `ok` while the previous backup commit was under 26 h old: on 2026-10-19 the 04:34 and 10:33 skips read as healthy until the age crossed 26 h.
+- **What:** `scheduler_monitor.status` is `degraded` whenever the latest recorded backup run is `retry` or `failed`, even with a current backup; the header names it (`backup current 20.1h (retry)`). Status and state values are unchanged, so the `/meta` and UI contracts hold.
+- **Evidence:** new `test_scheduler_degrades_when_the_latest_backup_run_was_skipped_or_failed[retry|failed]` fails on main (status `ok`) and passes; `node --test ui/tests/header-status.test.mjs` passes with the new case.
+- **Metrics:** server +6, ui +7, tests +45.
+- **Next:** the backup script should record `retry` when another backup holds its lock (it exits 75 without a receipt today); that file lives in the data repository.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

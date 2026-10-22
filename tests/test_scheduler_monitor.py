@@ -1112,6 +1112,24 @@ def test_scheduler_degrades_when_backup_only_retried(monkeypatch, tmp_path):
     assert result["backup"]["age_hours"] == pytest.approx(38, abs=0.2)
 
 
+@pytest.mark.parametrize("state", ["retry", "failed"])
+def test_scheduler_degrades_when_the_latest_backup_run_was_skipped_or_failed(
+    monkeypatch, tmp_path, state
+):
+    # A skipped run (exit 75 on busy locks) is "Succeeded" to systemd; the previous
+    # backup commit is still young, so only the run state shows nothing was backed up.
+    _healthy_cron(monkeypatch, tmp_path)
+    _healthy_unit_and_backup_probes(
+        monkeypatch, state=(state, _recent_utc(1)), commit_at=_recent_utc(20),
+    )
+
+    result = scheduler_monitor.status(repo_root=tmp_path)
+
+    assert result["status"] == "degraded"
+    assert result["backup"]["status"] == "current"
+    assert result["backup"]["state"] == state
+
+
 def test_scheduler_degrades_when_unit_or_backup_probes_are_unreadable(monkeypatch, tmp_path):
     _healthy_cron(monkeypatch, tmp_path)
     _healthy_unit_and_backup_probes(monkeypatch, state=("absent", None))

@@ -33,6 +33,8 @@ AUTOSTART_UNITS = schedule_contract.autostart_units()
 # The private data repository's backup timer runs at 04:30 and 10:30 UTC; a day with
 # both slots skipped or failed leaves the newest off-host copy older than this.
 BACKUP_STALE_AFTER_HOURS = 26
+# The backup script's latest run backed up nothing: skipped on busy locks, or failed.
+BACKUP_NOT_OK_STATES = frozenset({"retry", "failed"})
 BACKUP_STATE_PATH = Path.home() / ".local" / "state" / "trading-data-backup.json"
 BACKUP_REPOSITORY = Path.home() / "trading-data"
 
@@ -718,9 +720,11 @@ def _project_observation(observation: _SchedulerObservation, repo_root: Path) ->
         log_directory_writable=observation.log_directory_writable,
         repo_root=repo_root,
     )
-    # Cron problems keep their own status; otherwise a failed or disabled user unit,
-    # or a missing or stale off-host backup, must not read as ok.
-    healthy = user_units["status"] == "ok" and backup["status"] == "current"
+    # Cron problems keep their own status; otherwise a failed or disabled user unit, a
+    # missing or stale off-host backup, or a latest backup run that was skipped (exit 75,
+    # which its unit reports as success) or failed, must not read as ok.
+    healthy = (user_units["status"] == "ok" and backup["status"] == "current"
+               and backup["state"] not in BACKUP_NOT_OK_STATES)
     status = "degraded" if cron["status"] == "ok" and not healthy else cron["status"]
     return {**cron, "status": status, "user_units": user_units, "backup": backup}
 

@@ -88,7 +88,12 @@ export function schedulerLabel(scheduler) {
   }
   if (units?.failed?.length) problems.push(`failed ${units.failed.join(", ")}`);
   const backup = scheduler.backup;
-  if (backup && backup.status !== "current") {
+  // A skipped (retry) or failed latest run backed up nothing, even while the last
+  // good backup is still current.
+  if (
+    backup &&
+    (backup.status !== "current" || backup.state === "retry" || backup.state === "failed")
+  ) {
     const age = backup.age_hours === null ? "" : ` ${backup.age_hours}h`;
     problems.push(`backup ${backup.status}${age} (${backup.state})`);
   }
