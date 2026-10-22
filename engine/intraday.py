@@ -44,6 +44,9 @@ RETRY_SLEEP = 20           # one backoff before recording a batch as a gap
 
 # yfinance intraday intervals -> pull window (free-tier limits)
 INTERVALS = {"1m": "7d", "5m": "60d"}
+# Per-ticker, per-session completed coverage, relative to `_meta.json`'s directory.
+# It is rewritten in place after every batch; `_meta.json` carries only a pointer.
+COVERAGE_REPORT = "reports/producer-detail/intraday-coverage.json"
 
 _YF_FIELDS = {"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"}
 
@@ -184,13 +187,29 @@ def _download(yf_tickers: list[str], *, interval: str, period: str | None = None
             return pd.DataFrame()
 
 
+def _saved_coverage(meta_path) -> dict:
+    """Coverage from the report; a run before the report existed kept it in `_meta.json`."""
+    try:
+        saved = json.loads((Path(meta_path).parent / COVERAGE_REPORT).read_text())
+    except FileNotFoundError:
+        return rsc.read_meta(meta_path).get("intraday", {}).get("coverage", {})
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return saved.get("coverage", {}) if isinstance(saved, dict) else {}
+
+
+def _save_coverage(meta_path, completed: dict) -> None:
+    rsc.write_text_atomic(Path(meta_path).parent / COVERAGE_REPORT, json.dumps(
+        {"coverage": completed}, sort_keys=True, separators=(",", ":")) + "\n")
+
+
 def _coverage(con, mapping: dict[str, str], meta_path, now: datetime) -> dict:
     """Validate completed response coverage against resident per-session counts.
 
     A high watermark alone cannot detect a deleted interior session. Counts are
     saved only after insertion; legacy state and incomplete responses fetch full.
     """
-    saved = rsc.read_meta(meta_path).get("intraday", {}).get("coverage", {})
+    saved = _saved_coverage(meta_path)
     if not mapping or not isinstance(saved, dict) or not saved:
         return {}
     rows = con.execute(
@@ -334,8 +353,7 @@ def _pull_batches(
                             completed.setdefault(interval, {}).pop(tk, None)
                     # Save after the DB commit. A crash before this leaves old
                     # coverage, which conservatively repeats the overlap.
-                    prior = rsc.read_meta(meta_path).get("intraday", {})
-                    rsc.merge_meta(meta_path, {"intraday": {**prior, "coverage": completed}})
+                    _save_coverage(meta_path, completed)
                 time.sleep(BATCH_SLEEP)
         got_all |= {yf_to_canon_full[y] for y in got_iv}
 
@@ -354,10 +372,12 @@ def _pull_batches(
         "failed_tickers": failed,
         "failed_batches": failed_batches,
         "store_gb": round(store_gb, 2),
-        "coverage": completed,
+        "coverage_report": {"path": COVERAGE_REPORT,
+                            "tickers": {iv: len(completed.get(iv, {})) for iv in INTERVALS}},
         "fetched_rows": fetched_rows,
         "payload_bytes": payload_bytes,
     }
+    _save_coverage(meta_path, completed)
     rsc.merge_meta(meta_path, {"intraday": accounting})
     # keep the top-level disk_warning honest on every intraday run too
     rsc.update_disk_warning(meta_path, store_gb, snapshots_gb=rsc.snapshots_gb(STORE_DIR))

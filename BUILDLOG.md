@@ -4367,4 +4367,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs only; code unchanged.
 - **Next:** orchestrator merges `p24/docs` and re-syncs the changed `docs/site/` pages to the website.
 
+## 2026-10-22 — Keep `_meta.json` a summary: per-ticker detail moves to producer-detail reports
+
+- **Why:** P24 `meta-split` lane (owner order via the orchestrator): `data/_meta.json` was 3.9 MB, rewritten and pushed on every data commit; `price_verify_full.name_results` (1.5 MB), `intraday.coverage` (0.9 MB) and `price_verify.name_results` (65 KB) were per-ticker detail no reader of `_meta.json` uses.
+- **What:** the verifier writes its named results to `data/reports/producer-detail/price-verify.json` / `price-verify-full.json` and `_meta.json` keeps every count plus `name_results_report` (path, names, bytes, sha256); the receipt is unchanged. The intraday archiver checkpoints and resumes from `intraday-coverage.json` (a run with no report reads the legacy `_meta.json` coverage once) and `_meta.json` keeps `coverage_report`. `engine.sync` already stages all of `data/`; `schemas/datasets.yaml` catalogues the new file family.
+  New `tests/test_meta_budget.py` drives both publishing paths at production scale and fails if `_meta.json` exceeds 256 KiB or holds a container over 500 entries.
+- **Evidence:** today's `_meta.json` 3,924,022 -> 30,708 bytes after the split; `/meta` and the price and miner read models are byte-identical before vs after on that data and a store copy.
+- **Metrics:** engine +45 lines net; tests +134 lines.
+- **Next:** orchestrator re-pins `engine/verify_prices.py` and `engine/intraday.py` (P15 registration) in the next merge batch.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

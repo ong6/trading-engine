@@ -205,7 +205,18 @@ def test_coverage_windows_recover_gaps_and_preserve_first_capture(con, monkeypat
         db.insert_intraday(reference, full)
     assert after == reference.execute('SELECT * FROM intraday_prices ORDER BY ALL').fetchall()
     reference.close()
-    assert result['coverage']['5m']['AAA']['days']['2026-10-12'] == 1
+    report = tmp_path / intraday.COVERAGE_REPORT
+    saved = json.loads(report.read_text())['coverage']
+    assert saved['5m']['AAA']['days']['2026-10-12'] == 1
+    # _meta.json keeps only the summary and a pointer; the next run resumes from the report.
+    stored = json.loads(meta.read_text())['intraday']
+    assert 'coverage' not in stored and 'coverage' not in result
+    assert stored['coverage_report'] == {'path': intraday.COVERAGE_REPORT,
+                                         'tickers': {iv: len(saved.get(iv, {}))
+                                                     for iv in intraday.INTERVALS}}
+    meta.write_text(json.dumps({'intraday': stored}))
+    assert intraday._coverage(con, {'AAA': 'AAA', 'NEW': 'NEW'}, meta, now)['5m']['AAA'] == \
+        saved['5m']['AAA']
     assert con.execute("SELECT COUNT(*) FROM intraday_prices WHERE ticker='NEW'").fetchone()[0]>0
 
 
