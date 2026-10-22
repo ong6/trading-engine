@@ -5,6 +5,7 @@ import inspect
 import json
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1000,3 +1001,26 @@ def test_generation_manifest_records_the_duckdb_version(tmp_path):
     manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
     assert manifest["duckdb_version"] == duckdb.__version__
     assert snapshots.latest_snapshot(source).duckdb_version == duckdb.__version__
+
+
+def test_publication_waits_out_a_short_writer_before_capturing(tmp_path):
+    import multiprocessing
+
+    root, source = _repo(tmp_path)
+    ready = multiprocessing.Event()
+
+    def short_api_write():
+        con = duckdb.connect(str(source))
+        con.execute("INSERT INTO jobs (id,state) VALUES (8, 'done')")
+        ready.set()
+        time.sleep(2)
+        con.close()
+
+    writer = multiprocessing.get_context("fork").Process(target=short_api_write)
+    writer.start()
+    try:
+        assert ready.wait(30)
+        manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    finally:
+        writer.join(30)
+    assert manifest["row_counts"]["main.jobs"] == 1

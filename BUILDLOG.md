@@ -4671,4 +4671,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** ops +270 lines, docs rewritten.
 - **Next:** rehearse deploy, readers, nightly, queue drain and rollback on fresh store copies.
 
+## 2026-10-23 — Let publication wait out a short writer before its capture
+
+- **Why:** with the capture handle, a publication that starts while an API POST holds the primary's write lock failed at once on the lock (found while preparing the rehearsal's write-during-publication check).
+- **What:** the capture handle retries a lock error for up to 30 s (an API write lasts milliseconds); the publish-on-change mode still skips at once so it never queues behind a writer.
+- **Evidence:** `pytest tests/test_publish_snapshot.py -k "short_writer or publish_on_change"`: a publication started during a 2 s writer succeeds; an open writer still makes publish-on-change skip.
+- **Metrics:** tools +15 lines (pinned tools/publish_snapshot.py), tests +25 lines.
+- **Next:** the rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

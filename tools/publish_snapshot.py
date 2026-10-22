@@ -51,6 +51,7 @@ _PUBLICATION_LOCK_HELD: ContextVar[bool] = ContextVar(
 # DuckDB's default (80% of host memory) let the first 12 GB generation reach 24 GB RSS.
 PUBLISH_MEMORY_LIMIT = "4GB"
 CAPTURE_FREE_MARGIN_BYTES = 1 << 30
+CAPTURE_LOCK_WAIT_S = 30.0
 PUBLISH_THREADS = 4
 SPILL_DIRECTORY = ".spill"
 
@@ -539,6 +540,18 @@ def _empty_relation(spec: dict) -> str:
     return f"SELECT {columns} WHERE FALSE"
 
 
+def _open_capture_handle(source: Path, wait_s: float) -> duckdb.DuckDBPyConnection:
+    """Open the primary read-only, waiting out a short writer (an API POST) for a while."""
+    deadline = time.monotonic() + wait_s
+    while True:
+        try:
+            return duckdb.connect(str(source), read_only=True)
+        except duckdb.Error as exc:
+            if not engine_db.is_lock_error(exc) or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.5)
+
+
 def _copy_capture(source: Path, capture: Path) -> None:
     """Copy the primary's bytes (and a pending WAL, replayed into the copy) for the build."""
     needed = source.stat().st_size + CAPTURE_FREE_MARGIN_BYTES
@@ -875,6 +888,7 @@ def publish_snapshot(
             return _publish_locked(
                 repo_root, source, directory, now=now, held_locks=held_locks,
                 min_age_minutes=min_age_minutes,
+                capture_wait_s=0.0 if if_changed else CAPTURE_LOCK_WAIT_S,
             )
     except PublicationBusy as exc:
         if not if_changed:
@@ -914,6 +928,7 @@ def _publish_locked(
     now: datetime | None,
     held_locks: frozenset[str],
     min_age_minutes: float | None,
+    capture_wait_s: float = CAPTURE_LOCK_WAIT_S,
 ) -> dict:
     checked_at = datetime.now(timezone.utc)
     started = time.monotonic()
@@ -964,7 +979,7 @@ def _publish_locked(
             # The capture window: producer locks plus a read-only handle that keeps API
             # writers out only while the file bytes are copied (seconds, not the build).
             source_connection = _bounded(
-                duckdb.connect(str(source), read_only=True), directory,
+                _open_capture_handle(source, capture_wait_s), directory,
             )
             try:
                 source_database = source_connection.execute(
