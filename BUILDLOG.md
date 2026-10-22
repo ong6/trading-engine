@@ -4663,4 +4663,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +50 lines, tests +35 lines.
 - **Next:** deploy and rollback scripts that run end to end from fresh shells.
 
+## 2026-10-23 — Make the storage deploy and rollback scripts that run from fresh shells (review finding 5)
+
+- **Why:** storage review finding 5, reproduced: the checklist ran backup, migration and publication inside `p22_lock`, so each refused ("active process holds .agent-shadow.lock"); it recorded the pre-deploy commit after `git pull`, kept the backup path only in a shell variable, did not stop on errors, started timers while producers were quiesced, and its rollback did not require the backup to verify.
+- **What:** `ops/storage-r20/deploy.sh` and `rollback.sh` run under `set -euo pipefail` and check every result; host operations (units, crontab, readers) are in `host.bash`, which a rehearsal replaces with stubs. The deploy records the pre-deploy commit before the checkout moves, persists every value in `$P20_STATE/state.env`, copies the rollback script and host helpers there, asserts the live pre-image `865f64aa…` read-only after quiescence, lets backup, migration and publication take the producer locks themselves, stages units without starting timers, verifies readers, and releases producers (never the paused TradingView timer) with the live schedule-contract check. The rollback refuses unless the recorded backup verifies, restores byte for byte, removes the new units and leaves the checkout detached so the nightly cannot pull the reverted revision. The checklist is rewritten around the scripts and states what a rollback after release loses, and how `data/` and `store/pit` behave.
+- **Evidence:** `bash -n` on all three; end-to-end runs from fresh shells against a store copy are in the rehearsal entry.
+- **Metrics:** ops +270 lines, docs rewritten.
+- **Next:** rehearse deploy, readers, nightly, queue drain and rollback on fresh store copies.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
