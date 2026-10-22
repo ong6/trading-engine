@@ -4527,4 +4527,68 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** registration 7 lines; tests 4 lines.
 - **Next:** storage revision 19; the reliability lanes' pinned-file changes join its re-pin.
 
+## 2026-10-22 — Repair can be pointed at named splits the monitor misses (MNST)
+
+- **Why:** P24 reliability-data lane (handoff item 2: split repair by re-fetch for MNST, IESC, RUSHA, WLFC, ETHA, SFBS). On a copy of the 2026-10-22 15:52 snapshot, stored closes against the source's current history: IESC, RUSHA, WLFC, ETHA and SFBS equal the source on every common bar (fixed by `engine.repair_integrity`, 8df1fdf9/600dea4b/fdff9029, live apply 2026-10-22 05:36-05:39 UTC). MNST does not: 10,243 bars through 2026-08-07 sit at 2x the source. The source reports a 2:1 split ex 2026-08-11 with no `corporate_actions` row (last actions fetch 07-29), and the break's volume shift fails the monitor's test, so the repair's `unrecorded` step never asked about it.
+- **What:** `--names` adds tickers to the `unrecorded` step: their actions are fetched through the nightly path and a new split is restated only on the same source evidence as every other (`split_evidence`). No other step changes.
+- **Evidence:** dry-run on the copy (`--steps double,unrecorded,splits --names MNST,IESC,RUSHA,WLFC,ETHA,SFBS`): MNST 2026-08-11 `restate`, 10,243 rows planned, break 08-10, 08-05 kept as already new scale; apply changed exactly 10,243 rows (originals in `price_observation_rejects`); afterwards all six names equal the source on every bar; a second dry-run plans nothing. MNST is not held and has no orders or labels. New test in `tests/test_repair_integrity.py`.
+- **Metrics:** engine +14, tests +35 lines.
+- **Next:** orchestrator runs the dry-run on the live store outside the producer window, then `--apply` with the same flags.
+
+## 2026-10-22 — Repair leaves a split unrecorded when the source answered nothing
+
+- **Why:** review of the `--names` change. Reproduction: an `--apply` whose source history came back empty recorded a newly fetched split as `skipped_source_mismatch`, and `recorded_skips` (skipped_already_adjusted / skipped_sanity only) then never planned it again, although an empty answer "is not evidence either way".
+- **What:** `apply_split` records the mismatch only on real evidence; with `source_unavailable` it writes nothing for the split, the item's action is `none`, and the next run asks again.
+- **Evidence:** new `test_apply_without_source_evidence_leaves_the_split_for_a_later_run` fails before (a `skipped_source_mismatch` row) and passes after; the later run restates the split. `pytest tests/test_repair_integrity.py` 8 passed.
+- **Metrics:** engine +6, tests +50 lines.
+- **Next:** refuse unknown `--names`.
+
+## 2026-10-22 — Repair refuses a --names ticker the store does not know
+
+- **Why:** review of the `--names` change. Reproduction: `run(..., apply=True, names=("NOPE",))` had the actions fetch write a `corporate_actions` split row and a `split_adjustments` row for a ticker absent from `universe`.
+- **What:** `run` checks every named ticker against `universe` on a read-only connection first and raises `RepairRefused` (the CLI exits with a usage error) before any write.
+- **Evidence:** new `test_unknown_name_is_refused_before_anything_is_written`: no corporate-action or split-adjustment row, no price changed. `pytest tests/test_repair_integrity.py` 9 passed.
+- **Metrics:** engine +17, tests +20 lines.
+- **Next:** orchestrator lands the repair commits and runs the MNST dry-run on the live store.
+
+## 2026-10-22 — Backtest and walk-forward fold books pay the live book's dollar fees from its break
+
+- **Why:** P24 reliability-data lane (owner handoff 2026-10-21, item 1). Reproduction on a copy of the 2026-10-22 15:52 snapshot: every live book pays `ibkr_pro_tiered_v1` from its 2026-10-19 break, but a scratch book has no `portfolio_accounts` row and resolved to `baseline_v1`: `sim_bench replay --book spy_benchmark --window 2026-10-16:2026-10-22` bought 50.78 SPY on 10-19 with no `sim_fill_fees` row, while the result's runtime contract claims `ibkr_pro_tiered_v1`.
+- **What:** `replay.cost_assumptions` reads the live book's cost profile and cost-profile breaks; the backtest replay and each walk-forward fold install them on the scratch book, so `effective_cost_profile` charges nothing before the break and the profile's dollar fees (cash debits, never in the fill price) from it. A candidate `book` without them keeps the compatibility profile. Results carry `cost_profile` and `dollar_fees` (fold and replay); the replay's `modeled_total_cost_dollars` adds the dollar fees to the bps costs.
+- **Evidence:** same replay after: one fee row, $0.44 (0.35 + 0.0762 + 0.0102 + 0.0003 + 0.0002, hand-computed), equity lower by $0.44. `wf_check` dual_momentum anchor 10-16 (pre-D0): result and ledger digests identical to main. template_top5, one 12+3-month fold anchored 10-21: main $0 fees, branch $9.77, validate return 0.117645 -> 0.117482. `pytest tests/test_replay_dollar_fees.py`: 4 failed on main, 4 passed (hand-computed $0.37 IBKR fee on a 10-share open-auction buy).
+- **Metrics:** farm +70, tests +114 lines. Registered (P15 pins): `farm/backtest/replay.py`, `farm/walkforward/runner.py`.
+- **Next:** no stored walk-forward or backtest result changes (all end on or before 2026-10-16); the 2026-10-25 walk-forward is the first to charge post-D0 fees.
+
+## 2026-10-22 — Study core charges the effective-dated dollar-fee profile per fill
+
+- **Why:** P24 reliability-data lane (handoff item 1, backtest fees). Reproduction: `simulate_events` with `CostSelection("baseline_v1", ("ibkr_pro_tiered_v1",))` raised `session_date is required by effective-dated cost profiles`: `farm.study.simulate` never passed the fill's session, so the engine's paper-book fee schedule could not be used as a study primary or sensitivity at all.
+- **What:** each entry, exit and rebalance cost call passes its session, the fill kind from the fill field (open/close auction, intraday bar) and fractional shares, the same basis as the trade's own P&L and the league fills. Profiles other than `ibkr_pro_tiered_v1` ignore these arguments, so every existing study output is unchanged (no core-version bump).
+- **Evidence:** new `test_effective_dated_dollar_fee_profile_charges_each_fill_in_dollars`: buy 100 at the open $0.52 and sell 100 at the close $0.55 (2024 TAF, no SEC fee), hand-computed; it raises on main. `pytest tests/test_study_*.py` passes.
+- **Metrics:** farm +15, tests +20 lines.
+- **Next:** nothing admitted.
+
+## 2026-10-22 — Study exit fees under an entry-notional basis use the shares held
+
+- **Why:** review of the study fee change. Reproduction: with `exit_cost_basis="entry_notional"` the `ibkr_pro_tiered_v1` exit fee was charged on notional / exit price shares (10,000 / 110 = 90.91) instead of the 100 held: $0.53 instead of $0.55.
+- **What:** `costs.calculate` takes `traded_shares`, used only by the effective-dated engine profile; the event simulator passes the position's shares at exit. Other profiles and the entry-notional bps basis are unchanged.
+- **Evidence:** new `test_entry_notional_exit_basis_charges_dollar_fees_on_the_shares_held` (hand-computed $0.55 under both bases) fails before and passes after; `pytest tests/test_study_simulate.py tests/test_study_costs_benchmark.py` passes.
+- **Metrics:** farm +7, tests +18 lines.
+- **Next:** end-to-end replay fee test.
+
+## 2026-10-22 — End-to-end test of the replay's reported dollar fees
+
+- **Why:** review of the fold-fee change: no test drove `run_replay` itself, so dropping `install_cost_assumptions` or the `+ fees_usd` in `modeled_total_cost_dollars` passed; the unit tests failed on main only with an AttributeError.
+- **What:** `test_backtest_replay_reports_the_dollar_fees_it_charged` replays spy_benchmark over a fixture store with a cost break and asserts the fill, the hand-computed $0.52 fee in `dollar_fees`, and that it is the whole gap between total and market cost dollars. The unit tests read fees from `sim_fill_fees` directly. Test-only.
+- **Evidence:** removing the install fails it (qty 99.90 not 99.89), removing `+ fees_usd` fails it (0.0 not 0.52); `pytest tests/test_replay_dollar_fees.py` 5 passed.
+- **Metrics:** tests +60 lines.
+- **Next:** registration re-pin with the fee commits.
+
+## 2026-10-22 — Issue registration revision 19 over the reliability-data fee fixes
+
+- **Why:** the fee commits change two P15-registered files, `farm/backtest/replay.py` and `farm/walkforward/runner.py`; the fresh T2 review approved them (no money-correctness or isolation defect; hand fees recomputed independently) with four fixes, all applied on the branch.
+- **What:** `server/p15-registration.json` revision 19 pins both files and the newest registered-change commit; the reason states the fee change and that no stored outcome changes. Runtime contracts E1, sector and XS are untouched (the reviewer confirmed none hashes a touched file). The study core keeps `p18-study-v3`: run identities bind the core version, and every ibkr_pro_tiered_v1 study raised before this change, so no existing identity's output changes. The storage work becomes revision 20.
+- **Evidence:** registration, round-3 break and cost-profile tests pass; full suite under both timezones before push.
+- **Metrics:** registration 7 lines; tests 4 lines.
+- **Next:** the Sunday 2026-10-25 walk-forward is the first to include post-break fees; storage revision 20.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

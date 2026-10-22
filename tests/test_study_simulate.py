@@ -373,3 +373,38 @@ def test_missing_exit_bar_of_a_still_listed_name_is_not_a_delisting():
     assert [trade.ticker for trade in ledger.trades] == []
     assert sorted(outcome.ticker for outcome in ledger.unfilled_orders) == ["DIES", "LIVE"]
     assert {outcome.reason for outcome in ledger.unfilled_orders} == {"missing_exit_bar"}
+
+
+def test_effective_dated_dollar_fee_profile_charges_each_fill_in_dollars():
+    """`ibkr_pro_tiered_v1` raised "session_date is required" on every study run."""
+    data, universe = _fixture([_bar("AAA", D0, 100, 110)])
+    costs = CostSelection("baseline_v1", ("ibkr_pro_tiered_v1",))
+    ledger = simulate_events(
+        EventStrategy("one", "pre_open", _one_order, 1, 10_000), data, universe,
+        [D0], costs, Benchmark("cash"))
+    # Buy 100 shares at the opening auction: commission 0.35, exchange 100 x 0.0015,
+    # clearing 100 x 0.0002, pass-through 0.35 x 0.00074, CAT 100 x 0.000003 =
+    # 0.520559 -> $0.52. Sell 100 at the closing auction (2024: no SEC fee, TAF
+    # 0.000195/share): 0.35 + 0.16 + 0.02 + 0.000259 + 0.0003 + 0.0195 = 0.550059
+    # -> $0.55. Each side is rounded to cents once and charged once.
+    trade = ledger.trades[0]
+    assert trade.costs_by_profile["ibkr_pro_tiered_v1"] == {
+        "entry": 0.52, "exit": 0.55, "funding": 0.0, "total": pytest.approx(1.07)}
+    assert trade.net_returns_by_profile["ibkr_pro_tiered_v1"] == pytest.approx(
+        0.10 - 1.07 / 10_000)
+
+
+def test_entry_notional_exit_basis_charges_dollar_fees_on_the_shares_held():
+    """Review finding: with exit_cost_basis="entry_notional" the per-share IBKR exit
+    fee was charged on 10,000 / 110 = 90.91 shares instead of the 100 held."""
+    data, universe = _fixture([_bar("AAA", D0, 100, 110)])
+    costs = CostSelection("baseline_v1", ("ibkr_pro_tiered_v1",))
+    exits = {}
+    for basis in ("market_value", "entry_notional"):
+        ledger = simulate_events(
+            EventStrategy("one", "pre_open", _one_order, 1, 10_000, exit_cost_basis=basis),
+            data, universe, [D0], costs, Benchmark("cash"))
+        exits[basis] = ledger.trades[0].costs_by_profile["ibkr_pro_tiered_v1"]["exit"]
+    # 100 shares at the close: 0.35 + 100 x 0.0016 + 100 x 0.0002 + 0.000259
+    # + 100 x 0.000003 + 100 x 0.000195 = 0.550059 -> $0.55 (90.91 shares gave $0.53).
+    assert exits == {"market_value": 0.55, "entry_notional": 0.55}

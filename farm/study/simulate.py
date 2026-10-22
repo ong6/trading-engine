@@ -433,11 +433,14 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
                 entry_side, exit_side = (("buy", "sell") if order.side == "long"
                                          else ("sell", "buy"))
                 entry_cost = calculate(profile, side=entry_side, notional=order.notional,
-                                       fill_price=entry_price, mdv60=mdv).total
+                                       fill_price=entry_price, mdv60=mdv,
+                                       **_dated(entry_session, order.entry.field)).total
                 exit_value = (order.notional if strategy.exit_cost_basis == "entry_notional"
                               else position.shares * exit_price)
                 exit_cost = (calculate(profile, side=exit_side, notional=exit_value,
-                                       fill_price=exit_price, mdv60=mdv).total
+                                       fill_price=exit_price, mdv60=mdv,
+                                       **_dated(exit_session, exit_field),
+                                       traded_shares=position.shares).total
                              if exit_value > 0 else 0.0)
                 funding = 0.0
                 if resolve(profile).funding_from_data:
@@ -538,6 +541,18 @@ def _rebalance_day(strategy: PortfolioStrategy, days: tuple[date, ...], index: i
             or (schedule == "monthly" and (previous.year, previous.month) != (day.year, day.month)))
 
 
+def _dated(session: date, field: str) -> dict:
+    """Session, fill kind and share basis an effective-dated dollar-fee profile
+    (`ibkr_pro_tiered_v1`) charges by; the other study profiles ignore them.
+
+    Without these the engine profile raised on every study run. Shares stay
+    fractional (notional / price) as the trade's own P&L and the league fills are.
+    """
+    kind = ("open_auction" if field == "open" else "close_auction" if field == "close"
+            else "intraday_bar")
+    return {"session_date": session, "fill_kind": kind, "fractional_shares": True}
+
+
 def simulate_portfolio(strategy: PortfolioStrategy, data: MarketData, universe: Universe,
                        window: Iterable[date] | tuple[date, date] | object,
                        costs: CostSelection, benchmark: Benchmark) -> PortfolioLedger:
@@ -574,7 +589,8 @@ def simulate_portfolio(strategy: PortfolioStrategy, data: MarketData, universe: 
             mdv = _mdv60(data.primary, name, session)
             for profile in profiles:
                 day_costs[profile] += calculate(
-                    profile, side=side, notional=notional, fill_price=price, mdv60=mdv).total
+                    profile, side=side, notional=notional, fill_price=price, mdv60=mdv,
+                    **_dated(session, fill.field)).total
             cash -= delta * price
             holdings[name], marks[name], turnover = desired, price, turnover + notional
         return turnover

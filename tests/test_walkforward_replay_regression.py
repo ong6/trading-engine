@@ -176,6 +176,8 @@ def test_backtest_releases_live_reader_before_session_loop(monkeypatch, tmp_path
     monkeypatch.setattr(replay, "registered_config", lambda *_: cfg)
     monkeypatch.setattr(replay, "registered_assumptions",
                         lambda *_: (39_000.0, "baseline_v1"))
+    monkeypatch.setattr(replay, "cost_assumptions", lambda *_: None)
+    monkeypatch.setattr(replay, "dollar_fees", lambda *_: 0.0)
     monkeypatch.setattr(replay, "_provenance", lambda _config: {})
     monkeypatch.setattr(replay, "data_snapshot", lambda _con: {})
     monkeypatch.setattr(replay, "resolve_window",
