@@ -1200,9 +1200,14 @@ def database_snapshot(
     return result
 
 
+COPY_MEMORY_LIMIT = "4GB"
+
+
 def _copy_database(source: Path, destination: Path) -> dict:
     connection = duckdb.connect()
     try:
+        # COPY FROM DATABASE otherwise grows toward DuckDB's default of 80% of host memory.
+        connection.execute(f"SET memory_limit='{COPY_MEMORY_LIMIT}'")
         connection.execute(f"ATTACH {_sql_string(str(destination))} AS backup_target")
         connection.execute(f"ATTACH {_sql_string(str(source))} AS backup_source (READ_ONLY)")
         source_snapshot = database_snapshot(connection, "backup_source")
