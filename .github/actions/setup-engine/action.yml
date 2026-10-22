@@ -3,7 +3,7 @@ description: >-
   Python 3.12, uv and the locked dev virtualenv. The virtualenv is cached on the runner OS,
   the exact Python version and uv.lock; a stale one restored by prefix is brought to the
   lock by `uv sync --frozen`, which removes anything the lock does not list. It is saved
-  right after the sync, before any test can write into it.
+  right after the sync and a bytecode compile, before any test can write into it.
 inputs:
   uv-version:
     description: uv release to install; part of the virtualenv cache key
@@ -29,6 +29,10 @@ runs:
         restore-keys: |
           venv-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-uv${{ inputs.uv-version }}-
     - run: uv sync --extra dev --frozen
+      shell: bash
+    # bytecode at both optimization levels, so the tests that start `python -O` (and every
+    # worker's first imports) read it instead of compiling the import closure themselves
+    - run: .venv/bin/python -m compileall -q -j 0 -o 0 -o 1 .venv/lib engine sim server farm tools
       shell: bash
     - if: steps.venv.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4

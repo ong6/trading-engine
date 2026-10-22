@@ -4733,6 +4733,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **What:** the four tests carry `@pytest.mark.slow`; their bodies are unchanged.
 - **Evidence:** the unmarked maximum across the eight runs drops to 9.8 s (`test_shakedown_require_survives_optimized_python`, 3.3 s alone).
 - **Metrics:** tests +6.
+- **Next:** precompile the CI virtualenv so `python -O` tests do not compile their imports.
+
+## 2026-10-22 — Compile the CI virtualenv's bytecode at both optimization levels before tests (P24 ci-green)
+
+- **Why:** with the shared builds uncharged, the next throwaway-branch run (all shards, both timezones, budget 15) flagged `test_actions.py::test_shakedown_require_survives_optimized_python` at 15.6 s (6.5–15.6 s across runs). It starts `python -O`, and the cached virtualenv holds no bytecode, so the first `-O` process in a run compiles its whole import closure. Locally on a fresh virtualenv: 2.59 s, then 0.72 s once compiled.
+- **What:** `setup-engine` runs `compileall -o 0 -o 1` over the virtualenv and the engine packages after `uv sync` and before the cache save; about 6 s on a fresh virtualenv, near nothing on a restored one.
+- **Evidence:** fresh virtualenv plus the compile: the test takes 0.72 s.
+- **Metrics:** unchanged.
 - **Next:** orchestrator decides the budget headroom (proposal in the lane report).
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
