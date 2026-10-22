@@ -126,6 +126,18 @@ the previous column is the p24/r16 rehearsal (real copy where it ran, else its s
 | generation-backed backup + verify | 491 s (10.7 GB) + 163 s* | 502 s (10.7 GB) uncapped; capped: 912 s (5.1 GB) + 167 s, logical snapshot identical |
 | restore drill | 10 s copy + 154 s check | pre-migration bundle 14 s + 155 s; generation bundles 11-19 s + 153-156 s; all byte-identical, logical snapshots equal |
 
+Rerun after B4 (migration 0000 frozen as data; p24/storage-r18 @ 5b899cf5) on a fresh copy of the 15:52 published
+snapshot (12.3 GB, SHA-256 = manifest, catalog `865f64aa…`); backup code unchanged since the table above:
+
+| Step | Wall clock (peak RSS) |
+|---|---|
+| migration plan | 1 s; pre-catalog `865f64aa…` |
+| backup create + verify (needed by apply) | 687 s (5.1 GB) + 185 s (5.0 GB); bundle byte-identical to the source |
+| migration apply | applied, 354 s (5.2 GB); catalog `7286ea9b…`, schema 1; plan after: `current` |
+| first generation publish | 632 s (7.5 GB) |
+| readers pin | 5 s; board (prices 21,268,855, intraday 41,779,545) and evidence reads ok |
+| invariants on generation | 11 s (1.4 GB), all ten pass (shadow) |
+
 Publication now holds the producer locks about 10 minutes (was 6) because its DuckDB connections are capped at 4 GB.
 The verify step needs the bundle path without a symlinked parent (hence `readlink -f "$HOME"` above). The off-host
 `remote_restore_drill` was not run (needs a generation-backed bundle committed to the private backup repo).

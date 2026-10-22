@@ -4478,4 +4478,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs only.
 - **Next:** finish the store-copy rehearsal and merge main's newest head.
 
+## 2026-10-22 — Rehearse the frozen baseline migration on a fresh store copy
+
+- **Why:** orchestrator decision on B4: after freezing migration 0000 as data, repeat plan, apply and publish on a fresh real copy, with readers and invariants.
+- **What:** on a copy of the 15:52 published snapshot (catalog `865f64aa…`): plan 1 s; backup create 687 s at 5.1 GB plus verify 185 s (needed by apply; backup code unchanged); migration applied in 354 s at 5.2 GB to catalog `7286ea9b…`, schema 1, plan after `current`; first generation 632 s at 7.5 GB; readers pin and read board and evidence data; all ten invariants pass on the generation. The copy was deleted afterwards.
+- **Evidence:** the second rehearsal table in `docs/revision-19-storage-deploy-checklist.md`; every step exits 0.
+- **Metrics:** docs only.
+- **Next:** merge main's newest head and run both timezone suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
