@@ -96,7 +96,7 @@ def test_migration_preserves_books_records_breaks_bootstraps_ids_and_runs_l4_bac
     assert con.execute(
         "SELECT COUNT(*),MIN(break_date),MAX(registration_revision) "
         "FROM sim_book_breaks"
-    ).fetchone() == (4, D0, 18)
+    ).fetchone() == (4, D0, 19)
     assert con.execute(
         "SELECT last_value FROM duckdb_sequences() "
         "WHERE sequence_name='sim_order_id_seq'"

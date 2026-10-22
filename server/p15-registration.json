@@ -105,7 +105,7 @@
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
       "farm/backtest/__init__.py": "b65d882bc9e7d1ba6e704fc93be8aa4188775ead4cf4028a3da7141c298427b7",
       "farm/backtest/hist_screen.py": "84bd1088cca7f6aa8b1afb6c93a2552a338039dfc0b4379ae0b8424fff56cd62",
-      "farm/backtest/replay.py": "3053d36b49296998416267eb61d08db8cfa9836c46e9149dc8dc1e6eb535d613",
+      "farm/backtest/replay.py": "920e4c68409abb53cae8a683644e455c5a9a93396fdaa971f98852e785d52801",
       "farm/backtest/report.py": "e38c0e9d2591e552219e317439802cd4ac4b8117c6381f5c0c1925a742d7f6e8",
       "farm/backtest/stats.py": "994e2147b30fad6c061888f51e6b22238500e185424f007ae96a408df3cdf3c8",
       "farm/capital_sensitivity.py": "90119096f6c31e53427ea8ffa61b8af558b131c0f78ff0841183baa024958244",
@@ -122,7 +122,7 @@
       "farm/walkforward/monthly.py": "d4d1b3982331a30c8d5ef70ab244a6036f98b55a1f0a11a512d91ef2daaf50f1",
       "farm/walkforward/protocol.py": "dcf6e089da299b85e0c70f56ac9da9960954ab54fce7ba06b97a925af3a24a2d",
       "farm/walkforward/report.py": "8c544edbe3edfef470865e418c3c382e9ed7f9908d0783a6e527caece475d379",
-      "farm/walkforward/runner.py": "9248f6e67705ba1a70d040fc73405930a86fc0f12a951a4832fc99e5ed869a5f",
+      "farm/walkforward/runner.py": "293a5b0ad958172f877d9e0158d3014f9422d9c432be4f33b449bb9e1a993e2b",
       "farm/walkforward/runtime_contract.py": "0719e6086dd265d1a26076a41ce01f0ec99b7805322b84f8ed6bfbf35897fe92",
       "server/__init__.py": "c462735edca08a01b1bda392e672430ed441aca796251c6adcaf6b5e648ea4b5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
@@ -219,7 +219,7 @@
       "tools/sec_edgar_capture.py": "8e7a705262f44532d2c812ed22ccd66c9b35d9633c0f89288d1347fe2a52ea6d",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "581a04d0d8b1cb935eb07e19d59cbf846900bb53"
+    "source_commit": "bde70d07bbfda2cd2dcfe9ab58f552dc484d90af"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -366,9 +366,9 @@
   },
   "registered_at": "2026-10-03T02:52:40Z",
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registration_revision": 18,
-  "registration_sha256": "555682062784084206c6a734ef91dcfcec40fd4c6d7bc47994f9a4cf5eacfc8a",
-  "revision_reason": "Revision 18 after deployed revision 17 (installed 2026-10-22), from the P24 meta-split change: the price verifier writes its per-name results, and the intraday archiver its per-ticker session coverage, to report files under data/reports/producer-detail/ instead of data/_meta.json, which keeps every count and gains a pointer to each report; the intraday resume reads the coverage report first and the legacy _meta.json coverage once when no report exists. What is fetched, compared, stored and scored is unchanged. Runtime contracts E1 v8, sector v12 and XS v23 are untouched. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. The storage work previously numbered revision 18 becomes revision 19.",
+  "registration_revision": 19,
+  "registration_sha256": "b0eb214893b69ae2215bcf984b8ab9ec4905153742308878d461ceed5ae96370",
+  "revision_reason": "Revision 19 after deployed revision 18 (installed 2026-10-22), from the P24 reliability-data change: backtest replays and walk-forward fold books, which have no portfolio_accounts row, now take the live book's cost profile and its effective-dated break, so sessions from the 2026-10-19 break pay the ibkr_pro_tiered_v1 dollar fees the live books pay (before, they resolved to baseline_v1 and paid none, although the walk-forward runtime contract already stated ibkr from D0); fees remain cash debits in sim_fill_fees, never part of the fill price, and results report dollar_fees inside modeled_total_cost_dollars. No stored walk-forward or backtest result includes a session after the break, so no stored outcome changes; candidate and experiment books passed as a book dict keep baseline_v1. Runtime contracts E1 v8, sector v12 and XS v23 are untouched. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. The storage work previously numbered revision 19 becomes revision 20.",
   "schema_version": 1,
   "scoring": {
     "actions": [

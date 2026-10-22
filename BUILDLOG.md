@@ -4464,4 +4464,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +60 lines.
 - **Next:** registration re-pin with the fee commits.
 
+## 2026-10-22 — Issue registration revision 19 over the reliability-data fee fixes
+
+- **Why:** the fee commits change two P15-registered files, `farm/backtest/replay.py` and `farm/walkforward/runner.py`; the fresh T2 review approved them (no money-correctness or isolation defect; hand fees recomputed independently) with four fixes, all applied on the branch.
+- **What:** `server/p15-registration.json` revision 19 pins both files and the newest registered-change commit; the reason states the fee change and that no stored outcome changes. Runtime contracts E1, sector and XS are untouched (the reviewer confirmed none hashes a touched file). The study core keeps `p18-study-v3`: run identities bind the core version, and every ibkr_pro_tiered_v1 study raised before this change, so no existing identity's output changes. The storage work becomes revision 20.
+- **Evidence:** registration, round-3 break and cost-profile tests pass; full suite under both timezones before push.
+- **Metrics:** registration 7 lines; tests 4 lines.
+- **Next:** the Sunday 2026-10-25 walk-forward is the first to include post-break fees; storage revision 20.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
