@@ -4588,4 +4588,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** orchestrator reviews and lands the series; the live host runs `uv sync` and redeploys the UI.
 
+## 2026-10-22 — Select the tests a change can affect for the fast tier (P24 cicd)
+
+- **Why:** P24 test speed and the owner's 2026-10-20 change process (local fast tier under 60 s, PR feedback under 3 min). Agents and CI had no way to run less than the whole suite.
+- **What:** `tools/affected_tests.py` maps the files changed since the merge base (working tree included) to test files through the reverse graph of tracked files: AST imports (function-level ones too), strings naming a module (`"tools.x:main"`), and strings, literal path joins and file globs naming a file, followed one import further for a reading module; scripts and units pass on what they run. The contract tests always run; the content readers (tests that read `data/` or `docs/`, recorded with the new `--record-reads` speed-plugin option) run whenever content changes. Conftest, the speed plugin and their module-level imports, `pyproject.toml`, `uv.lock`, `.github/`, a deleted file or a file no test reaches select the full suite. `--run` adds ruff and compileall.
+  Validated against one full run's recorded reads (6,137 tests): every non-hash read is covered except 10 test files that list units or registration JSON through a module two or more imports away; 18 more read every pinned source to hash it, which the registration-identity contract test covers.
+- **Evidence:** `python -m tools.affected_tests --base <c>^ --head <c>` takes 1.0-1.1 s; on 0224be4e/be025cd2/5cd07a1d/1942c975/d4268854/19d6c846 it selects 157/90/26/51/53/55 of 345 files (3,380/2,120/508/1,335/1,005/1,131 tests); pytest -n 8 on the 26/90/51/157 selections took 20/50/38/138 s. `pytest tests/test_affected_tests.py`: 16 passed.
+- **Metrics:** tools +440, tests +240.
+- **Next:** gate CI on content-only pushes with the same rule.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

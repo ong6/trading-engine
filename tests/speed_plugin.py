@@ -30,6 +30,8 @@ def pytest_addoption(parser):
     group.addoption("--test-shard", type=int, default=0, help="Zero-based CI shard index")
     group.addoption("--record-durations", metavar="PATH", default=None,
                     help="Write per-file and slow-test durations from this run as JSON")
+    group.addoption("--record-reads", metavar="PATH", default=None,
+                    help="Write the repository files each test file opens or lists as JSON")
 
 
 @pytest.hookimpl(tryfirst=True)  # before the tmp_path factory reads --basetemp
@@ -37,6 +39,8 @@ def pytest_configure(config):
     count, index = config.getoption("test_shards"), config.getoption("test_shard")
     if count < 1 or not 0 <= index < count:
         raise pytest.UsageError("require --test-shards >= 1 and 0 <= --test-shard < --test-shards")
+    if config.getoption("record_reads"):
+        config.pluginmanager.register(_ReadRecorder(config), "test-speed-reads")
     if hasattr(config, "workerinput"):
         return
     if config.getoption("record_durations"):
@@ -203,6 +207,65 @@ class _DurationRecorder:
             },
         }
         self.path.write_text(json.dumps(payload, indent=1) + "\n")
+
+
+class _ReadRecorder:
+    """Repository files each test opens or lists, for ``tools.affected_tests``.
+
+    An audit hook in every process records paths under the repository root (outside
+    ``.git`` and ``.venv``) against the running test; each test's set travels to the
+    controller in its teardown report. Collection and module-import reads are not
+    attributed, and a cached read counts only for the test that first made it.
+    """
+
+    SKIP = frozenset({".git", ".venv", "__pycache__", "node_modules", ".pytest_cache"})
+
+    def __init__(self, config):
+        import sys
+
+        self.config = config
+        self.root = Path(config.rootpath).resolve()
+        self.current: set[str] | None = None
+        self.files: dict[str, set[str]] = {}
+        sys.addaudithook(self._audit)
+
+    def _audit(self, event, args):
+        if self.current is None or event not in {"open", "os.listdir", "os.scandir", "glob.glob"}:
+            return
+        import os
+
+        raw = args[0] if args and args[0] is not None else "."
+        if isinstance(raw, int):
+            return
+        try:
+            path = Path(os.path.normpath(os.path.join(os.getcwd(), os.fsdecode(raw))))
+            relative = path.relative_to(self.root)
+        except (TypeError, ValueError, OSError):
+            return
+        if not self.SKIP.intersection(relative.parts):
+            self.current.add(relative.as_posix())
+
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_protocol(self, item):
+        self.current = set()
+        yield
+        self.current = None
+
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_teardown(self, item):
+        yield
+        item.user_properties.append(("repository_reads", sorted(self.current or ())))
+
+    def pytest_runtest_logreport(self, report):
+        if report.when == "teardown":
+            reads = dict(report.user_properties).get("repository_reads", ())
+            self.files.setdefault(report.nodeid.split("::", 1)[0], set()).update(reads)
+
+    def pytest_sessionfinish(self, session):
+        if hasattr(self.config, "workerinput"):
+            return
+        payload = {name: sorted(paths) for name, paths in sorted(self.files.items())}
+        Path(self.config.getoption("record_reads")).write_text(json.dumps(payload, indent=1) + "\n")
 
 
 @pytest.fixture(scope="session", autouse=True)
