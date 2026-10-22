@@ -4599,4 +4599,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine −20 lines (pinned engine/lib/db.py), tests +60 lines.
 - **Next:** API reads serve the newest generation and flag staleness instead of refusing.
 
+## 2026-10-23 — Serve the newest generation and flag staleness instead of refusing (review findings 2, 3)
+
+- **Why:** storage review findings 2 and 3, reproduced: board reads refused (503) once the generation passed 24 h and evidence reads refused after every unpublished write or after 5 min, so a weekend or an unpublished agent-shadow write took the API down.
+- **What:** `server/db.read_con` serves the newest generation for every dataset; only "no generation at all" refuses. Each response carries `x-generation-stale` and `x-pending-publication` (the primary changed since capture); `/meta` and `/agent/evaluation/status` return the served generation's `as_of`, age, budget, `stale` and `pending_publication`; `/health` reports `degraded` (200) when the board is stale. A generation is stale only when it is past its budget (board 24 h, evidence 45 min) and possibly behind the primary; one captured from the primary's current bytes stays current on a quiet weekend. API writes wait up to 45 s for a short lock instead of returning 503 at once.
+- **Evidence:** `pytest tests/test_server_db.py tests/test_server_routes.py`: a stale-clock board read is 200 with the stale header and degraded health; an evidence read after a write is 200 with `pending_publication: true`; a write waits out a 1 s capture handle.
+- **Metrics:** server +60 lines, tests +90 lines.
+- **Next:** capture the primary briefly so publication no longer blocks API writes for its whole build.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -574,7 +574,7 @@ def test_health_503_when_database_is_unreadable(monkeypatch):
     }
 
 
-def test_locked_get_uses_snapshot_header_but_stale_evidence_get_stays_503(
+def test_locked_get_uses_snapshot_header_and_evidence_after_a_write_reports_pending(
     monkeypatch, tmp_path
 ):
     root = tmp_path / "repo"
@@ -602,6 +602,14 @@ def test_locked_get_uses_snapshot_header_but_stale_evidence_get_stays_503(
         assert board_start["status"] == 200
         assert dict(board_start["headers"])[b"x-generation-id"] == headers[b"x-generation-id"]
 
+        # The evidence projections themselves are covered elsewhere; this test is about
+        # which generation the route serves after an unpublished write.
+        monkeypatch.setattr(main.agent_evaluation, "status", lambda _con: {})
+        monkeypatch.setattr(main, "_cached_p15_projection", lambda _con, _at: ({}, {}))
+        monkeypatch.setattr(main.agent_trial_register, "project", lambda _con, _at: {})
+        monkeypatch.setattr(
+            main.p16_status_adapter, "project", lambda _con, generated_at: {},
+        )
         writer.execute("INSERT INTO jobs (id,state) VALUES (1, 'running')")
         stale_at = datetime.fromisoformat(headers[b"x-snapshot-as-of"].decode()) + timedelta(
             seconds=1
@@ -613,10 +621,48 @@ def test_locked_get_uses_snapshot_header_but_stale_evidence_get_stays_503(
             for message in evaluation_messages
             if message["type"] == "http.response.start"
         )
-        assert evaluation_start["status"] == 503
-        assert b"x-data-source" not in dict(evaluation_start["headers"])
+        evaluation_headers = dict(evaluation_start["headers"])
+        assert evaluation_start["status"] == 200, evaluation_messages
+        assert evaluation_headers[b"x-generation-id"] == headers[b"x-generation-id"]
+        assert evaluation_headers[b"x-pending-publication"] == b"true"
+        body = json.loads(b"".join(
+            message.get("body", b"") for message in evaluation_messages
+            if message["type"] == "http.response.body"
+        ))
+        assert body["generation"]["pending_publication"] is True
+        assert body["generation"]["generation_id"] == headers[b"x-generation-id"].decode()
     finally:
         writer.close()
+
+
+def test_board_past_its_budget_is_served_stale_and_health_degrades(monkeypatch, tmp_path):
+    root = tmp_path / "repo"
+    source = root / "store" / "market.duckdb"
+    source.parent.mkdir(parents=True)
+    _snapshot_source(source)
+    _snapshot_cohort(root)
+    publish_snapshot.publish_snapshot(root, source)
+    monkeypatch.setattr(server_db, "DEFAULT_DB", source)
+    # A weekend clock past the board budget, with a write the publisher has not caught up with.
+    monkeypatch.setitem(server_db.DATASET_GENERATION_MAX_AGE, "board", timedelta(0))
+    writer = duckdb.connect(str(source))
+    writer.execute("INSERT INTO jobs (id,state) VALUES (7, 'done')")
+    writer.close()
+
+    board = asyncio.run(_request_messages("/league"))
+    health = asyncio.run(_request_messages("/health"))
+
+    board_start, health_start = (
+        next(message for message in messages if message["type"] == "http.response.start")
+        for messages in (board, health)
+    )
+    assert board_start["status"] == 200
+    assert dict(board_start["headers"])[b"x-generation-stale"] == b"true"
+    assert health_start["status"] == 200
+    health_body = json.loads(b"".join(
+        message.get("body", b"") for message in health if message["type"] == "http.response.body"
+    ))
+    assert health_body["status"] == "degraded" and health_body["ok"] is True
 
 
 @pytest.mark.parametrize("run_date", ["not-a-date", "20260909", "2026-W37-3"])

@@ -11,6 +11,8 @@ from pathlib import Path
 # Match CI: xdist supplies process parallelism for native numerical libraries.
 for _thread_env in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_thread_env, "1")
+# API writes wait for a short publication lock in production; tests expect an immediate 503.
+os.environ.setdefault("TRADING_ENGINE_API_WRITE_WAIT_S", "0")
 
 import duckdb  # noqa: E402
 import pytest  # noqa: E402

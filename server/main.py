@@ -80,7 +80,7 @@ AgentProposalStatus = Literal["shadow_accepted", "shadow_rejected"]
 NONBLANK_PATTERN = r".*\S.*"
 ALLOWED_HOSTNAMES = frozenset({"127.0.0.1", "localhost"})
 HEALTH_FIELDS = frozenset({"ok", "status", "db_readable"})
-HEALTH_STATUSES = frozenset({"ok", "busy", "unreadable"})
+HEALTH_STATUSES = frozenset({"ok", "degraded", "busy", "unreadable"})
 AsgiReceive: TypeAlias = Callable[[], Awaitable[dict[str, Any]]]
 AsgiSend: TypeAlias = Callable[[dict[str, Any]], Awaitable[None]]
 AsgiApp: TypeAlias = Callable[[dict[str, Any], AsgiReceive, AsgiSend], Awaitable[None]]
@@ -181,6 +181,15 @@ class DataSourceHeaderMiddleware:
                     headers.append(
                         (b"x-generation-id", str(state["generation_id"]).encode("ascii"))
                     )
+                    served = state.get("generation") or {}
+                    headers.append(
+                        (b"x-generation-stale", b"true" if served.get("stale") else b"false")
+                    )
+                    pending = served.get("pending_publication")
+                    headers.append((
+                        b"x-pending-publication",
+                        b"unknown" if pending is None else b"true" if pending else b"false",
+                    ))
                     message = {**message, "headers": headers}
                 await send(message)
 
@@ -296,7 +305,7 @@ def _validate_health_payload(payload: dict) -> None:
     if not isinstance(payload, dict) or set(payload) != HEALTH_FIELDS:
         raise ValueError("public health projection shape is invalid")
     status = payload["status"]
-    readable = status == "ok"
+    readable = status in {"ok", "degraded"}
     if (
         status not in HEALTH_STATUSES
         or type(payload["ok"]) is not bool
@@ -313,11 +322,14 @@ def health():
     try:
         with _connection(read_con) as con:
             con.execute("SELECT 1")
+            served = server_db.served_generation()
+            if served is not None and served["stale"]:
+                status = "degraded"  # readable, but the newest generation is past its budget
     except DBBusyError:
         status = "busy"
     except Exception:  # noqa: BLE001 - health must fail closed for any unreadable store
         status = "unreadable"
-    readable = status == "ok"
+    readable = status in {"ok", "degraded"}
     payload = {
         "ok": readable,
         "status": status,
@@ -330,7 +342,8 @@ def health():
 @app.get("/meta")
 def meta():
     with _connection(read_con) as con:
-        return meta_projection.project(con, meta_path=META_PATH, data_dir=DATA_DIR)
+        projection = meta_projection.project(con, meta_path=META_PATH, data_dir=DATA_DIR)
+        return {**projection, "generation": server_db.served_generation()}
 
 
 @app.get("/research/readiness")
@@ -647,7 +660,8 @@ def agent_evaluation_status():
                           "trial_count_register": agent_trial_register.project(con, generated_at)}
             except (OSError, ValueError, agent_evaluation.EvaluationError) as exc:
                 raise HTTPException(503, "agent evaluation status unavailable") from exc
-            return {**result, "p16": p16_status_adapter.project(con, generated_at=generated_at)}
+            return {**result, "p16": p16_status_adapter.project(con, generated_at=generated_at),
+                    "generation": server_db.served_generation()}
 
 
 @app.post("/agent/proposals/shadow", dependencies=JSON_MUTATION_DEPENDENCY)

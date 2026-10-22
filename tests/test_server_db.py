@@ -1,6 +1,6 @@
 """API database connections fail closed on transient DuckDB contention."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -79,17 +79,22 @@ def test_versioned_store_without_generation_fails_closed(tmp_path, monkeypatch):
         db.read_con()
 
 
-def test_dataset_freshness_and_generation_identity_are_forwarded(monkeypatch):
+def test_newest_generation_is_served_and_flagged_never_refused(monkeypatch, tmp_path):
     calls = []
     connection = SimpleNamespace(close=lambda: None)
+    primary = tmp_path / "market.duckdb"
+    primary.write_bytes(b"primary")
+    monkeypatch.setattr(db, "DEFAULT_DB", primary)
+    captured = db.source_storage_identity(primary)
 
     def pin(*_args, **kwargs):
         calls.append(kwargs)
         return SimpleNamespace(
             info=SimpleNamespace(
                 path=Path("generation.duckdb"),
-                as_of=datetime(2026, 10, 19, tzinfo=timezone.utc),
+                as_of=datetime.now(timezone.utc) - timedelta(hours=2),
                 generation_id="market-20261019T000000000000Z",
+                source_storage_identity=captured,
             ),
             close=lambda: None,
         )
@@ -99,15 +104,44 @@ def test_dataset_freshness_and_generation_identity_are_forwarded(monkeypatch):
 
     with db.response_data_source() as state:
         db.read_con().close()
-        assert state["generation_id"] == "market-20261019T000000000000Z"
-    with db.require_fresh_evidence_snapshot():
+        board = state["generation"]
+    primary.write_bytes(b"primary after an unpublished write")
+    with db.response_data_source() as state, db.require_fresh_evidence_snapshot():
         db.read_con().close()
+        evidence = state["generation"]
 
-    assert calls[0] == {
-        "newer_than_database": False,
-        "max_age": db.DATASET_GENERATION_MAX_AGE["board"],
-    }
-    assert calls[1] == {
-        "newer_than_database": True,
-        "max_age": db.DATASET_GENERATION_MAX_AGE["evidence"],
-    }
+    assert calls == [{}, {}]  # no freshness refusal for either dataset
+    assert board["generation_id"] == "market-20261019T000000000000Z"
+    # two hours old but identical to the primary: current, not stale
+    assert (board["stale"], board["pending_publication"]) == (False, False)
+    assert (evidence["stale"], evidence["pending_publication"]) == (True, True)
+    assert evidence["budget_seconds"] == db.DATASET_GENERATION_MAX_AGE["evidence"].seconds
+
+
+def test_only_a_missing_generation_refuses(monkeypatch):
+    monkeypatch.setattr(
+        db, "pin_latest_generation",
+        lambda *_a, **_k: (_ for _ in ()).throw(db.GenerationError("no valid published generation")),
+    )
+    with pytest.raises(db.DBBusyError, match="no valid published generation"):
+        db.read_con()
+
+
+
+
+def test_api_write_waits_out_a_short_publication_lock(monkeypatch, tmp_path):
+    import threading
+    import time
+
+    primary = tmp_path / "market.duckdb"
+    duckdb.connect(str(primary)).close()
+    monkeypatch.setattr(db, "DEFAULT_DB", primary)
+    monkeypatch.setattr(db, "API_WRITE_WAIT_S", 10.0)
+    reader = duckdb.connect(str(primary), read_only=True)  # a publication's capture handle
+    threading.Timer(1.0, reader.close).start()
+    started = time.monotonic()
+
+    con = db.write_con()
+    con.close()
+
+    assert 0.5 < time.monotonic() - started < 10
