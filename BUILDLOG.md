@@ -4212,4 +4212,76 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +49, tests +21 lines (net).
 - **Next:** earnings stays serial (no rate increase; store-writing drain jobs stay sequential).
 
+## 2026-10-22 — Benchmark the research loop with output digests
+
+- **Why:** P24 sim-speed lane: time replay, walk-forward, study panels and statistics, and prove every speed change output-identical.
+- **What:** `tools/sim_bench.py` runs five workloads against a read-only store copy and prints wall seconds, peak RSS and a SHA-256 of each output with timings and code identity removed; replay and walk-forward also hash every row of the book's ledger tables (orders, fills, costs, attempts, equity, dividends, positions, portfolios). Running one command on two checkouts proves identity.
+- **Evidence:** `python -m tools.sim_bench replay --db COPY --window 2025-07-16:2026-07-16` on the 2026-09-28 snapshot copy: same result and ledger digests on main and on this branch (685 s and 111 s).
+- **Metrics:** tools +212 lines.
+- **Next:** speed up the replay session step.
+
+## 2026-10-22 — Batch league marks and skip empty delisting scans
+
+- **Why:** P24 sim-speed: `mark_to_market` read one close per held name (about 36% of a 66-session ew_benchmark replay) and `delistings` scanned the held names' prices every session even when no snapshot could make one delisted.
+- **What:** `portfolio.close_observations` reads all held names' latest admitted closes in one query (bars dated on the mark day first, the ordered search only for the rest); `mark_to_market` uses it and keeps its summation order. `settle.delistings` returns early when no held name has an inactive universe snapshot by the date, which its query requires.
+- **Evidence:** 66-session ew_benchmark replay result and ledger digests unchanged; `tests/test_replay_speed.py` compares batched and per-ticker closes and both delisting outcomes.
+- **Metrics:** sim +50 lines.
+- **Next:** remove the per-session full-ledger replay.
+
+## 2026-10-22 — Resume offline dividend projections from exact ledger prefixes
+
+- **Why:** P24 sim-speed and the ops-lane walk-forward profile: each session's `credit_dividends` copied the book's ledger row by row into a fresh in-memory DuckDB and re-applied it from inception, so fold time grew quadratically with fills (74% of a one-year ew_benchmark replay).
+- **What:** inside `ledger.projection_checkpoints()`, entered only by the backtest replay and walk-forward fold loops, a projection restores the state tables saved after the longest earlier event prefix whose events are identical row for row (running SHA-256 over event keys and rows, plus the portfolio row and account settings), then applies only the remaining events. Offline copies skip the state rows the projection discards and use bulk inserts with each value cast to its column type. The nightly, account and API paths are unchanged.
+- **Evidence:** store-copy digests identical to main for results and every ledger row: ew_benchmark 1y replay 685 → 111 s, 3y replay 6,877 → 555 s; one momo_stopped 24+12-month walk-forward fold (752 sessions) 4,872 → 582 s; dual_momentum 3 folds 186 → 180 s. `tests/test_replay_speed.py` checks cached against full projections, including a back-dated dividend, with under a quarter of the event applications.
+- **Metrics:** sim +115, farm +5 lines.
+- **Next:** fold parallelism cannot be byte-identical (fold order ids continue one sequence); books already run in parallel.
+
+## 2026-10-22 — Build study price panels from columns
+
+- **Why:** P24 sim-speed: `PriceSource.from_duckdb` built one `Bar` per row and wrote the panel element by element; the shared panel was the slowest step of any store-backed study (and the research cache rebuilds it to derive its identity).
+- **What:** `farm/study_columnar.py` reads the same query as numpy columns and scatters it into the same `Panel`/`PriceSource` objects: byte-equal arrays, labels, availability clocks, read-only flags and duplicate/empty-ticker errors. The P18 core types are reused, not changed.
+- **Evidence:** `python -m tools.sim_bench panel --db COPY --tickers 3000 [--legacy]` (3,000 × 3,704 sessions, 10,296,536 bars): 119.4 → 6.7 s, peak RSS 5.1 → 3.2 GB, same panel digest; `tests/test_study_columnar.py`.
+- **Metrics:** farm +165 lines.
+- **Next:** research evaluators can build panels through it.
+
+## 2026-10-22 — Vectorize the stationary bootstrap index recurrence
+
+- **Why:** P24 sim-speed: `calendar_statistics` on a 3,800-session series spent 2.8 of 3.1 s in the column-by-column stationary-bootstrap loop.
+- **What:** each index is its latest restart's start plus the offset since, modulo n; a running maximum of restart columns gives the same int64 matrix from the same draws.
+- **Evidence:** `python -m tools.sim_bench stats`: same digest, 2.7 → 1.6 s (peak RSS +110 MB); `tests/test_walkforward_monthly.py` compares against the recurrence.
+- **Metrics:** farm +11 lines.
+- **Next:** nothing admitted.
+
+## 2026-10-22 — Charge the execution profile on the v2 fill paths (audit E5)
+
+- **Why:** quant-audit E5: next-open, auction and intraday-market fills ignored the order's profile (spread multiplier, fixed adverse movement, participation impact). Reproduction: `tests/test_fill_profiles.py` failed 4 of 9 before the fix (cost_2x and participation_stress priced as baseline).
+- **What:** `_v2_result` scales the path's half-spread by the profile, adds its fixed adverse movement where the path has one and its square-root impact; a touched limit still fills at its limit. Baseline prices are bit-identical.
+- **Evidence:** `pytest tests/test_fill_profiles.py`: 9 passed.
+- **Metrics:** sim +25 lines.
+- **Next:** nothing admitted.
+
+## 2026-10-22 — Reject fills against zero median dollar volume (audit E6)
+
+- **Why:** quant-audit E6: a median dollar volume of exactly 0 made participation 0, so the cap never fired. Reproduction: the zero-volume test filled (`assert 'filled' == 'rejected'`).
+- **What:** league and v2 fills treat a zero median as unbounded participation and reject as illiquid; an unknown median keeps its treatment.
+- **Evidence:** `pytest tests/test_fill_profiles.py`: 10 passed.
+- **Metrics:** sim +4 lines.
+- **Next:** nothing admitted.
+
+## 2026-10-22 — Measure study eligibility on the fill model's 60 bars (audit E7)
+
+- **Why:** quant-audit E7: `Universe.mdv60` took the last 60 sessions while `PriceSource.mdv60`, which prices study fills, takes the last 60 bars. Reproduction: a name trading every other session gave 1,000,000 against 700,000.
+- **What:** eligibility uses the same 60 positive-close bars, each still gated by the decision view.
+- **Evidence:** `pytest tests/test_study_universe.py`: passes.
+- **Metrics:** farm +12 lines.
+- **Next:** nothing admitted.
+
+## 2026-10-22 — Leave provisional open-fault bars out of study sources (audit E8)
+
+- **Why:** quant-audit E8: `PriceSource.from_duckdb` read never-settled bars whose open lies outside [low, high], which every engine open consumer excludes. Reproduction: the fixture's FAULT bar appeared among the source tickers.
+- **What:** the study query (`data.prices_query`, shared with the columnar builder) applies `provisional_open_fault_sql` when the store records fetch stamps. Settled and fault-free provisional bars stay.
+- **Evidence:** `pytest tests/test_study_columnar.py`: 7 passed, both builders equal.
+- **Metrics:** farm +25 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

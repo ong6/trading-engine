@@ -59,7 +59,7 @@ from farm.backtest.replay import (
 from farm.walkforward import monthly as wf_monthly
 from farm.walkforward import protocol, runtime_contract
 from farm.walkforward.controls import declaration as comparison_declaration
-from sim import calendar, execution, league
+from sim import calendar, execution, league, ledger
 from sim import portfolio as _pf
 from sim.schema import INITIAL_CASH, init_sim_schema
 
@@ -322,10 +322,11 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
     if fold_prepare is not None:
         fold_prepare(con, book, fold, sessions)
     _insert_book(con, book, sessions[0], initial_cash, execution_profile)
-    for d in sessions:
-        # A scratch replay holds no account book; never attach the live pit stores.
-        league.step(con, d, data_dir, rerun=False, verbose=False,
-                    report_policy="deferred", no_accounts=True)
+    with ledger.projection_checkpoints():
+        for d in sessions:
+            # A scratch replay holds no account book; never attach the live pit stores.
+            league.step(con, d, data_dir, rerun=False, verbose=False,
+                        report_policy="deferred", no_accounts=True)
     league.write_reports(con, sessions[-1], data_dir)
 
     eq = con.execute(

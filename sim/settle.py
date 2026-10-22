@@ -471,6 +471,13 @@ def delistings(con: duckdb.DuckDBPyConnection, d: date,
     tickers = sorted(set(tickers))
     if not tickers or not table_exists(con, "universe_snapshot"):
         return []
+    # A delisting needs an inactive snapshot row for the name by `d`; without
+    # one the query below is empty, so skip its scan of the held names' prices.
+    if con.execute(
+        "SELECT 1 FROM universe_snapshot WHERE ticker IN (SELECT UNNEST(?::VARCHAR[])) "
+        "AND snapshot_date <= ? AND NOT active LIMIT 1", [tickers, d],
+    ).fetchone() is None:
+        return []
     rows = con.execute(
         f"""
         WITH held AS (SELECT UNNEST(?::VARCHAR[]) AS ticker),

@@ -48,3 +48,23 @@ def test_delisting_uses_last_close_including_zero_then_configured_fallback():
     ).delisting_exit("MISS", held_on=start, entry_price=10)
     assert fallback.exit_price == pytest.approx(6)
     assert fallback.used_fallback and fallback.applied_return == -0.4
+
+
+def test_universe_liquidity_uses_the_same_sixty_bars_as_fills():
+    # AAA trades every other session, so 60 bars span 120 sessions; the
+    # eligibility MDV must be the one the cost model charges (source.mdv60).
+    from datetime import timedelta
+
+    days, day = [], date(2023, 1, 2)
+    while len(days) < 130:
+        if day.weekday() < 5:
+            days.append(day)
+        day += timedelta(days=1)
+    bars = [_bar("SPY", session, 100, 1_000_000) for session in days]
+    bars += [_bar("AAA", session, 10, 1_000 * (index + 1))
+             for index, session in enumerate(days[:-1]) if index % 2 == 0]
+    source = _source(bars)
+    view = MarketData(source).view(days[-1], "pre_open", days[-1])
+    expected = source.mdv60("AAA", days[-1])
+    assert Universe(source).mdv60(view, "AAA", days[-1]) == expected
+    assert Universe(source).mdv60(view, "SPY", days[-1]) == source.mdv60("SPY", days[-1])
