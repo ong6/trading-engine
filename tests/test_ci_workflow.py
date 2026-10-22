@@ -13,6 +13,7 @@ from tools import affected_tests as at
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+SETUP = yaml.safe_load((REPO_ROOT / ".github" / "actions" / "setup-engine" / "action.yml").read_text())
 JOBS = WORKFLOW["jobs"]
 TRIGGERS = WORKFLOW[True]  # YAML 1.1 reads the bare key `on` as a boolean
 
@@ -91,10 +92,35 @@ def test_one_gate_job_needs_every_job():
 
 
 def test_actions_are_pinned_to_a_major_version():
-    for job in JOBS.values():
-        for step in job["steps"]:
-            if "uses" in step:
-                assert re.fullmatch(r"[\w-]+/[\w-]+(/[\w-]+)*@v\d+", step["uses"]), step["uses"]
+    steps = [step for job in JOBS.values() for step in job["steps"]] + SETUP["runs"]["steps"]
+    for step in steps:
+        if "uses" in step and step["uses"] != "./.github/actions/setup-engine":
+            assert re.fullmatch(r"[\w-]+/[\w-]+(/[\w-]+)*@v\d+", step["uses"]), step["uses"]
+
+
+def test_python_jobs_restore_the_virtualenv_keyed_on_the_lock_and_save_it_before_tests():
+    for job in ("test", "selected", "checks"):
+        uses = [step.get("uses") for step in JOBS[job]["steps"]]
+        assert "./.github/actions/setup-engine" in uses
+        assert "uv sync" not in _runs(job)
+    steps = SETUP["runs"]["steps"]
+    names = [step.get("uses", step.get("run", "")).split("@")[0] for step in steps]
+    restore, sync, save = (names.index("actions/cache/restore"),
+                           names.index("uv sync --extra dev --frozen"),
+                           names.index("actions/cache/save"))
+    assert restore < sync < save == len(steps) - 1
+    assert "hashFiles('uv.lock')" in steps[restore]["with"]["key"]
+    assert "steps.python.outputs.python-version" in steps[restore]["with"]["key"]
+    assert steps[save]["if"] == "steps.venv.outputs.cache-hit != 'true'"
+
+
+def test_the_ui_build_skips_npm_ci_only_on_an_exact_node_modules_hit():
+    steps = JOBS["ui-build"]["steps"]
+    modules = next(step for step in steps if step.get("id") == "modules")
+    assert "hashFiles('ui/package-lock.json', 'ui/package.json')" in modules["with"]["key"]
+    assert "steps.node.outputs.node-version" in modules["with"]["key"]
+    npm_ci = next(step for step in steps if step.get("run") == "npm ci")
+    assert npm_ci["if"] == "steps.modules.outputs.cache-hit != 'true'"
 
 
 def _toy(root: Path, files: dict[str, str]) -> str:

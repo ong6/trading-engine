@@ -4606,4 +4606,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +90, tests +190.
 - **Next:** cache the virtualenv.
 
+## 2026-10-22 — Cache the locked virtualenv and the UI's node_modules in CI (P24 cicd)
+
+- **Why:** P24 test speed. Each of the nine Python jobs ran `uv sync` from the network: `setup-uv`'s `enable-cache` saves the uv cache only after `uv cache prune --ci` (its default `prune-cache: true`), which drops downloaded wheels, and every package in `uv.lock` except the project is a wheel, so the cache held almost nothing.
+- **What:** a composite action, `.github/actions/setup-engine`, sets up Python 3.12 and uv 0.11.29 (its own cache off), restores `.venv` keyed on the runner OS, the exact Python version and `uv.lock` (a prefix hit is brought to the lock by `uv sync --frozen`, which removes anything unlisted), and saves it right after the sync, before tests run. `test`, `selected` and `checks` use it. The UI job keeps `setup-node`'s npm cache and restores `ui/node_modules` keyed on the lock, `package.json` and the Node version; only an exact hit skips `npm ci`.
+- **Evidence:** actionlint reports nothing; `pytest tests/test_ci_workflow.py` (restore before sync before save, the key inputs, `npm ci` skipped only on a hit): 17 passed. The local `.venv` is 311 MB. Timings need a real Actions run.
+- **Metrics:** tests +35.
+- **Next:** the pull-request fast tier.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

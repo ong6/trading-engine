@@ -70,16 +70,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # registration tests read git history for the last registered change
-      - run: ln -sfn "$GITHUB_WORKSPACE" "$HOME/trading-engine"  # service units use %h/trading-engine
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.11.29"
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - run: uv sync --extra dev --frozen
+      - uses: ./.github/actions/setup-engine
       - run: .venv/bin/python -m pytest -q -W error -n auto --test-shards=4 --test-shard=${{ matrix.shard }}
   selected:
     needs: changes
@@ -100,16 +91,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # registration tests read git history for the last registered change
-      - run: ln -sfn "$GITHUB_WORKSPACE" "$HOME/trading-engine"  # service units use %h/trading-engine
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.11.29"
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - run: uv sync --extra dev --frozen
+      - uses: ./.github/actions/setup-engine
       - name: Run the selected tests
         run: |
           .venv/bin/python -m tools.affected_tests --base "$BASE" --head HEAD --explain > "$RUNNER_TEMP/selected"
@@ -123,16 +105,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # registration tests read git history for the last registered change
-      - run: ln -sfn "$GITHUB_WORKSPACE" "$HOME/trading-engine"  # service units use %h/trading-engine
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.11.29"
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - run: uv sync --extra dev --frozen
+      - uses: ./.github/actions/setup-engine
       - run: uv export --frozen --no-dev --no-emit-project --no-annotate --output-file /tmp/runtime-requirements.txt
       - run: uvx --from pip-audit==2.10.1 pip-audit -r /tmp/runtime-requirements.txt --disable-pip --strict --progress-spinner off
       - run: uv build --wheel --out-dir /tmp/trading-engine-wheel
@@ -155,12 +128,26 @@ jobs:
         working-directory: ui
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - id: node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: ui/package-lock.json
-      - run: npm ci
+      # node_modules exactly as `npm ci` leaves it for this lock, package.json and Node;
+      # any change to them misses and runs `npm ci`, which also checks they agree.
+      - id: modules
+        uses: actions/cache/restore@v4
+        with:
+          path: ui/node_modules
+          key: ${{ runner.os }}-node${{ steps.node.outputs.node-version }}-modules-${{ hashFiles('ui/package-lock.json', 'ui/package.json') }}
+      - if: steps.modules.outputs.cache-hit != 'true'
+        run: npm ci
+      - if: steps.modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ui/node_modules
+          key: ${{ steps.modules.outputs.cache-primary-key }}
       - run: npm audit --omit=dev --audit-level=moderate
       - run: npm test
       - uses: actions/cache@v4
