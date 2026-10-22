@@ -4703,4 +4703,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server 3 lines, tools 1 line (pinned tools/publish_snapshot.py), ops 2 lines.
 - **Next:** finish the rehearsal.
 
+## 2026-10-23 — Rehearse the reviewed storage revision on real store copies
+
+- **Why:** the storage review asked for a real-copy rehearsal of the fixed revision: deploy and rollback scripts from fresh shells, a real nightly, a queue drain with a walkforward child, a simulated weekend, and evidence reads after writes.
+- **What:** on copies of the 18:07 published snapshot in sandbox clones at main's 1fae615d: the deploy script migrated and published in 38 min (backup 620 s, migration 370 s, first generation 770 s, peak 5.4 GB), with the producer locks held 49-131 s instead of 10 min; 488 API writes during a republication all returned 200 (the slowest waited 130 s); evidence reads after writes answered 200 with `pending_publication: true` and publish-on-change cleared it; a +40 h clock served the board stale-flagged with health `degraded`, never 503; a walkforward child ran from the published generation; one real nightly advanced 33 books from 2026-10-21 to 2026-10-22 with no `SchemaMigrationRequired`. The E1, sector and XS steps wrote INVALID records because the runtime-contract pins refuse until the re-pin, as the pin tests predict. The rollback script restored the primary byte for byte. Copies deleted.
+- **Evidence:** the rehearsal tables in `docs/revision-20-storage-deploy-checklist.md`.
+- **Metrics:** docs only.
+- **Next:** the orchestrator's single re-pin, then repeat the nightly step to see valid E1, sector and XS records.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

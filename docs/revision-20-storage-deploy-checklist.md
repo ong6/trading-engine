@@ -33,8 +33,9 @@ generations; see pre-flight 6.
   (:12 and :42 UTC, minutes no other unit starts at) republishes only when the primary changed and skips at once when
   a publication, producer lock or writer is active. Bound: with no producer running, evidence lags its last write by
   at most 30 min plus one publication. Publication now holds the producer locks and one read-only handle only while
-  it copies the primary (seconds on the store copy, see the rehearsal), then builds the generation from the copy; API
-  writes wait up to 45 s for that handle instead of failing.
+  it copies the primary (49-131 s for the 12.7 GB copy in the rehearsal, against 10 minutes before), then builds the
+  generation from the copy; API writes wait up to 180 s for that handle instead of failing (cost: a write arriving
+  during a capture is delayed until it ends).
 - **Finding 4 (fixed):** publication records the primary's storage identity before releasing its read-only handle.
 - **Finding 6 (fixed): raw payloads stay main-readable.** Writers seal the legacy plain `<sha>.json` until
   `tools.convert_raw_payloads --apply` records the store flag `store/raw-payload-encoding.json`; a test runs main's
@@ -134,36 +135,39 @@ restore drill passes, with the producer lock held and TradingView jobs drained. 
 writers to zstd, after which a code rollback can no longer read new raw payloads; its rollback is the off-host raw
 archive.
 
-## Rehearsal result (real store copy, 2026-10-22, p24/storage-r18 @ 2a0d90bd, capped restore @ 8dfeff3d)
+## Rehearsal result (2026-10-22, real store copies, after the storage review)
 
-Copy: newest published snapshot 2026-10-22 13:37 (12.5 GB, SHA-256 = manifest, catalog `865f64aa…`;
-`store/backups/` is empty), run as `store/market.duckdb` of a worktree at the lane commit. Wall clock (peak RSS);
-the previous column is the p24/r16 rehearsal (real copy where it ran, else its synthetic reconciled copy, marked *).
+Copies of the 18:07 published snapshot (12.7 GB, SHA-256 = manifest, catalog `865f64aa…`; `store/backups/` is
+empty), each the `store/market.duckdb` of a sandbox clone at main's 1fae615d (the pre-deploy code) with no remote.
+Deploy and rollback are the committed scripts, run from fresh shells (`env -i`); host steps (units, crontab) are
+stand-ins that only log, and the readers are a real API process for the sandbox store. Wall clock (peak RSS).
 
-| Step | p24/r16 (before) | p24/storage-r18 (deploy path, real copy) |
-|---|---|---|
-| migration plan | 1 s | 1 s; pre-catalog `865f64aa…`, migrations 0 and 1 pending |
-| backup create | 661 s (23.8 GB) | 506 s (5.0 GB); bundle file byte-identical to the source |
-| backup verify | 168 s (5.2 GB) | 170 s (5.1 GB) |
-| migration apply | **refused** after 324 s | applied, 327 s (5.1 GB); catalog `7286ea9b…`, schema 1; plan after: `current` |
-| first generation publish | 365 s (24 GB)* | 622 s (7.5 GB), writer locks held 612 s; hot 3.0 GB + 1.66 GB cold parts (127), equality check 285 s |
-| readers pin | 5 s* | 5 s pin + board read (prices 21,268,855, intraday 41,779,545); evidence read ok (`sim_settlements` 18 rows) |
-| invariants on generation | 6 s, two missing-table errors* | 11 s (1.4 GB), all ten pass (shadow) |
-| generation-backed backup + verify | 491 s (10.7 GB) + 163 s* | 502 s (10.7 GB) uncapped; capped: 912 s (5.1 GB) + 167 s, logical snapshot identical |
-| restore drill | 10 s copy + 154 s check | pre-migration bundle 14 s + 155 s; generation bundles 11-19 s + 153-156 s; all byte-identical, logical snapshots equal |
+Deploy at 4a778427 (same migration 0000 as the final head) and the checks after it:
 
-Rerun after B4 (migration 0000 frozen as data; p24/storage-r18 @ 5b899cf5) on a fresh copy of the 15:52 published
-snapshot (12.3 GB, SHA-256 = manifest, catalog `865f64aa…`); backup code unchanged since the table above:
-
-| Step | Wall clock (peak RSS) |
+| Step | Result |
 |---|---|
-| migration plan | 1 s; pre-catalog `865f64aa…` |
-| backup create + verify (needed by apply) | 687 s (5.1 GB) + 185 s (5.0 GB); bundle byte-identical to the source |
-| migration apply | applied, 354 s (5.2 GB); catalog `7286ea9b…`, schema 1; plan after: `current` |
-| first generation publish | 632 s (7.5 GB) |
-| readers pin | 5 s; board (prices 21,268,855, intraday 41,779,545) and evidence reads ok |
-| invariants on generation | 11 s (1.4 GB), all ten pass (shadow) |
+| pre-flight plan, read-only | 1 s; pre-image `865f64aa…` |
+| pre-flight NOT NULL count, read-only | 1 s; all five columns 0 NULL |
+| backup create + verify | 528 s (5.1 GB) + 171 s (5.0 GB) |
+| migration apply | 339 s (5.0 GB); catalog `7286ea9b…`, plan after `current` |
+| first generation | 706 s (5.1 GB); producer locks and capture handle held 49 s (was 612 s) |
+| readers | health 200 with generation headers; first evidence read 4.6 min (cold projection cache), then 200 |
+| invariants on the generation | 11 s (1.4 GB), all ten pass |
+| evidence read after an API write | 200, `pending_publication: true` (was 503) |
+| republish with one API write per second | 843 s (4.8 GB); capture 131 s; 60 of 127 cold parts reused by frontier; 475 writes 200, 2 returned 503 after the then 45 s wait (now 180 s, rerun below) |
+| publish-on-change after the writes / unchanged | 801 s (4.9 GB), then evidence `pending_publication: false` / 6 s skip |
+| weekend clock (+40 h, one unpublished write) | `/league` 200 `x-generation-stale: true`; `/health` 200 `degraded`; `/meta` and `/agent/evaluation/status` 200 with `stale: true` |
+| queue drain, walkforward child (spy_benchmark, 1 fold) | 59 s (2.4 GB); the child read the published generation; done |
+| one real nightly (`engine/run_daily.sh`, sandbox HOME, no remote, drain budget -1) | 33 min: collect 406 s, actions 497 s, market date **2026-10-22**, screen, league 69 s (33 books' equity advanced from 2026-10-21 to 2026-10-22), sync (local commit only), verify, snapshot 893 s; no `SchemaMigrationRequired`; invariants pass on the new generation |
+| E1, sector and XS records in that nightly | written as **INVALID** ("strategy/execution source changed" / "E1 runtime source changed"): the runtime-contract pins refuse until the single re-pin, as the 104 pin tests predict; repeat this step after the re-pin |
 
-Publication now holds the producer locks about 10 minutes (was 6) because its DuckDB connections are capped at 4 GB.
-The verify step needs the bundle path without a symlinked parent (hence `readlink -f "$HOME"` above). The off-host
-`remote_restore_drill` was not run (needs a generation-backed bundle committed to the private backup repo).
+Deploy and rollback at the final head (aa048662), fresh shells:
+
+| Step | Result |
+|---|---|
+| deploy.sh end to end (fresh shell) | 38 min: plan 1 s, NOT NULL count 1 s, backup 620 s + verify 183 s, migration 370 s, first generation 770 s (5.0 GB), readers 5.4 min, invariants 12 s; every check passed; state in `state.env` |
+| API writes during a republication (one per second) | 488 writes, all 200; slowest waited 130 s for the 131 s capture; republish 893 s (5.4 GB), 60 cold parts reused |
+| rollback.sh from a fresh shell (after a post-release write) | 11 min: backup re-verified 262 s, incident copy and quarantined generations kept, checkout detached at 1fae615d, primary restored byte for byte (SHA-256 equals the copied snapshot), `schema_migrations` absent, the post-release row gone (kept in the incident copy), previous-format snapshot 84 s, previous-code API 200 |
+| peak RSS of any step | 5.4 GB |
+
+The off-host `remote_restore_drill` was not run (needs a generation-backed bundle committed to the private backup repo).
