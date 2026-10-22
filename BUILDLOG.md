@@ -4695,4 +4695,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +3.
 - **Next:** pass the seccomp context to `seccomp_rule_add` as a pointer.
 
+## 2026-10-22 — Pass the seccomp context to seccomp_rule_add as a pointer (P24 ci-green)
+
+- **Why:** on the shared-library interpreter the research worker segfaulted in `_install_seccomp` (exit 139, faulthandler at the `seccomp_rule_add` call). The function had no argtypes, so ctypes passed the context pointer as a 32-bit int; a position-independent interpreter's heap sits above 4 GiB.
+- **What:** `seccomp_rule_add` gets argtypes for its four fixed parameters. The denied syscalls and the filter are unchanged.
+- **Evidence:** `pytest -n 2 farm/research/tests` on the shared-library interpreter: 34 failed before these two changes, 97 passed after; on the locked static interpreter: 97 passed.
+- **Metrics:** farm +3.
+- **Next:** confirm the `checks` job on the branch run.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
