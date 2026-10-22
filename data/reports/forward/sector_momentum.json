@@ -40,7 +40,7 @@
     "strategy": "sector_momentum"
   },
   "checks": {
-    "has_lower_drawdown": false,
+    "has_lower_drawdown": true,
     "kill_triggered": false,
     "trails_control_by_more_than_10pp": false
   },
@@ -173,40 +173,40 @@
       "sim/valuation.py"
     ],
     "runtime_contract_migration": "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. Sector strategy, paired control, baseline prefix and kill criterion are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, a split-like re-fetch triggers back-adjustment, and this migration compares the deployed report's fill model and clock fields as published; second pre-deploy amendment 2026-10-17 under D1 fixes the same retained-prefix continuity defect class found by the fresh rehearsal: evaluated and retained counts are partitioned at the prior clock, with schema-v1 behavior, complete equity hashes, baselines and forward ledgers unchanged; revision 15 after v2: r15-data preserves rejected observations and gates scalar/calendar/basis admission; r15-money refuses malformed arithmetic and shares trusted fill/mark bars; r15-flow reduces repeated fetches, offline reports and history copies; r15-ops reports recorded outcomes and moves the Sunday history slot; board-2 shows dated quality and prospective gates; r15-tests reuses private fixtures and caps native threads. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged; binding orchestrator October 18 cleanup rulings: P15 session identity is captured SPY price dates union hard-invalid rejected dates, with XNYS membership for basis holds; stored labels and hashes remain immutable; missing trusted P15 bars and sleeve sizing wait with audited untrusted_bar and no substitute price; cold UI readiness uses a bounded five-minute wait; undeployed revision 15 amended 2026-10-20 by the reviewed fixes landed after v2: liquid split coverage, first-stored split provenance and a quarantining break scan; same-night provisional bars shown flagged; scratch replays never attach live stores and grids keep one reader; finite walk-forward results; snapshot disk cap and once-daily history publication; pre-open reliability, nightly evidence order and scoring report commits; two reviewed model runtimes by hash; same-night bars whose only fault is the open admitted provisionally for their close, never filled, labeled or scored on that open. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged",
-    "runtime_contract_sha256": "7e6d1d4c0aa46676b50740816f1f864a1ffe29b75edf60d3707223c8f50719b7",
+    "runtime_contract_sha256": "bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea",
     "runtime_contract_version": 12,
     "superseded_runtime_contract_sha256": "c7c868a9176172eafab99427723ce7edf5bdb7326693cb9f351ff29ab52d9168"
   },
   "metrics": {
-    "drawdown_improvement": 0.0,
-    "excess_return": 0.0038801954234541913,
+    "drawdown_improvement": 0.003052396066311913,
+    "excess_return": 0.006925036014565733,
     "sector_momentum": {
-      "end_equity": 43587.79972452621,
-      "max_drawdown": 0.0,
+      "end_equity": 43208.78933888164,
+      "max_drawdown": -0.008695331905714587,
       "start_equity": 43051.44709703297,
-      "total_return": 0.012458411125748192
+      "total_return": 0.0036547492002774185
     },
     "spy_benchmark": {
-      "end_equity": 40412.94240356446,
-      "max_drawdown": 0.0,
+      "end_equity": 39938.18214965821,
+      "max_drawdown": -0.0117477279720265,
       "start_equity": 40069.21999145509,
-      "total_return": 0.008578215702294001
+      "total_return": -0.0032702868142883146
     }
   },
   "observation": {
-    "as_of": "2026-10-21",
-    "calendar_days_available": 2,
+    "as_of": "2026-10-22",
+    "calendar_days_available": 3,
     "cost_break_session": "2026-10-19",
     "eligible_after": "2027-10-19",
-    "equity_sha256": "bd14954e7934c65fbf729d5c7196b72374123218e84a8bd031bf43d6eff154b2",
+    "equity_sha256": "ce8ef52c5f000ca28e126e3786736a6981cac85b083a5fcfb6085bac6cd2f717",
     "evaluation_clock_start": "2026-10-19",
     "first_shared_date": "2026-09-04",
     "forward_ledger_sha256": "b27c225b0b919f20e2ee8d4365e192c9484d9488bfad7a33d1028d68f3f1ab34",
     "mature": false,
     "minimum_shared_sessions": 200,
     "pre_break_shared_sessions": 30,
-    "shared_sessions_available": 3,
-    "shared_sessions_in_window": 3,
+    "shared_sessions_available": 4,
+    "shared_sessions_in_window": 4,
     "window_start": "2026-10-19"
   },
   "paper_only": true,
