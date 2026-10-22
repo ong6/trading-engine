@@ -332,6 +332,8 @@ def test_reviewed_current_ledger_migration_expands_both_aggregate_rows(tmp_path)
     fixture["claims"].write_bytes(snapshot)
     _git(
         fixture["source"],
+        "-c",
+        "protocol.version=2",  # git before 2.26 refuses an unadvertised commit over v0
         "fetch",
         str(REPOSITORY_ROOT),
         lane.CURRENT_LEGACY_BASE,

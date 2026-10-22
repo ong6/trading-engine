@@ -383,7 +383,10 @@ uncommitted.
 Price verification retains every discrepant field and named result. Exact Nasdaq response
 bytes, HTTP identity and requested security/window are written to a hash-named receipt under
 `data/price-verify/` before `_meta.json` changes. The summary points to the immutable receipt
-relative to `_meta.json`'s directory, without publishing an absolute host path.
+relative to `_meta.json`'s directory, without publishing an absolute host path. The per-name
+results go to `data/reports/producer-detail/price-verify.json` (`price-verify-full.json` for the
+weekly pass), rewritten in place, and the summary keeps only their counts and a pointer; the
+intraday archiver's per-ticker coverage lives beside them in `intraday-coverage.json`.
 Receipts are a local 35-day audit window: older receipts that `_meta.json` no longer cites are
 pruned after each run, and stdout carries only the summary, never response bodies.
 An ETF answer with no volume on any row (an index level or indicative value) is `not_checked`

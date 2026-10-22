@@ -69,7 +69,7 @@
       "engine/free_sources.py": "414af6dcd99bba91ea96cd2340f40680a74b39d0dab31aed194aaaca93a49126",
       "engine/fundamentals.py": "98c023b658ee13e247b649e0fd12dd8332f48878a11b188a41e0cfcce9df642a",
       "engine/instruments.py": "94e2e4ab711f2ead51e2aeecda11e4c7da659170bbfadb07ea45cda33520b506",
-      "engine/intraday.py": "eff80a9424d764ed95765939e8264c27691ec23a5f73597b87b36e22e0e070a6",
+      "engine/intraday.py": "baf545f0f81c7f6bc6542c54cc99baf2da1f34a2d0c40f5f74425cb3372c8108",
       "engine/lib/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "engine/lib/data_quality.py": "8025ff4323d1e6698bbb4be9858d2b33289b1981f05cf311ccc10a1e4c0c1299",
       "engine/lib/db.py": "926b270d77a266cacf03ea55b5476e5c8ef90df959a4aeca19c1385c5fc78f63",
@@ -99,7 +99,7 @@
       "engine/sync.py": "9d77a8e963047481ecbed290b4d112ef7c3158fadbb9b5aded91defd33abd574",
       "engine/tradingview_history_archive.py": "eeeb3b4d8a74d90777c3df04da118f0d826f4b3a7709871efd284fef7c1d7413",
       "engine/universe.py": "ad3cf5f62730767081ee7718006ce4f78f4c6bfdbb80ab90caeef118abc276a7",
-      "engine/verify_prices.py": "f2b82af12f75e53030f7b8731df378b3178c7af467b1eade1e02015aadb954e9",
+      "engine/verify_prices.py": "6a018d0206da40853e2b970b57f29be8d8a197f0250062f8dcd145ee226be346",
       "engine/xs_forward_review.py": "cd61ae0912d8651c1a4d87884adce370803c61af28c2aa208ebd200bbaf4a7f8",
       "farm/__init__.py": "bf84aec09336388f858d7c1e7c28cab3da1d8d18096ed36ef460ea49114f11e0",
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
@@ -219,7 +219,7 @@
       "tools/sec_edgar_capture.py": "8e7a705262f44532d2c812ed22ccd66c9b35d9633c0f89288d1347fe2a52ea6d",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "fcd473891f588eecc416d37026ef462d3f114245"
+    "source_commit": "581a04d0d8b1cb935eb07e19d59cbf846900bb53"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -366,8 +366,9 @@
   },
   "registered_at": "2026-10-03T02:52:40Z",
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registration_revision": 17,
-  "revision_reason": "Revision 17 after deployed revision 16 (installed 2026-10-21), from the P24 second merge batch: SEC acceptance labels are read as New York wall time by one shared rule (engine/sec_acceptance.py), in the bulk store views and in the P15 live SEC capture. Disclosure: this revives P15's SEC 8-K event source, whose capture had been rejecting 51 of 52 submissions responses because it read the label as UTC; on the recorded 2026-10-21 replay it records 8,017 filings instead of 142. This is a defect repair, not a tuned value, and available_at stays the receipt time, so trigger sessions never used the label. Also: batched TradingView fact and price-observation writes, cached NYSE session bounds in the price validator, identical intraday re-fetches summarized as one intraday_identical_refetch row per batch and interval (orchestrator ruling 2026-10-22), batched league marks, early-exit delisting scans, offline-only dividend projection checkpoints, columnar study panels and a vectorized stationary bootstrap, each proven output-identical; quant-audit E5 charges the execution profile on the v2 fill paths (baseline bit-identical), E6 rejects a fill against a zero median dollar volume as illiquid, E7 and E8 correct study eligibility and price sources (P18 core p18-study-v3). Runtime contracts E1 v8, sector v12 and XS v23 keep their versions and what they compute; each explicit migration replaces only the deployed revision-16 digest. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. The storage work previously numbered revision 17 becomes revision 18.",
+  "registration_revision": 18,
+  "registration_sha256": "555682062784084206c6a734ef91dcfcec40fd4c6d7bc47994f9a4cf5eacfc8a",
+  "revision_reason": "Revision 18 after deployed revision 17 (installed 2026-10-22), from the P24 meta-split change: the price verifier writes its per-name results, and the intraday archiver its per-ticker session coverage, to report files under data/reports/producer-detail/ instead of data/_meta.json, which keeps every count and gains a pointer to each report; the intraday resume reads the coverage report first and the legacy _meta.json coverage once when no report exists. What is fetched, compared, stored and scored is unchanged. Runtime contracts E1 v8, sector v12 and XS v23 are untouched. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. The storage work previously numbered revision 18 becomes revision 19.",
   "schema_version": 1,
   "scoring": {
     "actions": [
@@ -407,6 +408,5 @@
     "mover_limit": 40,
     "trend_limit": 20,
     "version": "p15-universe-v1"
-  },
-  "registration_sha256": "841fb993d9cfae220298d4b02a23734fcb8ff3a7306e6cc719fe97e9b82e55f3"
+  }
 }

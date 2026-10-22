@@ -504,3 +504,30 @@ def test_malformed_pre_push_input_fails_closed(tmp_path, monkeypatch, capsys):
 
     assert result == 2
     assert "malformed pre-push" in capsys.readouterr().err
+
+
+def test_unquoted_call_expression_is_not_a_credential(tmp_path):
+    root, _remote = _repository(tmp_path)
+    base = _git(root, "rev-parse", "HEAD").stdout.strip()
+    secret = _generic_secret("Tok")
+    (root / "module.py").write_text(
+        "token = _DATA_SOURCE_STATE.set(state)\n"
+        "token = _COMMAND_DEADLINE.set(\n"
+        f"ACCESS_TOKEN={secret}\n"
+    )
+    head = _commit(root)
+
+    findings = public_hygiene.RepositoryScanner(root).scan_range(f"{base}..{head}")
+
+    assert len([item for item in findings if item.rule == "credential_assignment"]) == 1
+
+
+def test_meta_sized_text_file_is_scanned_not_refused(tmp_path):
+    root, _remote = _repository(tmp_path)
+    base = _git(root, "rev-parse", "HEAD").stdout.strip()
+    (root / "meta.json").write_text('{"rows": "' + "a" * (4 * 1024 * 1024) + '"}\n')
+    head = _commit(root)
+
+    findings = public_hygiene.RepositoryScanner(root).scan_range(f"{base}..{head}")
+
+    assert "text_size_limit" not in _rules(findings)

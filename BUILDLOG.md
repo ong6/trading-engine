@@ -4486,4 +4486,45 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs only.
 - **Next:** merge main's newest head and run both timezone suites.
 
+## 2026-10-22 — Stop the hygiene gate refusing data pushes and context-variable code
+
+- **Why:** reproduction: `python -m tools.public_hygiene --range` over main's newest data push (`703e8595`, `run_p15_scoring`) fails `text_size_limit` on `data/_meta.json` (3.9 MB against a 2 MB cap), so the CI `hygiene` job goes red on every data push; `--worktree` also flags four `token = _VAR.set(` lines in `server/db.py` and `server/host_command.py` as `credential_assignment`.
+- **What:** the text cap is 16 MB so every changed file stays scanned; an unquoted credential candidate followed by `(` is a call expression, not a literal, and is skipped. Two tests: a call expression next to a real unquoted token yields exactly one finding, and a 4 MB text file is scanned rather than refused.
+- **Evidence:** `pytest tests/test_public_hygiene.py` passed; `public_hygiene --range 158cb95~1..703e8595` and `--range 158cb95~1..454cfc6a` against the live checkout PASS; `--worktree` PASS.
+- **Metrics:** tools +10 lines, tests +27 lines.
+- **Next:** `data/_meta.json` carries 2.4 MB of per-name detail (`price_verify_full.name_results`, `intraday.coverage`) rewritten on every data push; move it to its own report file.
+
+## 2026-10-22 — Run the research package's tests in CI
+
+- **Why:** the wave-1 StudySpec runner's 97 tests live in `farm/research/tests`, outside `testpaths`, so no CI job ran them.
+- **What:** the `checks` job runs `pytest -W error -n 2 farm/research/tests` as its own step; the sharded suite is unchanged.
+- **Evidence:** `pytest -q -W error -n 4 farm/research/tests` 97 passed in 15 s.
+- **Metrics:** CI +1 line.
+- **Next:** none.
+
+## 2026-10-22 — Let the lane ledger test fetch its base commit on older git
+
+- **Why:** reproduction: `tests/test_lane.py::test_reviewed_current_ledger_migration_expands_both_aggregate_rows` fails on main `454cfc6a` on a host with git 2.20 ("Server does not allow request for unadvertised object 230619bc"); protocol v0 refuses a fetch by commit id that is not a ref tip, while CI's newer git defaults to v2.
+- **What:** the test's fetch passes `-c protocol.version=2`; test-only.
+- **Evidence:** `pytest tests/test_lane.py` 44 passed on git 2.20; full suite on this branch otherwise green under `TZ=UTC` and `TZ=Asia/Singapore` (6,078 tests, the only failure this test).
+- **Metrics:** tests +2 lines.
+- **Next:** none.
+
+## 2026-10-22 — Keep `_meta.json` a summary: per-ticker detail moves to producer-detail reports
+
+- **Why:** P24 `meta-split` lane (owner order via the orchestrator): `data/_meta.json` was 3.9 MB, rewritten and pushed on every data commit; `price_verify_full.name_results` (1.5 MB), `intraday.coverage` (0.9 MB) and `price_verify.name_results` (65 KB) were per-ticker detail no reader of `_meta.json` uses.
+- **What:** the verifier writes its named results to `data/reports/producer-detail/price-verify.json` / `price-verify-full.json` and `_meta.json` keeps every count plus `name_results_report` (path, names, bytes, sha256); the receipt is unchanged. The intraday archiver checkpoints and resumes from `intraday-coverage.json` (a run with no report reads the legacy `_meta.json` coverage once) and `_meta.json` keeps `coverage_report`. `engine.sync` already stages all of `data/`; `schemas/datasets.yaml` catalogues the new file family.
+  New `tests/test_meta_budget.py` drives both publishing paths at production scale and fails if `_meta.json` exceeds 256 KiB or holds a container over 500 entries.
+- **Evidence:** today's `_meta.json` 3,924,022 -> 30,708 bytes after the split; `/meta` and the price and miner read models are byte-identical before vs after on that data and a store copy.
+- **Metrics:** engine +45 lines net; tests +134 lines.
+- **Next:** orchestrator re-pins `engine/verify_prices.py` and `engine/intraday.py` (P15 registration) in the next merge batch.
+
+## 2026-10-22 — Issue registration revision 18 over the meta-split change
+
+- **Why:** the meta-split commit changes two P15-registered files, `engine/verify_prices.py` and `engine/intraday.py`; without a re-pin `test_p15_registered_file_hashes_match_checkout` fails and the registration identity no longer holds.
+- **What:** `server/p15-registration.json` revision 18 pins both files' new hashes and `source_commit` 581a04d0; the revision reason states the change and that nothing fetched, compared, stored or scored changes. Runtime contracts E1, sector and XS are untouched, so no runtime migration runs. The storage work becomes revision 19. Trial 287 (private) pins `engine/verify_prices.py` by hash; its pre-epoch amendment targets this revision's hash.
+- **Evidence:** registration, round-3 break, cost-profile, meta-budget, verifier and intraday tests pass; full suite under both timezones before push.
+- **Metrics:** registration 7 lines; tests 4 lines.
+- **Next:** storage revision 19; the reliability lanes' pinned-file changes join its re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
