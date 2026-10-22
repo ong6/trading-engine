@@ -17,8 +17,10 @@ Steps (--steps, default all, in this order):
               bar times the ratio equals the source's current bar, with every
               neighbour equal to the source, is multiplied back.
   unrecorded  split-sized breaks with no split row (invariant
-              `split_recorded_vs_restated`): record those names' corporate actions
-              through the nightly actions path. A new split whose verdict cannot
+              `split_recorded_vs_restated`), plus any --names: record those names'
+              corporate actions through the nightly actions path. --names covers a
+              split the monitor's volume test misses (MNST 2:1, ex 2026-08-11: no
+              split row, every bar before 08-10 still at twice the source). A new split whose verdict cannot
               restate is recorded as the nightly reconcile would (`decide_split`);
               one that could goes through the evidence below instead.
   splits      splits whose stored break the reconciler skipped (`skipped_already_
@@ -384,7 +386,7 @@ def _item(cand: dict, evidence: dict, rows: int) -> dict:
 def run(db_path: Path, *, apply: bool, steps: tuple[str, ...] = STEPS,
         since: date = DEFAULT_SINCE, today: date | None = None,
         source=source_closes, fetch_actions=actions._fetch_actions,
-        breaks=None) -> dict:
+        breaks=None, names: tuple[str, ...] = ()) -> dict:
     today = today or datetime.now(timezone.utc).date()
     report: dict = {"db": Path(db_path).name, "apply": apply, "since": since.isoformat(),
                     "steps": list(steps)}
@@ -394,9 +396,10 @@ def run(db_path: Path, *, apply: bool, steps: tuple[str, ...] = STEPS,
         double = double_candidates(con, since) if "double" in steps else []
     finally:
         con.close()
-    names = sorted({b["ticker"] for b in breaks})
+    named = sorted({name.upper() for name in names})
+    names = sorted({b["ticker"] for b in breaks} | set(named))
     if "unrecorded" in steps:
-        report["unrecorded"] = {"breaks": breaks}
+        report["unrecorded"] = {"breaks": breaks, "named": named}
 
     new_splits: list[dict] = []
     if "unrecorded" in steps:
@@ -478,12 +481,17 @@ def main() -> int:
                     help=f"comma list from {','.join(STEPS)}")
     ap.add_argument("--since", type=date.fromisoformat, default=DEFAULT_SINCE,
                     help="earliest bar date / ex-date the steps consider")
+    ap.add_argument("--names", default="",
+                    help="comma list of tickers the unrecorded step also asks about")
     ap.add_argument("--report", type=Path, help="also write the JSON report here")
     args = ap.parse_args()
     steps = tuple(s for s in args.steps.split(",") if s)
     if set(steps) - set(STEPS):
         ap.error(f"unknown steps: {sorted(set(steps) - set(STEPS))}")
-    report = run(Path(args.db), apply=args.apply, steps=steps, since=args.since)
+    names = tuple(n.strip() for n in args.names.split(",") if n.strip())
+    if names and "unrecorded" not in steps:
+        ap.error("--names needs the unrecorded step")
+    report = run(Path(args.db), apply=args.apply, steps=steps, since=args.since, names=names)
     text = json.dumps(report, indent=1, sort_keys=True, default=str)
     if args.report:
         write_text_atomic(args.report, text + "\n")

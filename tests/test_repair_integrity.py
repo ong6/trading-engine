@@ -226,3 +226,37 @@ def test_dry_run_is_the_default_and_never_writes(tmp_path, monkeypatch):
     assert repair_integrity.main() == 0
     assert calls == [False]
     assert repair_integrity.DEFAULT_SINCE == date(2026, 7, 16)
+
+
+def test_named_ticker_is_asked_about_although_the_monitor_does_not_flag_it(tmp_path):
+    """MNST 2:1 (ex 2026-08-11): no split row and every bar before 08-10 still at
+    twice the source, but the break's volume shift fails the monitor's test, so the
+    unrecorded step never asked about it. --names puts it through the same path."""
+    import pandas as pd
+
+    path = tmp_path / "market.duckdb"
+    con = _store(path)
+    con.execute("INSERT INTO universe (ticker, yf_ticker, active, liquid) "
+                "VALUES ('MNSX', 'MNSX', TRUE, TRUE)")
+    brk = EX_IDX - 1
+    insert_bars(con, "MNSX", SESSIONS, close=[200.0 if k < brk else 100.0
+                                              for k in range(len(SESSIONS))])
+    _stamp_after_ex(con, "MNSX")
+    con.close()
+    answer = pd.DataFrame({"Dividends": [0.0], "Stock Splits": [2.0]},
+                          index=pd.DatetimeIndex([pd.Timestamp(EX)]))
+
+    def run(names):
+        return repair_integrity.run(
+            path, apply=False, steps=("unrecorded", "splits"), since=SESSIONS[0],
+            fetch_actions=lambda _yft: answer, breaks=lambda _con: [], names=names,
+            source=lambda *_a: dict.fromkeys(SESSIONS, 100.0))
+
+    assert run(())["splits"] == []
+    report = run(("mnsx",))
+    assert report["unrecorded"]["named"] == ["MNSX"]
+    assert report["unrecorded"]["fetch"] == {"MNSX": "ok"}
+    (item,) = report["splits"]
+    assert (item["ticker"], item["ratio"], item["action"], item["rows_planned"]) == (
+        "MNSX", 2.0, "restate", brk)
+    assert _closes(path, "MNSX")[0] == 200.0                     # dry-run wrote nothing

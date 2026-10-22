@@ -4408,4 +4408,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** registration 7 lines; tests 4 lines.
 - **Next:** storage revision 19; the reliability lanes' pinned-file changes join its re-pin.
 
+## 2026-10-22 — Repair can be pointed at named splits the monitor misses (MNST)
+
+- **Why:** P24 reliability-data lane (handoff item 2: split repair by re-fetch for MNST, IESC, RUSHA, WLFC, ETHA, SFBS). On a copy of the 2026-10-22 15:52 snapshot, stored closes against the source's current history: IESC, RUSHA, WLFC, ETHA and SFBS equal the source on every common bar (fixed by `engine.repair_integrity`, 8df1fdf9/600dea4b/fdff9029, live apply 2026-10-22 05:36-05:39 UTC). MNST does not: 10,243 bars through 2026-08-07 sit at 2x the source. The source reports a 2:1 split ex 2026-08-11 with no `corporate_actions` row (last actions fetch 07-29), and the break's volume shift fails the monitor's test, so the repair's `unrecorded` step never asked about it.
+- **What:** `--names` adds tickers to the `unrecorded` step: their actions are fetched through the nightly path and a new split is restated only on the same source evidence as every other (`split_evidence`). No other step changes.
+- **Evidence:** dry-run on the copy (`--steps double,unrecorded,splits --names MNST,IESC,RUSHA,WLFC,ETHA,SFBS`): MNST 2026-08-11 `restate`, 10,243 rows planned, break 08-10, 08-05 kept as already new scale; apply changed exactly 10,243 rows (originals in `price_observation_rejects`); afterwards all six names equal the source on every bar; a second dry-run plans nothing. MNST is not held and has no orders or labels. New test in `tests/test_repair_integrity.py`.
+- **Metrics:** engine +14, tests +35 lines.
+- **Next:** orchestrator runs the dry-run on the live store outside the producer window, then `--apply` with the same flags.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
