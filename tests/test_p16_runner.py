@@ -105,6 +105,7 @@ def test_calibration_uses_every_retained_snapshot_for_each_book(con, monkeypatch
     assert result["cost_per_turnover"] == 0.002
 
 
+@pytest.mark.slow
 def test_construct_targets_composes_gates_solver_planner_store_and_queue(con, monkeypatch):
     signal_date = date(2024, 7, 15)
     cutoff = datetime(2024, 7, 15, 20, tzinfo=timezone.utc)
@@ -267,6 +268,7 @@ def test_construct_targets_queues_stop_exits_while_ic_is_collecting(con, monkeyp
     ).fetchall() == [("AAA", "sell", "stop", 5.0)]
 
 
+@pytest.mark.slow
 def test_construction_book_state_ignores_late_generic_ledger_mutations(con):
     signal_date = date(2024, 7, 15)
     cutoff = datetime(2024, 7, 15, 20, tzinfo=timezone.utc)
@@ -367,6 +369,7 @@ def test_copied_store_dry_run_leaves_source_unchanged(tmp_path):
     assert database.read_bytes() == before
 
 
+@pytest.mark.slow
 def test_copied_store_dry_run_retains_successful_calibration_and_constructs(
     tmp_path, monkeypatch,
 ):

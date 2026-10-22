@@ -1,12 +1,31 @@
 name: ci
 
+# Tiers (tools/affected_tests.py --ci-plan, pinned by tests/test_ci_workflow.py):
+# - main, code changed: every test in both timezones on four shards (`test`).
+# - main, only content changed (documents, data tables and images under data/** or docs/**:
+#   .md .json .jsonl .csv .txt .html and image suffixes, never a symlink): the selected
+#   tests (contract tests, content readers, every test reached through a reader) in both
+#   timezones.
+# - pull requests and other branches: the fast tier, ruff, compileall and the selected
+#   tests in one timezone (the full suite there when selection falls back).
+# Content-only runs skip `checks` and `ui-build`. Hygiene always runs. The daily schedule
+# runs the full suite on main whatever changed. `ci` is the one check to require.
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
+  schedule:
+    - cron: "37 5 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# A newer push to a branch or pull request supersedes its run. Each main commit has a group
+# of its own, so no main run is ever cancelled or replaced while pending.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   hygiene:
@@ -20,10 +39,44 @@ jobs:
           python-version: "3.12"
       - name: Check public repository hygiene
         env:
-          PUBLIC_HYGIENE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           PUBLIC_HYGIENE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: PYTHONPATH="$GITHUB_WORKSPACE" python -m tools.public_hygiene --ci
+        run: |
+          base="${EVENT_BASE:-0000000000000000000000000000000000000000}"  # scheduled: head commit
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            base=$(git merge-base origin/main "$PUBLIC_HYGIENE_HEAD_SHA")  # every commit of the branch
+          fi
+          PUBLIC_HYGIENE_BASE_SHA="$base" PYTHONPATH="$GITHUB_WORKSPACE" python -m tools.public_hygiene --ci
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read  # main plans against the last run whose full matrix succeeded
+    outputs:
+      tier: ${{ steps.plan.outputs.tier }}
+      scope: ${{ steps.plan.outputs.scope }}
+      base: ${{ steps.plan.outputs.base }}
+      timezones: ${{ steps.plan.outputs.timezones }}
+      shards: ${{ steps.plan.outputs.shards }}
+      shard_count: ${{ steps.plan.outputs.shard_count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          # a pull request compares with its base, a branch with its merge base on main;
+          # main looks up its last fully green commit (no lookup: full run)
+          BASE: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -m tools.affected_tests --ci-plan "$EVENT" --base "${BASE:-0}" --ref "$GITHUB_REF"
   test:
+    needs: changes
+    if: needs.changes.outputs.tier == 'full'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -35,37 +88,52 @@ jobs:
       OPENBLAS_NUM_THREADS: "1"
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
+      # main only: fail a test over 15 s that is not marked slow (local mark line: about 5 s)
+      DURATION_BUDGET: ${{ github.ref == 'refs/heads/main' && '15' || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # registration tests read git history for the last registered change
-      - run: ln -sfn "$GITHUB_WORKSPACE" "$HOME/trading-engine"  # service units use %h/trading-engine
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-engine
+      - run: .venv/bin/python -m pytest -q -W error -n auto --test-shards=4 --test-shard=${{ matrix.shard }} ${DURATION_BUDGET:+--duration-budget=$DURATION_BUDGET}
+  selected:
+    needs: changes
+    if: needs.changes.outputs.tier == 'selected'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: ${{ fromJSON(needs.changes.outputs.timezones) }}
+        shard: ${{ fromJSON(needs.changes.outputs.shards) }}
+    env:
+      TZ: ${{ matrix.tz }}
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      BASE: ${{ needs.changes.outputs.base }}
+    steps:
+      - uses: actions/checkout@v4
         with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.11.29"
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - run: uv sync --extra dev --frozen
-      - run: .venv/bin/python -m pytest -q -W error -n auto --test-shards=4 --test-shard=${{ matrix.shard }}
+          fetch-depth: 0  # registration tests read git history for the last registered change
+      - uses: ./.github/actions/setup-engine
+      - if: matrix.shard == 0
+        run: .venv/bin/ruff check .
+      - if: matrix.shard == 0
+        run: .venv/bin/python -m compileall -q engine sim server tests farm tools
+      - name: Run the selected tests
+        run: |
+          .venv/bin/python -m tools.affected_tests --base "$BASE" --head HEAD --explain > "$RUNNER_TEMP/selected"
+          mapfile -t selected < "$RUNNER_TEMP/selected"
+          .venv/bin/python -m pytest -q -W error -n auto --test-shards=${{ needs.changes.outputs.shard_count }} --test-shard=${{ matrix.shard }} "${selected[@]}"
   checks:
+    needs: changes
+    if: needs.changes.outputs.scope == 'code'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # registration tests read git history for the last registered change
-      - run: ln -sfn "$GITHUB_WORKSPACE" "$HOME/trading-engine"  # service units use %h/trading-engine
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.11.29"
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - run: uv sync --extra dev --frozen
+      - uses: ./.github/actions/setup-engine
       - run: uv export --frozen --no-dev --no-emit-project --no-annotate --output-file /tmp/runtime-requirements.txt
       - run: uvx --from pip-audit==2.10.1 pip-audit -r /tmp/runtime-requirements.txt --disable-pip --strict --progress-spinner off
       - run: uv build --wheel --out-dir /tmp/trading-engine-wheel
@@ -74,24 +142,40 @@ jobs:
         continue-on-error: true  # advisory; see docs/feedback.md 2026-09-26
       - run: .venv/bin/ruff check --select PLW2901 server tools
       - run: .venv/bin/ruff check --select RET504 server tools
-      - run: .venv/bin/ruff check --select S101 engine farm sim server tools
+      - run: .venv/bin/ruff check --select S101 engine farm sim server tools --extend-exclude farm/research/tests  # pytest asserts are the test idiom
       - run: .venv/bin/python -m pytest -q -W error -n 2 farm/research/tests  # outside testpaths
       - run: .venv/bin/python -m compileall -q engine sim server tests farm tools
       - run: find engine -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
       - run: bash -n server/run_server.sh ui/run_ui.sh
   ui-build:
+    needs: changes
+    if: needs.changes.outputs.scope == 'code'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ui
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - id: node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: ui/package-lock.json
-      - run: npm ci
+      # node_modules exactly as `npm ci` leaves it for this lock, package.json and Node;
+      # any change to them misses and runs `npm ci`, which also checks they agree.
+      - id: modules
+        uses: actions/cache/restore@v4
+        with:
+          path: ui/node_modules
+          key: ${{ runner.os }}-node${{ steps.node.outputs.node-version }}-modules-${{ hashFiles('ui/package-lock.json', 'ui/package.json') }}
+      - if: steps.modules.outputs.cache-hit != 'true'
+        run: npm ci
+      - if: steps.modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ui/node_modules
+          key: ${{ steps.modules.outputs.cache-primary-key }}
       - run: npm audit --omit=dev --audit-level=moderate
       - run: npm test
       - uses: actions/cache@v4
@@ -101,3 +185,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-next-${{ hashFiles('ui/package-lock.json') }}-
       - run: npm run build
+  # One stable check for branch protection: every job the plan required passed.
+  ci:
+    if: always()
+    needs: [hygiene, changes, test, selected, checks, ui-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: python -m tools.affected_tests --ci-verdict

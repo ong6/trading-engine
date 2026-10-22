@@ -25,6 +25,8 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DEFAULT_DB
 from sim.strategies.configs import config_by_id
 
+from . import request_memo
+
 SOURCE_NAME = "nasdaq"
 ENDPOINT = verify_prices.API_URL
 ENDPOINT_API_VERSION = "nasdaq_quote_historical_v1"
@@ -245,6 +247,18 @@ def _volume(value: object) -> int:
 
 
 def _facts(ticker: str, response: verify_prices.NasdaqResponse) -> tuple[list[dict], dict]:
+    """Facts of one stored response; a status request parses each response once."""
+    key = (ticker, bytes(response.body), response.content_type, response.status_code,
+           response.received_at)
+    facts, diagnostics = request_memo.reuse(
+        "independent_price_facts", key, lambda: _parse_facts(ticker, response),
+    )
+    return [{**fact, "value": dict(fact["value"])} for fact in facts], dict(diagnostics)
+
+
+def _parse_facts(
+    ticker: str, response: verify_prices.NasdaqResponse,
+) -> tuple[list[dict], dict]:
     try:
         parsed = verify_prices.parse_nasdaq_history(ticker, response)
     except verify_prices.SourceError as exc:

@@ -25,6 +25,7 @@ import json
 import math
 import os
 import re
+import stat
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -32,6 +33,15 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 MANIFEST_PATH = Path(__file__).resolve().with_name("schedule-contract.json")
+# Optional host-local overlay for units another project installs on this host. It may only
+# add external units; it never redeclares or silences a unit of this repository.
+OVERLAY_PATH = Path.home() / ".config" / "trading-engine" / "schedule-contract.local.json"
+OVERLAY_MAX_BYTES = 65_536
+OVERLAY_KEYS = frozenset({"unit", "owner", "reason", "state", "activation", "timer", "service",
+                          "calendar", "max_runtime", "window_minutes", "store", "acknowledge"})
+# Rules an overlay entry may acknowledge for its own unit: where another project runs from
+# and how long it may run are that project's decision. Store holders are never acknowledged.
+OVERLAY_ACKNOWLEDGEABLE = frozenset({"lane-path", "unbounded"})
 STATES = frozenset({"enabled", "held", "disabled"})
 ACCESS = frozenset({"writer", "reader", "none"})
 ACTIVATIONS = frozenset({"boot", "timer", "manual", "slice"})
@@ -58,6 +68,7 @@ EXEC_KEYS = ("ExecStartPre", "ExecStart", "ExecStartPost", "ExecStop", "ExecStop
 STOP_VERBS = frozenset({"stop", "kill", "disable", "mask", "isolate", "restart", "try-restart",
                         "reload-or-restart", "freeze"})
 SHOW_PROPERTIES = ("Id", "LoadState", "ActiveState", "SubState", "UnitFileState", "Type",
+                   "ConditionResult", "Result",
                    "TimeoutStartUSec", "RuntimeMaxUSec", "Conflicts", "Triggers", *EXEC_KEYS)
 _SPAN_UNITS = {"": 1.0, "us": 1e-6, "usec": 1e-6, "ms": 1e-3, "msec": 1e-3, "s": 1.0,
                "sec": 1.0, "m": 60.0, "min": 60.0, "h": 3600.0, "hr": 3600.0, "d": 86400.0,
@@ -93,6 +104,12 @@ def autostart_units(manifest: dict | None = None) -> frozenset[str]:
     manifest = manifest or load_manifest()
     return frozenset(entry["unit"] for entry in manifest["units"] if entry["origin"] == "repo"
                      and entry["state"] == "enabled" and _installable(entry))
+
+
+def completing_units(manifest: dict | None = None) -> frozenset[str]:
+    """Finite boot units: done (start condition unmet) or between runs counts as running."""
+    manifest = manifest or load_manifest()
+    return frozenset(entry["unit"] for entry in manifest["units"] if entry.get("completes"))
 
 
 def held_units(manifest: dict | None = None) -> frozenset[str]:
@@ -138,6 +155,11 @@ def _schema_issues(manifest: dict) -> list[dict]:
                     problems.append("calendar")
         elif entry.get("activation") == "timer" and entry.get("timer") not in units:
             problems.append("timer")
+        if "completes" in entry and (
+                entry["completes"] is not True or entry.get("activation") != "boot"
+                or not all(isinstance(entry.get(key), str) and entry[key]
+                           for key in ("completion_marker", "completion_manifest"))):
+            problems.append("completes")
         if "max_runtime" in entry and entry["max_runtime"] is not None and span_seconds(
                 entry["max_runtime"]) is None:
             problems.append("max_runtime")
@@ -166,6 +188,101 @@ def _store_problems(entry: dict, store: dict | None, units: dict[str, dict]) -> 
     if _schedule_matcher(entry, units) is None:
         return ["schedule window without a calendar or cron schedule"]
     return []
+
+
+# --------------------------------------------------------------------------- local overlay
+def _overlay_text(path: Path) -> str | None:
+    """The overlay's text, None when absent; refuses links, other owners and open modes."""
+    try:
+        # O_NONBLOCK: a FIFO or device in its place must not block the hourly check.
+        descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ValueError(f"unreadable or a symbolic link ({exc.strerror})") from exc
+    with os.fdopen(descriptor, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("not a regular file")
+        if info.st_uid != os.getuid():
+            raise ValueError("not owned by this user")
+        if info.st_mode & 0o077:
+            raise ValueError(f"mode {stat.S_IMODE(info.st_mode):o} is not owner-only")
+        raw = handle.read(OVERLAY_MAX_BYTES + 1)
+    if len(raw) > OVERLAY_MAX_BYTES:
+        raise ValueError("larger than 64 KiB")
+    return raw.decode("utf-8")
+
+
+def _unique_keys(pairs: list[tuple[str, object]]) -> dict:
+    keys = [key for key, _value in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError(f"duplicate key {sorted(k for k in keys if keys.count(k) > 1)[0]!r}")
+    return dict(pairs)
+
+
+def _overlay_entry(item: object, reserved: set[str]) -> dict:
+    if not isinstance(item, dict) or not set(item) <= OVERLAY_KEYS:
+        raise ValueError("an entry is not an object of known keys")
+    name = item.get("unit")
+    if not isinstance(name, str) or "/" in name or not name.endswith(UNIT_SUFFIXES):
+        raise ValueError(f"invalid unit name {name!r}")
+    if name in reserved or re.match(r"trading-engine[-@.]", name):
+        raise ValueError(f"{name} belongs to this repository's manifest")
+    # An overlay unit never holds a store: a declared store would excuse a foreign holder.
+    if name.endswith(".timer") and "store" in item:
+        raise ValueError(f"{name}: a timer declares no store")
+    if not name.endswith(".timer") and item.get("store") != {"access": "none"}:
+        raise ValueError(f'{name}: an overlay unit must declare store {{"access": "none"}}')
+    for key in ("owner", "reason"):
+        if not isinstance(item.get(key), str) or not item[key].strip():
+            raise ValueError(f"{name} needs a non-empty {key}")
+    acknowledge = item.get("acknowledge", [])
+    if not isinstance(acknowledge, list) or not set(acknowledge) <= OVERLAY_ACKNOWLEDGEABLE:
+        raise ValueError(f"{name} may acknowledge only {sorted(OVERLAY_ACKNOWLEDGEABLE)}")
+    entry = {key: value for key, value in item.items()
+             if key not in {"owner", "acknowledge"}}
+    entry.update(origin="external", managed_by=item["owner"], local_overlay=True)
+    reason = f"host-local unit of {item['owner']}: {item['reason']}"
+    entry["pinned_exception"] = [{"rule": rule, "reason": reason} for rule in acknowledge]
+    return entry
+
+
+def apply_overlay(manifest: dict, path: Path | None, repo_units: set[str] = frozenset()
+                  ) -> tuple[dict, dict]:
+    """Merge the optional local overlay into a copy of the manifest, with a status report.
+
+    An invalid overlay is ignored as a whole and reported, never half-applied.
+    """
+    report = {"path": str(path) if path else None, "status": "absent", "units": [],
+              "error": None}
+    if path is None:
+        return manifest, report
+    try:
+        text = _overlay_text(path)
+        if text is None:
+            return manifest, report
+        document = json.loads(text, object_pairs_hook=_unique_keys)
+        if (not isinstance(document, dict) or set(document) != {"version", "units"}
+                or document["version"] != 1 or not isinstance(document["units"], list)):
+            raise ValueError('expected {"version": 1, "units": [...]}')
+        reserved = set(_units(manifest)) | set(repo_units)
+        entries = [_overlay_entry(item, reserved) for item in document["units"]]
+        merged = {**manifest, "units": [*manifest["units"], *entries]}
+        names = {entry["unit"] for entry in entries}
+        issues = [item for item in _schema_issues(merged) if item["subject"] in names
+                  or item["subject"] == "manifest"]
+        if issues:
+            raise ValueError("; ".join(f"{item['subject']}: {item['detail']['problem']}"
+                                       for item in issues))
+    except (OSError, UnicodeDecodeError, ValueError, TypeError, KeyError,
+            RecursionError, MemoryError) as exc:
+        error = str(exc) if not isinstance(exc, RecursionError) else "nested too deeply"
+        return manifest, {**report, "status": "invalid", "error": error[:300]}
+    return merged, {**report, "status": "loaded", "units": [
+        {"unit": entry["unit"], "owner": entry["managed_by"], "reason": entry["reason"],
+         "acknowledged": sorted(rule["rule"] for rule in entry["pinned_exception"])}
+        for entry in entries]}
 
 
 # --------------------------------------------------------------------------- time
@@ -354,6 +471,11 @@ def _apply_exceptions(units: dict[str, dict], violations: list[dict]) -> tuple[l
     return kept, excepted
 
 
+def _bounded_boot(entry: dict | None) -> bool:
+    """A boot service that declares a runtime bound must enforce it like a timer's service."""
+    return bool(entry and entry.get("activation") == "boot" and entry.get("max_runtime"))
+
+
 def _repo_unit_files(repo_root: Path) -> dict[str, str]:
     files = {}
     for folder in ("server", "ui"):
@@ -400,7 +522,7 @@ def static_check(
             calendar = directives.get("OnCalendar", [])
             if target != entry.get("service") or calendar != entry.get("calendar", []):
                 violations.append(_violation("timer-drift", name, unit=target, calendar=calendar))
-        if name in triggered:
+        if name in triggered or _bounded_boot(entry):
             bound = unit_bound_seconds(directives)
             declared_max = span_seconds((entry or {}).get("max_runtime") or "")
             if bound is None:
@@ -486,11 +608,53 @@ def _live_bound(block: dict[str, list[str]]) -> float | None:
     return span_seconds(_prop(block, "RuntimeMaxUSec"))
 
 
+COMPLETION_MAX_BYTES = 4 * 1024 * 1024
+
+
+def _json_file(path: Path) -> dict | None:
+    text = _read(path, COMPLETION_MAX_BYTES + 1)
+    if text is None or len(text) > COMPLETION_MAX_BYTES:
+        return None
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def completion_recorded(entry: dict, engine_root: Path) -> bool:
+    """The unit's completion marker exists and names the manifest it was run for."""
+    marker = _json_file(engine_root / entry["completion_marker"])
+    manifest = _json_file(engine_root / entry["completion_manifest"])
+    identity = None if manifest is None else manifest.get("manifest_sha256")
+    return (marker is not None and isinstance(identity, str) and bool(identity)
+            and marker.get("manifest_sha256") == identity)
+
+
+def completed_or_resuming(entry: dict, block: dict[str, list[str]], engine_root: Path) -> bool:
+    """A finite boot unit (``completes``) between runs: waiting to restart, or done.
+
+    Waiting counts only after a successful run (``Result=success``; a paused exit 75 is a
+    success through ``SuccessExitStatus``): a crash or a runtime-bound kill waiting to restart
+    is still a failure. Done means its start condition failed and its completion marker
+    names the current manifest, so a unit that was never started is not done. A unit
+    merely stopped is still ``not-active``.
+    """
+    if not entry.get("completes"):
+        return False
+    active = _prop(block, "ActiveState")
+    if active == "activating" and _prop(block, "SubState") == "auto-restart":
+        return _prop(block, "Result") == "success"
+    return (active == "inactive" and _prop(block, "ConditionResult") == "no"
+            and completion_recorded(entry, engine_root))
+
+
 def _host_unit(manifest: dict, name: str) -> bool:
     return any(fnmatch.fnmatchcase(name, item["pattern"]) for item in manifest["host_units"])
 
 
-def _unit_violations(manifest: dict, blocks: dict[str, dict[str, list[str]]]) -> list[dict]:
+def _unit_violations(manifest: dict, blocks: dict[str, dict[str, list[str]]],
+                     engine_root: Path) -> list[dict]:
     units = _units(manifest)
     markers = manifest["lane_path_markers"]
     violations = []
@@ -511,7 +675,7 @@ def _unit_violations(manifest: dict, blocks: dict[str, dict[str, list[str]]]) ->
                 violations.append(_violation("not-installed", name))
             elif file_state != "enabled":
                 violations.append(_violation("not-enabled", name, unit_file_state=file_state))
-            elif active != "active":
+            elif active != "active" and not completed_or_resuming(entry, block, engine_root):
                 violations.append(_violation("not-active", name, active_state=active))
     triggered = {target for block in blocks.values() if _prop(block, "Id").endswith(".timer")
                  for value in block.get("Triggers", []) for target in value.split()}
@@ -535,7 +699,7 @@ def _unit_violations(manifest: dict, blocks: dict[str, dict[str, list[str]]]) ->
         stopped = _stops(block, _protected(units, name))
         if stopped:
             violations.append(_violation("stops-live-unit", name, stops=stopped))
-        if name in triggered:
+        if name in triggered or _bounded_boot(entry):
             bound = _live_bound(block)
             declared = span_seconds((entry or {}).get("max_runtime") or "")
             if bound is None:
@@ -742,7 +906,7 @@ def live_check(
         shown = output([*args, "--", *names])
         if shown is not None:
             blocks = _show_blocks(shown)
-            violations += _unit_violations(manifest, blocks)
+            violations += _unit_violations(manifest, blocks, engine_root)
     crontab = output(["crontab", "-l"], absent_ok=True)
     if crontab is not None:
         violations += _cron_violations(manifest, crontab, engine_root, home)
@@ -761,8 +925,13 @@ def live_check(
 # --------------------------------------------------------------------------- results
 def check(*, static: bool, live: bool, repo_root: Path, manifest_path: Path = MANIFEST_PATH,
           now: datetime | None = None, autostart: frozenset[str] | None = None,
-          expected_cron: dict[str, str] | None = None, **live_args) -> dict:
-    """Run the requested checks and fold them into one result with an exit status."""
+          expected_cron: dict[str, str] | None = None,
+          overlay_path: Path | None = OVERLAY_PATH, **live_args) -> dict:
+    """Run the requested checks and fold them into one result with an exit status.
+
+    The live check also reads the optional host-local overlay (``overlay_path``); the static
+    check never does, so the checkout alone decides what this repository declares.
+    """
     now = now or datetime.now(UTC)
     result = {"checked_at": now.astimezone(UTC).isoformat(timespec="seconds"),
               "modes": [mode for mode, wanted in (("static", static), ("live", live)) if wanted],
@@ -777,7 +946,12 @@ def check(*, static: bool, live: bool, repo_root: Path, manifest_path: Path = MA
             parts.append(static_check(repo_root, manifest, autostart=autostart,
                                       expected_cron=expected_cron))
         if live:
-            parts.append(live_check(manifest, now=now, **live_args))
+            repo_units = {Path(source).name for source in _repo_unit_files(repo_root)}
+            local, overlay = apply_overlay(manifest, overlay_path, repo_units)
+            result["overlay"] = overlay
+            if overlay["status"] == "invalid":
+                result["errors"].append(f"local overlay invalid: {overlay['error']}")
+            parts.append(live_check(local, now=now, **live_args))
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         return {**result, "status": "error", "errors": [f"manifest malformed: {exc!r}"]}
     for part in parts:

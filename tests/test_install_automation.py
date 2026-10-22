@@ -858,7 +858,8 @@ def test_apply_changes_only_drifted_unit_and_crontab(tmp_path, monkeypatch):
     assert (["systemctl", "--user", "start", ui], None) not in calls
     autostart = sorted(install_automation.AUTOSTART_UNITS)
     assert (["systemctl", "--user", "is-enabled", *autostart], None) in calls
-    assert (["systemctl", "--user", "is-active", *autostart], None) in calls
+    running = [unit for unit in autostart if unit not in install_automation.COMPLETING_UNITS]
+    assert (["systemctl", "--user", "is-active", *running], None) in calls
     assert (unit_dir / api).read_bytes() == (
         root / install_automation.UNIT_SOURCES[api]
     ).read_bytes()
@@ -892,7 +893,8 @@ def test_apply_is_mutation_free_when_replanned_state_is_converged(tmp_path, monk
     assert result["changes"] == summary["changes"]
     assert calls == [
         (["systemctl", "--user", "is-enabled", *units], None),
-        (["systemctl", "--user", "is-active", *units], None),
+        (["systemctl", "--user", "is-active",
+          *[unit for unit in units if unit not in install_automation.COMPLETING_UNITS]], None),
     ]
 
 

@@ -9,7 +9,7 @@ import pytest
 from fastapi import HTTPException
 
 from engine.lib.provenance import canonical_sha256
-from server import main, p7_trial_status
+from server import main, p7_trial_status, request_memo
 
 
 def _authority(*, data_status: str = "blocked", drills_status: str = "pass") -> dict:
@@ -79,7 +79,8 @@ def test_current_status_reports_every_activation_blocker_without_writes(con, mon
     monkeypatch.setattr(
         p7_trial_status.agent_authority_read_models,
         "readiness",
-        lambda actual: _authority() if actual is con else pytest.fail("wrong connection"),
+        lambda actual: _authority() if request_memo.underlying(actual) is con
+        else pytest.fail("wrong connection"),
     )
     monkeypatch.setattr(
         p7_trial_status.agent_model_client,
@@ -264,7 +265,8 @@ def test_read_only_route_delegates_closes_and_maps_invalid_evidence(monkeypatch)
     monkeypatch.setattr(
         main.p7_trial_status,
         "project",
-        lambda actual: payload if actual is con else pytest.fail("wrong connection"),
+        lambda actual: payload if request_memo.underlying(actual) is con
+        else pytest.fail("wrong connection"),
     )
 
     assert main.paper_trial_status() == payload

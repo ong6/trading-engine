@@ -18,6 +18,7 @@ from . import (
     agent_model_client,
     agent_policy,
     p7_trial_attribution,
+    request_memo,
 )
 from .file_utils import read_bytes
 from .json_utils import loads_object
@@ -364,7 +365,15 @@ def project(
     *,
     registration_path: Path = REGISTRATION_PATH,
 ) -> dict:
-    """Project current P7 activation blockers without mutating any state."""
+    """Project current P7 activation blockers without mutating any state.
+
+    Identical evidence reads and response parses are reused within the projection.
+    """
+    with request_memo.scope():
+        return _project(request_memo.connection(con), registration_path)
+
+
+def _project(con: duckdb.DuckDBPyConnection, registration_path: Path) -> dict:
     manifest = registration(registration_path)
     try:
         authority = agent_authority_read_models.readiness(con)

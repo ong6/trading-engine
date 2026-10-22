@@ -27,6 +27,7 @@ def test_synthetic_market_contains_declared_price_features():
     assert secondary.open / primary.open - 1 == pytest.approx(0.01)
 
 
+@pytest.mark.slow
 def test_registered_proving_ground_power_size_and_canaries():
     result = run_proving_ground()
     assert result["power"]["seeds"] == len(POWER_SEEDS) == 50

@@ -167,11 +167,19 @@ def adversarial_strategy(features, parameters, seed, mode):
         "import",
         lambda: importlib.import_module("farm.research.tests.secret_module").SECRET,
     )
+    def outcome_copies():
+        # Every sandbox root except the read-only host system binds: walking /usr is walking the
+        # host toolchain (millions of files on a CI runner, past the study's 5 s budget), and
+        # the checkout holding outcome_secret.txt is never under it.
+        roots = [root for root in Path("/").iterdir() if root.name not in {"usr", "lib", "lib64"}]
+        return [match for root in roots for match in glob.glob(
+            f"{glob.escape(str(root))}/**/outcome_secret.txt", recursive=True)]
+
     blocked(
         "glob",
         lambda: (_ for _ in ()).throw(RuntimeError("not found"))
-        if not glob.glob("/**/outcome_secret.txt", recursive=True)
-        else glob.glob("/**/outcome_secret.txt", recursive=True),
+        if not outcome_copies()
+        else outcome_copies(),
     )
     blocked("proc", lambda: Path("/proc/self/cmdline").read_bytes())
     blocked("network", lambda: socket.socket())

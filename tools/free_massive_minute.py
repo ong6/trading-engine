@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Build and run the resumable P3 Massive free minute-bar capture."""
+"""Build and run the resumable P3 Massive free minute-bar capture.
+
+The capture is finite. When every chunk of the frozen manifest is stored it writes
+``capture-complete.json`` (the manifest identity) in the data directory, and a later start
+for the same manifest exits 0 at once; its user unit does not start while that file exists.
+``--max-runtime-hours`` pauses between chunks once the run is that old and exits 75 (resume
+later); the unit restarts it, so the capture keeps a bounded run without a failed result.
+"""
 from __future__ import annotations
 
 import argparse
@@ -22,6 +29,8 @@ from tools import free_sources as daily_capture
 
 ENDPOINT = "https://api.massive.com/v2/aggs/ticker/{ticker}/range/1/minute/{start}/{end}"
 MANIFEST_FILE = "manifest.json"
+COMPLETE_FILE = "capture-complete.json"
+EXIT_PAUSED = 75
 HTTP_TIMEOUT_SECONDS = 60
 # Until this branch reaches the daily service, leave its two ten-call starts uncontested.
 DAILY_HANDOFF_WINDOWS = (
@@ -290,8 +299,12 @@ def capture_manifest(
     sleep: Callable[[float], None] = time.sleep,
     rate_limit: Callable[[], object] | None = None,
     progress: Callable[[dict], None] | None = None,
+    monotonic: Callable[[], float] | None = None,
+    max_runtime_seconds: float | None = None,
 ) -> dict:
+    monotonic = monotonic or time.monotonic
     client = session or requests.Session()
+    deadline = None if max_runtime_seconds is None else monotonic() + max_runtime_seconds
     database.parent.mkdir(parents=True, exist_ok=True)
     con = db.connect(database, wait_s=0)
     completed = 0
@@ -300,12 +313,20 @@ def capture_manifest(
         for ticker_item in manifest["tickers"]:
             ticker = ticker_item["ticker"]
             for chunk in manifest["chunks"]:
+                if deadline is not None and monotonic() >= deadline:
+                    return {"status": "paused", "completed_chunks": completed,
+                            "manifest_sha256": manifest["manifest_sha256"]}
                 start, end = date.fromisoformat(chunk["start"]), date.fromisoformat(chunk["end"])
                 if not _minute_network_permitted(now()):
                     resume_at = _next_permitted(now())
-                    sleep(max(0.0, (resume_at - daily_capture._aware_utc(
+                    wait = max(0.0, (resume_at - daily_capture._aware_utc(
                         now(), "capture timestamp"
-                    )).total_seconds()))
+                    )).total_seconds())
+                    # Pause rather than sleep through a no-call window past the bound.
+                    if deadline is not None and monotonic() + wait >= deadline:
+                        return {"status": "paused", "completed_chunks": completed,
+                                "manifest_sha256": manifest["manifest_sha256"]}
+                    sleep(wait)
                 try:
                     result = capture_chunk(
                         con, manifest_sha256=manifest["manifest_sha256"], ticker=ticker,
@@ -334,6 +355,25 @@ def capture_manifest(
             "manifest_sha256": manifest["manifest_sha256"]}
 
 
+def completed_manifest(data_dir: Path) -> str | None:
+    """The manifest identity recorded as completely captured, or None."""
+    try:
+        payload = json.loads((data_dir / COMPLETE_FILE).read_text())
+    except (OSError, ValueError):
+        return None
+    value = payload.get("manifest_sha256") if isinstance(payload, dict) else None
+    return value if isinstance(value, str) and free_sources.SHA256.fullmatch(value) else None
+
+
+def _mark_complete(data_dir: Path, result: dict) -> None:
+    payload = {"manifest_sha256": result["manifest_sha256"],
+               "completed_chunks": result["completed_chunks"],
+               "completed_at": datetime.now(timezone.utc).isoformat()}
+    daily_capture._write_private_atomic(
+        data_dir / COMPLETE_FILE, (json.dumps(payload, sort_keys=True) + "\n").encode()
+    )
+
+
 def _summary(manifest: dict) -> dict:
     return {
         "status": "prepared", "manifest_sha256": manifest["manifest_sha256"],
@@ -351,7 +391,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--priority-tickers", type=Path)
     parser.add_argument("--priority-json", type=Path)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--max-runtime-hours", type=float,
+                        help="pause between chunks after this long and exit 75 to resume later")
     args = parser.parse_args(argv)
+    if args.max_runtime_hours is not None and not args.max_runtime_hours > 0:
+        parser.error("--max-runtime-hours must be positive")
     try:
         manifest = prepare_manifest(
             daily_database=args.daily_database, data_dir=args.data_dir,
@@ -361,12 +405,23 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(_summary(manifest), sort_keys=True), flush=True)
         if args.prepare_only:
             return 0
+        if completed_manifest(args.data_dir) == manifest["manifest_sha256"]:
+            print(json.dumps({"status": "complete", "reason": "capture already complete",
+                              "manifest_sha256": manifest["manifest_sha256"]},
+                             sort_keys=True), flush=True)
+            return 0
         api_key = daily_capture._load_massive_key()
         result = capture_manifest(
             manifest, database=args.database, data_dir=args.data_dir, api_key=api_key,
             progress=lambda item: print(json.dumps(item, sort_keys=True), flush=True),
+            max_runtime_seconds=(None if args.max_runtime_hours is None
+                                 else args.max_runtime_hours * 3600),
         )
+        if result["status"] == "complete":
+            _mark_complete(args.data_dir, result)
         print(json.dumps(result, sort_keys=True), flush=True)
+        if result["status"] == "paused":
+            return EXIT_PAUSED
     except free_sources.FreeSourceError as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True), flush=True)
         return 2

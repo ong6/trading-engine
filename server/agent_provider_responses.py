@@ -23,6 +23,8 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DEFAULT_DB
 from sim.strategies.configs import config_by_id
 
+from . import request_memo
+
 SOURCE_NAME = "yfinance"
 ENDPOINT = "https://query2.finance.yahoo.com/v8/finance/chart"
 ENDPOINT_API_VERSION = "yahoo_finance_chart_v8"
@@ -492,6 +494,15 @@ def _corporate_action_facts(
 
 
 def _facts(body: bytes, ticker: str, provider_ticker: str) -> list[dict]:
+    """Facts of one response body; a status request parses each body once."""
+    facts = request_memo.reuse(
+        "provider_response_facts", (bytes(body), ticker, provider_ticker),
+        lambda: _parse_facts(body, ticker, provider_ticker),
+    )
+    return [{**fact, "value": dict(fact["value"])} for fact in facts]
+
+
+def _parse_facts(body: bytes, ticker: str, provider_ticker: str) -> list[dict]:
     result = _response_result(body, provider_ticker)
     zone, timestamps, quote_values = _response_series(result)
     facts, seen = _price_facts(ticker, zone, timestamps, quote_values)
@@ -1463,16 +1474,25 @@ def _cache_value_sha256(
     fact_date: date,
     kind: str,
     available_tables: set[str],
+    price_rows: dict[tuple[str, date], list[tuple]] | None = None,
 ) -> str | None:
-    """Hash one current cache fact in the exact shape emitted by ``_facts``."""
+    """Hash one current cache fact in the exact shape emitted by ``_facts``.
+
+    ``price_rows`` holds the cache rows of every daily-price key read in one query by
+    ``_daily_price_cache_rows``; without it the key is read on its own.
+    """
     if dataset == "daily_price":
         if "prices" not in available_tables:
             return None
-        rows = con.execute(
-            "SELECT ticker, date, open, high, low, close, volume, source "
-            "FROM prices WHERE ticker = ? AND date = ?",
-            [ticker, fact_date],
-        ).fetchall()
+        rows = (
+            price_rows.get((ticker, fact_date), [])
+            if price_rows is not None
+            else con.execute(
+                "SELECT ticker, date, open, high, low, close, volume, source "
+                "FROM prices WHERE ticker = ? AND date = ?",
+                [ticker, fact_date],
+            ).fetchall()
+        )
         if len(rows) > 1:
             raise ProviderResponseError("current price cache key is ambiguous")
         if not rows:
@@ -1516,6 +1536,28 @@ def _cache_value_sha256(
     return canonical_sha256(value)
 
 
+def _daily_price_cache_rows(
+    con: duckdb.DuckDBPyConnection, keys: list[tuple[str, date]],
+) -> dict[tuple[str, date], list[tuple]]:
+    """Every cache row of the given (ticker, date) keys, one query per ticker.
+
+    A single join over all keys scans the whole price table and holds about 0.5 GB; one
+    filtered read per ticker stays as small as the point lookups it replaces.
+    """
+    rows: dict[tuple[str, date], list[tuple]] = {}
+    by_ticker: dict[str, list[date]] = {}
+    for ticker, fact_date in keys:
+        by_ticker.setdefault(ticker, []).append(fact_date)
+    for ticker, dates in sorted(by_ticker.items()):
+        for row in con.execute(
+            "SELECT ticker, date, open, high, low, close, volume, source FROM prices "
+            "WHERE ticker = ? AND date BETWEEN ? AND ? AND list_contains(?::DATE[], date)",
+            [ticker, min(dates), max(dates), sorted(dates)],
+        ).fetchall():
+            rows.setdefault((row[0], row[1]), []).append(row)
+    return rows
+
+
 def _cache_alignment(con: duckdb.DuckDBPyConnection) -> dict:
     """Compare newest exact-source facts with cache values without exposing either."""
     source_table = con.execute(
@@ -1543,6 +1585,13 @@ def _cache_alignment(con: duckdb.DuckDBPyConnection) -> dict:
             "WHERE table_name IN ('prices', 'corporate_actions')"
         ).fetchall()
     }
+    price_rows = (
+        _daily_price_cache_rows(con, sorted({
+            (ticker, fact_date)
+            for dataset, ticker, fact_date, *_rest in latest if dataset == "daily_price"
+        }))
+        if "prices" in available_tables else None
+    )
     latest_receipt_by_value = {}
     for ticker, provider_ticker, received_at, body in con.execute(
         "SELECT ticker, provider_ticker, received_at, response_body "
@@ -1571,6 +1620,7 @@ def _cache_alignment(con: duckdb.DuckDBPyConnection) -> dict:
             fact_date=fact_date,
             kind=kind,
             available_tables=available_tables,
+            price_rows=price_rows,
         )
         if cache_sha256 is None:
             missing += 1

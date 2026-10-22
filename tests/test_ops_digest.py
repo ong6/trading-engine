@@ -38,6 +38,9 @@ def _no_host_units(tmp_path, monkeypatch):
     monkeypatch.setattr(ops_digest, "HOST_LOG_GLOBS", ())
     monkeypatch.setattr(ops_digest, "contract_probe", lambda _now: CONTRACT_OK)
     monkeypatch.setattr(ops_digest, "invariants_probe", lambda _ops_dir: INVARIANTS_IDLE)
+    # The gateway preflight reads the installed CLI's version through the fake runner.
+    # Resolve a fixed path so a host without the CLI on PATH (CI) builds the same report.
+    monkeypatch.setattr(ops_digest.model_gateway_check, "runtime_binary", lambda: "/opt/cli")
 
 
 def _entry(stamp: str, message: str, ident: str = "python") -> str:
@@ -731,6 +734,31 @@ def test_registry_schedule_audit_compares_an_installed_timer_calendar():
     assert ops_digest.registry_schedule_audit(run) == [
         "installed-timer-schedule-mismatch:trading-engine-p15-preopen.service"
     ]
+
+
+def test_registry_schedule_audit_reads_systemds_calendar_order_and_seconds():
+    # systemd 241 lists a timer's calendars newest-first and spells out ":00" seconds.
+    shown = {
+        "trading-engine-p15-events": "Mon..Fri *-*-* 10..15:05,20,35,50:00 America/New_York",
+        "trading-engine-accounts-settle": "Tue..Sat *-*-* 11:55:00 UTC",
+    }
+    later = {
+        "trading-engine-p15-events": "Mon..Fri *-*-* 09:35,50:00 America/New_York",
+        "trading-engine-accounts-settle": "Tue..Sat *-*-* 07:45:00 UTC",
+    }
+
+    def run(args, _timeout):
+        if args[:3] == ["systemctl", "--user", "list-timers"]:
+            return "".join(f"x {name}.timer {name}.service\n" for name in shown)
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return "\n\n".join(
+                f"Unit={name}.service\nTimersCalendar={{ OnCalendar={shown[name]} ; "
+                f"next_elapse=x }}\nTimersCalendar={{ OnCalendar={later[name]} ; "
+                f"next_elapse=y }}\nAccuracyUSec=1min\nRandomizedDelayUSec=0"
+                for name in shown) + "\n"
+        return ""
+
+    assert ops_digest.registry_schedule_audit(run) == []
 
 
 def test_fourteen_day_schedule_change_short_journal_and_dated_receipts(tmp_path):

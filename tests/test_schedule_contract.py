@@ -168,7 +168,7 @@ def _healthy_blocks(manifest: dict) -> dict[str, dict[str, str]]:
                          else "disabled", ActiveState="active" if enabled else "inactive")
         elif entry.get("activation") == "boot":
             block.update(UnitFileState="enabled", ActiveState="active", SubState="running",
-                         Type="simple")
+                         Type="simple", RuntimeMaxUSec=entry.get("max_runtime") or "infinity")
         if name in {"store-sync.service", "te-autopush.service"}:
             block["TimeoutStartUSec"] = "5min"
         blocks[name] = block
@@ -223,8 +223,9 @@ def test_live_unit_state_drift_failures_and_lane_units_are_violations(tmp_path):
     blocks["trading-engine-p15-preopen.service"]["ActiveState"] = "failed"
     blocks["trading-engine-ui.service"]["ActiveState"] = "inactive"
     blocks["te-autopush.service"]["TimeoutStartUSec"] = "infinity"
-    blocks["massive-minute-capture.service"] = {
-        "Id": "massive-minute-capture.service", "LoadState": "loaded", "ActiveState": "active",
+    blocks["massive-minute-capture.service"]["RuntimeMaxUSec"] = "infinity"
+    blocks["scratch-capture.service"] = {
+        "Id": "scratch-capture.service", "LoadState": "loaded", "ActiveState": "active",
         "SubState": "running", "UnitFileState": "static", "Type": "simple",
         "WorkingDirectory": "/srv/engine-lanes/minute", "ExecStart": "{ path=/bin/sh ; }"}
     blocks["p22-rb-trading-engine-api.service"] = {
@@ -242,8 +243,9 @@ def test_live_unit_state_drift_failures_and_lane_units_are_violations(tmp_path):
         ("failed", "trading-engine-p15-preopen.service"),
         ("not-active", "trading-engine-ui.service"),
         ("unbounded", "te-autopush.service"),
-        ("off-manifest-unit", "massive-minute-capture.service"),
-        ("lane-path", "massive-minute-capture.service"),
+        ("unbounded", "massive-minute-capture.service"),
+        ("off-manifest-unit", "scratch-capture.service"),
+        ("lane-path", "scratch-capture.service"),
         ("off-manifest-unit", "p22-rb-trading-engine-api.service"),
         ("stops-live-unit", "p22-rb-trading-engine-api.service"),
         ("missing-cron", "cron:run_daily"),
@@ -396,3 +398,206 @@ def test_public_status_is_bounded_path_free_and_ages(tmp_path):
                                 "violations": [violations[-1]]}))
     assert sc.public_status(path, now=now)["violations"] == [
         {"rule": "lane-path", "subject": "redacted"}]
+
+
+# --------------------------------------------------------------------------- local overlay
+STUDY_OVERLAY = {"version": 1, "units": [
+    {"unit": "study_run.timer", "owner": "alpha", "state": "enabled", "reason": "study timer",
+     "service": "study_run.service", "calendar": ["*-*-* *:00,30:00"]},
+    {"unit": "study_run.service", "owner": "alpha", "state": "enabled",
+     "reason": "resumable study run from its own clone", "activation": "timer",
+     "timer": "study_run.timer", "max_runtime": None, "store": {"access": "none"},
+     "acknowledge": ["lane-path", "unbounded"]},
+]}
+
+
+def _study_host(tmp_path):
+    home = tmp_path / "home"
+    blocks = _healthy_blocks(MANIFEST)
+    blocks["study_run.timer"] = {
+        "Id": "study_run.timer", "LoadState": "loaded", "ActiveState": "active",
+        "SubState": "waiting", "UnitFileState": "enabled", "Triggers": "study_run.service"}
+    blocks["study_run.service"] = {
+        "Id": "study_run.service", "LoadState": "loaded", "ActiveState": "inactive",
+        "SubState": "dead", "UnitFileState": "static", "Type": "oneshot",
+        "TimeoutStartUSec": "infinity", "WorkingDirectory": "/srv/alpha-lanes/study",
+        "ExecStart": "{ path=/usr/bin/python3 ; }"}
+    (tmp_path / "proc").mkdir(exist_ok=True)
+    return dict(run=_runner(blocks, _crontab(home / "trading-engine", home)),
+                proc_root=tmp_path / "proc", now=BEFORE_PREOPEN,
+                engine_root=home / "trading-engine", home=home)
+
+
+def _overlay(tmp_path, document, mode=0o600) -> Path:
+    path = tmp_path / "schedule-contract.local.json"
+    path.write_text(json.dumps(document))
+    path.chmod(mode)
+    return path
+
+
+def _check_live(tmp_path, overlay_path):
+    return sc.check(static=False, live=True, repo_root=REPO_ROOT, overlay_path=overlay_path,
+                    **_study_host(tmp_path))
+
+
+def test_host_local_overlay_declares_another_projects_units(tmp_path):
+    without = _check_live(tmp_path, tmp_path / "absent.json")
+    assert without["overlay"]["status"] == "absent"
+    assert _pairs(without) == {("off-manifest-unit", "study_run.timer"),
+                               ("lane-path", "study_run.service"),
+                               ("unbounded", "study_run.service")}
+
+    result = _check_live(tmp_path, _overlay(tmp_path, STUDY_OVERLAY))
+
+    assert result["status"] == "ok" and result["violations"] == []
+    assert {(item["rule"], item["subject"]) for item in result["exceptions"]} == {
+        ("lane-path", "study_run.service"), ("unbounded", "study_run.service")}
+    assert [item["unit"] for item in result["overlay"]["units"]] == [
+        "study_run.timer", "study_run.service"]
+    assert result["overlay"]["units"][1]["acknowledged"] == ["lane-path", "unbounded"]
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda doc: doc["units"].append({**doc["units"][1], "unit": "te-autopush.service"}),
+     "belongs to this repository"),
+    (lambda doc: doc["units"].append({**doc["units"][1], "unit": "trading-engine-api.service"}),
+     "belongs to this repository"),
+    (lambda doc: doc["units"].append({**doc["units"][1], "unit": "massive-minute-capture.service"}),
+     "belongs to this repository"),
+    (lambda doc: doc["units"][1].update(acknowledge=["foreign-holder"]), "may acknowledge only"),
+    (lambda doc: doc["units"][1].update(pinned_exception=[]), "known keys"),
+    (lambda doc: doc["units"][1].update(owner=""), "non-empty owner"),
+    (lambda doc: doc["units"][1].update(timer="other.timer"), "study_run"),
+    (lambda doc: doc.update(version=2), "version"),
+])
+def test_invalid_overlay_is_ignored_whole_and_reported(tmp_path, change, message):
+    document = json.loads(json.dumps(STUDY_OVERLAY))
+    change(document)
+
+    result = _check_live(tmp_path, _overlay(tmp_path, document))
+
+    assert result["status"] == "error"
+    assert result["overlay"]["status"] == "invalid" and message in result["overlay"]["error"]
+    assert ("off-manifest-unit", "study_run.timer") in _pairs(result)
+    assert result["exceptions"] == []
+
+
+def test_overlay_must_be_an_owner_only_regular_file(tmp_path):
+    loose = _check_live(tmp_path, _overlay(tmp_path, STUDY_OVERLAY, mode=0o644))
+    assert loose["overlay"]["status"] == "invalid" and "owner-only" in loose["overlay"]["error"]
+
+    target = _overlay(tmp_path, STUDY_OVERLAY)
+    link = tmp_path / "link.json"
+    link.symlink_to(target)
+    linked = _check_live(tmp_path, link)
+    assert linked["overlay"]["status"] == "invalid" and "symbolic link" in linked["overlay"]["error"]
+
+
+def test_static_check_never_reads_the_overlay(tmp_path):
+    result = sc.check(static=True, live=False, repo_root=REPO_ROOT,
+                      overlay_path=_overlay(tmp_path, STUDY_OVERLAY, mode=0o644))
+    assert "overlay" not in result and result["errors"] == []
+
+
+def test_overlay_unit_declaring_a_store_is_refused_and_the_holder_stays_foreign(tmp_path):
+    document = json.loads(json.dumps(STUDY_OVERLAY))
+    document["units"][1]["store"] = {"access": "writer", "writes": ["store/market.duckdb"],
+                                     "reads": [], "windows": "always"}
+    host = _study_host(tmp_path)
+    engine = host["engine_root"]
+    _process(host["proc_root"], 777, cmdline="python -m study", cgroup=_user_unit(
+        "study_run.service"), fds={5: (engine / "store" / "market.duckdb", "0100002")})
+
+    result = sc.check(static=False, live=True, repo_root=REPO_ROOT,
+                      overlay_path=_overlay(tmp_path, document), **host)
+
+    assert result["overlay"]["status"] == "invalid"
+    assert 'must declare store {"access": "none"}' in result["overlay"]["error"]
+    assert ("foreign-holder", "study_run.service") in _pairs(result)
+
+
+@pytest.mark.parametrize("text, message", [
+    ('{"version": 1, "version": 1, "units": []}', "duplicate key 'version'"),
+    ('{"version": 1, "units": ' + "[" * 30_000 + "]" * 30_000 + "}", "nested too deeply"),
+], ids=["duplicate-key", "deep-nesting"])
+def test_overlay_with_duplicate_keys_or_runaway_nesting_is_invalid(tmp_path, text, message):
+    path = tmp_path / "overlay.json"
+    path.write_text(text)
+    path.chmod(0o600)
+    result = _check_live(tmp_path, path)
+    assert result["overlay"]["status"] == "invalid" and message in result["overlay"]["error"]
+
+
+@pytest.mark.parametrize("name", ["trading-engine.service", "trading-engine@x.service"])
+def test_overlay_may_not_name_an_engine_unit_by_any_spelling(tmp_path, name):
+    document = json.loads(json.dumps(STUDY_OVERLAY))
+    document["units"].append({**document["units"][1], "unit": name})
+    result = _check_live(tmp_path, _overlay(tmp_path, document))
+    assert "belongs to this repository" in result["overlay"]["error"]
+
+
+def test_a_fifo_in_place_of_the_overlay_is_refused_without_blocking(tmp_path):
+    import os
+    import time
+
+    fifo = tmp_path / "overlay.json"
+    os.mkfifo(fifo, 0o600)
+    started = time.monotonic()
+    result = _check_live(tmp_path, fifo)
+    assert time.monotonic() - started < 3
+    assert result["overlay"]["status"] == "invalid"
+    assert "not a regular file" in result["overlay"]["error"]
+
+
+def _minute_marker(engine: Path, manifest: str | None, marker: str | None) -> None:
+    data = engine / "store" / "pit" / "massive-minute"
+    data.mkdir(parents=True, exist_ok=True)
+    if manifest is not None:
+        (data / "manifest.json").write_text(json.dumps({"manifest_sha256": manifest}))
+    if marker is not None:
+        (data / "capture-complete.json").write_text(json.dumps({"manifest_sha256": marker}))
+
+
+@pytest.mark.parametrize("state, sub, condition, result, marker, rule", [
+    ("inactive", "dead", "no", "success", "a" * 64, None),
+    ("activating", "auto-restart", "yes", "success", None, None),
+    ("activating", "auto-restart", "yes", "exit-code", None, "not-active"),
+    ("activating", "auto-restart", "yes", "timeout", None, "not-active"),
+    ("inactive", "dead", "no", "success", None, "not-active"),
+    ("inactive", "dead", "no", "success", "b" * 64, "not-active"),
+    ("inactive", "dead", "yes", "success", "a" * 64, "not-active"),
+    ("failed", "failed", "yes", "exit-code", None, "failed"),
+], ids=["done", "paused-between-runs", "crashed", "runtime-bound-kill",
+        "never-started", "marker-for-another-manifest", "stopped", "failed"])
+def test_finite_boot_unit_is_healthy_only_when_done_or_resuming_after_success(
+        tmp_path, state, sub, condition, result, marker, rule):
+    home = tmp_path / "home"
+    _minute_marker(home / "trading-engine", "a" * 64, marker)
+    blocks = _healthy_blocks(MANIFEST)
+    blocks["massive-minute-capture.service"].update(
+        ActiveState=state, SubState=sub, ConditionResult=condition, Result=result)
+
+    found = _live(tmp_path, blocks, _crontab(home / "trading-engine", home))
+
+    expected = set() if rule is None else {(rule, "massive-minute-capture.service")}
+    if rule == "failed":
+        expected.add(("not-active", "massive-minute-capture.service"))
+    assert _pairs(found) == expected
+
+
+def test_installer_counts_a_completed_finite_unit_as_settled(tmp_path, monkeypatch):
+    unit = "massive-minute-capture.service"
+    shown = {unit: "ActiveState=inactive\nSubState=dead\nConditionResult=no\nResult=success\n"}
+    monkeypatch.setattr(install_automation, "_run", lambda args, **_kw: _Result(
+        shown.get(args[3], "ActiveState=inactive\nSubState=dead\nConditionResult=yes\n")))
+    assert not install_automation._settled(unit, "inactive", tmp_path)
+    _minute_marker(tmp_path, "a" * 64, "a" * 64)
+    assert install_automation._settled(unit, "inactive", tmp_path)
+    assert install_automation._settled("trading-engine-api.service", "active", tmp_path)
+    assert not install_automation._settled("trading-engine-api.service", "inactive", tmp_path)
+    shown[unit] = "ActiveState=inactive\nConditionResult=yes\nResult=success\n"
+    assert not install_automation._settled(unit, "inactive", tmp_path)
+    shown[unit] = "ActiveState=activating\nSubState=auto-restart\nResult=success\n"
+    assert install_automation._settled(unit, "activating", tmp_path)
+    shown[unit] = "ActiveState=activating\nSubState=auto-restart\nResult=exit-code\n"
+    assert not install_automation._settled(unit, "activating", tmp_path)

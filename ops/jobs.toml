@@ -859,6 +859,53 @@ service_unit = "massive-options-daily.service"
 
 
 [[jobs]]
+job_id = "massive-minute-capture"
+version = 1
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.free_massive_minute", "--max-runtime-hours", "23"]
+schedules = []
+
+[jobs.timeout]
+attempt_seconds = 129600
+overall_seconds = 129600
+
+[jobs.retry]
+deadline_seconds = 129600
+
+[jobs.resources]
+nice = 10
+
+[jobs.legacy.service]
+unit = "massive-minute-capture.service"
+description = "Capture Massive free minute history for the frozen small-stock tier"
+after = ["network-online.target"]
+wants = ["network-online.target"]
+condition_path_exists = ["!%h/trading-engine/store/pit/massive-minute/capture-complete.json"]
+comments = [
+  "# Finite and resumable: each chunk commits in one transaction and a restart skips",
+  "# finished chunks. A run pauses after 23 h (exit 75) and restarts 15 min later; once",
+  "# every chunk is stored the tool writes capture-complete.json and the unit stays",
+  "# inactive at its next start. RuntimeMaxSec is the hard bound if a run stalls (a",
+  "# chunk already in progress may still wait out one no-call window after 23 h).",
+]
+type = "exec"
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.free_massive_minute", "--max-runtime-hours", "23"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 10
+io_scheduling_class = "idle"
+runtime_max = "36h"
+standard_output = "append:%h/.local/state/massive-minute.log"
+standard_error = "append:%h/.local/state/massive-minute.log"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+restart = "always"
+success_exit_status = 75
+restart_sec = "15min"
+wanted_by = "default.target"
+
+
+[[jobs]]
 job_id = "trading-engine-accounts-settle"
 version = 1
 authority = "paper"

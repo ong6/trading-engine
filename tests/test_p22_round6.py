@@ -249,6 +249,7 @@ def _delivery(root, monkeypatch, seed, delayed):
         return state, curve
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize('seed', SEEDS)
 def test_generated_delivery_matches_on_time_accounting(tmp_path, monkeypatch, seed):
     with monkeypatch.context() as patch:

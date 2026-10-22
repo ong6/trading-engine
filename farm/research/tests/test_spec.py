@@ -1,5 +1,6 @@
 import importlib
 import json
+import platform
 
 from engine.lib.resources import write_text_atomic
 from farm.research.canonical import file_sha256
@@ -10,13 +11,15 @@ from farm.research.tests.support import complete_contract
 pytest = importlib.import_module("pytest")
 
 
-def test_complete_contract_has_canonical_golden_bytes_and_derived_markdown(tmp_path):
+def test_complete_contract_has_canonical_golden_bytes_and_derived_markdown(tmp_path, monkeypatch):
+    # the contract records the running interpreter's version; the golden bytes fix it
+    monkeypatch.setattr(platform, "python_version", lambda: "3.12.13")
     contract = complete_contract(tmp_path)
     first = StudySpec.from_dict(contract)
     second = StudySpec.from_dict(json.loads(first.canonical_bytes))
     assert first.canonical_bytes == second.canonical_bytes
     assert first.sha256 == second.sha256
-    assert first.sha256 == "b090c4be153401b18326b019f229a569df3aecebb5b8342a18390b541aca0bcc"
+    assert first.sha256 == "062d9ac439b4c1d76dbcb0815d8c854a91b4158e3f7e156ae0b6408ac026158d"
     assert first.resolve(tmp_path).spec == first
     markdown = first.to_markdown()
     assert f"Contract SHA-256: `{first.sha256}`" in markdown

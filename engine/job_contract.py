@@ -376,6 +376,16 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
         command = _mapping(commands[primary], f"{label}.legacy.service.exec_start")
         if _validate_argv(command.get("argv"), f"{label}.legacy.service.exec_start") != argv:
             raise JobContractError(f"{label}: primary legacy command differs from argv")
+    elif service is not None:
+        service_table = _mapping(service, f"{label}.legacy.service")
+        if schedules or not isinstance(service_table.get("wanted_by"), str):
+            raise JobContractError(f"{label}: a boot service has no schedule and names wanted_by")
+        commands = service_table.get("exec_start", [])
+        if not isinstance(commands, list) or len(commands) != 1:
+            raise JobContractError(f"{label}: invalid legacy ExecStart list")
+        command = _mapping(commands[0], f"{label}.legacy.service.exec_start")
+        if _validate_argv(command.get("argv"), f"{label}.legacy.service.exec_start") != argv:
+            raise JobContractError(f"{label}: primary legacy command differs from argv")
     elif cron is not None:
         cron_table = _mapping(cron, f"{label}.legacy.cron")
         fields = cron_table.get("fields")
@@ -458,6 +468,8 @@ def render_service(spec: JobSpec) -> str:
         values = service.get(key, [])
         if values:
             lines.append(f"{key.title()}=" + " ".join(values))
+    lines.extend(f"ConditionPathExists={value}"
+                 for value in service.get("condition_path_exists", []))
     if service.get("start_limit_interval"):
         lines.append(f"StartLimitIntervalSec={service['start_limit_interval']}")
     if service.get("start_limit_burst"):
@@ -477,6 +489,7 @@ def render_service(spec: JobSpec) -> str:
         ("protect_system", "ProtectSystem"),
         ("protect_control_groups", "ProtectControlGroups"), ("umask", "UMask"),
         ("restart", "Restart"), ("restart_prevent_exit_status", "RestartPreventExitStatus"),
+        ("success_exit_status", "SuccessExitStatus"),
         ("restart_sec", "RestartSec"),
     )
     for key, rendered in ordered:
@@ -486,6 +499,9 @@ def render_service(spec: JobSpec) -> str:
             if isinstance(value, bool):
                 value = str(value).lower()
             lines.append(f"{rendered}={value}")
+    # A boot service (no timer) is enabled into a target so it starts without a login.
+    if service.get("wanted_by"):
+        lines += ["", "[Install]", f"WantedBy={service['wanted_by']}"]
     return "\n".join(lines) + "\n"
 
 

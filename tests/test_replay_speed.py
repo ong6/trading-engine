@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from sim import ledger, portfolio, settle
 from tests.conftest import SESSIONS, insert_bars
@@ -17,6 +18,7 @@ def _fill(con, book, order_id, ticker, side, qty, price, session):
                     [order_id, book, ticker, side, applied, session, price, price])
 
 
+@pytest.mark.slow
 def test_projection_checkpoints_reproduce_full_replays(con, book, monkeypatch):
     applied = {"cached": 0, "plain": 0}
     original = ledger.apply_event

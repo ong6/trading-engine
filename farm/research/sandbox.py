@@ -206,6 +206,9 @@ def run_sandboxed(
         _bind(command, label_root, "/labels")
     command.extend((
         "--setenv", "PATH", "/runtime/python/bin:/usr/bin",
+        # a shared-library interpreter finds libpython through an absolute host runpath,
+        # which does not exist here; its own lib directory is mounted under /runtime/python
+        "--setenv", "LD_LIBRARY_PATH", "/runtime/python/lib",
         "--setenv", "PYTHONPATH", os.pathsep.join(python_paths),
         "--setenv", "PYTHONNOUSERSITE", "1",
         "--setenv", "PYTHONDONTWRITEBYTECODE", "1",

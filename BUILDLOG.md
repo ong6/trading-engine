@@ -4727,4 +4727,251 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +110 lines, tests +60 lines.
 - **Next:** the single re-pin.
 
+## 2026-10-22 — Record the storage revision hold as a P24 checkpoint
+
+- **Why:** P24 closes with the storage revision deployed or held with a written checkpoint; the fresh review rejected it.
+- **What:** the P24 plan's Progress records revisions 18 and 19, the MNST restatement and the storage hold with its reasons and conditions.
+- **Evidence:** `pytest tests/test_documentation_integrity.py tests/test_operating_contract.py` passes.
+- **Metrics:** docs only.
+- **Next:** storage fixes and re-review.
+
+## 2026-10-22 — Read installed timer calendars in systemd's order and spelling (P24 reliability-ops)
+
+- **Why:** P24 reliability-ops. Every hourly digest since the job registry landed is FAIL on four "job registry config error: installed-timer-schedule-mismatch" lines (accounts-settle, four-hour opportunity, P15 events, TradingView history). Reproduction: `systemctl --user show trading-engine-p15-events.timer -p TimersCalendar` lists the 09:35 calendar after the 10..15 one and spells `10..15:05,20,35,50:00`; the audit compared that string with the registry's source-order `"; "` join.
+- **What:** `ops_digest.registry_schedule_audit` compares each timer's calendars as a set, with an omitted seconds field read as `:00`. A different calendar still reports the mismatch.
+- **Evidence:** on the host, `registry_schedule_audit` returns the four mismatches on main and `[]` on this branch; new `test_registry_schedule_audit_reads_systemds_calendar_order_and_seconds` passes and the 08:05-vs-09:05 mismatch test still fails the calendar.
+- **Metrics:** tools +18, tests +27.
+- **Next:** declare the minute capture and host-local units in the schedule contract.
+
+
+
+## 2026-10-22 — A skipped or failed latest backup run degrades the scheduler (P24 reliability-ops)
+
+- **Why:** P24 reliability-ops, owner item 2. The data backup exits 75 on busy engine locks and its unit maps 75 to success. The ops digest already shows such a run as `skipped/retry` and WARN (d6944074) and the backup receipt records `retry`, but `/meta` scheduler stayed `ok` while the previous backup commit was under 26 h old: on 2026-10-19 the 04:34 and 10:33 skips read as healthy until the age crossed 26 h.
+- **What:** `scheduler_monitor.status` is `degraded` whenever the latest recorded backup run is `retry` or `failed`, even with a current backup; the header names it (`backup current 20.1h (retry)`). Status and state values are unchanged, so the `/meta` and UI contracts hold.
+- **Evidence:** new `test_scheduler_degrades_when_the_latest_backup_run_was_skipped_or_failed[retry|failed]` fails on main (status `ok`) and passes; `node --test ui/tests/header-status.test.mjs` passes with the new case.
+- **Metrics:** server +6, ui +7, tests +45.
+- **Next:** the backup script should record `retry` when another backup holds its lock (it exits 75 without a receipt today); that file lives in the data repository.
+
+## 2026-10-22 — Answer /daily-opportunities/status in 3 s instead of 45 s (P24 reliability-ops)
+
+- **Why:** P24 reliability-ops item 6. On a 2026-10-22 store copy `daily_opportunity_read_models.status` took 43-48 s, all of it an N+1 in the common-entry label revalidation it embeds (`agent_evaluation.status`): 1,391 labels each re-read the SPY calendar, SPY bars and table existence (41 distinct SPY windows, 14 distinct tables) plus their own bars (204 distinct). A read-only API request holding the store that long also blocks writers.
+- **What:** `server/request_memo.py`: inside `scope()`, `connection(con)` answers an identical SELECT with identical parameters from its first answer (only SELECT/WITH without volatile functions; any other statement clears it; a result is kept only when read whole) and `reuse()` keeps one pure parse per key, never a failure. `status` runs inside a scope; no registered file changes.
+- **Evidence:** `status(con)` on a read-only copy, clock frozen at 2026-10-22T17:00Z, timed in-process: 44.83 s before, 3.04 s after, response SHA-256 `66fd7a7b…f09461` before and after; `pytest tests/test_request_memo.py tests/test_daily_opportunities.py` pass.
+- **Metrics:** server +208 (new module 201), tests +86.
+- **Next:** the same reuse for `/paper-trial/status`.
+
+## 2026-10-22 — Answer /paper-trial/status in 2.4 s instead of 7 s (P24 reliability-ops)
+
+- **Why:** P24 reliability-ops item 6. On the same store copy `p7_trial_status.project` took 6.8-7.5 s: the provider and independent-price evidence checks parsed each stored response body once per observation citing it (593 and 1,512 parses for 93 and 84 bodies), and the cache-alignment check read `prices` once per fact (843 point lookups).
+- **What:** `project` runs inside a `request_memo` scope; the two `_facts` parsers keep one parse per exact body (each caller gets its own copy, a failing parse is raised every time); `_cache_alignment` reads every daily-price cache row it compares in one join and hashes them exactly as the per-key path, which stays for other callers. No registered file changes; editing the two evidence modules moves the fault-drill suite's source identity, as any edit to them does.
+- **Evidence:** `project(con)` on a read-only copy, clock frozen and the gateway status stubbed, timed in-process: 6.93 s before, 2.38 s after, response SHA-256 `437021bb…027569` before and after; `pytest tests/test_request_memo.py tests/test_p7_trial_status.py tests/test_agent_provider_responses.py tests/test_agent_independent_price_evidence.py tests/test_agent_authority_read_models.py tests/test_server_routes.py` pass.
+- **Metrics:** server +60, tests +50.
+- **Next:** nothing admitted beyond the P24 reliability-ops items.
+
+## 2026-10-22 — Reuse only pure reads in status requests and keep the paper-trial read small (P24 reliability-ops)
+
+- **Why:** review of the two status speed-ups (T2, F4). Reproduced on the request memo: a second identical `WITH … INSERT` was answered from memory and never ran; `executemany()` and `register()` passed through without clearing, so the next read was stale; LIST/STRUCT cells were shared, so a caller's change leaked into later reads. `/paper-trial/status` peak RSS rose from 444 MB to 924 MB: the one-join cache read scanned the whole `prices` table.
+- **What:** the memo reuses only SELECT/WITH statements that name no write, session or volatile keyword; any other statement or proxy call clears it; results over 10,000 rows are not kept; rows with lists or maps are kept and handed out as copies. The cache rows are read with one filtered query per ticker instead of one join.
+- **Evidence:** `pytest tests/test_request_memo.py`: the five new cases fail on the previous memo and pass. Store copy, clock frozen: `/paper-trial/status` 2.0 s, 440 MB (main 6.7 s, 444 MB), digest `437021bb…` unchanged; `/daily-opportunities/status` 2.8 s, digest `66fd7a7b…` unchanged.
+- **Metrics:** server +45, tests +70.
+- **Next:** `agent_provider_responses.py` and `agent_independent_price_evidence.py` are fault-drill sources: on this branch the suite identity is `f3ee735f` (main `fb4699a9`), so rerun the fault drills after deploy.
+
+## 2026-10-22 — Make the minute capture a repo boot unit and declare host-local units in an overlay (P24 reliability-ops)
+
+- **Why:** P24 reliability-ops, owner items 3 and 7. `tools.schedule_contract_check --live` reports 8 violations. The minute capture is a transient unit under the runtime directory (lost at reboot), `Restart=no`, run from a lane clone's venv and undeclared (off-manifest, lane-path, foreign-holder). Another project's study timer and the notes sync are off-manifest; the notes sync and autopush run without a bound.
+- **What:** `ops/jobs.toml` registers `massive-minute-capture` as a boot service (`legacy.service.wanted_by`; the registry checks its command) and renders `server/massive-minute-capture.service`: live checkout, `Type=exec`, `RuntimeMaxSec=1d`, `Restart=on-failure` after 15 min, `WantedBy=default.target`. The manifest declares it (writer of `pit/massive-minute.duckdb`, always), and a boot unit that declares `max_runtime` must enforce it.
+  An optional owner-only overlay (`~/.config/trading-engine/schedule-contract.local.json`) adds external units with an owner and reason and may acknowledge only `lane-path`/`unbounded` for its own unit; it cannot name a repo or manifest unit and an invalid one is ignored whole and reported as an error. The notes sync moves there; autopush declares a 5 min bound.
+- **Evidence:** live check on the host with the proposed overlay from a temporary path: the study units are host-local with two acknowledged exceptions, foreign-holder and off-manifest are gone; left are the minute capture's not-enabled/lane-path/unbounded (until cut-over) and the two unbound sync units (until their drop-ins). `pytest tests/test_schedule_contract.py tests/test_job_contract.py` pass.
+- **Metrics:** server +110, engine +13, tests +125.
+- **Next:** orchestrator installs the overlay and drop-ins and cuts the minute capture over.
+
+## 2026-10-22 — Model the minute capture as a finite unit and close the overlay's holes (P24 reliability-ops)
+
+- **Why:** review of the previous entry (T2: F1, F2, F5, F6). An overlay unit could declare itself writer of `store/market.duckdb` and so silence a foreign holder. The capture is finite (12,307 of 33,020 chunks): as an always-active boot unit it would read `not-active` once done and in each daily restart gap, fail the release post-audit, and re-validate every cached page at each boot. Duplicate overlay keys passed silently, deep nesting crashed the check, a FIFO blocked it, and `trading-engine.service`/`trading-engine@*.service` names were accepted.
+- **What:** the tool writes `capture-complete.json` (manifest identity) when every chunk is stored and a later start exits 0 at once; `--max-runtime-hours 23` pauses between chunks, or before sleeping through a no-call window past the bound, and exits 75. The unit: `ConditionPathExists=!…/capture-complete.json`, `Restart=always`, `SuccessExitStatus=75`, `RestartSec=15min`, hard `RuntimeMaxSec=36h`. The manifest marks it `completes`; the live check and the installer accept it inactive with its condition unmet or waiting to restart, and still report a failed exit. Its free-sources read (only to rebuild a missing manifest) and the never-taken writer lock are no longer declared.
+  Overlay services must declare `{"access": "none"}`; duplicate keys, nesting, non-regular files (opened non-blocking) and every `trading-engine` spelling make it invalid.
+- **Evidence:** `pytest tests/test_schedule_contract.py tests/test_free_massive_minute.py tests/test_install_automation.py tests/test_job_contract.py` pass; the new cases cover the writer overlay with a foreign holder, both parser cases, the FIFO (under 3 s), both names, the four finite-unit states and the installer's settled check. Live check with the proposed overlay, cut-over properties substituted: `ok (live)`.
+- **Metrics:** server +45, tools +60, engine +3, tests +130.
+- **Next:** orchestrator lands the series and runs the cut-over.
+
+## 2026-10-22 — Run the release-deploy fake host on the test interpreter (P24 reliability-ops)
+
+- **Why:** review round 2. The fake `systemctl` and `crontab` in `tests/test_release_deploy.py` ran `/usr/bin/env python3`, which is 3.7 on this host and lacks `Path.unlink(missing_ok=)`; with the system interpreter first on PATH two tests failed (also on main), with the virtualenv first they passed.
+- **What:** the fakes' shebang is the interpreter running the tests (`sys.executable`).
+- **Evidence:** with the host PATH (system `python3` 3.7 first), `pytest tests/test_release_deploy.py`: 2 failed on main, 68 passed after.
+- **Metrics:** tests +3.
+- **Next:** the finite-unit and memo fixes from the same review.
+
+## 2026-10-22 — Count a finite unit healthy only after a successful run or a matching completion (P24 reliability-ops)
+
+- **Why:** review round 2 (R1, R2). With `Restart=always` a crash (exit 2) or a `RuntimeMaxSec` kill waits in `activating/auto-restart`, never reaches `failed`, and the live check, the installer and the release post-audit all accepted it. A never-started unit is `inactive` with `ConditionResult=no` and read as completed.
+- **What:** the contract reads `Result`: waiting to restart counts only after `Result=success` (a pause, exit 75, is a success through `SuccessExitStatus`). Done needs the start condition unmet and `capture-complete.json` naming the `manifest_sha256` of the current `manifest.json` (both paths declared in the manifest entry). The installer uses the same rule, so a crashed capture stays in `start_units` and fails the post-audit.
+- **Evidence:** new cases fail on the previous commit and pass: crash and runtime-bound kill flagged `not-active`, never-started and other-manifest markers flagged, a paused or completed capture clean; `test_a_crashed_or_timed_out_minute_capture_fails_the_post_audit[exit-code|timeout]` raises "did not converge required automation".
+- **Metrics:** server +30, tools +10, tests +90.
+- **Next:** pass non-pure statements straight through the request memo.
+
+## 2026-10-22 — Run a non-pure statement once through the request memo (P24 reliability-ops)
+
+- **Why:** review round 2 (R3). Through the memo proxy a non-pure statement read with `.df()`, `.fetchnumpy()` or `.arrow()` ran twice: `INSERT … RETURNING` read as a frame inserted two rows.
+- **What:** a statement that is not a pure read goes to the raw connection once and its own result is returned; only pure reads are wrapped.
+- **Evidence:** new `test_a_write_read_as_a_frame_or_arrays_runs_exactly_once` (one inserted row, one update) fails on the previous commit and passes; the other memo tests pass.
+- **Metrics:** server +3, tests +15.
+- **Next:** orchestrator lands series A.
+
+## 2026-10-22 — Keep the ops digest tests off the host's model CLI (P24 ci-green)
+
+- **Why:** CI test shards have been red since 2026-10-21 (the failing shard moved as files were added). Reproduction: a clone with `HOME` pointing elsewhere and no model CLI on `PATH`, `pytest tests/test_ops_digest.py`: 9 failed (`'WARN' == 'OK'`), 75 passed; on a host with the CLI installed all pass.
+- **What:** the gateway preflight resolves the installed CLI from `PATH` or `~/.local/bin` before asking the fake runner for its version; without one it reports "installed unknown" and the hour is WARN. The test module's autouse fixture now resolves a fixed fake path, so the fake runner answers on every host. Production code is unchanged.
+- **Evidence:** same reproduction after the change: 84 passed under `TZ=UTC` and `TZ=Asia/Singapore`.
+- **Metrics:** tests +3.
+- **Next:** clear the runtime dependency advisories that fail `pip-audit` and `npm audit`.
+
+## 2026-10-22 — Bump certifi to 2026.10.19 for the revoked emSign intermediates (P24 ci-green)
+
+- **Why:** the CI `checks` job has failed its `pip-audit` step on every main push since 2026-10-20: `pip-audit -r <runtime requirements> --strict` reports certifi 2026.7.22, PYSEC-2026-4320 (GHSA-6q48-6c7w-9gw2), fixed in 2026.10.19.
+- **What:** `uv lock --upgrade-package certifi==2026.10.19`; only the certifi entry of `uv.lock` changes. certifi is transitive (via requests and curl-cffi), so `pyproject.toml` is unchanged. Nothing registered or pinned hashes `uv.lock` or the certifi version.
+- **Evidence:** the CI audit command on the exported runtime requirements: before "Found 1 known vulnerability in 1 package", after "No known vulnerabilities found".
+- **Metrics:** unchanged.
+- **Next:** the Next.js advisories that fail `npm audit`.
+
+## 2026-10-22 — Bump Next.js to 16.4.1 for three server-side advisories (P24 ci-green)
+
+- **Why:** the CI `ui-build` job fails `npm audit --omit=dev --audit-level=moderate` since 2026-10-22: next 16.0.0–16.4.0 has GHSA-2464-fhr4-w9xw and GHSA-673q-mjm6-r5xr (critical, remote code execution) and GHSA-p3m5-59mp-jv5r (high, denial of service).
+- **What:** `next` 16.3.8 to 16.4.1, the smallest release outside every advisory range (npm suggests 16.4.2, the newest; 16.4.1 audits clean). The lock changes only `next`, `@next/env` and the `@next/swc-*` binaries.
+- **Evidence:** `npm ci && npm audit --omit=dev --audit-level=moderate`: before "1 critical severity vulnerability", after "found 0 vulnerabilities"; `npm test` 73 pass and `npm run build` compiles on Node 20 and 23.
+- **Metrics:** unchanged.
+- **Next:** orchestrator reviews and lands the series; the live host runs `uv sync` and redeploys the UI.
+
+## 2026-10-22 — Select the tests a change can affect for the fast tier (P24 cicd)
+
+- **Why:** P24 test speed and the owner's 2026-10-20 change process (local fast tier under 60 s, PR feedback under 3 min). Agents and CI had no way to run less than the whole suite.
+- **What:** `tools/affected_tests.py` maps the files changed since the merge base (working tree included) to test files through the reverse graph of tracked files: AST imports (function-level ones too), strings naming a module (`"tools.x:main"`), and strings, literal path joins and file globs naming a file, followed one import further for a reading module; scripts and units pass on what they run. The contract tests always run; the content readers (tests that read `data/` or `docs/`, recorded with the new `--record-reads` speed-plugin option) run whenever content changes. Conftest, the speed plugin and their module-level imports, `pyproject.toml`, `uv.lock`, `.github/`, a deleted file or a file no test reaches select the full suite. `--run` adds ruff and compileall.
+  Validated against one full run's recorded reads (6,137 tests): every non-hash read is covered except 10 test files that list units or registration JSON through a module two or more imports away; 18 more read every pinned source to hash it, which the registration-identity contract test covers.
+- **Evidence:** `python -m tools.affected_tests --base <c>^ --head <c>` takes 1.0-1.1 s; on 0224be4e/be025cd2/5cd07a1d/1942c975/d4268854/19d6c846 it selects 157/90/26/51/53/55 of 345 files (3,380/2,120/508/1,335/1,005/1,131 tests); pytest -n 8 on the 26/90/51/157 selections took 20/50/38/138 s. `pytest tests/test_affected_tests.py`: 16 passed.
+- **Metrics:** tools +440, tests +240.
+- **Next:** gate CI on content-only pushes with the same rule.
+
+## 2026-10-22 — Skip the full suite, checks and UI build for content-only pushes (P24 cicd)
+
+- **Why:** P24 test speed. Every main push, including the engine's automatic `data/` commits, ran eight full-suite shards, the checks job and the UI build.
+- **What:** a `changes` job runs `tools.affected_tests --ci-plan`: a push or pull request whose changes are all content (`data/**`, `docs/**` except `docs/**/*.py`) runs the `selected` job (contract tests, content readers and every test naming a changed file) in both timezones and skips `test`, `checks` and `ui-build`; anything else, a missing or unreachable base, the new daily schedule and manual runs run the full matrix as before. Documentation integrity reads every Markdown file under `data/` and `docs/` and is a contract test, so content that tests read still runs those tests. Hygiene has no condition. A `ci` job (`if: always()`) fails unless every job the plan required succeeded: one stable check for branch protection, since a skipped job counts as passed.
+  `tests/test_ci_workflow.py` parses the workflow and pins the path lists, the gates, the full matrix and the gate job; actionlint 1.7.12 with shellcheck 0.11.0 reports nothing.
+- **Evidence:** 17 of the 175 first-parent `main` commits since 2026-10-15 are content-only; for 1942c975 (screen, 16 files) the plan is `selected`, 51 test files, one shard per timezone. `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 31 passed.
+- **Metrics:** tools +90, tests +190.
+- **Next:** cache the virtualenv.
+
+## 2026-10-22 — Cache the locked virtualenv and the UI's node_modules in CI (P24 cicd)
+
+- **Why:** P24 test speed. Each of the nine Python jobs ran `uv sync` from the network: `setup-uv`'s `enable-cache` saves the uv cache only after `uv cache prune --ci` (its default `prune-cache: true`), which drops downloaded wheels, and every package in `uv.lock` except the project is a wheel, so the cache held almost nothing.
+- **What:** a composite action, `.github/actions/setup-engine`, sets up Python 3.12 and uv 0.11.29 (its own cache off), restores `.venv` keyed on the runner OS, the exact Python version and `uv.lock` (a prefix hit is brought to the lock by `uv sync --frozen`, which removes anything unlisted), and saves it right after the sync, before tests run. `test`, `selected` and `checks` use it. The UI job keeps `setup-node`'s npm cache and restores `ui/node_modules` keyed on the lock, `package.json` and the Node version; only an exact hit skips `npm ci`.
+- **Evidence:** actionlint reports nothing; `pytest tests/test_ci_workflow.py` (restore before sync before save, the key inputs, `npm ci` skipped only on a hit): 17 passed. The local `.venv` is 311 MB. Timings need a real Actions run.
+- **Metrics:** tests +35.
+- **Next:** the pull-request fast tier.
+
+## 2026-10-22 — Run the fast tier on pull requests and branch pushes (P24 cicd)
+
+- **Why:** the owner's 2026-10-20 change process wants PR feedback under 3 min; pull requests ran the full suite in both timezones and lane branches ran nothing until a pull request.
+- **What:** CI now runs on every branch push. A pull request (against its base) or a push to a branch other than `main` (against its merge base with `main`) gets the `selected` job in `TZ=UTC` only: ruff and compileall on the first shard, then the tests `tools.affected_tests` selects, sharded by recorded durations (four shards when it falls back to the full suite). `checks` and `ui-build` still run for code. `main` is unchanged: code pushes run every test in both timezones on four shards. A newer push to a branch or pull request cancels its older run; `main` runs are never cancelled. The hygiene job scans every commit of a pushed branch (from its merge base) and, on the schedule, the head commit.
+  `AGENTS.md` and `CONTRIBUTING.md` name the fast tier: `python -m tools.affected_tests --run`.
+- **Evidence:** locally `--run` (ruff, compileall, pytest -n 8) on the files of 5cd07a1d/d4268854/be025cd2 took 16/28/51 s, all passed. `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 34 passed; actionlint clean.
+- **Metrics:** tools +15, tests +20.
+- **Next:** mark the slow tests and add the duration budget on `main`.
+
+## 2026-10-22 — Mark the slow tests and hold the rest to a duration budget on main (P24 cicd)
+
+- **Why:** P24 test speed. Nothing named the slow tests, so the local fast tier could not leave them out and a new slow test went unnoticed.
+- **What:** `pytest.mark.slow` is registered in `pyproject.toml` (replacing `test_study_bench.py`'s private-API registration) and marks the 15 functions (18 tests) that took over 5 s, setup to teardown, in a full `-n 8` junit run: next largest 4.96 s. Every run still runs them. `--duration-budget SECONDS` (speed plugin, controller side, xdist included) fails a run in which a test without the mark took longer. CI passes `--duration-budget=15` only on `main` (`DURATION_BUDGET` is empty for pull requests), three times the mark line, so runner noise and first-use template builds do not flake it. `tools.affected_tests --run --skip-slow` leaves the slow tests out locally.
+- **Evidence:** `pytest tests/test_study_bench.py tests/test_affected_tests.py::test_joined_literal_path_parts_name_one_path --duration-budget=0.000001` fails naming only the unmarked test, serially and with `-n 2`; `--duration-budget=60` passes. The largest selection measured (157 files) runs in 138 s at `-n 8`, 109 s without the slow tests.
+- **Metrics:** tests +75.
+- **Next:** the orchestrator makes `ci` the required check (see the lane report).
+
+## 2026-10-22 — Never cancel a main run, and plan main against its last fully green commit (P24 cicd)
+
+- **Why:** review F1 (high) and F5 of `p24/cicd`. A queued run replaces the pending run of its concurrency group even without `cancel-in-progress`: with A running, a code push B pending and a content push C, B was cancelled and C, planned from `event.before` = B, ran only the selected tests, so B's code never met the full suite. An empty or rewound range planned as content.
+- **What:** each `main` commit has its own concurrency group. The plan for a `main` push looks up the newest `main` run whose eight full `test` jobs all succeeded (`actions: read` on the plan job only) and compares with that commit; every path any commit since then changed counts, so a code change later reverted is still code. No lookup, no such run, a base that is not an ancestor of the head, or an empty range plans the full tier.
+- **Evidence:** `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 43 passed, among them A, B (code), C (content): from B the plan is `selected`, from A `full`; the revert, the empty range (push and pull request), the rewind, the lookup (a selected, a pull-request and a cancelled-shard run are skipped) and a failed lookup. actionlint clean.
+- **Metrics:** tools +60, tests +90.
+- **Next:** review F2: content read through a module.
+
+## 2026-10-22 — Reach content through the modules that read it; symlinks and non-document files are code (P24 cicd)
+
+- **Why:** review F2 (medium) of `p24/cicd`. A module reading a content path reached no test, and a tracked symlink in `engine/` pointing at `data/` made its target look like content: on the reviewer's repro (`data/screens/latest.md` read by a module, `engine/zz_link.py` linking `data/zz_impl.txt`) a `main` push planned `selected` and two failing tests were not selected. Content had no definition beyond its tree, and CONTENT_READERS could drift from the graph unseen.
+- **What:** content changes follow readers like any change (a reading module passes it one import on). Content is only `.md .json .jsonl .csv .txt .html` and images under `data/` or `docs/`; any other file there, a tracked symlink and its target are code, and a symlink is an importer of its target. A drift test fails when a recorded content reader is neither reached by the graph from some content file nor a contract test; the one it found, `test_p16_challenger_runner.py` (reads `docs/` two imports away), is now a contract test.
+- **Evidence:** on the repro range the scope is `code` and the selection includes `test_zz_link.py` and `test_zz_screen.py`. Content selections grow: 1942c975/703e8595/43973307/19d6c846 select 121/108/59/56 test files (498/456/198/190 recorded s, two shards per timezone for the data pushes). `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 58 passed.
+- **Metrics:** tools +35, tests +40.
+- **Next:** review F3: known misses and computed imports.
+
+## 2026-10-22 — Always run the known misses, and run everything for a package imported by computed name (P24 cicd)
+
+- **Why:** review F3 (medium) of `p24/cicd`. A one-line change to `server/run_tradingview_history_archive.sh` selected 24 files and left `test_dataset_catalogue.py` (which lists every unit and script) failing unselected; `import_module(f"engine.{x}")` or `-m` with a computed name was missed whenever a static importer existed. Orchestrator decision: `main`'s full run in both timezones is the gate (lanes land only after both timezone suites pass locally); the fast tier is feedback.
+- **What:** the 13 test files the recorded reads show reading units, registration JSON, `README.md` or `docs/` two or more imports away (`test_dataset_catalogue.py` among them) are contract tests. A module under a package that some file imports by a computed name (literal prefix of an f-string; with none, the importing file's own package) selects the full suite: today `farm.research` (`worker.py`) and `tools` (`release_deploy._python_module` runs `-m *args`). The selector's docstring, `CONTRIBUTING.md` and `docs/architecture-reference.md` state that the fast tier is feedback, not the gate.
+- **Evidence:** the `.sh` change now selects 36 files including `test_dataset_catalogue.py`; 0224be4e/5cd07a1d/d4268854 select 163/39/65 files, be025cd2 (touches `tools/`) the full suite. `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 66 passed.
+- **Metrics:** tools +55, tests +35.
+- **Next:** review F4 and the uv-version nit.
+
+## 2026-10-22 — Fail the CI gate closed on an unknown plan; one uv version in the setup action (P24 cicd)
+
+- **Why:** review F4 (low) and a nit of `p24/cicd`. The gate required `checks` and `ui-build` only when the scope was exactly `code`, so any other value passed with them skipped; the setup action wrote the uv version twice.
+- **What:** `checks` and `ui-build` are required unless the scope is `content`; an unknown tier requires both test jobs. The setup action takes `uv-version` as an input used for the install and the cache key.
+- **Evidence:** `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 66 passed (scopes `other`, missing and empty and an unknown tier fail); actionlint clean.
+- **Metrics:** tools +3, tests +5.
+- **Next:** orchestrator merges after the ci-green lane.
+
+## 2026-10-22 — Follow content through every importer, check recorded reads, and treat unbounded computed imports as any module (P24 cicd)
+
+- **Why:** round-2 review of `p24/cicd`. A content-only push missed a test two imports from the module reading `data/screens/latest.md` (repro 24109f0f: `test_zz_screen2`), and the drift test only checked the pinned readers. `"engine." + n`, %-formatting, `run_module`, `find_spec` and `getattr(importlib, ...)` were missed or bounded to the importing file's package. A lookup failing with `http.client.HTTPException` failed the plan instead of planning full.
+- **What:** a module reading content passes the change to all its importers, as an import would. `tests/content_reads.json` holds the content part of a full run's `--record-reads` record (`--save-content-reads` writes it); the drift test fails when a recorded content read (committed, or a fresh record named by `AFFECTED_TESTS_READS`) reaches its test neither through the graph nor as a contract test, and when CONTENT_READERS differs from the record. A computed module name without an f-string prefix selects the full suite for any module change; `REVIEWED_COMPUTED_IMPORTS` exempts the three reviewed sites (`farm/research/worker.py`, `tools/release_deploy.py`, this tool's own test data), and a test fails on any other. The `ci.yml` header names the content suffixes.
+- **Evidence:** on the repro the selection includes `test_zz_screen.py` and `test_zz_screen2.py`. Data pushes now select most of the suite (1942c975, 703e8595: 312 files, 1,149 recorded s); docs-only 19d6c846 selects 66. `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 77 passed; actionlint clean.
+- **Metrics:** tools +70, tests +80, tests/content_reads.json +606 (data).
+- **Next:** orchestrator merges.
+
+## 2026-10-22 — Clear the CI lint step's two loop-variable reassignments
+
+- **Why:** reproduction: CI's `checks` job on main `3cc397f3` fails `ruff check --select PLW2901 server tools` (the test shards, audits and UI build are green); locally ruff 0.16.6 reports `tools/ops_digest.py:468` (`row` rebound inside its loop) and `tools/affected_tests.py:386` (`token`).
+- **What:** rename the rebound names (`stored`, `raw_token`); no behaviour change. The next lint step (S101, run after it and so never reached) also fails: wave 1's `farm/research/tests` use pytest asserts, and three production asserts (`farm/research/bench.py`, `tools/lane.py`, `tools/public_hygiene.py`) become explicit errors. The S101 step excludes `farm/research/tests` in `ci.yml`, not in `pyproject.toml`, because `engine/lib/provenance.py` hashes `pyproject.toml`.
+- **Evidence:** every CI lint step passes locally; `pytest tests/test_ops_digest.py tests/test_affected_tests.py` pass.
+- **Metrics:** tools and farm 11 lines; CI 1 line.
+- **Next:** confirm main CI green on GitHub.
+
+## 2026-10-22 — Mark the P16 calibration-store mutation test slow (P24 ci-green)
+
+- **Why:** CI `test` shard 0 fails on main in both timezones under `--duration-budget=15`. Reproduction in a fresh clone (shard 0 of 4, `-n 2`, budget 15): "1 test(s) over the 15 s budget without @pytest.mark.slow: 16.6 s tests/test_p16_book_store.py::test_calibration_store_recomputes_selection_cases_and_cost_evidence"; serially it takes 16.5 s alone.
+- **What:** the test records one calibration and then recomputes six mutated ones; its recorded 8.4 s came from a full run whose other tests had already filled the calibration memo. It is over the 5 s mark line on its own merit, so it carries `@pytest.mark.slow`. The budget and the test body are unchanged.
+- **Evidence:** the same shard-0 run then reports no test over the budget.
+- **Metrics:** tests +1.
+- **Next:** the `checks` job's `farm/research/tests` step.
+
+## 2026-10-22 — Start the research sandbox on a shared-library interpreter (P24 ci-green)
+
+- **Why:** the CI `checks` job's `farm/research/tests` step, added on 2026-10-22, has never passed. The runner has bubblewrap (0.11.1 on Ubuntu 26.04.1, probed on a throwaway branch), but its interpreter is the tool-cache CPython: `libpython3.12.so` found through an absolute runpath under its host prefix, which the sandbox mounts elsewhere. Reproduction with CPython 3.12.13 built the same way (`--enable-shared`, absolute runpath): 34 failed, "/runtime/python/bin/python3: error while loading shared libraries: libpython3.12.so.1.0".
+- **What:** the sandbox sets `LD_LIBRARY_PATH=/runtime/python/lib`, the interpreter's own mounted lib directory. Mounts, isolation and limits are unchanged.
+- **Evidence:** the same run then starts every worker; the remaining failures are the seccomp segfault fixed next.
+- **Metrics:** farm +3.
+- **Next:** pass the seccomp context to `seccomp_rule_add` as a pointer.
+
+## 2026-10-22 — Pass the seccomp context to seccomp_rule_add as a pointer (P24 ci-green)
+
+- **Why:** on the shared-library interpreter the research worker segfaulted in `_install_seccomp` (exit 139, faulthandler at the `seccomp_rule_add` call). The function had no argtypes, so ctypes passed the context pointer as a 32-bit int; a position-independent interpreter's heap sits above 4 GiB.
+- **What:** `seccomp_rule_add` gets argtypes for its four fixed parameters. The denied syscalls and the filter are unchanged.
+- **Evidence:** `pytest -n 2 farm/research/tests` on the shared-library interpreter: 34 failed before these two changes, 97 passed after; on the locked static interpreter: 97 passed.
+- **Metrics:** farm +3.
+- **Next:** confirm the `checks` job on the branch run.
+
+## 2026-10-22 — Keep the sandbox-escape callback's search off the host toolchain (P24 ci-green)
+
+- **Why:** with the sandbox starting, the CI `checks` job still failed `farm/research/tests`; a throwaway branch surfaced the traceback as an annotation: `test_pilot_callback_cannot_escape_sandbox` killed by the study's 5 s timeout. Its adversarial callback globbed `/**/outcome_secret.txt` twice, walking the read-only `/usr` bind, which on a runner image is the whole host toolchain. Locally the test takes 2.0 s for a 0.1 M-file `/usr`, so the time is the walk, not load.
+- **What:** the search covers every sandbox root except the read-only system binds (`/usr`, `/lib`, `/lib64`); the outcome file lives in the checkout, never under them. The other probes, the 5 s budget and the assertion are unchanged. The fixture contract's golden SHA-256 in `test_spec.py` follows the callback file's new hash.
+- **Evidence:** the test takes 0.49 s (was 1.98 s); `pytest -n 2 farm/research/tests`: 97 passed on the static and the shared-library interpreter.
+- **Metrics:** tests +9.
+- **Next:** confirm the `checks` job on the branch run.
+
+## 2026-10-22 — Pin the interpreter version in the research contract's golden-bytes test (P24 ci-green)
+
+- **Why:** next failure on the CI `checks` job (surfaced on the throwaway branch): `test_complete_contract_has_canonical_golden_bytes_and_derived_markdown` got `ef4102fe…` for golden `062d9ac4…`. The fixture contract records `platform.python_version()`; CI runs 3.12.15, the golden was made on 3.12.13. Reproduction: with `platform.python_version` reporting 3.12.15, the test fails.
+- **What:** the test fixes the reported interpreter version at 3.12.13 for its contract, so the golden bytes no longer depend on the host's patch release; the round trip, golden hash, resolution and Markdown assertions are unchanged.
+- **Evidence:** with 3.12.15 reported: 1 failed before, 1 passed after.
+- **Metrics:** tests +3.
+- **Next:** confirm the `checks` job on the branch run.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

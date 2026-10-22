@@ -119,6 +119,7 @@ def test_primary_standard_error_falls_back_only_for_nonpositive_hh_variance():
     assert constant["se"] is None and constant["long_run_variance"] == 0
 
 
+@pytest.mark.slow
 def test_primary_three_look_simulation_controls_null_and_detects_planted_ic():
     rng = np.random.default_rng(20260926)
     false_passes = planted_passes = 0

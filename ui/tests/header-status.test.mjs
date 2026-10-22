@@ -122,4 +122,32 @@ test("scheduler label includes counts and every actionable continuity problem", 
     }),
     "degraded (5/5 · postflight 1/1) · not enabled trading-engine-p15-scoring.timer · failed massive-options-daily.service, trading-engine-p15-preopen.service · backup stale 38.3h (retry)",
   );
+  assert.equal(
+    schedulerLabel({
+      status: "degraded",
+      matched_entries: 5,
+      expected_entries: 5,
+      missing_drivers: [],
+      duplicate_drivers: [],
+      auxiliary_expected_entries: 1,
+      auxiliary_matched_entries: 1,
+      missing_auxiliary_entries: [],
+      duplicate_auxiliary_entries: [],
+      unlaunchable_auxiliary_entries: [],
+      unexecutable_drivers: [],
+      unsafe_log_targets: [],
+      log_directory_writable: true,
+      timezone_ok: true,
+      cron_service_enabled: "enabled",
+      user_units: { status: "ok", autostart_expected: 13, autostart_not_enabled: [], failed: [] },
+      backup: {
+        status: "current",
+        state: "retry",
+        last_success_at: "2026-10-18T13:20:08+00:00",
+        age_hours: 20.1,
+        stale_after_hours: 26,
+      },
+    }),
+    "degraded (5/5 · postflight 1/1) · backup current 20.1h (retry)",
+  );
 });

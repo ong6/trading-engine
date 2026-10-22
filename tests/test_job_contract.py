@@ -50,7 +50,7 @@ def _load(tmp_path: Path, text: str):
 def test_public_registry_has_every_current_schedule_and_disabled_p16():
     registry = job_contract.load_registry(ROOT)
 
-    assert len(registry.jobs) == 21
+    assert len(registry.jobs) == 22
     assert sum(bool(job.schedules) for job in registry.jobs) == 20
     assert sum(job.timer_unit is not None for job in registry.jobs) == 14
     assert sum(isinstance(job.legacy.get("cron"), dict) for job in registry.jobs) == 6
@@ -60,6 +60,24 @@ def test_public_registry_has_every_current_schedule_and_disabled_p16():
     assert registry.get("registry-audit").runner_mode == "read_only"
     assert not registry.get("registry-audit").schedules
     assert all(len(job.spec_sha256) == 64 for job in registry.jobs)
+    capture = registry.get("massive-minute-capture")
+    assert not capture.schedules and capture.timer_unit is None
+    assert capture.legacy["service"]["wanted_by"] == "default.target"
+
+
+def test_boot_service_registration_needs_its_target_and_matching_command(tmp_path):
+    source = (ROOT / "ops" / "jobs.toml").read_text()
+    (tmp_path / "ops").mkdir()
+    manifest = tmp_path / "ops" / "jobs.toml"
+    manifest.write_text(source.replace('wanted_by = "default.target"\n', ""))
+    with pytest.raises(job_contract.JobContractError, match="names wanted_by"):
+        job_contract.load_registry(tmp_path, environ={})
+    manifest.write_text(source.replace(
+        'exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", '
+        '"tools.free_massive_minute", "--max-runtime-hours", "23"] }]',
+        'exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "other"] }]'))
+    with pytest.raises(job_contract.JobContractError, match="differs from argv"):
+        job_contract.load_registry(tmp_path, environ={})
 
 
 def test_rendered_units_and_crontab_are_exact_legacy_goldens():

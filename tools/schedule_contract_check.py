@@ -36,6 +36,9 @@ def _summary(result: dict) -> str:
               for item in result["violations"]]
     lines += [f"- excepted {item['rule']}: {item['subject']} ({item['exception']})"
               for item in result["exceptions"]]
+    overlay = result.get("overlay") or {}
+    lines += [f"- host-local {item['unit']} (external, {item['owner']}): {item['reason']}"
+              for item in overlay.get("units", [])]
     lines += [f"- probe error: {error}" for error in result["errors"]]
     return "\n".join(lines)
 
@@ -48,11 +51,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="print the full result as JSON")
     parser.add_argument("--engine-root", type=Path, default=None,
                         help="live checkout whose store is audited (default ~/trading-engine)")
+    parser.add_argument("--overlay", type=Path, default=schedule_contract.OVERLAY_PATH,
+                        help="host-local overlay of units other projects own (live only; "
+                             "default ~/.config/trading-engine/schedule-contract.local.json)")
     args = parser.parse_args(argv)
     static = args.static or not args.live
     autostart, cron = _installer_contract() if static else (None, None)
     result = schedule_contract.check(static=static, live=args.live, repo_root=REPO_ROOT,
                                      autostart=autostart, expected_cron=cron,
+                                     overlay_path=args.overlay,
                                      **({"engine_root": args.engine_root} if args.live else {}))
     print(json.dumps(result, indent=1, sort_keys=True) if args.json else _summary(result))
     return schedule_contract.exit_code(result)
