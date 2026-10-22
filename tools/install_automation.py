@@ -836,6 +836,49 @@ def _current_paused_changes(units: list[str]) -> tuple[list[str], list[str]]:
     )
 
 
+def stage(repo_root: Path, home: Path) -> dict:
+    """Install unit files and enablement while producers are quiesced, starting nothing.
+
+    A deploy runs this between quiescence and release: unit files are reconciled and the
+    daemon reloaded, autostart units are enabled (which does not start a timer), and paused
+    units are stopped and disabled. The crontab, timer starts and restarts wait for the full
+    ``--apply`` at release.
+    """
+    summary, _desired_crontab = plan(repo_root, home)
+    if summary["errors"]:
+        raise RuntimeError("refusing invalid automation plan")
+    _verify_launch_sources(repo_root, summary)
+    changed_units = _reconcile_units(home, _snapshot_unit_sources(repo_root, summary))
+    autostart_units, paused_unit_set = _desired_unit_sets(repo_root)
+    enable_units, _start_units = _current_service_changes(sorted(autostart_units))
+    disable_units, stop_units = _current_paused_changes(sorted(paused_unit_set))
+    if changed_units:
+        _checked(["systemctl", "--user", "daemon-reload"])
+    if enable_units:
+        _checked(["systemctl", "--user", "enable", *enable_units])
+    if stop_units:
+        _checked(["systemctl", "--user", "stop", *stop_units])
+    if disable_units:
+        _checked(["systemctl", "--user", "disable", *disable_units])
+    installed = _installed_units(repo_root, home)
+    mismatched = sorted(unit for unit, state in installed.items() if not state["matches"])
+    if mismatched:
+        raise RuntimeError(f"installed service units do not match: {', '.join(mismatched)}")
+    started = sorted(
+        unit for unit in autostart_units
+        if unit.endswith(".timer") and installed[unit]["active"] == "active"
+    )
+    if started:
+        raise RuntimeError(f"timers are active while staging: {', '.join(started)}")
+    return {
+        **summary, "status": "ok", "staged": True,
+        "changes": {**summary["changes"], "service_units": changed_units,
+                    "enable_units": enable_units, "disable_units": disable_units,
+                    "stop_units": stop_units},
+        "service_units": installed,
+    }
+
+
 def apply(summary: dict, _desired_crontab: str, repo_root: Path, home: Path) -> dict:
     """Apply a validated plan; caller must have explicitly requested mutation."""
     # The caller may have displayed an earlier dry-run. Re-read every source and
@@ -893,10 +936,20 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--audit", action="store_true", help="report changes without installing")
     mode.add_argument("--apply", action="store_true", help="install the reported changes")
+    mode.add_argument(
+        "--stage", action="store_true",
+        help="install and enable units without starting any timer or touching the crontab "
+        "(a deploy's quiesced phase; run --apply at release)",
+    )
     args = parser.parse_args(argv)
 
     summary, desired_crontab = plan(args.repo_root, args.home)
-    if args.apply and not summary["errors"]:
+    if args.stage and not summary["errors"]:
+        try:
+            summary = stage(args.repo_root.resolve(), args.home.resolve())
+        except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+            summary = {**summary, "status": "failed", "errors": [*summary["errors"], str(exc)]}
+    elif args.apply and not summary["errors"]:
         try:
             summary = apply(
                 summary, desired_crontab, args.repo_root.resolve(), args.home.resolve()

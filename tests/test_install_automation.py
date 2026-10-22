@@ -1617,3 +1617,36 @@ def test_apply_fails_if_installed_state_does_not_converge(tmp_path, monkeypatch)
 
     with pytest.raises(RuntimeError, match="installed service units do not match"):
         install_automation.apply(summary, desired, root, home)
+
+
+def test_stage_installs_and_enables_but_starts_nothing_and_keeps_the_crontab(
+    tmp_path, monkeypatch,
+):
+    root, home = _repo(tmp_path)
+    tradingview = install_automation.TRADINGVIEW_HISTORY_TIMER
+
+    def state(action, unit):  # quiesced producers: every timer stopped, TradingView enabled
+        if action == "is-active":
+            return "inactive"
+        return "enabled" if unit == tradingview else "disabled"
+
+    calls = []
+    monkeypatch.setattr(install_automation, "_service_state", state)
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: "")
+    monkeypatch.setattr(
+        install_automation, "_checked", lambda args, *, input_text=None: calls.append(args),
+    )
+
+    result = install_automation.stage(root, home)
+
+    assert result["status"] == "ok" and result["staged"] is True
+    assert ["systemctl", "--user", "daemon-reload"] in calls
+    enable = next(args for args in calls if args[:3] == ["systemctl", "--user", "enable"])
+    assert "trading-engine-publish-on-change.timer" in enable
+    assert tradingview not in enable
+    assert ["systemctl", "--user", "disable", tradingview] in calls
+    assert not any(args[:3] in (["systemctl", "--user", "start"],
+                                ["systemctl", "--user", "restart"]) for args in calls)
+    assert not any(args[:1] == ["crontab"] for args in calls)
+    unit_dir = home / ".config" / "systemd" / "user"
+    assert (unit_dir / "trading-engine-publish-on-change.timer").is_file()

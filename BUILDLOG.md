@@ -4655,4 +4655,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +90 lines.
 - **Next:** rewrite the deploy and rollback scripts.
 
+## 2026-10-23 — Stage units during a deploy without starting timers (review finding 5)
+
+- **Why:** storage review finding 5: the checklist ran `install_automation --apply` while producers were quiesced, which starts every autostart timer and reinstalls the crontab mid-deploy, and the runbook's release then restarted every timer saved before the deploy, including the paused TradingView timer.
+- **What:** `install_automation --stage` reconciles unit files, reloads the daemon, enables autostart units (enabling does not start a timer), and stops and disables paused units; it starts and restarts nothing, leaves the crontab alone, and fails if any autostart timer is active. The full `--apply` runs at release, where it starts the timers and installs the crontab and never starts a paused unit.
+- **Evidence:** `pytest tests/test_install_automation.py -k stage`: units installed and enabled (including the publish-on-change timer), TradingView disabled, no start, restart or crontab call.
+- **Metrics:** tools +50 lines, tests +35 lines.
+- **Next:** deploy and rollback scripts that run end to end from fresh shells.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
