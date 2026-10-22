@@ -91,9 +91,10 @@ bash "$HOME/r20-deploy.sh"
 ```
 
 `ops/storage-r20/deploy.sh` records the pre-deploy commit before the checkout moves, then: captures units, crontab and
-processes; quiesces producers and readers (`ops/storage-r20/host.bash`); checks out the approved commit; asserts the
-pre-image read-only; creates and verifies the pre-migration backup under a canonical path (`$HOME/r20-backups`);
-migrates and asserts `current`; publishes the first generation; stages units with `install_automation --stage`
+processes; quiesces producers and readers (`ops/storage-r20/host.bash`); keeps generated `data/` and `logs/` changes
+aside, checks out the approved commit (registration revision 20) and puts them back; asserts the pre-image read-only; creates and verifies the pre-migration backup under a canonical path (`$HOME/r20-backups`);
+migrates and asserts `current`; runs the E1, sector and XS `--migrate-runtime-contract` migrations (each accepts
+only the deployed revision-19 digest) and one ordinary refresh that must not be INVALID; publishes the first generation; stages units with `install_automation --stage`
 (nothing starts); starts the readers and checks the generation headers, the evidence route
 (`pending_publication: false`), the invariants and retention; then releases producers with the full
 `install_automation --apply` and restarts the host timers that ran before, never the paused TradingView timer, and
@@ -126,8 +127,8 @@ installer.
 A rollback after release **loses every write to the primary made since the backup** (it stays in
 `$P20_STATE/incident/market.duckdb` for manual recovery). Raw payloads written since release stay readable by the
 previous code, because they are in the legacy plain encoding until the conversion flag is set. `data/` follows the
-checkout: tracked report files return to the pre-deploy commit's versions, and commits the nightly pushed since
-release stay in history. The `store/pit/*.duckdb` databases (free sources, options, minute bars, SEC bulk) are separate
+checkout: tracked report files return to the pre-deploy commit's versions (the versions written since release are kept
+in `$P20_STATE/incident/data-artifacts`), and commits the nightly pushed since release stay in history. The `store/pit/*.duckdb` databases (free sources, options, minute bars, SEC bulk) are separate
 stores that are not restored: they keep rows written since release, and their schemas did not change in this revision.
 
 Raw zstd conversion (`tools/convert_raw_payloads.py --apply`) is a separate, later one-off: run only after the

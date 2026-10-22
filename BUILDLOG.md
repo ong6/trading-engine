@@ -4974,4 +4974,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +3.
 - **Next:** confirm the `checks` job on the branch run.
 
+## 2026-10-23 — Run the runtime-contract migrations and keep generated data in the deploy scripts
+
+- **Why:** revision 20 re-pins the E1, sector and XS runtime contracts, so the deploy must run each runner's `--migrate-runtime-contract` (as the P22 runbook does) before any ordinary refresh; and a fast-forward of the live checkout refuses when generated `data/` files differ, which the runbook handles by archiving them first.
+- **What:** after the schema migration the deploy script runs the three contract migrations, then one ordinary E1, sector and XS refresh, and stops if a report is INVALID; it checks the checkout is registration revision 20. Before moving the checkout it keeps changed `data/` and `logs/` files in `$P20_STATE/predeploy-artifacts`, restores the tracked paths, and puts the kept files back after. The rollback keeps the `data/` files written since release with the incident and returns `data/` to the pre-deploy versions.
+- **Evidence:** `bash -n`; the rehearsal entry runs both scripts end to end.
+- **Metrics:** ops +30 lines.
+- **Next:** the re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

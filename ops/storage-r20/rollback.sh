@@ -58,6 +58,14 @@ git diff --cached --exit-code >/dev/null
 if test -n "$(git status --porcelain --untracked-files=no -- . ':!data' ':!logs')"; then
   echo "tracked changes outside data/ and logs/" >&2; false
 fi
+# Generated data/ files written since release are kept with the incident, then data/ returns
+# to the pre-deploy commit's versions, matching the restored primary.
+mkdir -p -m 700 "$P20_STATE/incident/data-artifacts"
+git diff --name-only -z -- data | while IFS= read -r -d '' changed; do
+  mkdir -p "$P20_STATE/incident/data-artifacts/$(dirname "$changed")"
+  cp -a "$changed" "$P20_STATE/incident/data-artifacts/$changed"
+done
+git checkout --quiet HEAD -- data
 # Detached on purpose: the nightly pulls only on a branch with an upstream, so it cannot pull
 # the rolled-back revision in again. Return to the branch once a fixed revision is approved.
 git checkout --quiet --detach "$P20_PREDEPLOY_SHA"

@@ -63,13 +63,23 @@ git diff --cached --exit-code >/dev/null
 if test -n "$(git status --porcelain --untracked-files=no -- . ':!data' ':!logs')"; then
   echo "tracked changes outside data/ and logs/" >&2; false
 fi
+# Generated data/ and logs/ changes are kept aside, the tracked paths restored so the
+# checkout can move, and the kept files put back afterwards (the runbook's P22 pattern).
+mkdir -m 700 "$P20_STATE/predeploy-artifacts"
+git diff --name-only -z -- data logs | while IFS= read -r -d '' changed; do
+  mkdir -p "$P20_STATE/predeploy-artifacts/$(dirname "$changed")"
+  cp -a "$changed" "$P20_STATE/predeploy-artifacts/$changed"
+done
+git checkout --quiet HEAD -- data logs 2>/dev/null || git checkout --quiet HEAD -- data
 if git symbolic-ref --quiet HEAD >/dev/null; then
   git merge --ff-only --quiet "$P20_APPROVED_SHA"
 else
   git checkout --quiet --detach "$P20_APPROVED_SHA"
 fi
 test "$(git rev-parse HEAD)" = "$P20_APPROVED_SHA"
+cp -a "$P20_STATE/predeploy-artifacts/." .
 if test "${P20_SYNC_VENV:-1}" = 1; then uv sync --extra dev --frozen --quiet; fi
+test "$("$PY" -c 'import json; print(json.load(open("server/p15-registration.json"))["registration_revision"])')" = 20
 record P20_PHASE code-switched
 
 step "pre-flight: the live primary is the supported pre-image (read-only)"
@@ -123,6 +133,19 @@ step "migrate"
 test "$(json_field "$P20_STATE/plan-after.json" status)" = current
 test "$(json_field "$P20_STATE/plan-after.json" expected_pre_catalog_sha256)" = "$P20_EXPECTED_POST_CATALOG"
 record P20_PHASE migrated
+
+step "runtime-contract migrations (E1, sector, XS: each accepts only the deployed digest)"
+"$PY" -m farm.experiment_runner --migrate-runtime-contract
+"$PY" -m engine.forward_review --migrate-runtime-contract
+"$PY" -m engine.xs_forward_review --migrate-runtime-contract
+# One ordinary refresh must now be valid under the re-pinned contracts.
+"$PY" -m farm.experiment_runner --report-only
+"$PY" -m engine.forward_review
+"$PY" -m engine.xs_forward_review
+for report in data/reports/forward/sector_momentum.json data/reports/forward/xs_momentum_12_1.json; do
+  "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("status") != "INVALID", (sys.argv[1], d.get("status"))' "$report"
+done
+record P20_PHASE contracts-migrated
 
 step "first generation"
 "$PY" -m tools.publish_snapshot > "$P20_STATE/publish.json"
