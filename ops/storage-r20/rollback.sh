@@ -5,7 +5,8 @@
 # It restores the verified pre-migration backup byte for byte and the pre-deploy commit.
 # Writes to the primary made after the backup are lost (they stay in the incident copy);
 # data/ follows the checkout and store/pit databases keep their rows (see the checklist).
-# It refuses unless the recorded backup verifies.
+# It refuses unless the recorded backup verifies. A rollback stopped part-way is rerun the
+# same way: it keeps the first incident copy and restores the primary only once.
 set -euo pipefail
 
 : "${P20_STATE:?set P20_STATE to the deploy state directory}"
@@ -39,11 +40,14 @@ if test -n "${R20_BACKUP:-}"; then
   test "$(json_field "$P20_STATE/rollback-verify.json" status)" = ok
   test "$(json_field "$P20_STATE/rollback-verify.json" manifest_sha256)" = "${R20_MANIFEST:?}"
 
-  step "keep the incident state"
-  mkdir -m 700 "$P20_STATE/incident"
-  cp -a store/market.duckdb "$P20_STATE/incident/"
-  if test -e store/market.duckdb.wal; then cp -a store/market.duckdb.wal "$P20_STATE/incident/"; fi
-  if test -e store/snapshots; then mv store/snapshots "$P20_STATE/incident/quarantined-generations"; fi
+  if test ! -e "$P20_STATE/rollback-incident-kept"; then
+    step "keep the incident state"
+    mkdir -p -m 700 "$P20_STATE/incident"
+    cp -a store/market.duckdb "$P20_STATE/incident/"
+    if test -e store/market.duckdb.wal; then cp -a store/market.duckdb.wal "$P20_STATE/incident/"; fi
+    if test -e store/snapshots; then mv store/snapshots "$P20_STATE/incident/quarantined-generations"; fi
+    touch "$P20_STATE/rollback-incident-kept"
+  fi
 fi
 
 step "remove units the previous code does not know"
@@ -61,12 +65,15 @@ test "$(git rev-parse HEAD)" = "$P20_PREDEPLOY_SHA"
 if test "${P20_SYNC_VENV:-1}" = 1; then uv sync --extra dev --frozen --quiet; fi
 
 if test -n "${R20_BACKUP:-}"; then
-  step "restore the primary byte for byte"
-  cp "$R20_BACKUP/market.duckdb" store/market.duckdb.restore
-  cmp "$R20_BACKUP/market.duckdb" store/market.duckdb.restore
-  rm -f store/market.duckdb.wal
-  mv store/market.duckdb.restore store/market.duckdb
-  chmod 600 store/market.duckdb
+  if test ! -e "$P20_STATE/rollback-restored"; then
+    step "restore the primary byte for byte"
+    cp "$R20_BACKUP/market.duckdb" store/market.duckdb.restore
+    cmp "$R20_BACKUP/market.duckdb" store/market.duckdb.restore
+    rm -f store/market.duckdb.wal
+    mv store/market.duckdb.restore store/market.duckdb
+    chmod 600 store/market.duckdb
+    touch "$P20_STATE/rollback-restored"
+  fi
   cmp "$R20_BACKUP/market.duckdb" store/market.duckdb
 
   step "publish a snapshot in the previous code's format"

@@ -4687,4 +4687,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +35 lines, ops +25 lines, tests +45 lines.
 - **Next:** rehearse at the final head (the migration's hash changed).
 
+## 2026-10-23 — Make the storage rollback resumable
+
+- **Why:** the first end-to-end rehearsal of `rollback.sh` stopped at its readers step (the rehearsal's stand-in readers had not stopped the deploy's API process); rerunning it would have refused at `mkdir incident`, so an operator could not finish a rollback from a fresh shell after a part-way stop.
+- **What:** the rollback keeps the first incident copy and restores the primary only once (marker files in `$P20_STATE`), always re-verifies the backup and checks the primary is byte-identical to it, so rerunning it after any stop completes it.
+- **Evidence:** `bash -n`; the final-head rehearsal runs deploy and rollback end to end from fresh shells.
+- **Metrics:** ops +10 lines.
+- **Next:** the final-head rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
