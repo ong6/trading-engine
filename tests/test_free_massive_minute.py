@@ -273,3 +273,66 @@ def test_retry_rechecks_no_call_window_before_sending():
             rate_limit=lambda: None, sleep=lambda _s: None,
         )
     assert len(client.calls) == 1
+
+
+def _fake_run(monkeypatch, tmp_path: Path, chunks: int = 3) -> list:
+    manifest = {"manifest_sha256": "a" * 64, "tickers": [{"ticker": "ABC"}],
+                "chunks": [{"start": f"2026-0{i + 1}-01", "end": f"2026-0{i + 1}-20"}
+                           for i in range(chunks)],
+                "requests_estimate": chunks, "ticker_count": 1,
+                "runtime_at_five_per_minute_hours": 0.0, "window": {}}
+    calls = []
+    monkeypatch.setattr(capture, "prepare_manifest", lambda **_kwargs: manifest)
+    monkeypatch.setattr(daily_capture, "_load_massive_key", lambda: "k")
+    monkeypatch.setattr(capture, "_minute_network_permitted", lambda _now: True)
+
+    def chunk(_con, **kwargs):
+        calls.append(kwargs["start"])
+        return {"ticker": "ABC", "start": str(kwargs["start"]), "inserted": 0}
+
+    monkeypatch.setattr(capture, "capture_chunk", chunk)
+    return calls
+
+
+def _args(tmp_path: Path, *extra: str) -> list[str]:
+    return ["--database", str(tmp_path / "minute.duckdb"), "--data-dir", str(tmp_path / "data"),
+            "--daily-database", str(tmp_path / "daily.duckdb"), *extra]
+
+
+def test_completed_capture_is_marked_and_a_later_start_exits_at_once(tmp_path, monkeypatch, capsys):
+    calls = _fake_run(monkeypatch, tmp_path)
+    (tmp_path / "data").mkdir()
+
+    assert capture.main(_args(tmp_path)) == 0
+    assert len(calls) == 3
+    assert capture.completed_manifest(tmp_path / "data") == "a" * 64
+    marker = tmp_path / "data" / capture.COMPLETE_FILE
+    assert oct(marker.stat().st_mode & 0o777) == "0o600"
+
+    assert capture.main(_args(tmp_path)) == 0
+    assert len(calls) == 3
+    assert '"reason": "capture already complete"' in capsys.readouterr().out
+
+
+def test_runtime_bound_pauses_between_chunks_with_exit_75_and_no_marker(tmp_path, monkeypatch):
+    calls = _fake_run(monkeypatch, tmp_path)
+    (tmp_path / "data").mkdir()
+    clock = iter([0.0, 10.0, 7200.0, 7200.0])
+    monkeypatch.setattr(capture.time, "monotonic", lambda: next(clock))
+
+    assert capture.main(_args(tmp_path, "--max-runtime-hours", "1")) == capture.EXIT_PAUSED
+    assert len(calls) == 1
+    assert capture.completed_manifest(tmp_path / "data") is None
+
+
+def test_runtime_bound_pauses_instead_of_sleeping_through_a_window(tmp_path, monkeypatch):
+    calls = _fake_run(monkeypatch, tmp_path)
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(capture, "_minute_network_permitted", lambda _now: False)
+    monkeypatch.setattr(capture, "_next_permitted",
+                        lambda now: now.replace(year=now.year + 1))
+    slept = []
+    monkeypatch.setattr(capture.time, "sleep", slept.append)
+
+    assert capture.main(_args(tmp_path, "--max-runtime-hours", "1")) == capture.EXIT_PAUSED
+    assert calls == [] and slept == []

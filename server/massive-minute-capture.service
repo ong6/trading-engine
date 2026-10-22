@@ -2,24 +2,29 @@
 Description=Capture Massive free minute history for the frozen small-stock tier
 After=network-online.target
 Wants=network-online.target
+ConditionPathExists=!%h/trading-engine/store/pit/massive-minute/capture-complete.json
 
 [Service]
 Type=exec
 WorkingDirectory=%h/trading-engine
-# Resumable: each chunk commits in one transaction and a restart skips finished chunks.
-# RuntimeMaxSec recycles a run daily; Restart=on-failure resumes it (exit 0 = complete).
-ExecStart=%h/trading-engine/.venv/bin/python -m tools.free_massive_minute
+# Finite and resumable: each chunk commits in one transaction and a restart skips
+# finished chunks. A run pauses after 23 h (exit 75) and restarts 15 min later; once
+# every chunk is stored the tool writes capture-complete.json and the unit stays
+# inactive at its next start. RuntimeMaxSec is the hard bound if a run stalls (a
+# chunk already in progress may still wait out one no-call window after 23 h).
+ExecStart=%h/trading-engine/.venv/bin/python -m tools.free_massive_minute --max-runtime-hours 23
 Environment=PYTHONUNBUFFERED=1
 Nice=10
 IOSchedulingClass=idle
-RuntimeMaxSec=1d
+RuntimeMaxSec=36h
 StandardOutput=append:%h/.local/state/massive-minute.log
 StandardError=append:%h/.local/state/massive-minute.log
 PrivateTmp=true
 ProtectSystem=full
 ProtectControlGroups=true
 UMask=0077
-Restart=on-failure
+Restart=always
+SuccessExitStatus=75
 RestartSec=15min
 
 [Install]

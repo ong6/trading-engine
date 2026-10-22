@@ -4531,4 +4531,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +110, engine +13, tests +125.
 - **Next:** orchestrator installs the overlay and drop-ins and cuts the minute capture over.
 
+## 2026-10-22 — Model the minute capture as a finite unit and close the overlay's holes (P24 reliability-ops)
+
+- **Why:** review of the previous entry (T2: F1, F2, F5, F6). An overlay unit could declare itself writer of `store/market.duckdb` and so silence a foreign holder. The capture is finite (12,307 of 33,020 chunks): as an always-active boot unit it would read `not-active` once done and in each daily restart gap, fail the release post-audit, and re-validate every cached page at each boot. Duplicate overlay keys passed silently, deep nesting crashed the check, a FIFO blocked it, and `trading-engine.service`/`trading-engine@*.service` names were accepted.
+- **What:** the tool writes `capture-complete.json` (manifest identity) when every chunk is stored and a later start exits 0 at once; `--max-runtime-hours 23` pauses between chunks, or before sleeping through a no-call window past the bound, and exits 75. The unit: `ConditionPathExists=!…/capture-complete.json`, `Restart=always`, `SuccessExitStatus=75`, `RestartSec=15min`, hard `RuntimeMaxSec=36h`. The manifest marks it `completes`; the live check and the installer accept it inactive with its condition unmet or waiting to restart, and still report a failed exit. Its free-sources read (only to rebuild a missing manifest) and the never-taken writer lock are no longer declared.
+  Overlay services must declare `{"access": "none"}`; duplicate keys, nesting, non-regular files (opened non-blocking) and every `trading-engine` spelling make it invalid.
+- **Evidence:** `pytest tests/test_schedule_contract.py tests/test_free_massive_minute.py tests/test_install_automation.py tests/test_job_contract.py` pass; the new cases cover the writer overlay with a foreign holder, both parser cases, the FIFO (under 3 s), both names, the four finite-unit states and the installer's settled check. Live check with the proposed overlay, cut-over properties substituted: `ok (live)`.
+- **Metrics:** server +45, tools +60, engine +3, tests +130.
+- **Next:** orchestrator lands the series and runs the cut-over.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -497,3 +497,86 @@ def test_static_check_never_reads_the_overlay(tmp_path):
     result = sc.check(static=True, live=False, repo_root=REPO_ROOT,
                       overlay_path=_overlay(tmp_path, STUDY_OVERLAY, mode=0o644))
     assert "overlay" not in result and result["errors"] == []
+
+
+def test_overlay_unit_declaring_a_store_is_refused_and_the_holder_stays_foreign(tmp_path):
+    document = json.loads(json.dumps(STUDY_OVERLAY))
+    document["units"][1]["store"] = {"access": "writer", "writes": ["store/market.duckdb"],
+                                     "reads": [], "windows": "always"}
+    host = _study_host(tmp_path)
+    engine = host["engine_root"]
+    _process(host["proc_root"], 777, cmdline="python -m study", cgroup=_user_unit(
+        "study_run.service"), fds={5: (engine / "store" / "market.duckdb", "0100002")})
+
+    result = sc.check(static=False, live=True, repo_root=REPO_ROOT,
+                      overlay_path=_overlay(tmp_path, document), **host)
+
+    assert result["overlay"]["status"] == "invalid"
+    assert 'must declare store {"access": "none"}' in result["overlay"]["error"]
+    assert ("foreign-holder", "study_run.service") in _pairs(result)
+
+
+@pytest.mark.parametrize("text, message", [
+    ('{"version": 1, "version": 1, "units": []}', "duplicate key 'version'"),
+    ('{"version": 1, "units": ' + "[" * 30_000 + "]" * 30_000 + "}", "nested too deeply"),
+], ids=["duplicate-key", "deep-nesting"])
+def test_overlay_with_duplicate_keys_or_runaway_nesting_is_invalid(tmp_path, text, message):
+    path = tmp_path / "overlay.json"
+    path.write_text(text)
+    path.chmod(0o600)
+    result = _check_live(tmp_path, path)
+    assert result["overlay"]["status"] == "invalid" and message in result["overlay"]["error"]
+
+
+@pytest.mark.parametrize("name", ["trading-engine.service", "trading-engine@x.service"])
+def test_overlay_may_not_name_an_engine_unit_by_any_spelling(tmp_path, name):
+    document = json.loads(json.dumps(STUDY_OVERLAY))
+    document["units"].append({**document["units"][1], "unit": name})
+    result = _check_live(tmp_path, _overlay(tmp_path, document))
+    assert "belongs to this repository" in result["overlay"]["error"]
+
+
+def test_a_fifo_in_place_of_the_overlay_is_refused_without_blocking(tmp_path):
+    import os
+    import time
+
+    fifo = tmp_path / "overlay.json"
+    os.mkfifo(fifo, 0o600)
+    started = time.monotonic()
+    result = _check_live(tmp_path, fifo)
+    assert time.monotonic() - started < 3
+    assert result["overlay"]["status"] == "invalid"
+    assert "not a regular file" in result["overlay"]["error"]
+
+
+@pytest.mark.parametrize("state, sub, condition, rule", [
+    ("inactive", "dead", "no", None),
+    ("activating", "auto-restart", "yes", None),
+    ("inactive", "dead", "yes", "not-active"),
+    ("failed", "failed", "yes", "failed"),
+], ids=["done", "between-runs", "stopped", "failed"])
+def test_finite_boot_unit_is_healthy_when_done_or_between_runs(tmp_path, state, sub,
+                                                               condition, rule):
+    home = tmp_path / "home"
+    blocks = _healthy_blocks(MANIFEST)
+    blocks["massive-minute-capture.service"].update(
+        ActiveState=state, SubState=sub, ConditionResult=condition)
+
+    result = _live(tmp_path, blocks, _crontab(home / "trading-engine", home))
+
+    expected = set() if rule is None else {(rule, "massive-minute-capture.service")}
+    if rule == "failed":
+        expected.add(("not-active", "massive-minute-capture.service"))
+    assert _pairs(result) == expected
+
+
+def test_installer_counts_a_completed_finite_unit_as_settled(monkeypatch):
+    shown = {"massive-minute-capture.service": "ActiveState=inactive\nSubState=dead\n"
+                                               "ConditionResult=no\n"}
+    monkeypatch.setattr(install_automation, "_run", lambda args, **_kw: _Result(
+        shown.get(args[3], "ActiveState=inactive\nSubState=dead\nConditionResult=yes\n")))
+    assert install_automation._settled("massive-minute-capture.service", "inactive")
+    assert install_automation._settled("trading-engine-api.service", "active")
+    assert not install_automation._settled("trading-engine-api.service", "inactive")
+    shown["massive-minute-capture.service"] = "ActiveState=inactive\nConditionResult=yes\n"
+    assert not install_automation._settled("massive-minute-capture.service", "inactive")

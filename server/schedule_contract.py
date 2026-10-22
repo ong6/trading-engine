@@ -68,6 +68,7 @@ EXEC_KEYS = ("ExecStartPre", "ExecStart", "ExecStartPost", "ExecStop", "ExecStop
 STOP_VERBS = frozenset({"stop", "kill", "disable", "mask", "isolate", "restart", "try-restart",
                         "reload-or-restart", "freeze"})
 SHOW_PROPERTIES = ("Id", "LoadState", "ActiveState", "SubState", "UnitFileState", "Type",
+                   "ConditionResult",
                    "TimeoutStartUSec", "RuntimeMaxUSec", "Conflicts", "Triggers", *EXEC_KEYS)
 _SPAN_UNITS = {"": 1.0, "us": 1e-6, "usec": 1e-6, "ms": 1e-3, "msec": 1e-3, "s": 1.0,
                "sec": 1.0, "m": 60.0, "min": 60.0, "h": 3600.0, "hr": 3600.0, "d": 86400.0,
@@ -103,6 +104,12 @@ def autostart_units(manifest: dict | None = None) -> frozenset[str]:
     manifest = manifest or load_manifest()
     return frozenset(entry["unit"] for entry in manifest["units"] if entry["origin"] == "repo"
                      and entry["state"] == "enabled" and _installable(entry))
+
+
+def completing_units(manifest: dict | None = None) -> frozenset[str]:
+    """Finite boot units: done (start condition unmet) or between runs counts as running."""
+    manifest = manifest or load_manifest()
+    return frozenset(entry["unit"] for entry in manifest["units"] if entry.get("completes"))
 
 
 def held_units(manifest: dict | None = None) -> frozenset[str]:
@@ -148,6 +155,9 @@ def _schema_issues(manifest: dict) -> list[dict]:
                     problems.append("calendar")
         elif entry.get("activation") == "timer" and entry.get("timer") not in units:
             problems.append("timer")
+        if "completes" in entry and (entry["completes"] is not True
+                                     or entry.get("activation") != "boot"):
+            problems.append("completes")
         if "max_runtime" in entry and entry["max_runtime"] is not None and span_seconds(
                 entry["max_runtime"]) is None:
             problems.append("max_runtime")
@@ -182,7 +192,8 @@ def _store_problems(entry: dict, store: dict | None, units: dict[str, dict]) -> 
 def _overlay_text(path: Path) -> str | None:
     """The overlay's text, None when absent; refuses links, other owners and open modes."""
     try:
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        # O_NONBLOCK: a FIFO or device in its place must not block the hourly check.
+        descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
     except FileNotFoundError:
         return None
     except OSError as exc:
@@ -201,14 +212,26 @@ def _overlay_text(path: Path) -> str | None:
     return raw.decode("utf-8")
 
 
+def _unique_keys(pairs: list[tuple[str, object]]) -> dict:
+    keys = [key for key, _value in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError(f"duplicate key {sorted(k for k in keys if keys.count(k) > 1)[0]!r}")
+    return dict(pairs)
+
+
 def _overlay_entry(item: object, reserved: set[str]) -> dict:
     if not isinstance(item, dict) or not set(item) <= OVERLAY_KEYS:
         raise ValueError("an entry is not an object of known keys")
     name = item.get("unit")
     if not isinstance(name, str) or "/" in name or not name.endswith(UNIT_SUFFIXES):
         raise ValueError(f"invalid unit name {name!r}")
-    if name in reserved or name.startswith("trading-engine-"):
+    if name in reserved or re.match(r"trading-engine[-@.]", name):
         raise ValueError(f"{name} belongs to this repository's manifest")
+    # An overlay unit never holds a store: a declared store would excuse a foreign holder.
+    if name.endswith(".timer") and "store" in item:
+        raise ValueError(f"{name}: a timer declares no store")
+    if not name.endswith(".timer") and item.get("store") != {"access": "none"}:
+        raise ValueError(f'{name}: an overlay unit must declare store {{"access": "none"}}')
     for key in ("owner", "reason"):
         if not isinstance(item.get(key), str) or not item[key].strip():
             raise ValueError(f"{name} needs a non-empty {key}")
@@ -237,7 +260,7 @@ def apply_overlay(manifest: dict, path: Path | None, repo_units: set[str] = froz
         text = _overlay_text(path)
         if text is None:
             return manifest, report
-        document = json.loads(text)
+        document = json.loads(text, object_pairs_hook=_unique_keys)
         if (not isinstance(document, dict) or set(document) != {"version", "units"}
                 or document["version"] != 1 or not isinstance(document["units"], list)):
             raise ValueError('expected {"version": 1, "units": [...]}')
@@ -250,8 +273,10 @@ def apply_overlay(manifest: dict, path: Path | None, repo_units: set[str] = froz
         if issues:
             raise ValueError("; ".join(f"{item['subject']}: {item['detail']['problem']}"
                                        for item in issues))
-    except (OSError, UnicodeDecodeError, ValueError, TypeError, KeyError) as exc:
-        return manifest, {**report, "status": "invalid", "error": str(exc)[:300]}
+    except (OSError, UnicodeDecodeError, ValueError, TypeError, KeyError,
+            RecursionError, MemoryError) as exc:
+        error = str(exc) if not isinstance(exc, RecursionError) else "nested too deeply"
+        return manifest, {**report, "status": "invalid", "error": error[:300]}
     return merged, {**report, "status": "loaded", "units": [
         {"unit": entry["unit"], "owner": entry["managed_by"], "reason": entry["reason"],
          "acknowledged": sorted(rule["rule"] for rule in entry["pinned_exception"])}
@@ -581,6 +606,19 @@ def _live_bound(block: dict[str, list[str]]) -> float | None:
     return span_seconds(_prop(block, "RuntimeMaxUSec"))
 
 
+def completed_or_resuming(entry: dict, block: dict[str, list[str]]) -> bool:
+    """A finite boot unit (``completes``) between runs: waiting to restart, or done.
+
+    Done means its start condition (no completion marker) failed; a failed exit is still
+    reported by the ``failed`` rule and a unit merely stopped is still ``not-active``.
+    """
+    if not entry.get("completes"):
+        return False
+    active = _prop(block, "ActiveState")
+    return (active == "activating" and _prop(block, "SubState") == "auto-restart") or (
+        active == "inactive" and _prop(block, "ConditionResult") == "no")
+
+
 def _host_unit(manifest: dict, name: str) -> bool:
     return any(fnmatch.fnmatchcase(name, item["pattern"]) for item in manifest["host_units"])
 
@@ -606,7 +644,7 @@ def _unit_violations(manifest: dict, blocks: dict[str, dict[str, list[str]]]) ->
                 violations.append(_violation("not-installed", name))
             elif file_state != "enabled":
                 violations.append(_violation("not-enabled", name, unit_file_state=file_state))
-            elif active != "active":
+            elif active != "active" and not completed_or_resuming(entry, block):
                 violations.append(_violation("not-active", name, active_state=active))
     triggered = {target for block in blocks.values() if _prop(block, "Id").endswith(".timer")
                  for value in block.get("Triggers", []) for target in value.split()}

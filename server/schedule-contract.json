@@ -22,9 +22,10 @@
      "store": {"access": "none"}},
     {"unit": "massive-minute-capture.service", "origin": "repo",
      "source": "server/massive-minute-capture.service", "state": "enabled", "activation": "boot",
-     "max_runtime": "1d",
-     "store": {"access": "writer", "writes": ["store/pit/massive-minute.duckdb"],
-               "reads": ["store/pit/free-sources.duckdb"], "windows": "always"}},
+     "completes": true, "max_runtime": "36h",
+     "note": "finite capture: inactive once capture-complete.json exists; it reads store/pit/free-sources.duckdb only to build a missing manifest.json, which exists",
+     "store": {"access": "writer", "writes": ["store/pit/massive-minute.duckdb"], "reads": [],
+               "windows": "always"}},
 
     {"unit": "trading-engine-agent-data-capture.timer", "origin": "repo",
      "source": "server/trading-engine-agent-data-capture.timer", "state": "enabled",

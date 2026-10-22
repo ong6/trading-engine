@@ -74,7 +74,7 @@ def test_boot_service_registration_needs_its_target_and_matching_command(tmp_pat
         job_contract.load_registry(tmp_path, environ={})
     manifest.write_text(source.replace(
         'exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", '
-        '"tools.free_massive_minute"] }]',
+        '"tools.free_massive_minute", "--max-runtime-hours", "23"] }]',
         'exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "other"] }]'))
     with pytest.raises(job_contract.JobContractError, match="differs from argv"):
         job_contract.load_registry(tmp_path, environ={})

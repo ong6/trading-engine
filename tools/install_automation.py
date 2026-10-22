@@ -25,6 +25,7 @@ END_MARKER = "# END trading-engine managed automation"
 UNIT_SOURCES = schedule_contract.unit_sources()
 AUTOSTART_UNITS = scheduler_monitor.AUTOSTART_UNITS
 HELD_UNITS = scheduler_monitor.HELD_UNITS
+COMPLETING_UNITS = schedule_contract.completing_units()
 # A failed old unit or a stale backup must not make an install fail; cron and unit
 # enablement are verified directly before this status is read.
 POST_INSTALL_SCHEDULER_STATUSES = frozenset({"ok", "degraded"})
@@ -386,6 +387,26 @@ def _service_state(action: str, unit: str) -> str:
     return state if state else "unknown"
 
 
+def _settled(unit: str, active: str) -> bool:
+    """Active, or a finite unit that completed or is waiting to resume (no start needed)."""
+    if active == "active":
+        return True
+    if unit not in COMPLETING_UNITS:
+        return False
+    try:
+        result = _run(["systemctl", "--user", "show", unit, "-p", "ActiveState",
+                       "-p", "SubState", "-p", "ConditionResult"])
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if result.returncode != 0:
+        return False
+    block = {}
+    for line in result.stdout.splitlines():
+        key, _, value = line.partition("=")
+        block[key] = [value]
+    return schedule_contract.completed_or_resuming({"completes": True}, block)
+
+
 def _linger_state() -> str:
     """Return whether this user's service manager survives logout."""
     try:
@@ -597,6 +618,7 @@ def _installed_units(
             "enabled": _service_state("is-enabled", unit),
             "active": _service_state("is-active", unit),
         }
+        result[unit]["settled"] = _settled(unit, result[unit]["active"])
     return result
 
 
@@ -631,7 +653,7 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
         "start_units": sorted(
             unit
             for unit, state in units.items()
-            if unit in AUTOSTART_UNITS and state["active"] != "active"
+            if unit in AUTOSTART_UNITS and not state["settled"]
         ),
         "enable_linger": linger != "yes",
     }
@@ -668,7 +690,9 @@ def _verify_applied(repo_root: Path, home: Path, units: list[str]) -> tuple[dict
     if render_crontab(current_crontab, repo_root) != current_crontab:
         raise RuntimeError("installed crontab does not match the managed configuration")
     _checked(["systemctl", "--user", "is-enabled", *units])
-    _checked(["systemctl", "--user", "is-active", *units])
+    # A finite unit that completed is inactive by design; it is checked as settled below.
+    _checked(["systemctl", "--user", "is-active",
+              *[unit for unit in units if unit not in COMPLETING_UNITS]])
     installed = _installed_units(repo_root, home)
     checked_units = set(units)
     disabled = sorted(
@@ -679,7 +703,7 @@ def _verify_applied(repo_root: Path, home: Path, units: list[str]) -> tuple[dict
     inactive = sorted(
         unit
         for unit, state in installed.items()
-        if unit in checked_units and state["active"] != "active"
+        if unit in checked_units and not state["settled"]
     )
     if disabled:
         raise RuntimeError(f"installed service units are not enabled: {', '.join(disabled)}")
@@ -770,7 +794,7 @@ def _current_service_changes(units: list[str]) -> tuple[list[str], list[str]]:
     active = {unit: _service_state("is-active", unit) for unit in units}
     return (
         sorted(unit for unit, state in enabled.items() if state != "enabled"),
-        sorted(unit for unit, state in active.items() if state != "active"),
+        sorted(unit for unit, state in active.items() if not _settled(unit, state)),
     )
 
 

@@ -468,6 +468,8 @@ def render_service(spec: JobSpec) -> str:
         values = service.get(key, [])
         if values:
             lines.append(f"{key.title()}=" + " ".join(values))
+    lines.extend(f"ConditionPathExists={value}"
+                 for value in service.get("condition_path_exists", []))
     if service.get("start_limit_interval"):
         lines.append(f"StartLimitIntervalSec={service['start_limit_interval']}")
     if service.get("start_limit_burst"):
@@ -487,6 +489,7 @@ def render_service(spec: JobSpec) -> str:
         ("protect_system", "ProtectSystem"),
         ("protect_control_groups", "ProtectControlGroups"), ("umask", "UMask"),
         ("restart", "Restart"), ("restart_prevent_exit_status", "RestartPreventExitStatus"),
+        ("success_exit_status", "SuccessExitStatus"),
         ("restart_sec", "RestartSec"),
     )
     for key, rendered in ordered:

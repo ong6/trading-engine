@@ -68,10 +68,16 @@ as the unit; the installer reads its autostart and held sets from it.
 Units another project installs on this host (a private study's timer, a notes sync) are declared
 in an optional owner-only overlay, `~/.config/trading-engine/schedule-contract.local.json`
 (`{"version": 1, "units": [...]}`; each entry names the unit, an `owner` and a `reason`, and may
-`acknowledge` only `lane-path` or `unbounded` for its own unit). The live check lists those units
-as host-local and their acknowledged rules as exceptions. The overlay may not name a unit of this
-repository, and a link, another owner, an open mode or a malformed entry makes the check report
-an error and ignore the whole overlay. `--overlay PATH` checks a proposed file first.
+`acknowledge` only `lane-path` or `unbounded` for its own unit; a service declares
+`"store": {"access": "none"}`, so an overlay can never excuse a process holding the store). The
+live check lists those units as host-local and their acknowledged rules as exceptions. The overlay
+may not name a unit of this repository, and a link, a FIFO, another owner, an open mode, a
+duplicate key or a malformed entry makes the check report an error and ignore the whole overlay.
+`--overlay PATH` checks a proposed file first.
+
+A finite boot unit declares `"completes": true` (the minute capture): between runs (waiting to
+restart) and once done (its start condition, no `capture-complete.json`, failed) it counts as
+running for the live check and the installer; a failed exit is still reported.
 
 Data and day-zero invariants run against the published snapshot only, never the live store:
 `.venv/bin/python -m tools.check_invariants --snapshot latest` (bar geometry, one split basis
