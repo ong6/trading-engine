@@ -316,8 +316,10 @@ def _setup(con, closes: list[float], fetched: datetime | list[datetime]) -> None
     db.init_actions_schema(con)
     insert_bars(con, TK, SESSIONS, open_=closes, close=closes)
     fl = fetched if isinstance(fetched, list) else [fetched] * len(SESSIONS)
-    con.executemany("UPDATE prices SET fetched_at = ? WHERE ticker = ? AND date = ?",
-                    [[f, TK, d] for f, d in zip(fl, SESSIONS, strict=True)])
+    # The first-stored stamp is the provenance the reconciler judges (fixtures stamp 2000-01-01).
+    con.executemany("UPDATE prices SET fetched_at = ?, first_fetched_at = ? "
+                    "WHERE ticker = ? AND date = ?",
+                    [[f, f, TK, d] for f, d in zip(fl, SESSIONS, strict=True)])
     con.execute("INSERT INTO corporate_actions VALUES (?, ?, 'split', ?, 'yfinance', now())",
                 [TK, EX, RATIO])
 
