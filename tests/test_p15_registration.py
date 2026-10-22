@@ -66,6 +66,7 @@ REGISTERED_PATHS = {
     "engine/queue_runner.py",
     "engine/run_daily.sh",
     "engine/screen.py",
+    "engine/sec_acceptance.py",
     "engine/signals.py",
     "engine/sync.py",
     "engine/tradingview_history_archive.py",
@@ -277,8 +278,8 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 16
-    assert registration["revision_reason"] == "Revision 16 after deployed revision 15 (installed 2026-10-21), from the P24 first merge batch: a split restatement leaves bars already on the post-split scale and the integrity repair tool restores twice-divided bars; never-settled same-night bars are asked for again and retired as stale_provisional when still inadmissible; the price verify prints a one-line summary; walk-forward results store undefined statistics as null; the deflated-Sharpe fallback variance is the zero-skill 1/(n-1); the study core never prices a missing bar with a later close and withholds dividends only from receipts; the league report check accepts books retired after their session's close; a failed TradingView tail window resolves when a wider attempt covers it; a rejected model assessment names its failing field. Runtime contracts E1 v8, sector v12 and XS v23 keep their versions and what they compute; each explicit migration replaces only the deployed revision-15 digest. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. The storage work previously numbered revision 16 becomes revision 17."
+    assert registration["registration_revision"] == 17
+    assert registration["revision_reason"] == "Revision 17 after deployed revision 16 (installed 2026-10-21), from the P24 second merge batch: SEC acceptance labels are read as New York wall time by one shared rule (engine/sec_acceptance.py), in the bulk store views and in the P15 live SEC capture. Disclosure: this revives P15's SEC 8-K event source, whose capture had been rejecting 51 of 52 submissions responses because it read the label as UTC; on the recorded 2026-10-21 replay it records 8,017 filings instead of 142. This is a defect repair, not a tuned value, and available_at stays the receipt time, so trigger sessions never used the label. Also: batched TradingView fact and price-observation writes, cached NYSE session bounds in the price validator, identical intraday re-fetches summarized as one intraday_identical_refetch row per batch and interval (orchestrator ruling 2026-10-22), batched league marks, early-exit delisting scans, offline-only dividend projection checkpoints, columnar study panels and a vectorized stationary bootstrap, each proven output-identical; quant-audit E5 charges the execution profile on the v2 fill paths (baseline bit-identical), E6 rejects a fill against a zero median dollar volume as illiquid, E7 and E8 correct study eligibility and price sources (P18 core p18-study-v3). Runtime contracts E1 v8, sector v12 and XS v23 keep their versions and what they compute; each explicit migration replaces only the deployed revision-16 digest. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. The storage work previously numbered revision 17 becomes revision 18."
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
     assert recorded == canonical_sha256(registration)

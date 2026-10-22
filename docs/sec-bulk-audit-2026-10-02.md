@@ -25,6 +25,11 @@ Tag fallbacks, in priority order, are:
 - `research_and_development`: `us-gaap:ResearchAndDevelopmentExpense`, `ifrs-full:ResearchAndDevelopmentExpense`
 - `selling_general_and_administrative`: `us-gaap:SellingGeneralAndAdministrativeExpense`, `ifrs-full:GeneralAndAdministrativeExpense`
 
+**Amendment 2026-10-21 (P24).** "Timezone-aware SEC acceptance timestamp" above was the bulk
+label read as UTC, which is up to five hours early for some filings. Availability is now the label's
+wall clock read as New York time (`engine/sec_acceptance.py`). The counts below are unchanged by
+that rule when this audit ran with a UTC session, since the label's wall date is then its date.
+
 ## Fundamental coverage
 
 | Year | Facts | Companies |

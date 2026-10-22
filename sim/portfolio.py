@@ -117,6 +117,44 @@ def close_observation(con: duckdb.DuckDBPyConnection, ticker: str, d: date):
     return latest_close_observation(con, ticker, d)
 
 
+def close_observations(con: duckdb.DuckDBPyConnection, tickers,
+                       d: date) -> dict[str, tuple[date, float] | None]:
+    """`close_observation` for many tickers in one or two queries.
+
+    Same admission and the same latest-date choice per ticker; a ticker without
+    an admitted observation maps to None.
+    """
+    from engine.lib.data_quality import trusted_bar_sql
+
+    from .bar_sources import _columns
+
+    names = sorted(set(tickers))
+    out: dict[str, tuple[date, float] | None] = dict.fromkeys(names)
+    if not names:
+        return out
+    columns = _columns(con, "prices")
+    if not columns or not {"open", "high", "low", "close", "volume"} <= columns:
+        return out
+    # An admitted bar dated `d` is the latest one by definition, so only names
+    # without one need the ordered search over earlier dates.
+    rows = con.execute(
+        "SELECT ticker,date,close FROM prices WHERE ticker IN (SELECT UNNEST(?::VARCHAR[])) "
+        f"AND date=? AND {trusted_bar_sql()}", [names, d],
+    ).fetchall()
+    rest = sorted(set(names) - {row[0] for row in rows})
+    if rest:
+        rows += con.execute(
+            "SELECT ticker,date,close FROM (SELECT * FROM prices "
+            "WHERE ticker IN (SELECT UNNEST(?::VARCHAR[])) AND date<=?) "
+            f"WHERE {trusted_bar_sql()} "
+            "QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC)=1",
+            [rest, d],
+        ).fetchall()
+    for ticker, day, close in rows:
+        out[ticker] = None if close is None else (day, float(close))
+    return out
+
+
 def close_on(con: duckdb.DuckDBPyConnection, ticker: str, d: date):
     """(close, is_carried): the close on/last-known before d. Carried if the
     exact date's bar is missing (never fabricated — the last real close stands)."""
@@ -144,10 +182,14 @@ def mark_to_market(con: duckdb.DuckDBPyConnection, pf_id: str, d: date) -> dict:
     """
     cash = get_cash(con, pf_id)
     positions = get_positions(con, pf_id)
+    observations = close_observations(con, positions, d)
     mkt = 0.0
     carried = []
     for tk, p in positions.items():
-        close, is_carried = close_on(con, tk, d)
+        # One batched read; the same (close, is_carried) close_on returns.
+        observation = observations[tk]
+        close, is_carried = ((None, True) if observation is None
+                             else (observation[1], observation[0] != d))
         if close is None:
             carried.append(tk)  # no price at all — contributes 0, flagged
             continue

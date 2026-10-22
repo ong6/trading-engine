@@ -1,0 +1,49 @@
+{
+  "budget": {
+    "ok": true,
+    "violations": []
+  },
+  "code_size": {
+    "buildlog": 4295,
+    "docs_md": 29689,
+    "engine": 26569,
+    "farm": 26947,
+    "product": 66272,
+    "server": 66907,
+    "sim": 12756,
+    "tests": 102296,
+    "tools": 16434,
+    "ui_app": 7114
+  },
+  "commit_shape": {
+    "largest_insertions": 10233,
+    "largest_sha": "6aa80527",
+    "largest_subject": "Complete agent research product programme",
+    "non_screen_commits": 807,
+    "product_touching": 323,
+    "research_touching": 257,
+    "support_only": 484,
+    "window_days": 30
+  },
+  "date": "2026-10-22",
+  "ledger": {
+    "entries_total": 390,
+    "recent_entries": 10,
+    "recent_max_lines": 7,
+    "recent_mean_lines": 7.0,
+    "recent_sha256_mentions": 0,
+    "v2_entries": 390,
+    "v2_max_lines": 19,
+    "v2_max_sha256": 0
+  },
+  "previous_date": "2026-10-21",
+  "research": {
+    "active_books": 17,
+    "e1_observations": 13,
+    "league_date": "2026-10-21",
+    "league_stale_days": 1,
+    "sector_shared_sessions": 3,
+    "sector_status": "ACCUMULATING",
+    "xs_status": "ACCUMULATING"
+  }
+}

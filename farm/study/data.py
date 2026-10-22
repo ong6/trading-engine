@@ -12,6 +12,7 @@ from typing import Any, Iterable, Mapping
 from zoneinfo import ZoneInfo
 
 from engine.lib import db
+from engine.lib.data_quality import provisional_open_fault_sql
 
 from .panel import Panel
 from .spec import parse_clock, validate_decision_time
@@ -155,6 +156,32 @@ class Bar:
         }
 
 
+def prices_query(con, *, start: date | None = None, end: date | None = None,
+                 tickers: Iterable[str] | None = None) -> tuple[str, list]:
+    """The study bar query over a store's ``prices`` table.
+
+    A never-settled bar whose open lies outside [low, high] is left out, as every
+    open consumer in the engine does, until the settled re-fetch replaces it.
+    """
+    clauses, params = [], []
+    if start is not None:
+        clauses.append("date >= ?")
+        params.append(start)
+    if end is not None:
+        clauses.append("date <= ?")
+        params.append(end)
+    names = sorted(set(tickers or ()))
+    if names:
+        clauses.append(f"ticker IN ({','.join('?' for _ in names)})")
+        params.extend(names)
+    columns = {row[0] for row in con.execute("SELECT * FROM prices LIMIT 0").description}
+    if "fetched_at" in columns:
+        clauses.append(f"NOT COALESCE({provisional_open_fault_sql()}, FALSE)")
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    return ("SELECT ticker, date, open, high, low, close, volume FROM prices"
+            f"{where} ORDER BY date, ticker", params)
+
+
 class PriceSource:
     """One declared, immutable set of normalized bars."""
 
@@ -192,23 +219,10 @@ class PriceSource:
     def from_duckdb(cls, path: str | Path, declaration: DataDeclaration, *,
                     start: date | None = None, end: date | None = None,
                     tickers: Iterable[str] | None = None) -> PriceSource:
-        clauses, params = [], []
-        if start is not None:
-            clauses.append("date >= ?")
-            params.append(start)
-        if end is not None:
-            clauses.append("date <= ?")
-            params.append(end)
-        names = sorted(set(tickers or ()))
-        if names:
-            clauses.append(f"ticker IN ({','.join('?' for _ in names)})")
-            params.extend(names)
-        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         con = db.connect(Path(path), read_only=True, wait_s=0)
         try:
-            rows = con.execute(
-                "SELECT ticker, date, open, high, low, close, volume FROM prices"
-                f"{where} ORDER BY date, ticker", params).fetchall()
+            sql, params = prices_query(con, start=start, end=end, tickers=tickers)
+            rows = con.execute(sql, params).fetchall()
         finally:
             con.close()
         return cls(declaration, (Bar(*row) for row in rows))
