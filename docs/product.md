@@ -220,7 +220,7 @@ Updated 2026-10-22 for engine v2 live and P24 active.
    and leave no uncommitted work on the host. A broken producer beats every item below.
 2. **Finish P24 without disturbing the frozen records.** Land the remaining lanes only after both
    timezone suites pass on the merged tree, with one re-pin per batch. The storage revision
-   (revision 19) goes live only after its review findings are fixed and its store-copy rehearsal
+   (revision 20) goes live only after its review findings are fixed and its store-copy rehearsal
    passes. Watch the invariant monitor (shadow) after the 2026-10-22 store repair.
 3. **Finish the P22 engine-v2 cutover.** Engine v2 deployed 2026-10-18 (D0 2026-10-19); the
    commit-identity rewrite of the older public history was done on 2026-10-20. Still to do: the

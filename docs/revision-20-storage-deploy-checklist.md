@@ -1,4 +1,4 @@
-# Storage revision (r16-gen + r16-raw, now numbered revision 19 after main took registration revision 18) — deploy checklist
+# Storage revision (r16-gen + r16-raw, now numbered revision 20 after main took registration revisions 18 and 19) — deploy checklist
 
 Branch `p24/r16` (on top of `p24/integrate-wave1`), blockers B1-B4 fixed on `p24/storage-r18` (main merged at
 454cfc6a). Status: **ready for the single re-pin and orchestrator review**; not yet deployed. Rehearsed on store copies
@@ -57,17 +57,17 @@ Pinned files changed by the storage revision: `engine/lib/db.py` (P15 + E1/secto
 
 ```bash
 cd ~/trading-engine
-export P22_ROOT="$PWD" P22_STATE="$HOME/.local/state/r19-deploy"; mkdir -m 700 -p "$P22_STATE"
+export P22_ROOT="$PWD" P22_STATE="$HOME/.local/state/r20-deploy"; mkdir -m 700 -p "$P22_STATE"
 # capture unit/cron/process state exactly as docs/settlement-runbook.md "P22 deployment" step 1, then:
 source "$P22_STATE/functions.bash"       # helpers saved by that step
 git rev-parse HEAD > "$P22_STATE/predeploy.sha"
 p22_clean_source; p22_quiesce; p22_lock
-R19_BACKUP="$(readlink -f "$HOME")/r19-backups/pre-migration-$(date -u +%Y%m%dT%H%M%SZ)"  # verify refuses a symlinked parent
-.venv/bin/python -m tools.backup_database create "$R19_BACKUP" --source store/market.duckdb
-.venv/bin/python -m tools.backup_database verify "$R19_BACKUP" | tee "$P22_STATE/backup-verify.json"
+R20_BACKUP="$(readlink -f "$HOME")/r20-backups/pre-migration-$(date -u +%Y%m%dT%H%M%SZ)"  # verify refuses a symlinked parent
+.venv/bin/python -m tools.backup_database create "$R20_BACKUP" --source store/market.duckdb
+.venv/bin/python -m tools.backup_database verify "$R20_BACKUP" | tee "$P22_STATE/backup-verify.json"
 MSHA=$(.venv/bin/python -c 'import json,sys;print(json.load(open(sys.argv[1]))["manifest_sha256"])' "$P22_STATE/backup-verify.json")
 PRE=$(.venv/bin/python -m engine.schema_migrations plan | .venv/bin/python -c 'import json,sys;print(json.load(sys.stdin)["expected_pre_catalog_sha256"])')
-.venv/bin/python -m engine.schema_migrations apply "$R19_BACKUP" --backup-manifest-sha256 "$MSHA" \
+.venv/bin/python -m engine.schema_migrations apply "$R20_BACKUP" --backup-manifest-sha256 "$MSHA" \
   --source-commit "$(git rev-parse HEAD)" --pre-catalog-sha256 "$PRE"
 .venv/bin/python -m tools.publish_snapshot            # first generation: API readers serve ONLY generations
 .venv/bin/python -m tools.install_automation --apply  # stops/disables the paused TradingView timer
@@ -93,12 +93,12 @@ p22_release_producers
 
 ```bash
 source "$P22_STATE/functions.bash"; p22_quiesce; p22_lock
-.venv/bin/python -m tools.backup_database verify "$R19_BACKUP"
+.venv/bin/python -m tools.backup_database verify "$R20_BACKUP"
 mkdir -m 700 "$P22_STATE/incident"; cp -a store/market.duckdb* "$P22_STATE/incident/"
 mv store/snapshots "$P22_STATE/incident/quarantined-generations"   # readers on the old code use full snapshots
 git checkout --detach "$(cat "$P22_STATE/predeploy.sha")"
-cp "$R19_BACKUP/market.duckdb" store/market.duckdb.restore
-cmp "$R19_BACKUP/market.duckdb" store/market.duckdb.restore
+cp "$R20_BACKUP/market.duckdb" store/market.duckdb.restore
+cmp "$R20_BACKUP/market.duckdb" store/market.duckdb.restore
 rm -f store/market.duckdb.wal; mv store/market.duckdb.restore store/market.duckdb
 .venv/bin/python -m tools.install_automation --apply      # restores the pre-deploy unit set (TradingView enabled)
 .venv/bin/python -m tools.publish_snapshot                # old-format full snapshot for the old readers
