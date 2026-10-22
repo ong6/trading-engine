@@ -1219,6 +1219,67 @@ def _copy_database(source: Path, destination: Path) -> dict:
     return target_snapshot
 
 
+@contextmanager
+def _open_source_wal(source_parent_fd: int, source_name: str):
+    """Yield a readable path to the source's WAL, or None when it has none."""
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(f"{source_name}.wal", flags, dir_fd=source_parent_fd)
+    except FileNotFoundError:
+        yield None
+        return
+    except OSError as exc:
+        raise BackupError("source database WAL is not a regular file") from exc
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise BackupError("source database WAL is not a regular file")
+        yield _descriptor_path(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _copy_database_file(source: Path, destination: Path, wal: Path | None = None) -> dict:
+    """Copy a quiesced database's bytes and prove the copy logically equal to the source.
+
+    The caller holds every producer lock, so no cooperating writer changes the file while
+    it is read. A pending WAL is copied beside the file and replayed into the copy, which is
+    then checkpointed into a single file. Unlike ``COPY FROM DATABASE`` (one uncommitted
+    transaction that grows toward 80% of host memory), only the two logical snapshots use
+    memory, and their fingerprints run under a fixed DuckDB cap.
+    """
+    def snapshot(path: Path, alias: str) -> dict:
+        connection = duckdb.connect()
+        try:
+            connection.execute(f"ATTACH {_sql_string(str(path))} AS {alias} (READ_ONLY)")
+            result = database_snapshot(connection, alias)
+            connection.execute(f"DETACH {alias}")
+            return result
+        except duckdb.Error as exc:
+            raise BackupError(f"DuckDB snapshot failed: {exc}") from exc
+        finally:
+            connection.close()
+
+    source_snapshot = snapshot(source, "backup_source")
+    try:
+        shutil.copyfile(source, destination)
+        if wal is not None:
+            copied_wal = destination.with_name(f"{destination.name}.wal")
+            shutil.copyfile(wal, copied_wal)
+            replay = duckdb.connect(str(destination))
+            try:
+                replay.execute("CHECKPOINT")
+            finally:
+                replay.close()
+            if os.path.lexists(copied_wal):
+                raise BackupError("copied database WAL was not checkpointed")
+    except (OSError, duckdb.Error) as exc:
+        raise BackupError(f"database file copy failed: {exc}") from exc
+    target_snapshot = snapshot(destination, "backup_target")
+    if target_snapshot != source_snapshot:
+        raise BackupError("copied database invariants do not match the source snapshot")
+    return target_snapshot
+
+
 def _copy_files(
     repo_root: Path, bundle: Path, relatives: tuple[str, ...], label: str,
     *, data_dir: Path | None = None,
@@ -1567,7 +1628,8 @@ def create_backup(
                     ):
                         source_read_path = _descriptor_path(source_fd)
                         database = temporary / DATABASE_FILENAME
-                        snapshot = _copy_database(source_read_path, database)
+                        with _open_source_wal(source_parent_fd, backup_source.name) as wal:
+                            snapshot = _copy_database_file(source_read_path, database, wal)
                         database.chmod(0o600)
                         _require_source_database_identity(
                             backup_source, source_parent_fd, source_fd, source_initial

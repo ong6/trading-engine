@@ -46,6 +46,22 @@ _PUBLICATION_LOCK_HELD: ContextVar[bool] = ContextVar(
 )
 
 
+# Every DuckDB connection publication opens is capped and spills to the snapshot directory;
+# DuckDB's default (80% of host memory) let the first 12 GB generation reach 24 GB RSS.
+PUBLISH_MEMORY_LIMIT = "4GB"
+PUBLISH_THREADS = 4
+SPILL_DIRECTORY = ".spill"
+
+
+def _bounded(connection: duckdb.DuckDBPyConnection, directory: Path):
+    connection.execute(f"SET memory_limit='{PUBLISH_MEMORY_LIMIT}'")
+    connection.execute(f"SET threads={PUBLISH_THREADS}")
+    connection.execute(
+        f"SET temp_directory={backup_database._sql_string(str(directory / SPILL_DIRECTORY))}"
+    )
+    return connection
+
+
 class SnapshotError(RuntimeError):
     """The snapshot could not be published without disturbing the prior one."""
 
@@ -517,7 +533,7 @@ def _empty_relation(spec: dict) -> str:
 def _build_hot_database(
     capture: Path, destination: Path, parts: list[dict], cold_specs: dict[str, dict],
 ) -> None:
-    connection = duckdb.connect(str(destination))
+    connection = _bounded(duckdb.connect(str(destination)), destination.parent)
     try:
         connection.execute(
             f"ATTACH {backup_database._sql_string(str(capture))} AS generation_source (READ_ONLY)"
@@ -605,7 +621,7 @@ def _verify_semantic_equality(
     capture: Path, hot: Path, row_counts: dict[str, int], cold_tables: set[str],
 ) -> dict[str, float | int]:
     started = time.monotonic()
-    connection = duckdb.connect()
+    connection = _bounded(duckdb.connect(), hot.parent)
     try:
         connection.execute(
             f"ATTACH {backup_database._sql_string(str(capture))} AS original (READ_ONLY)"
@@ -876,7 +892,9 @@ def _publish_locked(
     try:
         lock_started = time.monotonic()
         with backup_database._exclusive_backup_window(repo_root, skip_locks=held_locks):
-            source_connection = duckdb.connect(str(source), read_only=True)
+            source_connection = _bounded(
+                duckdb.connect(str(source), read_only=True), directory,
+            )
             try:
                 source_database = source_connection.execute(
                     "SELECT current_database()"

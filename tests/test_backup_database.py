@@ -8,6 +8,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -246,6 +247,50 @@ def test_create_and_verify_transactional_bundle(tmp_path):
     assert connection.execute("SELECT ticker FROM prices ORDER BY date").fetchall() == [
         ("QQQ",),
         ("SPY",),
+    ]
+    connection.close()
+
+
+def test_create_copies_file_bytes_instead_of_a_logical_database_copy(tmp_path, monkeypatch):
+    root, source = _repo(tmp_path)
+    destination = tmp_path / "outside" / "snapshot"
+    monkeypatch.setattr(
+        backup_database, "_copy_database",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("COPY FROM DATABASE used")),
+    )
+
+    created = backup_database.create_backup(root, source, destination)
+
+    assert created["status"] == "ok"
+    assert (destination / backup_database.DATABASE_FILENAME).read_bytes() == (
+        source.read_bytes()
+    )
+
+
+def test_create_replays_a_pending_wal_into_the_copied_file(tmp_path):
+    root, source = _repo(tmp_path)
+    writer = (
+        "import duckdb, os, sys\n"
+        "c = duckdb.connect(sys.argv[1])\n"
+        "c.execute(\"SET checkpoint_threshold='1TB'\")\n"
+        "c.execute(\"INSERT INTO prices VALUES ('2026-09-01','IWM',5)\")\n"
+        "os._exit(0)\n"
+    )
+    subprocess.run([sys.executable, "-c", writer, str(source)], check=True)
+    assert source.with_name(f"{source.name}.wal").is_file()
+    destination = tmp_path / "outside" / "snapshot"
+
+    created = backup_database.create_backup(root, source, destination)
+
+    assert created == backup_database.verify_backup(destination)
+    assert sorted(path.name for path in destination.iterdir()) == sorted([
+        backup_database.DATABASE_FILENAME, "evidence", backup_database.MANIFEST_FILENAME,
+    ])
+    connection = duckdb.connect(
+        str(destination / backup_database.DATABASE_FILENAME), read_only=True
+    )
+    assert connection.execute("SELECT ticker FROM prices ORDER BY date").fetchall() == [
+        ("IWM",), ("QQQ",), ("SPY",),
     ]
     connection.close()
 
@@ -725,15 +770,15 @@ def test_create_rejects_replaced_destination_parent_without_publishing_into_repl
     parent = tmp_path / "outside"
     destination = parent / "snapshot"
     displaced = tmp_path / "outside-original"
-    original_copy_database = backup_database._copy_database
+    original_copy_database = backup_database._copy_database_file
 
-    def replace_parent_after_copy(source_path, database):
-        snapshot = original_copy_database(source_path, database)
+    def replace_parent_after_copy(source_path, database, wal=None):
+        snapshot = original_copy_database(source_path, database, wal)
         parent.rename(displaced)
         parent.mkdir()
         return snapshot
 
-    monkeypatch.setattr(backup_database, "_copy_database", replace_parent_after_copy)
+    monkeypatch.setattr(backup_database, "_copy_database_file", replace_parent_after_copy)
 
     with pytest.raises(
         backup_database.BackupError, match="destination parent changed during backup"
@@ -784,17 +829,17 @@ def test_create_rejects_replaced_temporary_bundle_without_publishing_or_deleting
     parent = tmp_path / "outside"
     destination = parent / "snapshot"
     displaced = parent / "displaced-temporary"
-    original_copy_database = backup_database._copy_database
+    original_copy_database = backup_database._copy_database_file
 
-    def replace_temporary_after_copy(source_path, database):
-        snapshot = original_copy_database(source_path, database)
+    def replace_temporary_after_copy(source_path, database, wal=None):
+        snapshot = original_copy_database(source_path, database, wal)
         temporary = next(parent.glob(".snapshot.*"))
         temporary.rename(displaced)
         temporary.mkdir(mode=0o700)
         (temporary / "keep").write_text("replacement")
         return snapshot
 
-    monkeypatch.setattr(backup_database, "_copy_database", replace_temporary_after_copy)
+    monkeypatch.setattr(backup_database, "_copy_database_file", replace_temporary_after_copy)
 
     with pytest.raises(
         backup_database.BackupError, match="temporary backup bundle changed during creation"
@@ -812,15 +857,15 @@ def test_create_rejects_source_database_replaced_after_copy(tmp_path, monkeypatc
     root, source = _repo(tmp_path)
     destination = tmp_path / "outside" / "snapshot"
     displaced = source.with_name("market-original.duckdb")
-    original_copy_database = backup_database._copy_database
+    original_copy_database = backup_database._copy_database_file
 
-    def replace_source_after_copy(source_read_path, database):
-        snapshot = original_copy_database(source_read_path, database)
+    def replace_source_after_copy(source_read_path, database, wal=None):
+        snapshot = original_copy_database(source_read_path, database, wal)
         source.rename(displaced)
         _source_database(source)
         return snapshot
 
-    monkeypatch.setattr(backup_database, "_copy_database", replace_source_after_copy)
+    monkeypatch.setattr(backup_database, "_copy_database_file", replace_source_after_copy)
 
     with pytest.raises(
         backup_database.BackupError, match="source database changed during backup"
@@ -838,14 +883,14 @@ def test_create_rejects_source_database_metadata_changed_after_copy(
 ):
     root, source = _repo(tmp_path)
     destination = tmp_path / "outside" / "snapshot"
-    original_copy_database = backup_database._copy_database
+    original_copy_database = backup_database._copy_database_file
 
-    def touch_source_after_copy(source_read_path, database):
-        snapshot = original_copy_database(source_read_path, database)
+    def touch_source_after_copy(source_read_path, database, wal=None):
+        snapshot = original_copy_database(source_read_path, database, wal)
         source.touch()
         return snapshot
 
-    monkeypatch.setattr(backup_database, "_copy_database", touch_source_after_copy)
+    monkeypatch.setattr(backup_database, "_copy_database_file", touch_source_after_copy)
 
     with pytest.raises(
         backup_database.BackupError, match="source database changed during backup"
@@ -919,16 +964,16 @@ def test_create_rejects_source_parent_replaced_with_symlink_after_copy(
     root, source = _repo(tmp_path)
     destination = tmp_path / "outside" / "snapshot"
     displaced = tmp_path / "store-original"
-    original_copy_database = backup_database._copy_database
+    original_copy_database = backup_database._copy_database_file
 
-    def replace_source_parent_after_copy(source_read_path, database):
-        snapshot = original_copy_database(source_read_path, database)
+    def replace_source_parent_after_copy(source_read_path, database, wal=None):
+        snapshot = original_copy_database(source_read_path, database, wal)
         source.parent.rename(displaced)
         source.parent.symlink_to(displaced, target_is_directory=True)
         return snapshot
 
     monkeypatch.setattr(
-        backup_database, "_copy_database", replace_source_parent_after_copy
+        backup_database, "_copy_database_file", replace_source_parent_after_copy
     )
 
     with pytest.raises(
@@ -948,7 +993,7 @@ def test_create_cleans_temporary_bundle_after_copy_failure(tmp_path, monkeypatch
     destination = parent / "snapshot"
     monkeypatch.setattr(
         backup_database,
-        "_copy_database",
+        "_copy_database_file",
         lambda *_args: (_ for _ in ()).throw(backup_database.BackupError("copy failed")),
     )
 
@@ -965,7 +1010,7 @@ def test_create_cleans_temporary_bundle_after_keyboard_interrupt(tmp_path, monke
     destination = parent / "snapshot"
     monkeypatch.setattr(
         backup_database,
-        "_copy_database",
+        "_copy_database_file",
         lambda *_args: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
 

@@ -4425,4 +4425,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +90 lines (migration 0000, pinned engine/lib/db.py), tests +190 lines.
 - **Next:** bound backup memory, then repeat the real-copy rehearsal.
 
+## 2026-10-22 — Back up a quiesced store by copying its file bytes
+
+- **Why:** revision-18 rehearsal: backup create peaked at 23.8 GB RSS in `COPY FROM DATABASE` (one uncommitted transaction; it fails out of memory under a 4-6 GB cap), above the 8 GB budget for work beside the producers.
+- **What:** with every producer lock held, backup create now takes the source's logical snapshot, copies the file bytes (and a pending WAL, replayed and checkpointed into the copy), then requires the copy's logical snapshot to equal the source's, as before. The other `_copy_database` callers (P15/P16 scratch copies) are unchanged. Publication's DuckDB connections are capped at 4 GB and 4 threads and spill under the snapshot directory; publication cannot take the byte route because a generation's hot file must leave out the cold tables (DuckDB does not return a dropped table's blocks, so a byte copy would make every hot file the full 12 GB).
+- **Evidence:** new tests: the bundle file is byte-identical to the source and `COPY FROM DATABASE` is never used; an uncheckpointed WAL row reaches the bundle and verify passes. Store-copy numbers are in the next entry.
+- **Metrics:** tools +70 lines (pinned tools/backup_database.py, tools/publish_snapshot.py), tests +50 lines.
+- **Next:** repeat the real-copy rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
