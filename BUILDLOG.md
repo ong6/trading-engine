@@ -4548,4 +4548,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +3.
 - **Next:** the finite-unit and memo fixes from the same review.
 
+## 2026-10-22 — Count a finite unit healthy only after a successful run or a matching completion (P24 reliability-ops)
+
+- **Why:** review round 2 (R1, R2). With `Restart=always` a crash (exit 2) or a `RuntimeMaxSec` kill waits in `activating/auto-restart`, never reaches `failed`, and the live check, the installer and the release post-audit all accepted it. A never-started unit is `inactive` with `ConditionResult=no` and read as completed.
+- **What:** the contract reads `Result`: waiting to restart counts only after `Result=success` (a pause, exit 75, is a success through `SuccessExitStatus`). Done needs the start condition unmet and `capture-complete.json` naming the `manifest_sha256` of the current `manifest.json` (both paths declared in the manifest entry). The installer uses the same rule, so a crashed capture stays in `start_units` and fails the post-audit.
+- **Evidence:** new cases fail on the previous commit and pass: crash and runtime-bound kill flagged `not-active`, never-started and other-manifest markers flagged, a paused or completed capture clean; `test_a_crashed_or_timed_out_minute_capture_fails_the_post_audit[exit-code|timeout]` raises "did not converge required automation".
+- **Metrics:** server +30, tools +10, tests +90.
+- **Next:** pass non-pure statements straight through the request memo.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -387,7 +387,7 @@ def _service_state(action: str, unit: str) -> str:
     return state if state else "unknown"
 
 
-def _settled(unit: str, active: str) -> bool:
+def _settled(unit: str, active: str, repo_root: Path = REPO_ROOT) -> bool:
     """Active, or a finite unit that completed or is waiting to resume (no start needed)."""
     if active == "active":
         return True
@@ -395,7 +395,7 @@ def _settled(unit: str, active: str) -> bool:
         return False
     try:
         result = _run(["systemctl", "--user", "show", unit, "-p", "ActiveState",
-                       "-p", "SubState", "-p", "ConditionResult"])
+                       "-p", "SubState", "-p", "ConditionResult", "-p", "Result"])
     except (OSError, subprocess.SubprocessError):
         return False
     if result.returncode != 0:
@@ -404,7 +404,9 @@ def _settled(unit: str, active: str) -> bool:
     for line in result.stdout.splitlines():
         key, _, value = line.partition("=")
         block[key] = [value]
-    return schedule_contract.completed_or_resuming({"completes": True}, block)
+    entry = schedule_contract.load_manifest()
+    entry = next(item for item in entry["units"] if item["unit"] == unit)
+    return schedule_contract.completed_or_resuming(entry, block, repo_root)
 
 
 def _linger_state() -> str:
@@ -618,7 +620,7 @@ def _installed_units(
             "enabled": _service_state("is-enabled", unit),
             "active": _service_state("is-active", unit),
         }
-        result[unit]["settled"] = _settled(unit, result[unit]["active"])
+        result[unit]["settled"] = _settled(unit, result[unit]["active"], repo_root)
     return result
 
 
@@ -788,13 +790,16 @@ def _refresh_and_install_crontab(repo_root: Path) -> bool:
     return True
 
 
-def _current_service_changes(units: list[str]) -> tuple[list[str], list[str]]:
+def _current_service_changes(
+    units: list[str], repo_root: Path = REPO_ROOT,
+) -> tuple[list[str], list[str]]:
     """Return units that need enabling or starting at the mutation boundary."""
     enabled = {unit: _service_state("is-enabled", unit) for unit in units}
     active = {unit: _service_state("is-active", unit) for unit in units}
     return (
         sorted(unit for unit, state in enabled.items() if state != "enabled"),
-        sorted(unit for unit, state in active.items() if not _settled(unit, state)),
+        sorted(unit for unit, state in active.items()
+               if not _settled(unit, state, repo_root)),
     )
 
 
@@ -816,7 +821,7 @@ def apply(summary: dict, _desired_crontab: str, repo_root: Path, home: Path) -> 
         _checked(["loginctl", "enable-linger", str(os.getuid())])
         summary["changes"]["enable_linger"] = True
     units = sorted(AUTOSTART_UNITS)
-    enable_units, start_units = _current_service_changes(units)
+    enable_units, start_units = _current_service_changes(units, repo_root)
     summary["changes"]["enable_units"] = enable_units
     summary["changes"]["start_units"] = start_units
     if changed_units:

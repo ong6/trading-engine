@@ -1611,6 +1611,52 @@ def test_optional_provider_unit_failure_is_classified_without_release_failure(
     assert result["apply_errors"] == ["provider response refused"]
 
 
+@pytest.mark.parametrize("result", ["exit-code", "timeout"])
+def test_a_crashed_or_timed_out_minute_capture_fails_the_post_audit(
+    tmp_path, monkeypatch, result
+):
+    # The installer counts the finite capture as settled only after a successful run;
+    # a crash or a runtime-bound kill waiting to restart stays in start_units.
+    shown = (f"ActiveState=activating\nSubState=auto-restart\nConditionResult=yes\n"
+             f"Result={result}\n")
+    monkeypatch.setattr(release_deploy.install_automation, "_run",
+                        lambda _args, **_kw: subprocess.CompletedProcess([], 0, shown, ""))
+    unit = "massive-minute-capture.service"
+    assert not release_deploy.install_automation._settled(unit, "activating", tmp_path)
+
+    class Runner:
+        def run(self, *_args, **_kwargs):
+            changes = {"service_units": [], "enable_units": [], "start_units": [unit],
+                       "crontab": False, "enable_linger": False}
+            payload = {"status": "changes-required", "errors": [], "changes": changes}
+            return subprocess.CompletedProcess([], 0, json.dumps(payload), "")
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    store = release_deploy.StateStore(tmp_path / "state")
+    state = release_deploy.ReleaseState(
+        schema_version=1, transaction_id="fixture", created_at="now", updated_at="now",
+        phase="applying", repo_root=str(root), database=str(root / "db"),
+        approved_sha=NEW_SHA, original_sha=OLD_SHA, adapter_set="none", d0=None,
+        prepared={
+            "python_environment": str(tmp_path / "python"),
+            "unit_policy": {
+                name: "optional" if name in release_deploy.OPTIONAL_UNITS else "required"
+                for name in release_deploy.install_automation.UNIT_SOURCES
+            },
+        },
+    )
+    assert state.prepared["unit_policy"][unit] == "required"
+    store.create(state)
+    operations = release_deploy.ReleaseOperations(
+        store, home=tmp_path, command_runner=Runner(), api_url="http://invalid",
+        ui_url="http://invalid", minimum_free_bytes=0,
+    )
+    monkeypatch.setattr(operations, "_record_automation_mutations", lambda state: state.automation)
+    with pytest.raises(release_deploy.DeployError, match="did not converge required automation"):
+        operations.install_automation(state)
+
+
 def test_prepared_dependency_without_executable_environment_is_refused(transaction):
     prepare(transaction)
     deployment, _operations, _repo, _database = transaction

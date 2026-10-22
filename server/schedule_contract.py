@@ -68,7 +68,7 @@ EXEC_KEYS = ("ExecStartPre", "ExecStart", "ExecStartPost", "ExecStop", "ExecStop
 STOP_VERBS = frozenset({"stop", "kill", "disable", "mask", "isolate", "restart", "try-restart",
                         "reload-or-restart", "freeze"})
 SHOW_PROPERTIES = ("Id", "LoadState", "ActiveState", "SubState", "UnitFileState", "Type",
-                   "ConditionResult",
+                   "ConditionResult", "Result",
                    "TimeoutStartUSec", "RuntimeMaxUSec", "Conflicts", "Triggers", *EXEC_KEYS)
 _SPAN_UNITS = {"": 1.0, "us": 1e-6, "usec": 1e-6, "ms": 1e-3, "msec": 1e-3, "s": 1.0,
                "sec": 1.0, "m": 60.0, "min": 60.0, "h": 3600.0, "hr": 3600.0, "d": 86400.0,
@@ -155,8 +155,10 @@ def _schema_issues(manifest: dict) -> list[dict]:
                     problems.append("calendar")
         elif entry.get("activation") == "timer" and entry.get("timer") not in units:
             problems.append("timer")
-        if "completes" in entry and (entry["completes"] is not True
-                                     or entry.get("activation") != "boot"):
+        if "completes" in entry and (
+                entry["completes"] is not True or entry.get("activation") != "boot"
+                or not all(isinstance(entry.get(key), str) and entry[key]
+                           for key in ("completion_marker", "completion_manifest"))):
             problems.append("completes")
         if "max_runtime" in entry and entry["max_runtime"] is not None and span_seconds(
                 entry["max_runtime"]) is None:
@@ -606,24 +608,53 @@ def _live_bound(block: dict[str, list[str]]) -> float | None:
     return span_seconds(_prop(block, "RuntimeMaxUSec"))
 
 
-def completed_or_resuming(entry: dict, block: dict[str, list[str]]) -> bool:
+COMPLETION_MAX_BYTES = 4 * 1024 * 1024
+
+
+def _json_file(path: Path) -> dict | None:
+    text = _read(path, COMPLETION_MAX_BYTES + 1)
+    if text is None or len(text) > COMPLETION_MAX_BYTES:
+        return None
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def completion_recorded(entry: dict, engine_root: Path) -> bool:
+    """The unit's completion marker exists and names the manifest it was run for."""
+    marker = _json_file(engine_root / entry["completion_marker"])
+    manifest = _json_file(engine_root / entry["completion_manifest"])
+    identity = None if manifest is None else manifest.get("manifest_sha256")
+    return (marker is not None and isinstance(identity, str) and bool(identity)
+            and marker.get("manifest_sha256") == identity)
+
+
+def completed_or_resuming(entry: dict, block: dict[str, list[str]], engine_root: Path) -> bool:
     """A finite boot unit (``completes``) between runs: waiting to restart, or done.
 
-    Done means its start condition (no completion marker) failed; a failed exit is still
-    reported by the ``failed`` rule and a unit merely stopped is still ``not-active``.
+    Waiting counts only after a successful run (``Result=success``; a paused exit 75 is a
+    success through ``SuccessExitStatus``): a crash or a runtime-bound kill waiting to restart
+    is still a failure. Done means its start condition failed and its completion marker
+    names the current manifest, so a unit that was never started is not done. A unit
+    merely stopped is still ``not-active``.
     """
     if not entry.get("completes"):
         return False
     active = _prop(block, "ActiveState")
-    return (active == "activating" and _prop(block, "SubState") == "auto-restart") or (
-        active == "inactive" and _prop(block, "ConditionResult") == "no")
+    if active == "activating" and _prop(block, "SubState") == "auto-restart":
+        return _prop(block, "Result") == "success"
+    return (active == "inactive" and _prop(block, "ConditionResult") == "no"
+            and completion_recorded(entry, engine_root))
 
 
 def _host_unit(manifest: dict, name: str) -> bool:
     return any(fnmatch.fnmatchcase(name, item["pattern"]) for item in manifest["host_units"])
 
 
-def _unit_violations(manifest: dict, blocks: dict[str, dict[str, list[str]]]) -> list[dict]:
+def _unit_violations(manifest: dict, blocks: dict[str, dict[str, list[str]]],
+                     engine_root: Path) -> list[dict]:
     units = _units(manifest)
     markers = manifest["lane_path_markers"]
     violations = []
@@ -644,7 +675,7 @@ def _unit_violations(manifest: dict, blocks: dict[str, dict[str, list[str]]]) ->
                 violations.append(_violation("not-installed", name))
             elif file_state != "enabled":
                 violations.append(_violation("not-enabled", name, unit_file_state=file_state))
-            elif active != "active" and not completed_or_resuming(entry, block):
+            elif active != "active" and not completed_or_resuming(entry, block, engine_root):
                 violations.append(_violation("not-active", name, active_state=active))
     triggered = {target for block in blocks.values() if _prop(block, "Id").endswith(".timer")
                  for value in block.get("Triggers", []) for target in value.split()}
@@ -875,7 +906,7 @@ def live_check(
         shown = output([*args, "--", *names])
         if shown is not None:
             blocks = _show_blocks(shown)
-            violations += _unit_violations(manifest, blocks)
+            violations += _unit_violations(manifest, blocks, engine_root)
     crontab = output(["crontab", "-l"], absent_ok=True)
     if crontab is not None:
         violations += _cron_violations(manifest, crontab, engine_root, home)

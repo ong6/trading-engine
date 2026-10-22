@@ -75,9 +75,11 @@ may not name a unit of this repository, and a link, a FIFO, another owner, an op
 duplicate key or a malformed entry makes the check report an error and ignore the whole overlay.
 `--overlay PATH` checks a proposed file first.
 
-A finite boot unit declares `"completes": true` (the minute capture): between runs (waiting to
-restart) and once done (its start condition, no `capture-complete.json`, failed) it counts as
-running for the live check and the installer; a failed exit is still reported.
+A finite boot unit declares `"completes": true` (the minute capture). It counts as running for
+the live check and the installer while it waits to restart after a successful run (a pause exits
+75, a success), and once done: its start condition failed and `capture-complete.json` names the
+current `manifest.json`. A crash or a runtime-bound kill waiting to restart, a unit never started
+and a marker for another manifest are reported. To capture a new manifest, delete the marker.
 
 Data and day-zero invariants run against the published snapshot only, never the live store:
 `.venv/bin/python -m tools.check_invariants --snapshot latest` (bar geometry, one split basis

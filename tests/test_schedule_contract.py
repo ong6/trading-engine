@@ -549,34 +549,55 @@ def test_a_fifo_in_place_of_the_overlay_is_refused_without_blocking(tmp_path):
     assert "not a regular file" in result["overlay"]["error"]
 
 
-@pytest.mark.parametrize("state, sub, condition, rule", [
-    ("inactive", "dead", "no", None),
-    ("activating", "auto-restart", "yes", None),
-    ("inactive", "dead", "yes", "not-active"),
-    ("failed", "failed", "yes", "failed"),
-], ids=["done", "between-runs", "stopped", "failed"])
-def test_finite_boot_unit_is_healthy_when_done_or_between_runs(tmp_path, state, sub,
-                                                               condition, rule):
+def _minute_marker(engine: Path, manifest: str | None, marker: str | None) -> None:
+    data = engine / "store" / "pit" / "massive-minute"
+    data.mkdir(parents=True, exist_ok=True)
+    if manifest is not None:
+        (data / "manifest.json").write_text(json.dumps({"manifest_sha256": manifest}))
+    if marker is not None:
+        (data / "capture-complete.json").write_text(json.dumps({"manifest_sha256": marker}))
+
+
+@pytest.mark.parametrize("state, sub, condition, result, marker, rule", [
+    ("inactive", "dead", "no", "success", "a" * 64, None),
+    ("activating", "auto-restart", "yes", "success", None, None),
+    ("activating", "auto-restart", "yes", "exit-code", None, "not-active"),
+    ("activating", "auto-restart", "yes", "timeout", None, "not-active"),
+    ("inactive", "dead", "no", "success", None, "not-active"),
+    ("inactive", "dead", "no", "success", "b" * 64, "not-active"),
+    ("inactive", "dead", "yes", "success", "a" * 64, "not-active"),
+    ("failed", "failed", "yes", "exit-code", None, "failed"),
+], ids=["done", "paused-between-runs", "crashed", "runtime-bound-kill",
+        "never-started", "marker-for-another-manifest", "stopped", "failed"])
+def test_finite_boot_unit_is_healthy_only_when_done_or_resuming_after_success(
+        tmp_path, state, sub, condition, result, marker, rule):
     home = tmp_path / "home"
+    _minute_marker(home / "trading-engine", "a" * 64, marker)
     blocks = _healthy_blocks(MANIFEST)
     blocks["massive-minute-capture.service"].update(
-        ActiveState=state, SubState=sub, ConditionResult=condition)
+        ActiveState=state, SubState=sub, ConditionResult=condition, Result=result)
 
-    result = _live(tmp_path, blocks, _crontab(home / "trading-engine", home))
+    found = _live(tmp_path, blocks, _crontab(home / "trading-engine", home))
 
     expected = set() if rule is None else {(rule, "massive-minute-capture.service")}
     if rule == "failed":
         expected.add(("not-active", "massive-minute-capture.service"))
-    assert _pairs(result) == expected
+    assert _pairs(found) == expected
 
 
-def test_installer_counts_a_completed_finite_unit_as_settled(monkeypatch):
-    shown = {"massive-minute-capture.service": "ActiveState=inactive\nSubState=dead\n"
-                                               "ConditionResult=no\n"}
+def test_installer_counts_a_completed_finite_unit_as_settled(tmp_path, monkeypatch):
+    unit = "massive-minute-capture.service"
+    shown = {unit: "ActiveState=inactive\nSubState=dead\nConditionResult=no\nResult=success\n"}
     monkeypatch.setattr(install_automation, "_run", lambda args, **_kw: _Result(
         shown.get(args[3], "ActiveState=inactive\nSubState=dead\nConditionResult=yes\n")))
-    assert install_automation._settled("massive-minute-capture.service", "inactive")
-    assert install_automation._settled("trading-engine-api.service", "active")
-    assert not install_automation._settled("trading-engine-api.service", "inactive")
-    shown["massive-minute-capture.service"] = "ActiveState=inactive\nConditionResult=yes\n"
-    assert not install_automation._settled("massive-minute-capture.service", "inactive")
+    assert not install_automation._settled(unit, "inactive", tmp_path)
+    _minute_marker(tmp_path, "a" * 64, "a" * 64)
+    assert install_automation._settled(unit, "inactive", tmp_path)
+    assert install_automation._settled("trading-engine-api.service", "active", tmp_path)
+    assert not install_automation._settled("trading-engine-api.service", "inactive", tmp_path)
+    shown[unit] = "ActiveState=inactive\nConditionResult=yes\nResult=success\n"
+    assert not install_automation._settled(unit, "inactive", tmp_path)
+    shown[unit] = "ActiveState=activating\nSubState=auto-restart\nResult=success\n"
+    assert install_automation._settled(unit, "activating", tmp_path)
+    shown[unit] = "ActiveState=activating\nSubState=auto-restart\nResult=exit-code\n"
+    assert not install_automation._settled(unit, "activating", tmp_path)
