@@ -4400,4 +4400,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +45 lines net; tests +134 lines.
 - **Next:** orchestrator re-pins `engine/verify_prices.py` and `engine/intraday.py` (P15 registration) in the next merge batch.
 
+## 2026-10-22 — Issue registration revision 18 over the meta-split change
+
+- **Why:** the meta-split commit changes two P15-registered files, `engine/verify_prices.py` and `engine/intraday.py`; without a re-pin `test_p15_registered_file_hashes_match_checkout` fails and the registration identity no longer holds.
+- **What:** `server/p15-registration.json` revision 18 pins both files' new hashes and `source_commit` 581a04d0; the revision reason states the change and that nothing fetched, compared, stored or scored changes. Runtime contracts E1, sector and XS are untouched, so no runtime migration runs. The storage work becomes revision 19. Trial 287 (private) pins `engine/verify_prices.py` by hash; its pre-epoch amendment targets this revision's hash.
+- **Evidence:** registration, round-3 break, cost-profile, meta-budget, verifier and intraday tests pass; full suite under both timezones before push.
+- **Metrics:** registration 7 lines; tests 4 lines.
+- **Next:** storage revision 19; the reliability lanes' pinned-file changes join its re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
