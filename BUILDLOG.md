@@ -4647,4 +4647,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +20 lines (pinned tools/backup_database.py), tests +45 lines.
 - **Next:** widen the baseline coverage scan to columns, indexes and farm/.
 
+## 2026-10-23 — Extend the baseline coverage scan to columns, indexes and farm/ (review finding 8)
+
+- **Why:** storage review finding 8: the coverage test caught first-use `CREATE TABLE` only; a lazy `ALTER TABLE … ADD COLUMN` or `CREATE INDEX` outside the baseline would also be refused on a versioned store, and farm/ was scanned only for two files.
+- **What:** the scan covers engine/, sim/, server/, tools/ and all of farm/ (replay stores, proof copies and the credit experiment's scratch connection are listed as separate databases), and fails when a runtime `ADD COLUMN`, `ALTER COLUMN … DROP NOT NULL` or `CREATE INDEX` names a column, nullability or index the frozen baseline lacks. Its docstring lists the remaining bypasses: run-time-assembled DDL, the relation API (refused by the runtime guard instead), separate databases, and other `ALTER` forms.
+- **Evidence:** `pytest tests/test_baseline_table_coverage.py`; removing `jobs.timeout_s` and one index from the frozen baseline fails it, naming `engine/queue_runner.py:364 jobs.timeout_s` and `engine/lib/db.py:914 index earnings_fetch_log_resume_idx`.
+- **Metrics:** tests +90 lines.
+- **Next:** rewrite the deploy and rollback scripts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
