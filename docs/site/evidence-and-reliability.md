@@ -87,7 +87,7 @@ table, and writes each change to the audit log. Its first live run, on 22 Octobe
 A faster path is accepted only when it produces the same rows, values, and hashes as the old path
 on a recorded fixture or a copy of the store. A benchmarking tool prints a digest of each output
 with timings and code identity removed, so running it on two versions of the code proves identity.
-The full test suite, about 5,850 tests, runs in roughly two and a half minutes and must pass under
+The full test suite, about 6,100 tests, runs in roughly two and a half minutes and must pass under
 both UTC and Singapore time before anything reaches the branch the nightly runs.
 
 ## Read-only snapshots

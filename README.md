@@ -104,7 +104,7 @@ the retired implementation or its evidence.
 ```bash
 uv venv --python 3.12 .venv
 uv sync --extra dev --frozen
-.venv/bin/python -m pytest -q -W error -n 8        # ~5,850 tests, ~145 s; warnings are failures
+.venv/bin/python -m pytest -q -W error -n 8        # ~6,100 tests, ~150 s; warnings are failures
 .venv/bin/ruff check .                             # active Python; archive is immutable history
 .venv/bin/python -m engine.universe                # build the ticker universe
 .venv/bin/python -m engine.collect --bootstrap-floor   # first backfill (hours; see how-it-works)
