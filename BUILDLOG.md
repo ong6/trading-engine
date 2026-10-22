@@ -4383,4 +4383,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** CI +1 line.
 - **Next:** none.
 
+## 2026-10-22 — Let the lane ledger test fetch its base commit on older git
+
+- **Why:** reproduction: `tests/test_lane.py::test_reviewed_current_ledger_migration_expands_both_aggregate_rows` fails on main `454cfc6a` on a host with git 2.20 ("Server does not allow request for unadvertised object 230619bc"); protocol v0 refuses a fetch by commit id that is not a ref tip, while CI's newer git defaults to v2.
+- **What:** the test's fetch passes `-c protocol.version=2`; test-only.
+- **Evidence:** `pytest tests/test_lane.py` 44 passed on git 2.20; full suite on this branch otherwise green under `TZ=UTC` and `TZ=Asia/Singapore` (6,078 tests, the only failure this test).
+- **Metrics:** tests +2 lines.
+- **Next:** none.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
