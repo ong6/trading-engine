@@ -31,7 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 
-MAX_TEXT_BYTES = 2 * 1024 * 1024
+# data/_meta.json alone is about 4 MB; every changed file must stay scannable.
+MAX_TEXT_BYTES = 16 * 1024 * 1024
 ZERO_SHA = "0" * 40
 PUBLIC_EMAIL_DOMAINS = frozenset(
     {
@@ -194,6 +195,11 @@ def _public_fixture(path: str, value: str) -> bool:
     )
 
 
+def _call_expression(match: re.Match[str], value: str) -> bool:
+    """An unquoted value followed by "(" is code, such as `token = VAR.set(state)`."""
+    return match.group(3) is not None and value[match.end() : match.end() + 1] == "("
+
+
 def _matched_candidate(match: re.Match[str], group: int | tuple[int, ...]) -> str:
     if isinstance(group, int):
         return match.group(group)
@@ -258,7 +264,9 @@ def _scan_value(
                 for match in pattern.finditer(secret_input):
                     candidate = _matched_candidate(match, group)
                     if rule == "credential_assignment" and (
-                        not _high_entropy(candidate) or _public_fixture(path, candidate)
+                        not _high_entropy(candidate)
+                        or _public_fixture(path, candidate)
+                        or _call_expression(match, secret_input)
                     ):
                         continue
                     findings.add(
