@@ -4440,4 +4440,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +70, tests +114 lines. Registered (P15 pins): `farm/backtest/replay.py`, `farm/walkforward/runner.py`.
 - **Next:** no stored walk-forward or backtest result changes (all end on or before 2026-10-16); the 2026-10-25 walk-forward is the first to charge post-D0 fees.
 
+## 2026-10-22 — Study core charges the effective-dated dollar-fee profile per fill
+
+- **Why:** P24 reliability-data lane (handoff item 1, backtest fees). Reproduction: `simulate_events` with `CostSelection("baseline_v1", ("ibkr_pro_tiered_v1",))` raised `session_date is required by effective-dated cost profiles`: `farm.study.simulate` never passed the fill's session, so the engine's paper-book fee schedule could not be used as a study primary or sensitivity at all.
+- **What:** each entry, exit and rebalance cost call passes its session, the fill kind from the fill field (open/close auction, intraday bar) and fractional shares, the same basis as the trade's own P&L and the league fills. Profiles other than `ibkr_pro_tiered_v1` ignore these arguments, so every existing study output is unchanged (no core-version bump).
+- **Evidence:** new `test_effective_dated_dollar_fee_profile_charges_each_fill_in_dollars`: buy 100 at the open $0.52 and sell 100 at the close $0.55 (2024 TAF, no SEC fee), hand-computed; it raises on main. `pytest tests/test_study_*.py` passes.
+- **Metrics:** farm +15, tests +20 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
