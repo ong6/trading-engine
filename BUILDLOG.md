@@ -4607,4 +4607,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +60 lines, tests +90 lines.
 - **Next:** capture the primary briefly so publication no longer blocks API writes for its whole build.
 
+## 2026-10-23 — Publish from a captured copy so publication holds the primary for seconds (review findings 3, 4)
+
+- **Why:** storage review: publication held the producer locks and a read-only handle on the primary for its whole ~10-minute build, so every API POST in that window failed with a lock error (reproduced), and it read the primary's storage identity after closing that handle, so a write landing in between was attributed to the generation (reproduced: an evidence pin accepted a generation one write behind).
+- **What:** under the producer locks and one read-only handle, publication now takes the primary's metadata snapshot, copies its file bytes (a pending WAL is replayed into the copy) and records the storage identity, then releases both; cold parts, fingerprints, the hot build and the equality proof run from the copy, which must match the primary's row counts and catalog, and is deleted afterwards. The copy needs the primary's size in free space, checked first.
+- **Evidence:** `pytest tests/test_publish_snapshot.py`: the identity is read while an in-process writer is still excluded, and no capture file survives; store-copy capture times are in the rehearsal entry.
+- **Metrics:** tools +45 lines (pinned tools/publish_snapshot.py), tests +25 lines.
+- **Next:** a publish-on-change timer so evidence and the weekend board stay within their budgets.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

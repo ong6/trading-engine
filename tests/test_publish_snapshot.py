@@ -21,7 +21,7 @@ from tools import backup_database, publish_snapshot
 NOW = datetime(2026, 10, 2, 12, tzinfo=timezone.utc)
 
 
-def test_publisher_has_no_whole_primary_copy_path():
+def test_publisher_has_no_logical_whole_database_copy_path():
     source = inspect.getsource(publish_snapshot)
     assert "backup_database._copy_database(source" not in source
 
@@ -128,7 +128,7 @@ def test_publish_is_atomic_retains_latest_plus_one_and_records_manifest(tmp_path
 
 
 @pytest.mark.parametrize("wal", [False, True])
-def test_publish_never_copies_the_whole_primary(tmp_path, monkeypatch, wal):
+def test_publish_never_uses_a_logical_whole_database_copy(tmp_path, monkeypatch, wal):
     root, source = _repo(tmp_path)
     if wal:
         source.with_name(f"{source.name}.wal").touch()
@@ -904,3 +904,27 @@ def test_duckdb_fingerprint_is_order_type_and_value_sensitive_and_session_stable
     con.execute("UPDATE t SET v = 0.1, s = NULL WHERE k = 1")
     assert snapshots.query_fingerprint(con, "SELECT * FROM t", order_by=("k",))[0] != base[0]
     assert con.execute("SELECT current_setting('memory_limit')").fetchone()[0] != "4.0 GiB"
+
+
+def test_publication_identifies_the_primary_while_its_capture_handle_excludes_writers(
+    tmp_path, monkeypatch,
+):
+    root, source = _repo(tmp_path)
+    original = publish_snapshot.source_storage_identity
+    observed = []
+
+    def identity_under_handle(path):
+        try:  # an in-process writer cannot open while the capture handle is held
+            duckdb.connect(str(source)).close()
+            observed.append("writer could open")
+        except duckdb.Error:
+            observed.append("writers excluded")
+        return original(path)
+
+    monkeypatch.setattr(publish_snapshot, "source_storage_identity", identity_under_handle)
+
+    manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
+
+    assert observed == ["writers excluded"]
+    assert manifest["source_storage_identity"] == original(source)
+    assert not list(source.parent.glob("snapshots/.capture-*"))

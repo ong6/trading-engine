@@ -10,6 +10,7 @@ import math
 import os
 import re
 import secrets
+import shutil
 import stat
 import subprocess
 import sys
@@ -49,6 +50,7 @@ _PUBLICATION_LOCK_HELD: ContextVar[bool] = ContextVar(
 # Every DuckDB connection publication opens is capped and spills to the snapshot directory;
 # DuckDB's default (80% of host memory) let the first 12 GB generation reach 24 GB RSS.
 PUBLISH_MEMORY_LIMIT = "4GB"
+CAPTURE_FREE_MARGIN_BYTES = 1 << 30
 PUBLISH_THREADS = 4
 SPILL_DIRECTORY = ".spill"
 
@@ -530,6 +532,26 @@ def _empty_relation(spec: dict) -> str:
     return f"SELECT {columns} WHERE FALSE"
 
 
+def _copy_capture(source: Path, capture: Path) -> None:
+    """Copy the primary's bytes (and a pending WAL, replayed into the copy) for the build."""
+    needed = source.stat().st_size + CAPTURE_FREE_MARGIN_BYTES
+    if shutil.disk_usage(capture.parent).free < needed:
+        raise SnapshotError("publication needs free space for a copy of the primary")
+    shutil.copyfile(source, capture)
+    os.chmod(capture, 0o600)
+    wal = source.with_name(f"{source.name}.wal")
+    if wal.exists():
+        copied_wal = capture.with_name(f"{capture.name}.wal")
+        shutil.copyfile(wal, copied_wal)
+        replay = duckdb.connect(str(capture))
+        try:
+            replay.execute("CHECKPOINT")
+        finally:
+            replay.close()
+        if copied_wal.exists():
+            raise SnapshotError("captured copy's WAL was not checkpointed")
+
+
 def _build_hot_database(
     capture: Path, destination: Path, parts: list[dict], cold_specs: dict[str, dict],
 ) -> None:
@@ -889,9 +911,12 @@ def _publish_locked(
     temporary = directory / f".{destination.name}.{secrets.token_hex(8)}.tmp"
     manifest_path = destination.with_suffix(".json")
     published = pointer_advanced = False
+    capture = directory / f".capture-{destination.stem}.{secrets.token_hex(8)}.duckdb"
     try:
         lock_started = time.monotonic()
         with backup_database._exclusive_backup_window(repo_root, skip_locks=held_locks):
+            # The capture window: producer locks plus a read-only handle that keeps API
+            # writers out only while the file bytes are copied (seconds, not the build).
             source_connection = _bounded(
                 duckdb.connect(str(source), read_only=True), directory,
             )
@@ -904,34 +929,49 @@ def _publish_locked(
                 )
                 schema_identity = engine_db.require_compatible_database_schema(source_connection)
                 captured_cohort = _capture_cohort(repo_root, snapshot)
-                previous_parts = () if previous_pin is None else previous_pin.info.parts
-                previous_cold_tables = (
-                    {} if previous_pin is None else previous_pin.info.cold_tables
-                )
-                cold_specs = _cold_specs(source_connection)
-                _verify_append_only_prefix(
-                    source_connection,
-                    None if previous_pin is None else previous_pin.info,
-                    snapshot["row_counts"],
-                    cold_specs,
-                )
-                parts, cold_specs, cold_metrics = _install_cold_parts(
-                    source_connection, directory, previous_parts, previous_cold_tables,
-                    cold_specs,
-                )
-                snapshot["table_sha256"] = _generation_table_hashes(
-                    source_connection, source_database, snapshot["row_counts"],
-                    cold_specs, parts,
-                )
-                _build_hot_database(source, temporary, parts, cold_specs)
-                equality_metrics = _verify_semantic_equality(
-                    source, temporary, snapshot["row_counts"], set(cold_specs),
-                )
+                _copy_capture(source, capture)
+                # Identify the primary while the handle still excludes writers (finding 4).
+                storage_identity = source_storage_identity(source)
                 as_of = datetime.now(timezone.utc)
             finally:
                 source_connection.close()
-            storage_identity = source_storage_identity(source)
         writer_lock_seconds = time.monotonic() - lock_started
+        capture_connection = _bounded(
+            duckdb.connect(str(capture), read_only=True), directory,
+        )
+        try:
+            capture_database = capture_connection.execute(
+                "SELECT current_database()"
+            ).fetchone()[0]
+            if backup_database.database_snapshot(
+                capture_connection, capture_database, include_content=False,
+            ) != snapshot:
+                raise SnapshotError("captured copy differs from the primary it copied")
+            previous_parts = () if previous_pin is None else previous_pin.info.parts
+            previous_cold_tables = (
+                {} if previous_pin is None else previous_pin.info.cold_tables
+            )
+            cold_specs = _cold_specs(capture_connection)
+            _verify_append_only_prefix(
+                capture_connection,
+                None if previous_pin is None else previous_pin.info,
+                snapshot["row_counts"],
+                cold_specs,
+            )
+            parts, cold_specs, cold_metrics = _install_cold_parts(
+                capture_connection, directory, previous_parts, previous_cold_tables,
+                cold_specs,
+            )
+            snapshot["table_sha256"] = _generation_table_hashes(
+                capture_connection, capture_database, snapshot["row_counts"],
+                cold_specs, parts,
+            )
+        finally:
+            capture_connection.close()
+        _build_hot_database(capture, temporary, parts, cold_specs)
+        equality_metrics = _verify_semantic_equality(
+            capture, temporary, snapshot["row_counts"], set(cold_specs),
+        )
         cohort = _install_cohort(directory, captured_cohort)
         body = {
             "manifest_schema_version": 2,
@@ -995,6 +1035,8 @@ def _publish_locked(
         if previous_pin is not None:
             previous_pin.close()
         temporary.unlink(missing_ok=True)
+        capture.unlink(missing_ok=True)
+        capture.with_name(f"{capture.name}.wal").unlink(missing_ok=True)
         if not published:
             destination.unlink(missing_ok=True)
             manifest_path.unlink(missing_ok=True)
