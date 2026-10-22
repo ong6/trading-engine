@@ -188,34 +188,91 @@ def logical_value(value: object) -> object:
     return [type(value).__name__, str(value)]
 
 
+# Fingerprints run inside DuckDB: each row is encoded canonically and hashed in SQL, then the
+# 32-byte row digests are folded in key order here, so no row is serialized in Python.
+FINGERPRINT_VERSION = "duckdb-row-sha256-v1"
+FINGERPRINT_MEMORY_LIMIT = "4GB"
+_FINGERPRINT_CHUNK_VECTORS = 64
+
+
+def _canonical_column_sql(name: str, column_type: str) -> str:
+    """Exact, session-independent text for one value, length-prefixed; NULL is distinct."""
+    column = sql_identifier(name)
+    upper = column_type.upper()
+    if upper in {"TIMESTAMP WITH TIME ZONE", "TIMESTAMPTZ"}:
+        text = f"CAST(epoch_us({column}) AS VARCHAR)"
+    elif upper == "BLOB":
+        text = f"hex({column})"
+    elif upper == "VARCHAR":
+        text = column
+    else:
+        text = f"CAST({column} AS VARCHAR)"
+    return (
+        f"CASE WHEN {column} IS NULL THEN 'N' "
+        f"ELSE 'V' || CAST(strlen({text}) AS VARCHAR) || ':' || {text} END"
+    )
+
+
 def query_fingerprint(
     connection: duckdb.DuckDBPyConnection,
-    query: str,
+    relation: str,
     *,
+    order_by: tuple[str, ...] = (),
     key_columns: tuple[str, ...] = (),
 ) -> tuple[str, int, int, list | None, list | None]:
-    cursor = connection.execute(query)
-    digest = hashlib.sha256()
-    row_count = 0
-    bytes_read = 0
-    key_indexes = [
-        index for index, description in enumerate(cursor.description)
-        if description[0] in key_columns
-    ]
+    """Hash ``relation``'s rows in ``order_by`` order (row digest breaks ties).
+
+    The digest covers the column names and DuckDB types, then each row's SHA-256 over a
+    length-prefixed canonical encoding (doubles as shortest round-trip text, TIMESTAMPTZ as
+    epoch microseconds, BLOB as hex), so it is sensitive to row order, value and type. The
+    sort carries only the order keys and a 32-byte digest and spills within a 4 GB cap.
+    """
+    columns = connection.execute(f"DESCRIBE SELECT * FROM ({relation})").fetchall()
+    names = [str(row[0]) for row in columns]
+    digest = hashlib.sha256(FINGERPRINT_VERSION.encode())
+    header = json.dumps([[name, str(row[1])] for name, row in zip(names, columns, strict=True)],
+                        separators=(",", ":")).encode()
+    digest.update(len(header).to_bytes(8, "big"))
+    digest.update(header)
+    encoded = "concat(" + ", ".join(
+        _canonical_column_sql(name, str(row[1])) for name, row in zip(names, columns, strict=True)
+    ) + ")"
+    keys = [sql_identifier(name) for name in order_by]
+    projected = ", ".join(keys)
+    query = (
+        "SELECT row_digest, row_bytes FROM ("
+        f"SELECT unhex(sha256(encoded_row)) AS row_digest, strlen(encoded_row) AS row_bytes"
+        f"{', ' + projected if projected else ''} "
+        f"FROM (SELECT {encoded} AS encoded_row, * FROM ({relation}))"
+        f") ORDER BY {', '.join([*keys, 'row_digest'])}"
+    )
+    previous_limit = connection.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+    connection.execute(f"SET memory_limit='{FINGERPRINT_MEMORY_LIMIT}'")
+    row_count = bytes_read = 0
+    try:
+        cursor = connection.execute(query)
+        while True:
+            chunk = cursor.fetch_df_chunk(_FINGERPRINT_CHUNK_VECTORS)
+            if chunk.empty:
+                break
+            digest.update(b"".join(bytes(value) for value in chunk["row_digest"].values))
+            row_count += len(chunk)
+            bytes_read += int(chunk["row_bytes"].sum())
+    finally:
+        connection.execute(f"SET memory_limit={sql_string(str(previous_limit))}")
     key_min = key_max = None
-    while rows := cursor.fetchmany(10_000):
-        for row in rows:
-            encoded = json.dumps(
-                [logical_value(value) for value in row],
-                separators=(",", ":"), sort_keys=False,
-            ).encode()
-            digest.update(len(encoded).to_bytes(8, "big"))
-            digest.update(encoded)
-            bytes_read += len(encoded)
-            key = [logical_value(row[index]) for index in key_indexes]
-            key_min = key if key_min is None else key_min
-            key_max = key
-            row_count += 1
+    if key_columns and row_count:
+        selected = ", ".join(sql_identifier(name) for name in key_columns)
+        bounds = []
+        for direction in ("ASC", "DESC"):
+            ordering = ", ".join(
+                f"{sql_identifier(name)} {direction}" for name in key_columns
+            )
+            row = connection.execute(
+                f"SELECT {selected} FROM ({relation}) ORDER BY {ordering} LIMIT 1"
+            ).fetchone()
+            bounds.append([logical_value(value) for value in row])
+        key_min, key_max = bounds
     return digest.hexdigest(), row_count, bytes_read, key_min, key_max
 
 
@@ -229,7 +286,7 @@ def table_logical_sha256(
     qualified = ".".join(sql_identifier(name) for name in (database, schema, table))
     layout = COLD_TABLE_LAYOUTS.get(qualified_name)
     if layout is None:
-        return query_fingerprint(connection, f"SELECT * FROM {qualified} ORDER BY ALL")[0]
+        return query_fingerprint(connection, f"SELECT * FROM {qualified}")[0]
     availability, keys = layout
     column = sql_identifier(availability)
     partitions = [
@@ -239,7 +296,6 @@ def table_logical_sha256(
         ).fetchall()
     ]
     records = []
-    order = ", ".join(sql_identifier(name) for name in keys)
     for partition in partitions:
         where = (
             f"{column} IS NULL" if partition == "__null__"
@@ -247,8 +303,9 @@ def table_logical_sha256(
         )
         fingerprint, count, _read, _first, _last = query_fingerprint(
             connection,
-            f"SELECT * FROM {qualified} WHERE {where} ORDER BY {order}",
-            key_columns=keys,
+            f"SELECT * FROM {qualified} WHERE {where}",
+            order_by=tuple(keys),
+            key_columns=tuple(keys),
         )
         records.append({
             "partition": partition, "row_count": count,

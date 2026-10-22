@@ -875,3 +875,31 @@ def test_invariant_checker_resolves_and_reads_a_published_generation(tmp_path):
     assert latest.as_of == explicit.as_of
     result = check_invariants.run(latest, root, [], names=["ohlc_geometry"])
     assert result["invariants"]["ohlc_geometry"]["facts"]["bars"] == 1
+
+
+def test_duckdb_fingerprint_is_order_type_and_value_sensitive_and_session_stable():
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE t (k INTEGER, v DOUBLE, s VARCHAR, b BLOB, ts TIMESTAMPTZ, l INTEGER[])"
+    )
+    con.execute(
+        "INSERT INTO t VALUES (1, 0.1, 'a', '\\xAB'::BLOB, '2026-01-01 00:00:00+00', [1]), "
+        "(2, NULL, 'b''c', NULL, NULL, NULL)"
+    )
+    base = snapshots.query_fingerprint(con, "SELECT * FROM t", order_by=("k",), key_columns=("k",))
+    assert base[1] == 2 and base[3] == [["int", 1]] and base[4] == [["int", 2]]
+    assert snapshots.query_fingerprint(
+        con, "SELECT * FROM t", order_by=("k",), key_columns=("k",)
+    ) == base
+    con.execute("SET TimeZone='Asia/Singapore'")
+    assert snapshots.query_fingerprint(con, "SELECT * FROM t", order_by=("k",))[0] == base[0]
+    reversed_order = snapshots.query_fingerprint(con, "SELECT -k AS k, v, s, b, ts, l FROM t",
+                                                 order_by=("k",))
+    assert reversed_order[0] != base[0]
+    con.execute("CREATE TABLE wide AS SELECT k::BIGINT AS k, v, s, b, ts, l FROM t")
+    assert snapshots.query_fingerprint(con, "SELECT * FROM wide", order_by=("k",))[0] != base[0]
+    con.execute("UPDATE t SET v = 0.1000000000000001 WHERE k = 1")
+    assert snapshots.query_fingerprint(con, "SELECT * FROM t", order_by=("k",))[0] != base[0]
+    con.execute("UPDATE t SET v = 0.1, s = NULL WHERE k = 1")
+    assert snapshots.query_fingerprint(con, "SELECT * FROM t", order_by=("k",))[0] != base[0]
+    assert con.execute("SELECT current_setting('memory_limit')").fetchone()[0] != "4.0 GiB"

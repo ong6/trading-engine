@@ -248,9 +248,9 @@ def _partition_fingerprint(
     connection: duckdb.DuckDBPyConnection, spec: dict, where: str,
 ) -> tuple[str, int, int, list | None, list | None]:
     table = _qualified(spec["schema"], spec["table"])
-    order = ", ".join(_identifier(name) for name in spec["key_columns"])
     return query_fingerprint(
-        connection, f"SELECT * FROM {table} WHERE {where} ORDER BY {order}",
+        connection, f"SELECT * FROM {table} WHERE {where}",
+        order_by=tuple(spec["key_columns"]),
         key_columns=tuple(spec["key_columns"]),
     )
 

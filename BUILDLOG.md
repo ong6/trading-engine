@@ -4235,4 +4235,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +4 lines.
 - **Next:** store-copy rehearsal.
 
+## 2026-10-22 — Compute storage fingerprints in DuckDB instead of per row in Python
+
+- **Why:** reproduction: on a 12 GB store copy, `python -m tools.backup_database create` spent its first 43 minutes in `engine.lib.snapshots.query_fingerprint`, JSON-encoding every row of `SELECT * … ORDER BY ALL` in Python (about 77k rows/s on `prices`; 77.7M rows per pass, at least two passes per backup), with 13 GB RSS, all under the producer locks.
+- **What:** each row is encoded canonically and hashed with SHA-256 inside DuckDB (length-prefixed fields, NULL distinct, doubles as shortest round-trip text, TIMESTAMPTZ as epoch microseconds, BLOB as hex); Python only folds the 32-byte row digests in order. The digest covers column names and types. Rows sort by the caller's key columns (cold partitions) with the row digest as tie-break, or by digest alone where the old code sorted by all columns, so the sort carries keys plus 32 bytes and spills under a 4 GB memory cap that is restored afterwards. Fingerprints change format (`duckdb-row-sha256-v1`); no generation exists in production yet.
+- **Evidence:** `prices` (21.3M rows) 22.6 s, 940k rows/s, identical on a second run, 3.2 GB peak RSS; a new test proves order, type, value and NULL sensitivity and session-time-zone independence; backup tamper, cold-correction and migration tests keep their verdicts.
+- **Metrics:** engine +45 lines (pinned file engine/lib/snapshots.py), tests +30 lines.
+- **Next:** rerun the store-copy rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
