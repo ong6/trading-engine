@@ -387,6 +387,10 @@ def _item(cand: dict, evidence: dict, rows: int) -> dict:
             "rows_planned": planned_rows(cand, evidence), "rows_changed": rows}
 
 
+class RepairRefused(ValueError):
+    """The request names something the store does not know; nothing was written."""
+
+
 def run(db_path: Path, *, apply: bool, steps: tuple[str, ...] = STEPS,
         since: date = DEFAULT_SINCE, today: date | None = None,
         source=source_closes, fetch_actions=actions._fetch_actions,
@@ -394,13 +398,21 @@ def run(db_path: Path, *, apply: bool, steps: tuple[str, ...] = STEPS,
     today = today or datetime.now(timezone.utc).date()
     report: dict = {"db": Path(db_path).name, "apply": apply, "since": since.isoformat(),
                     "steps": list(steps)}
+    named = sorted({name.strip().upper() for name in names})
     con = db.connect(db_path, read_only=True)
     try:
+        # A typo would otherwise have the actions fetch write a split row for a
+        # name the store has never held.
+        known = {t for (t,) in con.execute(
+            "SELECT ticker FROM universe WHERE ticker IN "
+            f"({','.join('?' * len(named))})", named).fetchall()} if named else set()
+        if set(named) - known:
+            raise RepairRefused(
+                f"--names not in the universe: {', '.join(sorted(set(named) - known))}")
         breaks = (breaks or unrecorded_breaks)(con) if "unrecorded" in steps else []
         double = double_candidates(con, since) if "double" in steps else []
     finally:
         con.close()
-    named = sorted({name.upper() for name in names})
     names = sorted({b["ticker"] for b in breaks} | set(named))
     if "unrecorded" in steps:
         report["unrecorded"] = {"breaks": breaks, "named": named}
@@ -495,7 +507,11 @@ def main() -> int:
     names = tuple(n.strip() for n in args.names.split(",") if n.strip())
     if names and "unrecorded" not in steps:
         ap.error("--names needs the unrecorded step")
-    report = run(Path(args.db), apply=args.apply, steps=steps, since=args.since, names=names)
+    try:
+        report = run(Path(args.db), apply=args.apply, steps=steps, since=args.since,
+                     names=names)
+    except RepairRefused as exc:
+        ap.error(str(exc))
     text = json.dumps(report, indent=1, sort_keys=True, default=str)
     if args.report:
         write_text_atomic(args.report, text + "\n")

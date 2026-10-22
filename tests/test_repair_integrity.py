@@ -309,3 +309,21 @@ def test_apply_without_source_evidence_leaves_the_split_for_a_later_run(
     (item,) = later["splits"]
     assert (item["action"], item["rows_changed"]) == ("restate", brk)
     assert _closes(path, "MNSX") == pytest.approx([100.0] * len(SESSIONS))
+
+
+def test_unknown_name_is_refused_before_anything_is_written(tmp_path):
+    """Review finding: a typo in --names had the actions fetch write a split row and
+    a split_adjustments row for a ticker the store does not hold."""
+    path, _brk, answer = _named_split_store(tmp_path)
+    with pytest.raises(repair_integrity.RepairRefused, match="NOPE"):
+        repair_integrity.run(
+            path, apply=True, steps=("unrecorded", "splits"), since=SESSIONS[0],
+            fetch_actions=lambda _yft: answer, breaks=lambda _con: [],
+            names=("MNSX", "nope"), source=lambda *_a: dict.fromkeys(SESSIONS, 100.0))
+    con = db.connect(path, read_only=True)
+    try:
+        assert con.execute("SELECT COUNT(*) FROM corporate_actions").fetchone() == (0,)
+        assert con.execute("SELECT COUNT(*) FROM split_adjustments").fetchone() == (0,)
+    finally:
+        con.close()
+    assert _closes(path, "MNSX")[0] == 200.0

@@ -4424,4 +4424,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +6, tests +50 lines.
 - **Next:** refuse unknown `--names`.
 
+## 2026-10-22 — Repair refuses a --names ticker the store does not know
+
+- **Why:** review of the `--names` change. Reproduction: `run(..., apply=True, names=("NOPE",))` had the actions fetch write a `corporate_actions` split row and a `split_adjustments` row for a ticker absent from `universe`.
+- **What:** `run` checks every named ticker against `universe` on a read-only connection first and raises `RepairRefused` (the CLI exits with a usage error) before any write.
+- **Evidence:** new `test_unknown_name_is_refused_before_anything_is_written`: no corporate-action or split-adjustment row, no price changed. `pytest tests/test_repair_integrity.py` 9 passed.
+- **Metrics:** engine +17, tests +20 lines.
+- **Next:** orchestrator lands the repair commits and runs the MNST dry-run on the live store.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
