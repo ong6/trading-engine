@@ -4639,4 +4639,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +60, tests +90.
 - **Next:** review F2: content read through a module.
 
+## 2026-10-22 — Reach content through the modules that read it; symlinks and non-document files are code (P24 cicd)
+
+- **Why:** review F2 (medium) of `p24/cicd`. A module reading a content path reached no test, and a tracked symlink in `engine/` pointing at `data/` made its target look like content: on the reviewer's repro (`data/screens/latest.md` read by a module, `engine/zz_link.py` linking `data/zz_impl.txt`) a `main` push planned `selected` and two failing tests were not selected. Content had no definition beyond its tree, and CONTENT_READERS could drift from the graph unseen.
+- **What:** content changes follow readers like any change (a reading module passes it one import on). Content is only `.md .json .jsonl .csv .txt .html` and images under `data/` or `docs/`; any other file there, a tracked symlink and its target are code, and a symlink is an importer of its target. A drift test fails when a recorded content reader is neither reached by the graph from some content file nor a contract test; the one it found, `test_p16_challenger_runner.py` (reads `docs/` two imports away), is now a contract test.
+- **Evidence:** on the repro range the scope is `code` and the selection includes `test_zz_link.py` and `test_zz_screen.py`. Content selections grow: 1942c975/703e8595/43973307/19d6c846 select 121/108/59/56 test files (498/456/198/190 recorded s, two shards per timezone for the data pushes). `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 58 passed.
+- **Metrics:** tools +35, tests +40.
+- **Next:** review F3: known misses and computed imports.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

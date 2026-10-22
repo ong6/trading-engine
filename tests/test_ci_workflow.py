@@ -25,7 +25,8 @@ def _runs(job: str) -> str:
 
 def test_paths_filter_lists_are_pinned():
     assert at.CONTENT_PATHS == ("data/", "docs/")
-    assert at.CODE_SUFFIXES_IN_CONTENT == (".py",)
+    assert at.CONTENT_SUFFIXES == (".csv", ".gif", ".html", ".ico", ".jpeg", ".jpg", ".json",
+                                   ".jsonl", ".md", ".png", ".svg", ".txt", ".webp")
     assert at.FULL_SUITE_PATHS == (
         ".github/", "pyproject.toml", "tests/conftest.py", "tests/speed_plugin.py",
         "tools/affected_tests.py", "uv.lock",

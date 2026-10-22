@@ -58,6 +58,7 @@ CONTRACT_TESTS = (
     "tests/test_live_store_paths.py",  # live-store lint
     "tests/test_operating_contract.py",
     "tests/test_p15_registration.py",
+    "tests/test_p16_challenger_runner.py",  # reads docs/ two imports away
     "tests/test_public_hygiene.py",
     "tests/test_r15_integration.py",
     "tests/test_registration_identity.py",
@@ -67,11 +68,15 @@ CONTRACT_TESTS = (
     "tests/test_xs_forward_review.py",
     "tests/test_xs_forward_status.py",
 )
-# Content: reports, screens, documents. Changes here reach only the tests that name the
-# file, CONTRACT_TESTS (documentation integrity reads every Markdown file) and
-# CONTENT_READERS. docs/*.py is code: it is imported and linted.
+# Content: reports, screens, documents and images under these trees, and nothing that runs.
+# Any other suffix there (.py, .sh, .sql, .toml, .yaml, none), a tracked symlink and the
+# target of one are code. A content change reaches the tests that read it like any change
+# (documentation integrity, a contract test, reads every Markdown file) plus CONTENT_READERS.
 CONTENT_PATHS = ("data/", "docs/")
-CODE_SUFFIXES_IN_CONTENT = (".py",)
+CONTENT_SUFFIXES = (
+    ".csv", ".gif", ".html", ".ico", ".jpeg", ".jpg", ".json", ".jsonl", ".md", ".png", ".svg",
+    ".txt", ".webp",
+)
 # Tests that read content when they run, from a full run recorded with ``--record-reads``
 # (``--content-readers`` prints this list from the record). Static analysis misses reads
 # through a module more than one import away from the test.
@@ -124,8 +129,26 @@ FAST_TIMEZONES = ["UTC"]
 MAIN_REF = "refs/heads/main"
 
 
-def is_content(path: str) -> bool:
-    return path.startswith(CONTENT_PATHS) and not path.endswith(CODE_SUFFIXES_IN_CONTENT)
+def is_content(path: str, symlinked: frozenset[str] = frozenset()) -> bool:
+    """A content path by name; ``symlinked`` (from ``symlinked_paths``) makes it code."""
+    return (path.startswith(CONTENT_PATHS) and path.lower().endswith(CONTENT_SUFFIXES)
+            and path not in symlinked)
+
+
+def symlinked_paths(root: Path = REPO_ROOT) -> frozenset[str]:
+    """Tracked symlinks and the repository paths they point at."""
+    found: set[str] = set()
+    for line in git("ls-files", "-s", root=root).splitlines():
+        meta, _, path = line.partition("\t")
+        if meta.startswith("120000 "):
+            found.add(path)
+            try:
+                target = os.path.normpath(os.path.join(os.path.dirname(path),
+                                                       os.readlink(root / path)))
+            except OSError:
+                continue
+            found.add(Path(target).as_posix())
+    return frozenset(found)
 
 
 def is_test_file(path: str) -> bool:
@@ -253,7 +276,12 @@ class Graph:
         with ProcessPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
             facts = dict(zip(python, pool.map(python_facts, [str(root)] * len(python), python,
                                               chunksize=32), strict=True))
+        self.symlinked = symlinked_paths(root)
         for path in self.files:
+            if (root / path).is_symlink():  # the link runs whatever it points at
+                target = Path(os.path.normpath(os.path.join(os.path.dirname(path),
+                                                            os.readlink(root / path))))
+                self.importers[target.as_posix()].add(path)
             imported, read = self._dependencies(path, facts.get(path))
             for dependency in imported - {path}:
                 self.importers[dependency].add(path)
@@ -343,9 +371,7 @@ class Graph:
         while queue:
             item = queue.pop()
             for reader in sorted(self.readers.get(item, ())):
-                if is_content(item) and not is_test_file(reader):
-                    continue
-                hops = -1 if not reader.endswith(".py") else 0 if is_content(item) else 1
+                hops = -1 if not reader.endswith(".py") else 1
                 if expanded.get(reader, -2) == -1 or expanded.get(reader, -2) >= hops >= 0:
                     continue
                 expanded[reader] = hops
@@ -384,16 +410,17 @@ def select(changed: list[str], graph: Graph | None = None) -> dict:
     for path in sorted(set(present) & graph.session_files()):
         return full(f"{path}: loaded by every test session")
     for path in sorted(set(changed) - set(present)):
-        if not is_content(path) and not is_test_file(path):
+        if not is_content(path, graph.symlinked) and not is_test_file(path):
             return full(f"{path}: deleted; what used it cannot be traced")
     tests = set(CONTRACT_TESTS)
     reasons: list[str] = []
-    if any(is_content(path) for path in changed):
+    if any(is_content(path, graph.symlinked) for path in changed):
         tests |= set(CONTENT_READERS)
         reasons.append(f"content changed: {len(CONTENT_READERS)} content readers")
     for path in present:
         reached = {item for item in graph.closure({path}) if is_test_file(item)}
-        if not reached and not is_content(path) and not path.endswith(INERT_SUFFIXES):
+        if (not reached and not is_content(path, graph.symlinked)
+                and not path.endswith(INERT_SUFFIXES)):
             return full(f"{path}: no test reaches it; its dependants are unknown")
         tests |= reached
         if reached:
@@ -401,9 +428,10 @@ def select(changed: list[str], graph: Graph | None = None) -> dict:
     return {"mode": "selected", "tests": sorted(tests & graph.file_set), "reasons": reasons}
 
 
-def scope(changed: list[str]) -> str:
+def scope(changed: list[str], root: Path = REPO_ROOT) -> str:
     """The CI paths filter: ``content`` when every changed path is content, else ``code``."""
-    return "content" if all(is_content(path) for path in changed) else "code"
+    symlinked = symlinked_paths(root)
+    return "content" if all(is_content(path, symlinked) for path in changed) else "code"
 
 
 def estimated_seconds(tests: list[str], root: Path = REPO_ROOT) -> float:
@@ -486,7 +514,7 @@ def ci_plan(event: str, base: str, ref: str = MAIN_REF, *, root: Path = REPO_ROO
         plan["reasons"].append("nothing changed since the base: full run")
         changed = None
     if changed is not None:
-        plan["scope"] = scope(changed)
+        plan["scope"] = scope(changed, root)
         plan["reasons"].append(f"{len(changed)} changed files, scope {plan['scope']}")
     if changed is not None and (plan["scope"] == "content" or not on_main):
         selection = select(changed, Graph(root))

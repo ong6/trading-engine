@@ -32,6 +32,8 @@ TOY = {
     "units/a.service": "[Service]\n",
     "docs/guide.md": "# Guide\n",
     "data/reports/r.json": "{}\n",
+    "data/impl.txt": "VALUE = 1\n",
+    "tests/test_link.py": "from engine import link\n",
     "tests/conftest.py": "from engine import base\n\n\ndef helper():\n    from engine import unused\n",
     "tests/speed_plugin.py": "",
     "tests/test_core.py": "from engine import core\n",
@@ -59,6 +61,7 @@ def toy(tmp_path_factory) -> Path:
     for name, text in TOY.items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text(text)
+    (root / "engine" / "link.py").symlink_to("../data/impl.txt")
     _git(root, "init", "-q")
     _git(root, "symbolic-ref", "HEAD", "refs/heads/main")
     _git(root, "add", ".")
@@ -111,7 +114,8 @@ def test_content_reaches_tests_that_name_it_and_the_content_readers(graph):
     assert _tests(["docs/guide.md"], graph) == [
         "tests/test_doc_only.py", "tests/test_docs.py", "tests/test_job.py",
     ]
-    assert "tests/test_writer.py" not in _tests(["data/reports/r.json"], graph)
+    # a module that reads content is reached like any reader: its importers' tests run
+    assert "tests/test_writer.py" in _tests(["data/reports/r.json"], graph)
     assert _tests(["docs/removed.md"], graph) == ["tests/test_doc_only.py", "tests/test_job.py"]
 
 
@@ -149,6 +153,23 @@ def test_changed_files_include_commits_and_the_working_tree(toy, tmp_path):
     assert at.changed_files("origin/main", "HEAD", root=clone) == ["engine/core.py"]
 
 
+def test_symlinks_and_their_targets_are_code_and_reach_their_importers(graph, toy):
+    assert graph.symlinked == {"engine/link.py", "data/impl.txt"}
+    assert at.scope(["data/impl.txt"], toy) == "code"
+    assert at.scope(["data/reports/r.json"], toy) == "content"
+    assert "tests/test_link.py" in _tests(["data/impl.txt"], graph)
+
+
+@pytest.mark.parametrize(("path", "content"), [
+    ("data/reports/r.json", True), ("docs/a.md", True), ("data/x.csv", True),
+    ("docs/site/index.html", True), ("docs/img/plot.PNG", True), ("data/x.jsonl", True),
+    ("docs/history/tool.py", False), ("data/run.sh", False), ("docs/q.sql", False),
+    ("data/c.toml", False), ("docs/c.yaml", False), ("data/tool", False), ("README.md", False),
+])
+def test_content_is_a_document_or_image_under_data_or_docs(path, content):
+    assert at.is_content(path) is content
+
+
 def test_joined_literal_path_parts_name_one_path():
     node = ast.parse('root / "data" / "reports" / name / "a" / "b.json"').body[0].value
     assert at.joined_paths(node) == ["data/reports", "a/b.json"]
@@ -175,4 +196,14 @@ def test_pinned_lists_name_real_tests_and_the_full_suite_triggers():
         ".github/", "pyproject.toml", "tests/conftest.py", "tests/speed_plugin.py", "uv.lock",
     }
     assert at.CONTENT_PATHS == ("data/", "docs/")
-    assert not at.is_content("docs/history/tool.py")
+
+
+def test_every_recorded_content_reader_is_reached_by_the_graph_or_always_runs():
+    """Drift check: CONTENT_READERS (recorded reads) against what the graph computes."""
+    graph = at.Graph()
+    reached = set()
+    for path in graph.files:
+        if at.is_content(path, graph.symlinked):
+            reached |= {item for item in graph.closure({path}) if at.is_test_file(item)}
+    missed = set(PINNED["content"]) - reached - set(PINNED["contract"])
+    assert not missed, f"content readers the graph does not reach: {sorted(missed)}"
