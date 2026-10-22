@@ -10,6 +10,7 @@ fails the suite if `duckdb.connect(` appears anywhere else in the packages.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import time
@@ -950,7 +951,11 @@ def insert_earnings_fetch_log(
 
 
 def init_price_rejects_schema(con) -> None:
-    """The sole revision-15 append-only evidence table (also archives predecessors)."""
+    """The sole revision-15 append-only evidence table (also archives predecessors).
+
+    Intraday bars re-fetched equal to the stored bar are summarized, one row per
+    batch and interval with reason ``intraday_identical_refetch`` and no ticker.
+    """
     con.execute("""
         CREATE TABLE IF NOT EXISTS price_observation_rejects (
             observation_id VARCHAR PRIMARY KEY,
@@ -1199,11 +1204,21 @@ def insert_intraday(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
         frame["ts"] = pd.to_datetime(frame["ts"], utc=True).dt.tz_localize(None)
         with registered_frame(con, "_incoming_intraday", frame):
             repeats = observation_rows(con.execute(
-                "SELECT i.* FROM _incoming_intraday i JOIN intraday_prices p "
+                "SELECT i.*, (p.open IS NOT DISTINCT FROM i.open "
+                "AND p.high IS NOT DISTINCT FROM i.high AND p.low IS NOT DISTINCT FROM i.low "
+                "AND p.close IS NOT DISTINCT FROM i.close "
+                "AND p.volume IS NOT DISTINCT FROM i.volume "
+                "AND p.source IS NOT DISTINCT FROM i.source) AS _identical_to_stored "
+                "FROM _incoming_intraday i JOIN intraday_prices p "
                 "ON p.ticker=i.ticker AND p.ts=i.ts AND p.interval=i.interval"
             ))
-            append_price_observations(con, repeats, reason="intraday_existing_key",
+            identical, changed = [], []
+            for row in repeats:
+                (identical if row.pop("_identical_to_stored") else changed).append(row)
+            append_price_observations(con, changed, reason="intraday_existing_key",
                                       batch_id=batch_id, recorded_at=now)
+            _append_identical_refetch_summary(con, identical, batch_id=batch_id,
+                                              recorded_at=now)
             return len(con.execute("""
                 INSERT INTO intraday_prices
                     (ticker,ts,interval,open,high,low,close,volume,source,as_of)
@@ -1213,6 +1228,40 @@ def insert_intraday(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
                 ON p.ticker=i.ticker AND p.ts=i.ts AND p.interval=i.interval
                 RETURNING ticker
             """).fetchall())
+
+
+INTRADAY_IDENTICAL_REFETCH = "intraday_identical_refetch"
+
+
+def _append_identical_refetch_summary(con, rows: list[dict], *, batch_id: str,
+                                      recorded_at) -> None:
+    """One evidence row per interval for re-fetched bars equal to the stored bar.
+
+    A nightly 7-day 1m and 60-day 5m pull re-fetches about six million stored bars;
+    one row each held no information the stored bar does not. A bar that differs
+    from the stored one keeps its own ``intraday_existing_key`` row.
+    """
+    by_interval: dict[str, list[dict]] = {}
+    for row in rows:
+        by_interval.setdefault(str(row.get("interval")), []).append(row)
+    values = []
+    for interval, group in sorted(by_interval.items()):
+        tickers = sorted({str(row.get("ticker")) for row in group})
+        stamps = [pd.Timestamp(row["ts"]) for row in group]
+        fetched = [pd.Timestamp(row["fetched_at"]) for row in group
+                   if row.get("fetched_at") is not None]
+        fetched = [s.tz_convert("UTC").tz_localize(None) if s.tzinfo else s for s in fetched]
+        summary = {"bar_count": len(group), "ticker_count": len(tickers),
+                   "tickers_sha256": hashlib.sha256(",".join(tickers).encode()).hexdigest(),
+                   "first_ts": min(stamps).isoformat(), "last_ts": max(stamps).isoformat(),
+                   "first_fetched_at": min(fetched).isoformat() if fetched else None,
+                   "last_fetched_at": max(fetched).isoformat() if fetched else None}
+        values.append([str(uuid4()), batch_id, None, None, None, interval,
+                       None, None, None, None, None, group[0].get("source", "yfinance"),
+                       max(fetched) if fetched else None, None, recorded_at,
+                       INTRADAY_IDENTICAL_REFETCH, PRICE_VALIDATOR_VERSION,
+                       json.dumps(summary, sort_keys=True)])
+    insert_values(con, "INSERT INTO price_observation_rejects VALUES", values, width=18)
 
 
 def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:

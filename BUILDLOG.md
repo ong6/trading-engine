@@ -4160,4 +4160,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +11, tests +27 lines (net).
 - **Next:** orchestrator ruling on retaining every repeated intraday bar as an observation (about 6M rows a night).
 
+## 2026-10-22 — Summarize identical intraday re-fetches (P24 nightly-speed)
+
+- **Why:** orchestrator ruling, 2026-10-22. The nightly 7-day 1m and 60-day 5m pull re-fetches about six million stored bars, and revision-15 admission kept one `intraday_existing_key` evidence row per bar; on 2026-10-21 that made the intraday job the longest stage (about 22:45-01:02).
+- **What:** `insert_intraday` keeps per-bar evidence for any re-fetched bar whose open, high, low, close, volume or source differs from the stored bar, and for every rejected bar, as before. Bars equal to the stored one are recorded as one `intraday_identical_refetch` row per batch and interval (no ticker; JSON with bar count, ticker count, ticker-set SHA-256, first/last bar and fetch times).
+  No reader needs the identical rows: every consumer of `price_observation_rejects` (`engine/p15_calendar.py`, `engine/collect.py` and `server/market_read_models.py` read `interval='1d'` only, the latter already excluding `intraday_existing_key`; `engine/actions.py` reads `basis_unverified` only) ignores intraday rows, and price admission and provisional settlement, `verify_prices`, the invariants, the P15 price-fetch records and the bitemporal views do not read the table.
+- **Evidence:** store-copy replay (40 names, 210,951 bars, 1 in 97 given a changed volume and 1 in 1,009 an invalid high): insert 50.5 s before, 14.2 s after; `intraday_prices` identical; the 2,006 changed-bar and 210 invalid-bar evidence rows identical; the 192,269 dropped rows are exactly the before-run's rows equal to the stored bar, and the two summaries count 192,269. New test covers the summary and a changed repeat.
+- **Metrics:** engine +49, tests +21 lines (net).
+- **Next:** earnings stays serial (no rate increase; store-writing drain jobs stay sequential).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
