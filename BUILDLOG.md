@@ -4416,4 +4416,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +14, tests +35 lines.
 - **Next:** orchestrator runs the dry-run on the live store outside the producer window, then `--apply` with the same flags.
 
+## 2026-10-22 — Repair leaves a split unrecorded when the source answered nothing
+
+- **Why:** review of the `--names` change. Reproduction: an `--apply` whose source history came back empty recorded a newly fetched split as `skipped_source_mismatch`, and `recorded_skips` (skipped_already_adjusted / skipped_sanity only) then never planned it again, although an empty answer "is not evidence either way".
+- **What:** `apply_split` records the mismatch only on real evidence; with `source_unavailable` it writes nothing for the split, the item's action is `none`, and the next run asks again.
+- **Evidence:** new `test_apply_without_source_evidence_leaves_the_split_for_a_later_run` fails before (a `skipped_source_mismatch` row) and passes after; the later run restates the split. `pytest tests/test_repair_integrity.py` 8 passed.
+- **Metrics:** engine +6, tests +50 lines.
+- **Next:** refuse unknown `--names`.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

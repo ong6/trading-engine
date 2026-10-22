@@ -258,7 +258,10 @@ def split_evidence(con, cand: dict, source: dict[date, float]) -> dict:
 
 def apply_split(con, cand: dict, evidence: dict) -> int:
     if not evidence["proven"]:
-        if cand["new"]:
+        # An empty source answer is not evidence either way: recording the split as
+        # a mismatch would keep every later run from planning it, so it stays
+        # unrecorded and the next run asks again.
+        if cand["new"] and not evidence.get("source_unavailable"):
             actions._mark(con, cand["ticker"], cand["ex_date"], cand["ratio"],
                           {"outcome": MISMATCH, "observed": None, "break_date": None})
             _audit(con, f"split_{MISMATCH}", {
@@ -366,7 +369,8 @@ def _action(cand: dict, evidence: dict) -> str:
         return "restore" if evidence["proven"] else "none"
     if evidence["proven"]:
         return "restate"
-    return f"record_{MISMATCH}" if cand["new"] else "none"
+    return (f"record_{MISMATCH}" if cand["new"] and not evidence.get("source_unavailable")
+            else "none")
 
 
 def _item(cand: dict, evidence: dict, rows: int) -> dict:

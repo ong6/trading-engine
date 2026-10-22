@@ -260,3 +260,52 @@ def test_named_ticker_is_asked_about_although_the_monitor_does_not_flag_it(tmp_p
     assert (item["ticker"], item["ratio"], item["action"], item["rows_planned"]) == (
         "MNSX", 2.0, "restate", brk)
     assert _closes(path, "MNSX")[0] == 200.0                     # dry-run wrote nothing
+
+
+def _named_split_store(tmp_path):
+    import pandas as pd
+
+    path = tmp_path / "market.duckdb"
+    con = _store(path)
+    con.execute("INSERT INTO universe (ticker, yf_ticker, active, liquid) "
+                "VALUES ('MNSX', 'MNSX', TRUE, TRUE)")
+    brk = EX_IDX - 1
+    insert_bars(con, "MNSX", SESSIONS, close=[200.0 if k < brk else 100.0
+                                              for k in range(len(SESSIONS))])
+    _stamp_after_ex(con, "MNSX")
+    con.close()
+    answer = pd.DataFrame({"Dividends": [0.0], "Stock Splits": [2.0]},
+                          index=pd.DatetimeIndex([pd.Timestamp(EX)]))
+    return path, brk, answer
+
+
+def test_apply_without_source_evidence_leaves_the_split_for_a_later_run(
+        tmp_path, monkeypatch):
+    """Review finding: an --apply whose source answered nothing recorded the new
+    split `skipped_source_mismatch`, and `recorded_skips` never planned it again."""
+    from engine import actions
+
+    monkeypatch.setattr(repair_integrity, "SOURCE_RETRY_S", 0)
+    path, brk, answer = _named_split_store(tmp_path)
+    monkeypatch.setattr(actions, "_fetch_actions", lambda *_a, **_k: answer)
+
+    def run(apply, source):
+        return repair_integrity.run(
+            path, apply=apply, steps=("unrecorded", "splits"), since=SESSIONS[0],
+            fetch_actions=lambda _yft: answer, breaks=lambda _con: [], names=("MNSX",),
+            source=source)
+
+    down = run(True, lambda *_a: {})
+    (item,) = down["splits"]
+    assert (item["action"], item["rows_changed"]) == ("none", 0)
+    assert _closes(path, "MNSX")[0] == 200.0
+    con = db.connect(path, read_only=True)
+    try:
+        assert con.execute("SELECT COUNT(*) FROM split_adjustments WHERE outcome = "
+                           "'skipped_source_mismatch'").fetchone() == (0,)
+    finally:
+        con.close()
+    later = run(True, lambda *_a: dict.fromkeys(SESSIONS, 100.0))
+    (item,) = later["splits"]
+    assert (item["action"], item["rows_changed"]) == ("restate", brk)
+    assert _closes(path, "MNSX") == pytest.approx([100.0] * len(SESSIONS))
