@@ -45,11 +45,12 @@ def test_content_that_tests_read_still_triggers_those_tests():
 
 
 def test_triggers_cover_main_pull_requests_the_schedule_and_manual_runs():
-    assert TRIGGERS["push"]["branches"] == ["main"]
+    assert TRIGGERS["push"]["branches"] == ["**"]
     assert "pull_request" in TRIGGERS
     assert re.fullmatch(r"\d+ \d+ \* \* \*", TRIGGERS["schedule"][0]["cron"])
     assert "workflow_dispatch" in TRIGGERS
     assert WORKFLOW["permissions"] == {"contents": "read"}
+    assert WORKFLOW["concurrency"]["cancel-in-progress"] == "${{ github.ref != 'refs/heads/main' }}"
 
 
 def test_hygiene_always_runs_and_the_plan_gates_the_rest():
@@ -82,6 +83,10 @@ def test_the_selected_tier_runs_the_tools_selection():
     matrix = JOBS["selected"]["strategy"]["matrix"]
     assert matrix["tz"] == "${{ fromJSON(needs.changes.outputs.timezones) }}"
     assert matrix["shard"] == "${{ fromJSON(needs.changes.outputs.shards) }}"
+    first_shard = {step["run"] for step in JOBS["selected"]["steps"]
+                   if step.get("if") == "matrix.shard == 0"}
+    assert first_shard == {".venv/bin/ruff check .",
+                           ".venv/bin/python -m compileall -q engine sim server tests farm tools"}
 
 
 def test_one_gate_job_needs_every_job():
@@ -166,6 +171,18 @@ def test_no_usable_base_or_a_scheduled_run_is_full(tmp_path, event, base):
     plan = at.ci_plan(event, base, root=tmp_path)
     assert (plan["tier"], plan["shard_count"], plan["timezones"]) == (
         "full", 4, ["UTC", "Asia/Singapore"])
+
+
+def test_pull_requests_and_branches_run_the_fast_tier_in_one_timezone(tmp_path):
+    base = _toy(tmp_path / "code", {"engine/__init__.py": "VALUE = 1\n"})
+    for event, ref in (("pull_request", "refs/pull/7/merge"), ("push", "refs/heads/lane")):
+        plan = at.ci_plan(event, base, ref, root=tmp_path / "code")
+        assert (plan["tier"], plan["scope"], plan["timezones"], plan["shards"]) == (
+            "selected", "code", ["UTC"], [0])
+    base = _toy(tmp_path / "project", {"pyproject.toml": "[project]\n"})
+    plan = at.ci_plan("pull_request", base, "refs/pull/7/merge", root=tmp_path / "project")
+    assert (plan["tier"], plan["timezones"], plan["shard_count"]) == ("selected", ["UTC"], 4)
+    assert "full-suite path" in plan["reasons"][-1]
 
 
 def _needs(tier="full", scope="code", **results):

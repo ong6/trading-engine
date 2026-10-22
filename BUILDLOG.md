@@ -4614,4 +4614,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +35.
 - **Next:** the pull-request fast tier.
 
+## 2026-10-22 — Run the fast tier on pull requests and branch pushes (P24 cicd)
+
+- **Why:** the owner's 2026-10-20 change process wants PR feedback under 3 min; pull requests ran the full suite in both timezones and lane branches ran nothing until a pull request.
+- **What:** CI now runs on every branch push. A pull request (against its base) or a push to a branch other than `main` (against its merge base with `main`) gets the `selected` job in `TZ=UTC` only: ruff and compileall on the first shard, then the tests `tools.affected_tests` selects, sharded by recorded durations (four shards when it falls back to the full suite). `checks` and `ui-build` still run for code. `main` is unchanged: code pushes run every test in both timezones on four shards. A newer push to a branch or pull request cancels its older run; `main` runs are never cancelled. The hygiene job scans every commit of a pushed branch (from its merge base) and, on the schedule, the head commit.
+  `AGENTS.md` and `CONTRIBUTING.md` name the fast tier: `python -m tools.affected_tests --run`.
+- **Evidence:** locally `--run` (ruff, compileall, pytest -n 8) on the files of 5cd07a1d/d4268854/be025cd2 took 16/28/51 s, all passed. `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 34 passed; actionlint clean.
+- **Metrics:** tools +15, tests +20.
+- **Next:** mark the slow tests and add the duration budget on `main`.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

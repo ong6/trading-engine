@@ -119,6 +119,8 @@ SHARD_SECONDS = 240.0
 FULL_SHARDS = 4
 UNKNOWN_FILE_SECONDS = 2.0
 BOTH_TIMEZONES = ["UTC", "Asia/Singapore"]
+FAST_TIMEZONES = ["UTC"]
+MAIN_REF = "refs/heads/main"
 
 
 def is_content(path: str) -> bool:
@@ -413,15 +415,18 @@ def estimated_seconds(tests: list[str], root: Path = REPO_ROOT) -> float:
     return sum(recorded.get(test, UNKNOWN_FILE_SECONDS) for test in tests)
 
 
-def ci_plan(event: str, base: str, *, root: Path = REPO_ROOT) -> dict:
+def ci_plan(event: str, base: str, ref: str = MAIN_REF, *, root: Path = REPO_ROOT) -> dict:
     """What the CI workflow runs for one event.
 
     ``tier`` is ``full`` (every test in both timezones on four shards) or ``selected``
-    (``select`` on the changes since ``base``). A push or pull request that changes only
-    content (``scope`` ``content``) is ``selected`` and skips the checks job and the UI
-    build; code changes, the schedule, manual runs and a missing or unreachable base are
-    ``full``.
+    (``select`` on the changes since ``base``, sharded by recorded durations). A push to
+    ``main`` that changes code, the schedule, manual runs and a missing or unreachable base
+    are ``full``. A push to ``main`` that changes only content (``scope`` ``content``) is
+    ``selected`` in both timezones. Pull requests and pushes to other branches are the fast
+    tier: ``selected`` in one timezone (the full suite there when ``select`` falls back).
+    Content-only runs skip the checks job and the UI build.
     """
+    on_main = event == "push" and ref == MAIN_REF
     plan = {"tier": "full", "scope": "code", "base": base, "timezones": BOTH_TIMEZONES,
             "shards": list(range(FULL_SHARDS)), "reasons": []}
     changed = None
@@ -435,12 +440,13 @@ def ci_plan(event: str, base: str, *, root: Path = REPO_ROOT) -> dict:
     if changed is not None:
         plan["scope"] = scope(changed)
         plan["reasons"].append(f"{len(changed)} changed files, scope {plan['scope']}")
-    if plan["scope"] == "content":
+    if changed is not None and (plan["scope"] == "content" or not on_main):
         selection = select(changed, Graph(root))
         plan["reasons"] += selection["reasons"]
+        plan["tier"] = "selected"
+        plan["timezones"] = BOTH_TIMEZONES if on_main else FAST_TIMEZONES
         if selection["mode"] == "selected":
             seconds = estimated_seconds(selection["tests"], root)
-            plan["tier"] = "selected"
             plan["shards"] = list(range(min(FULL_SHARDS, max(1, math.ceil(seconds / SHARD_SECONDS)))))
     return plan | {"shard_count": len(plan["shards"])}
 
@@ -485,11 +491,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="print the content readers in a --record-reads record and exit")
     parser.add_argument("--ci-plan", metavar="EVENT",
                         help="write the CI plan for this GitHub event to $GITHUB_OUTPUT")
+    parser.add_argument("--ref", default=os.environ.get("GITHUB_REF", MAIN_REF),
+                        help="the Git ref the CI event ran on")
     parser.add_argument("--ci-verdict", action="store_true",
                         help="fail unless the jobs in $CI_NEEDS that the plan required passed")
     args = parser.parse_args(argv)
     if args.ci_plan:
-        plan = ci_plan(args.ci_plan, args.base)
+        plan = ci_plan(args.ci_plan, args.base, args.ref)
         lines = [f"{key}={json.dumps(value) if isinstance(value, list) else value}"
                  for key, value in plan.items() if key != "reasons"]
         print("\n".join([*plan["reasons"], *lines]))

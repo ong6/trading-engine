@@ -1,13 +1,16 @@
 name: ci
 
-# Paths filter (tools/affected_tests.py, pinned by tests/test_ci_workflow.py): a push or
-# pull request that changes only content (data/**, docs/** except docs/**/*.py) runs the
-# selected tests (contract tests, content readers and every test naming a changed file)
-# in both timezones instead of the full suite, the checks job and the UI build. Hygiene
-# always runs. The daily schedule runs the full suite on main whatever changed.
+# Tiers (tools/affected_tests.py --ci-plan, pinned by tests/test_ci_workflow.py):
+# - main, code changed: every test in both timezones on four shards (`test`).
+# - main, only content changed (data/**, docs/** except docs/**/*.py): the selected tests
+#   (contract tests, content readers, every test naming a changed file) in both timezones.
+# - pull requests and other branches: the fast tier, ruff, compileall and the selected
+#   tests in one timezone (the full suite there when selection falls back).
+# Content-only runs skip `checks` and `ui-build`. Hygiene always runs. The daily schedule
+# runs the full suite on main whatever changed. `ci` is the one check to require.
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
   schedule:
     - cron: "37 5 * * *"
@@ -15,6 +18,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:  # a newer push to a branch or pull request supersedes its run; main never does
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   hygiene:
@@ -28,9 +35,14 @@ jobs:
           python-version: "3.12"
       - name: Check public repository hygiene
         env:
-          PUBLIC_HYGIENE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           PUBLIC_HYGIENE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: PYTHONPATH="$GITHUB_WORKSPACE" python -m tools.public_hygiene --ci
+        run: |
+          base="${EVENT_BASE:-0000000000000000000000000000000000000000}"  # scheduled: head commit
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            base=$(git merge-base origin/main "$PUBLIC_HYGIENE_HEAD_SHA")  # every commit of the branch
+          fi
+          PUBLIC_HYGIENE_BASE_SHA="$base" PYTHONPATH="$GITHUB_WORKSPACE" python -m tools.public_hygiene --ci
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -50,8 +62,10 @@ jobs:
       - id: plan
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: python -m tools.affected_tests --ci-plan "$EVENT" --base "${BASE:-0}"
+          # main compares with the previous push, a pull request with its base, a branch
+          # with its merge base on main
+          BASE: ${{ github.event.pull_request.base.sha || (github.ref == 'refs/heads/main' && github.event.before) || 'origin/main' }}
+        run: python -m tools.affected_tests --ci-plan "$EVENT" --base "${BASE:-0}" --ref "$GITHUB_REF"
   test:
     needs: changes
     if: needs.changes.outputs.tier == 'full'
@@ -92,6 +106,10 @@ jobs:
         with:
           fetch-depth: 0  # registration tests read git history for the last registered change
       - uses: ./.github/actions/setup-engine
+      - if: matrix.shard == 0
+        run: .venv/bin/ruff check .
+      - if: matrix.shard == 0
+        run: .venv/bin/python -m compileall -q engine sim server tests farm tools
       - name: Run the selected tests
         run: |
           .venv/bin/python -m tools.affected_tests --base "$BASE" --head HEAD --explain > "$RUNNER_TEMP/selected"
