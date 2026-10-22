@@ -7,7 +7,7 @@ WorkingDirectory=%h/trading-engine
 ExecStart=%h/trading-engine/.venv/bin/python -m tools.publish_snapshot --if-changed
 Environment=PYTHONUNBUFFERED=1
 Nice=19
-IOSchedulingClass=idle
+IOSchedulingClass=best-effort
 TimeoutStartSec=25min
 PrivateTmp=true
 ProtectSystem=full

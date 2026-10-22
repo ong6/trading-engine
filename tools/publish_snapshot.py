@@ -549,7 +549,7 @@ def _open_capture_handle(source: Path, wait_s: float) -> duckdb.DuckDBPyConnecti
         except duckdb.Error as exc:
             if not engine_db.is_lock_error(exc) or time.monotonic() >= deadline:
                 raise
-            time.sleep(0.5)
+            time.sleep(0.1)  # API writes last milliseconds: take the first gap between them
 
 
 def _copy_capture(source: Path, capture: Path) -> None:

@@ -731,7 +731,7 @@ description = "Trading engine publish-on-change of the read-only store generatio
 exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.publish_snapshot", "--if-changed"] }]
 environment = ["PYTHONUNBUFFERED=1"]
 nice = 19
-io_scheduling_class = "idle"
+io_scheduling_class = "best-effort"
 timeout_start = "25min"
 private_tmp = true
 protect_system = "full"

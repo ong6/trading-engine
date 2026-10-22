@@ -4695,4 +4695,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** ops +10 lines.
 - **Next:** the final-head rehearsal.
 
+## 2026-10-23 — Size the API write wait to a publication's measured capture window
+
+- **Why:** the final-head rehearsal posted an API write every second through a republication: 475 succeeded and 2 returned 503 after waiting the 45 s budget, because the capture held its read-only handle for 131 s (it waited for gaps between the writes, then copied 12.7 GB).
+- **What:** API writes wait up to 180 s (`TRADING_ENGINE_API_WRITE_WAIT_S`) and retry every 0.25 s; the capture retries its handle every 0.1 s to take the first gap between writes; the publish-on-change unit uses best-effort I/O instead of idle, so the capture copy is not starved behind other I/O. Cost: an API write that arrives during a capture waits until it ends (up to about two minutes on this host under that write load) instead of failing.
+- **Evidence:** the rehearsal log for the 45 s run; the rerun with these settings is in the rehearsal entry.
+- **Metrics:** server 3 lines, tools 1 line (pinned tools/publish_snapshot.py), ops 2 lines.
+- **Next:** finish the rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -42,8 +42,10 @@ DATASET_GENERATION_MAX_AGE = {
     "evidence": timedelta(minutes=45),
 }
 _DATASET_CLASS: ContextVar[str] = ContextVar("api_dataset_class", default="board")
-API_WRITE_WAIT_S = float(os.environ.get("TRADING_ENGINE_API_WRITE_WAIT_S", "45"))
-_WRITE_RETRY_S = 0.5
+# A publication holds a read-only capture handle while it copies the primary: 50-130 s for
+# the 12.7 GB store under write traffic in the rehearsal. API writes wait that out.
+API_WRITE_WAIT_S = float(os.environ.get("TRADING_ENGINE_API_WRITE_WAIT_S", "180"))
+_WRITE_RETRY_S = 0.25
 
 
 def db_path() -> Path:
