@@ -4456,4 +4456,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +7, tests +18 lines.
 - **Next:** end-to-end replay fee test.
 
+## 2026-10-22 — End-to-end test of the replay's reported dollar fees
+
+- **Why:** review of the fold-fee change: no test drove `run_replay` itself, so dropping `install_cost_assumptions` or the `+ fees_usd` in `modeled_total_cost_dollars` passed; the unit tests failed on main only with an AttributeError.
+- **What:** `test_backtest_replay_reports_the_dollar_fees_it_charged` replays spy_benchmark over a fixture store with a cost break and asserts the fill, the hand-computed $0.52 fee in `dollar_fees`, and that it is the whole gap between total and market cost dollars. The unit tests read fees from `sim_fill_fees` directly. Test-only.
+- **Evidence:** removing the install fails it (qty 99.90 not 99.89), removing `+ fees_usd` fails it (0.0 not 0.52); `pytest tests/test_replay_dollar_fees.py` 5 passed.
+- **Metrics:** tests +60 lines.
+- **Next:** registration re-pin with the fee commits.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
