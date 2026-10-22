@@ -79,5 +79,18 @@ both timezone suites pass, and does the single re-pin. Lanes never push `main`.
   tool, release tool dry-run, audit-only job registry, dataset catalogue, StudySpec runner and
   research cache) landed on `main` at `483564b6`. The live store repair corrected 18,798 rows.
   Full suites: 5,848 passed under `TZ=UTC` and `TZ=Asia/Singapore`.
-- Open: the storage revision, now numbered 18, is in review and store-copy rehearsal and is not
-  live. The alpha study lanes report in the private repository.
+- 2026-10-22 (later): registration revision 18 moves per-ticker detail out of `data/_meta.json`
+  (3.9 MB to about 31 KB on that day's data); revision 19 charges backtest and walk-forward fold
+  books the live books' dollar fees from the 2026-10-19 cost break; the CI hygiene gate stops
+  refusing data pushes; `engine.repair_integrity --names` restated MNST's missed 2:1 split on the
+  live store (10,243 rows, originals kept in `price_observation_rejects`).
+- Checkpoint, storage revision (now numbered 20): held, not deployed. Migration 0000 now applies
+  to the deployed catalog on a real store copy, but a fresh review rejected the branch: producer
+  read-only opens were redirected to published generations (the nightly would stop advancing
+  books), reads refused between publications, the deploy checklist's lock order and rollback were
+  unsafe, and new writers wrote a payload encoding the previous code cannot read. The fixes and a
+  rehearsal that includes one real nightly, a queue drain and a weekend are in progress; deploy
+  waits for a passing re-review and, independently, for a private consumer of the published
+  snapshot path to move to generations (not before 2026-11-03).
+- Open: reliability-ops (schedule-contract cleanup, minute-capture unit, status endpoint speed)
+  is in review fixes. The alpha study lanes report in the private repository.

@@ -4472,4 +4472,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** registration 7 lines; tests 4 lines.
 - **Next:** the Sunday 2026-10-25 walk-forward is the first to include post-break fees; storage revision 20.
 
+## 2026-10-22 — Record the storage revision hold as a P24 checkpoint
+
+- **Why:** P24 closes with the storage revision deployed or held with a written checkpoint; the fresh review rejected it.
+- **What:** the P24 plan's Progress records revisions 18 and 19, the MNST restatement and the storage hold with its reasons and conditions.
+- **Evidence:** `pytest tests/test_documentation_integrity.py tests/test_operating_contract.py` passes.
+- **Metrics:** docs only.
+- **Next:** storage fixes and re-review.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
