@@ -76,3 +76,27 @@ def test_columnar_builder_keeps_the_panel_errors():
         price_source_from_columns(DECLARATION, ["A", ""], [day, day], {"close": [1.0, 2.0]})
     with pytest.raises(ValueError, match="sessions must be dates"):
         price_source_from_columns(DECLARATION, ["A"], [object()], {"close": [1.0]})
+
+
+def test_duckdb_sources_skip_provisional_open_fault_bars(tmp_path):
+    # A same-night bar whose open lies outside [low, high] is withheld from every
+    # open consumer until the settled re-fetch replaces it.
+    from datetime import datetime
+
+    path = tmp_path / "provisional.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE prices (ticker VARCHAR, date DATE, open DOUBLE, high DOUBLE, "
+                "low DOUBLE, close DOUBLE, volume BIGINT, fetched_at TIMESTAMP)")
+    day = date(2026, 10, 19)
+    con.executemany("INSERT INTO prices VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
+        ("FAULT", day, 12.0, 11.0, 9.0, 10.0, 100, datetime(2026, 10, 19, 22, 30)),
+        ("SETTLED", day, 12.0, 11.0, 9.0, 10.0, 100, datetime(2026, 10, 20, 22, 30)),
+        ("CLEAN", day, 10.0, 11.0, 9.0, 10.0, 100, datetime(2026, 10, 19, 22, 30)),
+        ("UNSTAMPED", day, 12.0, 11.0, 9.0, 10.0, 100, None),
+    ])
+    con.close()
+    for build in (PriceSource.from_duckdb, price_source_from_duckdb):
+        source = build(path, DECLARATION)
+        assert source.tickers == ("CLEAN", "SETTLED", "UNSTAMPED")
+    assert panel_digest(price_source_from_duckdb(path, DECLARATION)) == panel_digest(
+        PriceSource.from_duckdb(path, DECLARATION))

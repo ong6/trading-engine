@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 from engine.lib import db
-from farm.study.data import DataDeclaration, PriceSource
+from farm.study.data import DataDeclaration, PriceSource, prices_query
 from farm.study.panel import _MISSING_TIME, FIELDS, Panel, PanelBars, _timestamp
 
 BAR_COLUMNS = ("open", "high", "low", "close", "volume")
@@ -145,23 +145,10 @@ def price_source_from_duckdb(path: str | Path, declaration: DataDeclaration, *,
                              start: date | None = None, end: date | None = None,
                              tickers: Iterable[str] | None = None) -> PriceSource:
     """Columnar equivalent of `PriceSource.from_duckdb` (same query, same result)."""
-    clauses, params = [], []
-    if start is not None:
-        clauses.append("date >= ?")
-        params.append(start)
-    if end is not None:
-        clauses.append("date <= ?")
-        params.append(end)
-    names = sorted(set(tickers or ()))
-    if names:
-        clauses.append(f"ticker IN ({','.join('?' for _ in names)})")
-        params.extend(names)
-    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
     con = db.connect(Path(path), read_only=True, wait_s=0)
     try:
-        rows = con.execute(
-            "SELECT ticker, date, open, high, low, close, volume FROM prices"
-            f"{where} ORDER BY date, ticker", params).fetchnumpy()
+        sql, params = prices_query(con, start=start, end=end, tickers=tickers)
+        rows = con.execute(sql, params).fetchnumpy()
     finally:
         con.close()
     return price_source_from_columns(
