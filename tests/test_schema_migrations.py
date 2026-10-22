@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import base64
-import importlib
 import json
 import zlib
 from pathlib import Path
@@ -527,10 +526,7 @@ def test_baseline_rejects_synthetic_current_initializer_prefix(tmp_path, monkeyp
     database = root / "store" / "market.duckdb"
     database.parent.mkdir(parents=True)
     con = duckdb.connect(str(database))
-    migration = schema_migrations.migrations()[0]
-    for module_name, function_name in migration.module.BOOTSTRAP_CALLS[:7]:
-        module = __import__(module_name, fromlist=[function_name])
-        getattr(module, function_name)(con)
+    schema_migrations.run_fresh_initializers(con, first=7)
     expected_pre = schema_migrations.catalog_sha256(con)
     snapshot_sha = canonical_sha256(
         backup_database.database_snapshot(
@@ -746,8 +742,7 @@ def test_fresh_initializers_reproduce_the_newest_migration_catalog():
     fresh = duckdb.connect()
     reference = duckdb.connect()
     try:
-        for module_name, function_name in baseline.BOOTSTRAP_CALLS:
-            getattr(importlib.import_module(module_name), function_name)(fresh)
+        schema_migrations.run_fresh_initializers(fresh)
         # The reference is the frozen catalog executed as data, not anything bootstrap computes.
         for frozen in (baseline.BASELINE_SEQUENCES, baseline.BASELINE_TABLES,
                        baseline.BASELINE_INDEXES, baseline.BASELINE_VIEWS):

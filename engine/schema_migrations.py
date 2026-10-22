@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import re
 import subprocess
@@ -42,6 +43,12 @@ def migrations() -> tuple[Migration, ...]:
         return migration_registry.migrations()
     except migration_registry.SchemaIdentityError as exc:
         raise SchemaMigrationError(str(exc)) from exc
+
+
+def run_fresh_initializers(con: duckdb.DuckDBPyConnection, *, first: int | None = None) -> None:
+    """Run the runtime initializers migration 0000 lists (or its first few), as a fresh store would."""
+    for module_name, function_name in migrations()[0].module.BOOTSTRAP_CALLS[:first]:
+        getattr(importlib.import_module(module_name), function_name)(con)
 
 
 def _database_name(con: duckdb.DuckDBPyConnection) -> str:

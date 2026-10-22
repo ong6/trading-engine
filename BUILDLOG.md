@@ -4990,4 +4990,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** registration 31 lines; tests 6 lines.
 - **Next:** rehearse the deploy, the contract migrations and a real nightly with valid E1, sector and XS records.
 
+## 2026-10-23 — Bound the storage revision's computed imports for the affected-tests selector
+
+- **Why:** after main's affected-tests selector merged, `tests/test_affected_tests.py::test_only_the_reviewed_files_import_computed_names` failed: the migration loader, the schema-migration tests and the coverage scan import modules by computed names, which would make every change select the full suite.
+- **What:** `engine.schema_migrations.run_fresh_initializers` runs migration 0000's initializers (the tests call it instead of importing by name), and the selector's reviewed list gains `engine/lib/snapshots.py` and `engine/schema_migrations.py` (they import only the string-literal module names of `MIGRATION_MODULES` and `BOOTSTRAP_CALLS`, which are import edges already) and `tests/test_baseline_table_coverage.py` (it resolves constants only in the sources it scans as text).
+- **Evidence:** `pytest tests/test_affected_tests.py tests/test_schema_migrations.py tests/test_baseline_table_coverage.py` passes.
+- **Metrics:** tools +8 lines, engine +7 lines, tests −2 lines.
+- **Next:** finish the rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
