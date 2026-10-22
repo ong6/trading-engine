@@ -4505,4 +4505,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +208 (new module 201), tests +86.
 - **Next:** the same reuse for `/paper-trial/status`.
 
+## 2026-10-22 — Answer /paper-trial/status in 2.4 s instead of 7 s (P24 reliability-ops)
+
+- **Why:** P24 reliability-ops item 6. On the same store copy `p7_trial_status.project` took 6.8-7.5 s: the provider and independent-price evidence checks parsed each stored response body once per observation citing it (593 and 1,512 parses for 93 and 84 bodies), and the cache-alignment check read `prices` once per fact (843 point lookups).
+- **What:** `project` runs inside a `request_memo` scope; the two `_facts` parsers keep one parse per exact body (each caller gets its own copy, a failing parse is raised every time); `_cache_alignment` reads every daily-price cache row it compares in one join and hashes them exactly as the per-key path, which stays for other callers. No registered file changes; editing the two evidence modules moves the fault-drill suite's source identity, as any edit to them does.
+- **Evidence:** `project(con)` on a read-only copy, clock frozen and the gateway status stubbed, timed in-process: 6.93 s before, 2.38 s after, response SHA-256 `437021bb…027569` before and after; `pytest tests/test_request_memo.py tests/test_p7_trial_status.py tests/test_agent_provider_responses.py tests/test_agent_independent_price_evidence.py tests/test_agent_authority_read_models.py tests/test_server_routes.py` pass.
+- **Metrics:** server +60, tests +50.
+- **Next:** nothing admitted beyond the P24 reliability-ops items.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

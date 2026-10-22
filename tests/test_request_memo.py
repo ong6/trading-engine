@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from datetime import date
+
 import duckdb
 import pytest
 
+from server import agent_provider_responses as provider
 from server import request_memo
 
 
@@ -84,3 +87,48 @@ def test_reuse_keeps_values_but_never_failures_and_ends_with_the_scope():
                 request_memo.reuse("n", "bad", failing)
     assert request_memo.reuse("n", "k", compute) == 4
     assert len(calls) == 4
+
+
+def test_batched_cache_rows_hash_like_the_per_key_lookup():
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE prices (ticker VARCHAR, date DATE, open DOUBLE, high DOUBLE, "
+        "low DOUBLE, close DOUBLE, volume BIGINT, source VARCHAR)"
+    )
+    con.execute(
+        "INSERT INTO prices VALUES "
+        "('AAA','2026-10-01',1,2,0.5,1.5,10,'yf'),('AAA','2026-10-02',1,2,0.5,1.6,11,'yf'),"
+        "('BBB','2026-10-01',3,4,2.5,3.5,12,'yf'),('BBB','2026-10-01',3,4,2.5,3.6,13,'yf')"
+    )
+    keys = [("AAA", date(2026, 10, 1)), ("AAA", date(2026, 10, 2)),
+            ("AAA", date(2026, 10, 3)), ("ZZZ", date(2026, 10, 1))]
+    batched = provider._daily_price_cache_rows(con, [*keys, ("BBB", date(2026, 10, 1))])
+    for ticker, fact_date in keys:
+        arguments = {"dataset": "daily_price", "ticker": ticker, "fact_date": fact_date,
+                     "kind": "daily_price", "available_tables": {"prices"}}
+        assert provider._cache_value_sha256(con, **arguments) == provider._cache_value_sha256(
+            con, **arguments, price_rows=batched)
+    ambiguous = {"dataset": "daily_price", "ticker": "BBB", "fact_date": date(2026, 10, 1),
+                 "kind": "daily_price", "available_tables": {"prices"}}
+    for extra in ({}, {"price_rows": batched}):
+        with pytest.raises(provider.ProviderResponseError, match="ambiguous"):
+            provider._cache_value_sha256(con, **ambiguous, **extra)
+    assert provider._daily_price_cache_rows(con, []) == {}
+    con.close()
+
+
+def test_a_reused_parse_hands_out_independent_copies(monkeypatch):
+    parsed = []
+
+    def parse(body, ticker, provider_ticker):
+        parsed.append(body)
+        return [{"dataset": "daily_price", "value": {"close": 1.0}}]
+
+    monkeypatch.setattr(provider, "_parse_facts", parse)
+    with request_memo.scope():
+        first = provider._facts(b"{}", "AAA", "AAA")
+        first[0]["value"]["close"] = 9.0
+        first[0]["dataset"] = "changed"
+        second = provider._facts(b"{}", "AAA", "AAA")
+    assert second == [{"dataset": "daily_price", "value": {"close": 1.0}}]
+    assert len(parsed) == 1
