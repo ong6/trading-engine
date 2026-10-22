@@ -1735,7 +1735,7 @@ def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
             availability = (", first_fetched_at" if has_first else "")
             update_availability = """
                 ,first_fetched_at=COALESCE(prices.first_fetched_at,prices.fetched_at,
-                                          excluded.first_fetched_at)
+                                          CAST(excluded.first_fetched_at AS TIMESTAMP))
             """ if has_first else ""
             con.execute(f"""
                 INSERT INTO prices

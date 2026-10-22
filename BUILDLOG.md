@@ -4451,4 +4451,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs only; code unchanged.
 - **Next:** orchestrator merges `p24/docs` and re-syncs the changed `docs/site/` pages to the website.
 
+## 2026-10-22 — Fix two storage-revision regressions that main's merge did not cure
+
+- **Why:** after merging main (454cfc6a) into the storage revision, five tests still failed exactly as on the revision's base: `tests/test_price_admission.py::test_original_board_and_spy_observations[SPY-2026-10-16]` (DuckDB "Cannot mix values of type TIMESTAMP and VARCHAR in COALESCE") and four provider-contract replays of Massive options (`KeyError: 'contracts'` / `'daily_bars'`). All pass on main.
+- **What:** the revision declares `prices.first_fetched_at` in every store, so the upsert now always takes the availability path, whose `COALESCE` mixed the stored TIMESTAMP with an incoming text stamp; the incoming stamp is cast to TIMESTAMP. The options capture returns `paused` while collection waits for a registered reader, so the offline provider-contract replay (recorded responses, no network) lifts the pause for its run and restores it.
+  `tests/test_lane.py::test_reviewed_current_ledger_migration_expands_both_aggregate_rows` fails here and on main because this host's clone cannot fetch a commit the test names; it is host-specific and left as is.
+- **Evidence:** `pytest tests/contracts/test_provider_contracts.py tests/test_price_admission.py` passes.
+- **Metrics:** engine 1 line (pinned engine/lib/db.py), tools +4 lines.
+- **Next:** freeze the baseline DDL inside migration 0000 (B4).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
