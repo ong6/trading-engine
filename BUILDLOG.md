@@ -4711,4 +4711,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +9.
 - **Next:** confirm the `checks` job on the branch run.
 
+## 2026-10-22 — Pin the interpreter version in the research contract's golden-bytes test (P24 ci-green)
+
+- **Why:** next failure on the CI `checks` job (surfaced on the throwaway branch): `test_complete_contract_has_canonical_golden_bytes_and_derived_markdown` got `ef4102fe…` for golden `062d9ac4…`. The fixture contract records `platform.python_version()`; CI runs 3.12.15, the golden was made on 3.12.13. Reproduction: with `platform.python_version` reporting 3.12.15, the test fails.
+- **What:** the test fixes the reported interpreter version at 3.12.13 for its contract, so the golden bytes no longer depend on the host's patch release; the round trip, golden hash, resolution and Markdown assertions are unchanged.
+- **Evidence:** with 3.12.15 reported: 1 failed before, 1 passed after.
+- **Metrics:** tests +3.
+- **Next:** confirm the `checks` job on the branch run.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
