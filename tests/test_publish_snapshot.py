@@ -928,3 +928,55 @@ def test_publication_identifies_the_primary_while_its_capture_handle_excludes_wr
     assert observed == ["writers excluded"]
     assert manifest["source_storage_identity"] == original(source)
     assert not list(source.parent.glob("snapshots/.capture-*"))
+
+
+def test_publish_on_change_skips_unchanged_busy_and_running_publications(tmp_path):
+    import fcntl
+
+    root, source = _repo(tmp_path)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    directory = source.parent / "snapshots"
+
+    unchanged = publish_snapshot.publish_snapshot(root, source, if_changed=True)
+    assert unchanged["status"] == "skipped" and unchanged["snapshot"] == first["snapshot"]
+
+    writer = duckdb.connect(str(source))
+    writer.execute("INSERT INTO jobs (id,state) VALUES (5, 'done')")
+    writer.close()
+    with open(root / ".nightly.lock", "a") as producer:  # a producer is running
+        fcntl.flock(producer.fileno(), fcntl.LOCK_EX)
+        busy = publish_snapshot.publish_snapshot(root, source, if_changed=True)
+    assert busy["status"] == "skipped" and "producer active" in busy["reason"]
+    with open(directory / ".generation-publish.lock", "a") as running:
+        fcntl.flock(running.fileno(), fcntl.LOCK_EX)
+        concurrent = publish_snapshot.publish_snapshot(root, source, if_changed=True)
+    assert concurrent == {"status": "skipped", "reason": "another publication is running"}
+
+    changed = publish_snapshot.publish_snapshot(root, source, if_changed=True)
+    assert changed["generation_id"] != first["generation_id"]
+    assert changed["row_counts"]["main.jobs"] == 1
+
+
+def test_publish_on_change_skips_while_a_writer_has_the_primary_open(tmp_path):
+    import multiprocessing
+
+    root, source = _repo(tmp_path)
+    publish_snapshot.publish_snapshot(root, source, now=NOW)
+    ready, release = multiprocessing.Event(), multiprocessing.Event()
+
+    def hold_writer():
+        con = duckdb.connect(str(source))
+        con.execute("INSERT INTO jobs (id,state) VALUES (6, 'done')")
+        ready.set()
+        release.wait(30)
+        con.close()
+
+    writer = multiprocessing.get_context("fork").Process(target=hold_writer)
+    writer.start()
+    try:
+        assert ready.wait(30)
+        result = publish_snapshot.publish_snapshot(root, source, if_changed=True)
+    finally:
+        release.set()
+        writer.join(30)
+    assert result["status"] == "skipped" and "producer active" in result["reason"]

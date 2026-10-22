@@ -68,8 +68,12 @@ class SnapshotError(RuntimeError):
     """The snapshot could not be published without disturbing the prior one."""
 
 
+class PublicationBusy(SnapshotError):
+    """A publish-on-change run found a publication or producer already running."""
+
+
 @contextmanager
-def _publication_window(directory: Path):
+def _publication_window(directory: Path, *, blocking: bool = True):
     """Serialize install, pointer publication, verification, and garbage collection."""
     lock_path = directory / ".generation-publish.lock"
     created = not lock_path.exists()
@@ -80,7 +84,10 @@ def _publication_window(directory: Path):
             _sync_directory(directory)
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise SnapshotError("generation publication lock is not a regular file")
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        except BlockingIOError as exc:
+            raise PublicationBusy("another publication is running") from exc
         token = _PUBLICATION_LOCK_HELD.set(True)
         try:
             yield
@@ -847,17 +854,56 @@ def publish_snapshot(
     now: datetime | None = None,
     held_locks: frozenset[str] = frozenset(),
     min_age_minutes: float | None = None,
+    if_changed: bool = False,
 ) -> dict:
-    """Publish a verified hot/cold generation; retain latest plus one verified generation."""
+    """Publish a verified hot/cold generation; retain latest plus one verified generation.
+
+    ``if_changed`` is the publish-on-change timer's mode: it skips successfully when the
+    newest generation was captured from the primary's current bytes, and never waits for
+    a running publication or producer (it skips instead), so it cannot delay one.
+    """
     repo_root = repo_root.resolve()
     source = source.resolve(strict=True)
     directory = snapshot_directory(source)
     _mkdir_durable(source.parent, directory)
-    with _publication_window(directory):
-        return _publish_locked(
-            repo_root, source, directory, now=now, held_locks=held_locks,
-            min_age_minutes=min_age_minutes,
-        )
+    if if_changed:
+        unchanged = _unchanged_generation(source)
+        if unchanged is not None:
+            return unchanged
+    try:
+        with _publication_window(directory, blocking=not if_changed):
+            return _publish_locked(
+                repo_root, source, directory, now=now, held_locks=held_locks,
+                min_age_minutes=min_age_minutes,
+            )
+    except PublicationBusy as exc:
+        if not if_changed:
+            raise
+        return {"status": "skipped", "reason": str(exc)}
+    except SnapshotError as exc:
+        # A cooperating producer holds its lock, or a writer (an API POST, a unit without
+        # the legacy locks) has the primary open: try again at the next timer slot.
+        if if_changed and ("active process holds" in str(exc) or engine_db.is_lock_error(exc)):
+            return {"status": "skipped", "reason": f"producer active: {exc}"}
+        raise
+
+
+def _unchanged_generation(source: Path) -> dict | None:
+    try:
+        pin = pin_latest_generation(source)
+    except GenerationError:
+        return None
+    try:
+        if pin.info.source_storage_identity != source_storage_identity(source):
+            return None
+        return {
+            "status": "skipped",
+            "reason": "the newest generation was captured from the primary's current bytes",
+            "snapshot": pin.info.path.name,
+            "as_of": pin.info.as_of.isoformat(),
+        }
+    finally:
+        pin.close()
 
 
 def _publish_locked(
@@ -1061,6 +1107,12 @@ def main(argv: list[str] | None = None) -> int:
         "publishes and deletes nothing",
     )
     parser.add_argument(
+        "--if-changed",
+        action="store_true",
+        help="publish-on-change: skip when the newest generation matches the primary, or "
+        "when a publication or producer is running",
+    )
+    parser.add_argument(
         "--held-lock",
         action="append",
         default=[],
@@ -1079,6 +1131,7 @@ def main(argv: list[str] | None = None) -> int:
             source,
             held_locks=frozenset(args.held_lock),
             min_age_minutes=args.min_age_minutes,
+            if_changed=args.if_changed,
         )
     except SnapshotError as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))

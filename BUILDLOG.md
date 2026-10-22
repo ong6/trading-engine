@@ -4615,4 +4615,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +45 lines (pinned tools/publish_snapshot.py), tests +25 lines.
 - **Next:** a publish-on-change timer so evidence and the weekend board stay within their budgets.
 
+## 2026-10-23 — Publish on change every 30 minutes so evidence and the weekend board stay current
+
+- **Why:** storage review findings 2 and 3: with the TradingView timer paused nothing published at weekends, and evidence writers that do not publish (accounts-settle 07:45/11:55 UTC, agent-data-capture 01:25, agent-shadow 01:30, daily 02:00 and hourly/four-hour opportunity jobs, P15 pre-open 09:05 New York, P16 challengers when enabled, and API POSTs) left the served generation behind the primary until the next nightly. Only the nightly, P15 scoring and P15 events (at most every 2 h) publish today.
+- **What:** a new `trading-engine-publish-on-change` timer runs `tools.publish_snapshot --if-changed` at :12 and :42 UTC, minutes no other unit starts at. It skips at once when the newest generation was captured from the primary's current bytes, when another publication runs, or when a producer lock or a writer holds the primary, so it never waits on or delays a producer; otherwise it publishes, holding the primary only for the capture copy. Bound: with no producer running, evidence lags its last write by at most 30 min plus one publication; the API's evidence budget is 45 min and the board's 24 h.
+- **Evidence:** `pytest tests/test_publish_snapshot.py -k publish_on_change` (unchanged, producer lock, running publication and open writer all skip; a change publishes); `python -m engine.job_contract audit` ok; `python -m tools.schedule_contract_check --static` ok.
+- **Metrics:** tools +40 lines (pinned tools/publish_snapshot.py), ops +40 lines, two unit files, tests +60 lines.
+- **Next:** measure publish and republish times on the store copy; fix the checklist's lock order and scripts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

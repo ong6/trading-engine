@@ -1,0 +1,11 @@
+[Unit]
+Description=Publish a new store generation when the primary changed (minutes free of other starts)
+
+[Timer]
+OnCalendar=*-*-* *:12,42:00 UTC
+Persistent=false
+AccuracySec=1min
+Unit=trading-engine-publish-on-change.service
+
+[Install]
+WantedBy=timers.target

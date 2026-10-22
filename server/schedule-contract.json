@@ -136,6 +136,15 @@
      "activation": "timer", "timer": "trading-engine-ops-digest.timer", "max_runtime": "10min",
      "store": {"access": "none"}},
 
+    {"unit": "trading-engine-publish-on-change.timer", "origin": "repo",
+     "source": "server/trading-engine-publish-on-change.timer", "state": "enabled",
+     "service": "trading-engine-publish-on-change.service", "calendar": ["*-*-* *:12,42:00 UTC"]},
+    {"unit": "trading-engine-publish-on-change.service", "origin": "repo",
+     "source": "server/trading-engine-publish-on-change.service", "state": "enabled",
+     "activation": "timer", "timer": "trading-engine-publish-on-change.timer", "max_runtime": "25min",
+     "store": {"access": "reader", "reads": ["store/market.duckdb"], "writes": [],
+               "windows": "schedule"}},
+
     {"unit": "trading-engine-p16-challengers.timer", "origin": "repo",
      "source": "server/trading-engine-p16-challengers.timer", "state": "disabled",
      "reason": "registered by P16 but not autostarted; enabling it is an orchestrator decision",
