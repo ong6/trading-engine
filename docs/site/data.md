@@ -21,6 +21,7 @@ could the system know it?” as separate questions.
 | TradingView chart responses | Real-time research cross-checks and a resumable daily/5-minute archive | Research only, retained under the owner’s asserted non-display rights; never a fill price |
 | A credential-gated Alpaca IEX adapter | Official API quotes and bounded raw daily bars | Implemented but dormant without admitted personal credentials |
 | SEC EDGAR | Acceptance-timestamped filings, 8-K events, Form 25 delisting notices, and public insider datasets | Retained with request and availability times; each consumer needs its own activation gate |
+| SEC nightly bulk archives (Companyfacts and Submissions) | Point-in-time company fundamentals and earnings-release events | Isolated research store; each fact is available only from its filing's acceptance time |
 | A local RSS/news scraper | Public headline titles collected throughout the day | Read as an owner-controlled file; each accepted line becomes a timestamped fact |
 | Tiingo’s public ticker archive | Historical listing intervals for US stocks | Loaded into an isolated free-source store, never into operational prices |
 | Massive grouped daily data | Free grouped daily bars for all US securities returned on each historical date | Isolated rolling two-year capture and the complete-coverage source for small names within that window; never an operational fill price |
@@ -41,8 +42,27 @@ a changed source. This matters because a later download can have the same price 
 fetch timestamp; the evidence validator checks the stored value history rather than pretending the
 new timestamp existed earlier.
 
+A filing's acceptance time needs care. SEC's bulk files print it as a clock time without a time
+zone, and that clock is New York time. Until 21 October 2026 the engine read it as UTC, which made
+some filings look available four or more hours before they really were. One shared rule now reads
+the label as New York time and never earlier than the filing's own header says; the same fix let
+the live profitability loop's SEC 8-K source record filings again after it had been rejecting
+almost all of them.
+
 Corporate actions, listing events, and symbol changes follow the same idea. The engine never fills
 a gap by copying a current identity backward through time.
+
+## Repairing stored history
+
+Stored prices can still go wrong. A stock split restated twice leaves old bars on the wrong scale;
+a same-night bar can keep an impossible open after the source corrects it. The engine checks each
+published snapshot against a list of invariants, such as one price basis per stock after a split,
+and reports regressions without acting on them. Repairs go through a separate tool that only
+plans by default, changes a bar only when the source's current history agrees with the
+correction, keeps every original row in a rejects table, and writes each change to the audit log.
+On 22 October 2026 it corrected 18,798 stored rows (fourteen split restatements, one bar left on a
+third price basis, and seven stale same-night bars); a second planning run found nothing
+left to change.
 
 ## Free rolling two-year survivor capture
 
@@ -115,4 +135,4 @@ Those boundaries make the evidence slower to accumulate, but they also make the 
 to trust. A strategy that works only after current membership, revised text, or a later bar leaks
 backward has not worked at all.
 
-<!-- sources: BUILDLOG.md, docs/plans/p3-point-in-time-data.md, engine/collect.py, engine/bitemporal_facts.py, engine/free_sources.py, engine/free_massive_minute.py, engine/free_sec.py, engine/p15_event_sources.py, server/intraday_source.py, server/official_quote_source.py, server/tradingview_source.py, tests/test_free_sources.py, tools/free_sources.py, tools/free_massive_minute.py, tools/free_sec.py -->
+<!-- sources: BUILDLOG.md, docs/plans/p3-point-in-time-data.md, engine/collect.py, engine/bitemporal_facts.py, engine/free_sources.py, engine/free_massive_minute.py, engine/free_sec.py, engine/free_sec_bulk.py, engine/sec_acceptance.py, engine/repair_integrity.py, engine/p15_event_sources.py, server/intraday_source.py, server/official_quote_source.py, server/tradingview_source.py, tests/test_free_sources.py, tools/free_sources.py, tools/free_massive_minute.py, tools/free_sec.py -->
