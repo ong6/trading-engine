@@ -4128,4 +4128,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** migration engine/farm +83/-30, tests +88; the batch itself as its lanes recorded.
 - **Next:** after main moves, run the three runtime migrations and the integrity repair on the live host before the 22:30 UTC nightly.
 
+## 2026-10-22 — Classify the queue drain summary by its counts
+
+- **Why:** P24 ops check of the 2026-10-21 nightly. Reproduction: `[queue] drain outcome: 4 done,
+  0 timed out, 0 failed, 0 left pending of 4 selected` (run log and TradingView archive log)
+  matched the generic `[queue] … failed` host-failure pattern, so the ops digest counted a clean
+  drain as an error line in three hours and listed it among the loudest error signals.
+- **What:** `tools/ops_digest.classify` reads the drain summary's counts: any timed-out or failed
+  job is an error, jobs left pending a warning, and a clean drain no signal.
+- **Evidence:** four new `test_host_failure_and_fail_soft_messages` cases; the clean and pending
+  ones fail before and all 30 cases pass after.
+- **Metrics:** tools +7, tests +7.
+- **Next:** stop reporting timer slots inside a run in progress as missing (next entry).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

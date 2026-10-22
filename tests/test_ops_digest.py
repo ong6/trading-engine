@@ -554,7 +554,13 @@ def test_dated_observer_receipts_are_used_before_text_tail_coverage(tmp_path):
     ("snapshot younger than 120 minutes; publication skipped", None),
     ("skip: not on main", None), ("SKIP: another ensure_scraper is running", None),
     ('{"status": "no_session"}', None),
-    ("already successfully backed up today", None)])
+    ("already successfully backed up today", None),
+    # 2026-10-21 nightly: a clean drain summary was counted as an error line.
+    ("[queue] drain outcome: 4 done, 0 timed out, 0 failed, 0 left pending of 4 selected", None),
+    ("[queue] drain outcome: 3 done, 0 timed out, 0 failed, 1 left pending of 4 selected", "warn"),
+    ("[queue] drain outcome: 2 done, 1 timed out, 0 failed, 0 left pending of 3 selected", "error"),
+    ("[queue] drain outcome: 2 done, 0 timed out, 1 failed, 0 left pending, 1 other of 4 selected",
+     "error")])
 def test_host_failure_and_fail_soft_messages(line, level):
     assert ops_digest.classify(line) == level
 
@@ -871,3 +877,4 @@ def test_hourly_digest_embeds_the_model_gateway_preflight(tmp_path, health, stat
     assert "## Model gateway" in hour["text"] and detail in hour["text"]
     gateway = [url for url in requested if url.startswith(ops_digest.GATEWAY_URL)]
     assert gateway == [ops_digest.GATEWAY_URL + "/healthz", ops_digest.GATEWAY_URL + "/v1/models"]
+
