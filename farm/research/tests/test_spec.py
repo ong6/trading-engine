@@ -16,7 +16,7 @@ def test_complete_contract_has_canonical_golden_bytes_and_derived_markdown(tmp_p
     second = StudySpec.from_dict(json.loads(first.canonical_bytes))
     assert first.canonical_bytes == second.canonical_bytes
     assert first.sha256 == second.sha256
-    assert first.sha256 == "b090c4be153401b18326b019f229a569df3aecebb5b8342a18390b541aca0bcc"
+    assert first.sha256 == "062d9ac439b4c1d76dbcb0815d8c854a91b4158e3f7e156ae0b6408ac026158d"
     assert first.resolve(tmp_path).spec == first
     markdown = first.to_markdown()
     assert f"Contract SHA-256: `{first.sha256}`" in markdown

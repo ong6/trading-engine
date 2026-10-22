@@ -4703,4 +4703,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +3.
 - **Next:** confirm the `checks` job on the branch run.
 
+## 2026-10-22 — Keep the sandbox-escape callback's search off the host toolchain (P24 ci-green)
+
+- **Why:** with the sandbox starting, the CI `checks` job still failed `farm/research/tests`; a throwaway branch surfaced the traceback as an annotation: `test_pilot_callback_cannot_escape_sandbox` killed by the study's 5 s timeout. Its adversarial callback globbed `/**/outcome_secret.txt` twice, walking the read-only `/usr` bind, which on a runner image is the whole host toolchain. Locally the test takes 2.0 s for a 0.1 M-file `/usr`, so the time is the walk, not load.
+- **What:** the search covers every sandbox root except the read-only system binds (`/usr`, `/lib`, `/lib64`); the outcome file lives in the checkout, never under them. The other probes, the 5 s budget and the assertion are unchanged. The fixture contract's golden SHA-256 in `test_spec.py` follows the callback file's new hash.
+- **Evidence:** the test takes 0.49 s (was 1.98 s); `pytest -n 2 farm/research/tests`: 97 passed on the static and the shared-library interpreter.
+- **Metrics:** tests +9.
+- **Next:** confirm the `checks` job on the branch run.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
