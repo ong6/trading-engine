@@ -78,6 +78,29 @@ test "$(json_field "$P20_STATE/plan-before.json" status)" = planned
 test "$(json_field "$P20_STATE/plan-before.json" expected_pre_catalog_sha256)" = "$P20_EXPECTED_PRE_CATALOG"
 record P20_PRE_CATALOG "$P20_EXPECTED_PRE_CATALOG"
 
+step "pre-flight: no NULL where the baseline tightens five deployed columns to NOT NULL (read-only)"
+# The migration refuses (and rolls back) on such a NULL; stop here, before the backup, instead.
+"$PY" - > "$P20_STATE/not-null-preflight.json" <<'PYCODE'
+import json, sys
+from engine.lib import db
+checks = {
+    "agent_evaluation_labels": ("round_trip_cost_bps", "net_return", "net_excess_return"),
+    "daily_opportunity_execution_quality": ("post_fill_position_qty", "post_fill_cash"),
+}
+con = db.connect(db.DEFAULT_DB, read_only=True, wait_s=0)
+try:
+    counts = {
+        f"{table}.{column}": con.execute(
+            f'SELECT COUNT(*) FROM "{table}" WHERE "{column}" IS NULL'
+        ).fetchone()[0]
+        for table, columns in checks.items() for column in columns
+    }
+finally:
+    con.close()
+print(json.dumps(counts, sort_keys=True))
+sys.exit(1 if any(counts.values()) else 0)
+PYCODE
+
 step "pre-migration backup"
 # Backup verification refuses a path through a symlinked directory: use the canonical parent.
 mkdir -p -m 700 "${P20_BACKUP_PARENT:-$HOME/r20-backups}"

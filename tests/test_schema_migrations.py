@@ -384,9 +384,47 @@ def test_baseline_refuses_to_normalize_a_drifted_column_type():
     try:
         con.execute("CREATE TABLE jobs (id INTEGER PRIMARY KEY, kind VARCHAR, timeout_s VARCHAR)")
         con.execute("INSERT INTO jobs VALUES (1, 'collect', '60')")
+        con.execute("BEGIN TRANSACTION")
         with pytest.raises(ValueError, match="cannot be normalized"):
             module._rebuild(con, ("jobs",))
+        con.execute("ROLLBACK")
         assert con.execute("SELECT * FROM jobs").fetchall() == [(1, "collect", "60")]
+    finally:
+        con.close()
+
+
+def test_baseline_refuses_to_drop_a_stored_collation():
+    module = schema_migrations.migrations()[0].module
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(
+            "CREATE TABLE jobs (id INTEGER PRIMARY KEY, kind VARCHAR COLLATE NOCASE, "
+            "timeout_s INTEGER)"
+        )
+        con.execute("INSERT INTO jobs VALUES (1, 'Collect', 60)")
+        con.execute("BEGIN TRANSACTION")
+        with pytest.raises(ValueError, match="cannot be normalized.*kind"):
+            module._rebuild(con, ("jobs",))
+        con.execute("ROLLBACK")
+        assert "COLLATE" in con.execute(
+            "SELECT sql FROM duckdb_tables() WHERE table_name='jobs'"
+        ).fetchone()[0].upper()
+    finally:
+        con.close()
+
+
+def test_baseline_rebuild_refuses_outside_a_transaction():
+    module = schema_migrations.migrations()[0].module
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute("CREATE TABLE jobs (id INTEGER PRIMARY KEY, kind VARCHAR)")
+        con.execute("INSERT INTO jobs VALUES (1, 'collect')")
+        with pytest.raises(ValueError, match="inside the migration transaction"):
+            module._rebuild(con, ("jobs",))
+        assert con.execute("SELECT * FROM jobs").fetchall() == [(1, "collect")]
+        assert "timeout_s" not in {
+            row[0] for row in con.execute("DESCRIBE jobs").fetchall()
+        }
     finally:
         con.close()
 
@@ -710,7 +748,12 @@ def test_fresh_initializers_reproduce_the_newest_migration_catalog():
     try:
         for module_name, function_name in baseline.BOOTSTRAP_CALLS:
             getattr(importlib.import_module(module_name), function_name)(fresh)
-        baseline.bootstrap(reference)
+        # The reference is the frozen catalog executed as data, not anything bootstrap computes.
+        for frozen in (baseline.BASELINE_SEQUENCES, baseline.BASELINE_TABLES,
+                       baseline.BASELINE_INDEXES, baseline.BASELINE_VIEWS):
+            for statement in frozen.values():
+                reference.execute(statement)
+        assert schema_migrations.catalog_sha256(reference) == baseline.EXPECTED_CATALOG_SHA256
         for migration in loaded[1:]:
             for statement in migration.statements:
                 reference.execute(statement)

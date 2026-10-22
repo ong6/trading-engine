@@ -4679,4 +4679,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +15 lines (pinned tools/publish_snapshot.py), tests +25 lines.
 - **Next:** the rehearsal.
 
+## 2026-10-23 — Harden the migration rebuild: collation, transaction and NOT NULL pre-flight (review follow-ups)
+
+- **Why:** reviewer follow-ups after the crash-atomicity test passed (16 SIGKILL points always left the old or the fully migrated store): the rebuild's type check compared only the type name, so `VARCHAR COLLATE NOCASE` was silently rebuilt as plain `VARCHAR`; the rebuild drops the original before the copy is proven, so it must never run outside a transaction; and the baseline makes five deployed columns NOT NULL, where the reviewer showed a NULL makes apply refuse.
+- **What:** column types are compared with their collation (read from the stored DDL, the only place DuckDB reports it), refusing on a mismatch; `_rebuild` refuses unless an explicit transaction is open (stable `current_transaction_id()`). The five columns stay NOT NULL: `agent_evaluation_labels.round_trip_cost_bps`, `net_return` and `net_excess_return` were added with defaults, so no stored row was ever NULL; `post_fill_position_qty` and `post_fill_cash` were added nullable on 2026-09-23, but every deployed row carries both and the writer always sets them, so a NULL would mean a defect, not history. The deploy script counts NULLs in all five, read-only, before the backup and stops on any. The CI drift test now builds its reference by executing the frozen catalog data itself and checks it against migration 0000's recorded hash before comparing the fresh initializers.
+- **Evidence:** `pytest tests/test_schema_migrations.py`: a stored `COLLATE NOCASE` column is refused and kept; a rebuild outside a transaction is refused with the table untouched.
+- **Metrics:** engine +35 lines, ops +25 lines, tests +45 lines.
+- **Next:** rehearse at the final head (the migration's hash changed).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

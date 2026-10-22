@@ -13,7 +13,10 @@ generations; see pre-flight 6.
   and r15), rebuilds the six tables whose DDL drifted through runtime `ADD COLUMN` (rows copied by column name and
   proven equal; a lost column or type change refuses), creates every first-use table, and carries the baseline as
   data, so its identity is that file alone. Post-migration catalog `7286ea9b…`. `actions_fetch_log.attempted_at`
-  stays nullable (16,435 deployed rows predate the stamp). CI proves the fresh initializers reproduce the newest
+  stays nullable (16,435 deployed rows predate the stamp). Five deployed columns become NOT NULL; a NULL in any of
+  them makes the migration refuse cleanly and roll back, so pre-flight 8 checks them first. A rebuild refuses a
+  stored column whose type or collation differs from the baseline, and refuses to run outside the migration's
+  transaction (it drops the original before the copy is proven). CI proves the fresh initializers reproduce the newest
   migration's catalog; `tests/test_baseline_table_coverage.py` fails on any `CREATE TABLE`, `ADD COLUMN` or
   `CREATE INDEX` the baseline lacks.
 - **Finding 1 (fixed): producers read the primary.** Only the API's request path pins generations; the nightly's
@@ -70,6 +73,11 @@ Pinned files changed by the storage revision: `engine/lib/db.py` (P15 + E1/secto
    `pin_latest_generation` before deploy; they fail closed on a generation layout.
 7. Inside the window, after quiescence, the deploy script runs `engine.schema_migrations plan` read-only on the live
    primary and stops unless the pre-image is `865f64aa…`.
+8. In the same window it counts NULLs, read-only, in the five deployed columns the baseline makes NOT NULL
+   (`agent_evaluation_labels.round_trip_cost_bps`, `net_return`, `net_excess_return`;
+   `daily_opportunity_execution_quality.post_fill_position_qty`, `post_fill_cash`) and stops before the backup if any
+   exists: migration 0000 would refuse such a row and roll back (the reviewer reproduced the refusal). On the
+   2026-10-22 copies every one of these is non-NULL.
 
 ## Deploy
 

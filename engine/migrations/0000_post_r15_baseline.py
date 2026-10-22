@@ -6,6 +6,8 @@ initializers still reproduce the newest migration's catalog (``tests/test_schema
 """
 from __future__ import annotations
 
+import re
+
 import duckdb
 
 MIGRATION_ID = 0
@@ -373,14 +375,38 @@ def _upgrade_v2_accounts(con: duckdb.DuckDBPyConnection) -> None:
 
 
 
+def _full_type(table_sql: str, name: str, kind: str) -> str:
+    """The column's type including its collation, which DuckDB reports only in the DDL."""
+    quoted = f'(?:"{re.escape(name)}"|{re.escape(name)})'
+    match = re.search(
+        rf"(?:\(|,)\s*{quoted}\s+[^,]*?\bCOLLATE\s+([A-Za-z_][\w.]*)", table_sql,
+        re.IGNORECASE,
+    )
+    return kind if match is None else f"{kind} COLLATE {match.group(1).lower()}"
+
+
 def _columns_of(con: duckdb.DuckDBPyConnection, table: str) -> list[tuple[str, str]]:
+    """(name, full type) in column order; the full type includes any collation."""
+    row = con.execute(
+        "SELECT sql FROM duckdb_tables() WHERE database_name=current_database() "
+        "AND schema_name='main' AND table_name=?", [table],
+    ).fetchone()
+    table_sql = "" if row is None else str(row[0])
     return [
-        (str(name), str(kind)) for name, kind in con.execute(
+        (str(name), _full_type(table_sql, str(name), str(kind))) for name, kind in con.execute(
             "SELECT column_name, data_type FROM duckdb_columns() "
             "WHERE database_name=current_database() AND schema_name='main' "
             "AND table_name=? ORDER BY column_index", [table],
         ).fetchall()
     ]
+
+
+def _require_open_transaction(con: duckdb.DuckDBPyConnection) -> None:
+    """A rebuild drops the original before its copy is proven: only inside a transaction."""
+    # An explicit transaction keeps one ID across statements; autocommit allocates a new one.
+    first = con.execute("SELECT current_transaction_id()").fetchone()[0]
+    if con.execute("SELECT current_transaction_id()").fetchone()[0] != first:
+        raise ValueError("table rebuild must run inside the migration transaction")
 
 
 def _stored_sql(con: duckdb.DuckDBPyConnection, function: str, column: str) -> dict[str, str]:
@@ -407,12 +433,14 @@ def _rebuild(con: duckdb.DuckDBPyConnection, tables: tuple[str, ...]) -> None:
     Runtime ``ALTER ... ADD COLUMN`` on a long-lived store appends columns in history order
     and keeps whatever constraints the column was added with, so deployed DDL can differ from
     the baseline in column order and NOT NULL. A table is rebuilt only when every stored
-    column exists in the baseline with the same type; rows are copied by column name (a
+    column exists in the baseline with the same type and collation; rows are copied by column name (a
     baseline-only column takes its declared default, exactly as ``ADD COLUMN`` would) and the
     copy is proven equal before the original is released.
     """
     from engine.lib import db as engine_db  # runtime import: engine.lib.db loads migrations
 
+    if tables:
+        _require_open_transaction(con)
     reference = engine_db.connect(":memory:", wait_s=0)
     try:
         for table in tables:
