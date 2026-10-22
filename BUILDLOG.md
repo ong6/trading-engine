@@ -4540,4 +4540,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +45, tools +60, engine +3, tests +130.
 - **Next:** orchestrator lands the series and runs the cut-over.
 
+## 2026-10-22 — Run the release-deploy fake host on the test interpreter (P24 reliability-ops)
+
+- **Why:** review round 2. The fake `systemctl` and `crontab` in `tests/test_release_deploy.py` ran `/usr/bin/env python3`, which is 3.7 on this host and lacks `Path.unlink(missing_ok=)`; with the system interpreter first on PATH two tests failed (also on main), with the virtualenv first they passed.
+- **What:** the fakes' shebang is the interpreter running the tests (`sys.executable`).
+- **Evidence:** with the host PATH (system `python3` 3.7 first), `pytest tests/test_release_deploy.py`: 2 failed on main, 68 passed after.
+- **Metrics:** tests +3.
+- **Next:** the finite-unit and memo fixes from the same review.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

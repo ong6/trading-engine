@@ -6,6 +6,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -803,8 +804,8 @@ def test_receipt_refuses_changed_inputs_without_rerunning(tmp_path):
 def _write_fake_host(bin_dir: Path) -> None:
     systemctl = bin_dir / "systemctl"
     systemctl.write_text(
-        """#!/usr/bin/env python3
-import json, os, sys
+        f"#!{sys.executable}\n"
+        """import json, os, sys
 from pathlib import Path
 root=Path(os.environ['FAKE_HOST_STATE']); state=json.loads(root.read_text())
 a=sys.argv[1:]; a.remove('--user')
@@ -832,8 +833,8 @@ else: sys.exit(2)
     )
     crontab = bin_dir / "crontab"
     crontab.write_text(
-        """#!/usr/bin/env python3
-import os,sys
+        f"#!{sys.executable}\n"
+        """import os,sys
 from pathlib import Path
 p=Path(os.environ['FAKE_CRONTAB']); a=sys.argv[1:]
 if a==['-l']:
