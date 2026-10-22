@@ -191,3 +191,17 @@ def test_large_results_are_read_through_and_not_kept(raw, monkeypatch):
             assert len(con.execute("SELECT k FROM t WHERE k < 3").fetchall()) == 2
     assert raw.statements.count("SELECT k FROM t") == 2
     assert raw.statements.count("SELECT k FROM t WHERE k < 3") == 1
+
+
+def test_a_write_read_as_a_frame_or_arrays_runs_exactly_once():
+    raw = duckdb.connect()
+    raw.execute("CREATE SEQUENCE ids START 1")
+    raw.execute("CREATE TABLE t (id INTEGER DEFAULT nextval('ids'), v INTEGER)")
+    with request_memo.scope():
+        con = request_memo.connection(raw)
+        frame = con.execute("INSERT INTO t (v) VALUES (1) RETURNING id").df()
+        arrays = con.execute("UPDATE t SET v = v + 1 RETURNING v").fetchnumpy()
+    assert list(frame["id"]) == [1]
+    assert list(arrays["v"]) == [2]
+    assert raw.execute("SELECT COUNT(*), MAX(v) FROM t").fetchone() == (1, 2)
+    raw.close()

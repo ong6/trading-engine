@@ -4556,4 +4556,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +30, tools +10, tests +90.
 - **Next:** pass non-pure statements straight through the request memo.
 
+## 2026-10-22 — Run a non-pure statement once through the request memo (P24 reliability-ops)
+
+- **Why:** review round 2 (R3). Through the memo proxy a non-pure statement read with `.df()`, `.fetchnumpy()` or `.arrow()` ran twice: `INSERT … RETURNING` read as a frame inserted two rows.
+- **What:** a statement that is not a pure read goes to the raw connection once and its own result is returned; only pure reads are wrapped.
+- **Evidence:** new `test_a_write_read_as_a_frame_or_arrays_runs_exactly_once` (one inserted row, one update) fails on the previous commit and passes; the other memo tests pass.
+- **Metrics:** server +3, tests +15.
+- **Next:** orchestrator lands series A.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -186,8 +186,10 @@ class _ReusingConnection:
             except TypeError:
                 key = None
         if key is None:
+            # Not a pure read: run it once on the raw connection and hand back its own
+            # result, so .df()/.fetchnumpy()/.arrow() never execute it a second time.
             self._clear()
-            self._last = _Result(self._raw, sql, params, None, None)
+            self._last = self._raw.execute(sql, *params)
             return self._last
         cached = self._memo.get(key)
         store = None if cached is not None else (
