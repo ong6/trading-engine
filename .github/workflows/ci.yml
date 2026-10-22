@@ -2,8 +2,10 @@ name: ci
 
 # Tiers (tools/affected_tests.py --ci-plan, pinned by tests/test_ci_workflow.py):
 # - main, code changed: every test in both timezones on four shards (`test`).
-# - main, only content changed (data/**, docs/** except docs/**/*.py): the selected tests
-#   (contract tests, content readers, every test naming a changed file) in both timezones.
+# - main, only content changed (documents, data tables and images under data/** or docs/**:
+#   .md .json .jsonl .csv .txt .html and image suffixes, never a symlink): the selected
+#   tests (contract tests, content readers, every test reached through a reader) in both
+#   timezones.
 # - pull requests and other branches: the fast tier, ruff, compileall and the selected
 #   tests in one timezone (the full suite there when selection falls back).
 # Content-only runs skip `checks` and `ui-build`. Hygiene always runs. The daily schedule

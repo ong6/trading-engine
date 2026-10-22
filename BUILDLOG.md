@@ -4663,4 +4663,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +3, tests +5.
 - **Next:** orchestrator merges after the ci-green lane.
 
+## 2026-10-22 — Follow content through every importer, check recorded reads, and treat unbounded computed imports as any module (P24 cicd)
+
+- **Why:** round-2 review of `p24/cicd`. A content-only push missed a test two imports from the module reading `data/screens/latest.md` (repro 24109f0f: `test_zz_screen2`), and the drift test only checked the pinned readers. `"engine." + n`, %-formatting, `run_module`, `find_spec` and `getattr(importlib, ...)` were missed or bounded to the importing file's package. A lookup failing with `http.client.HTTPException` failed the plan instead of planning full.
+- **What:** a module reading content passes the change to all its importers, as an import would. `tests/content_reads.json` holds the content part of a full run's `--record-reads` record (`--save-content-reads` writes it); the drift test fails when a recorded content read (committed, or a fresh record named by `AFFECTED_TESTS_READS`) reaches its test neither through the graph nor as a contract test, and when CONTENT_READERS differs from the record. A computed module name without an f-string prefix selects the full suite for any module change; `REVIEWED_COMPUTED_IMPORTS` exempts the three reviewed sites (`farm/research/worker.py`, `tools/release_deploy.py`, this tool's own test data), and a test fails on any other. The `ci.yml` header names the content suffixes.
+- **Evidence:** on the repro the selection includes `test_zz_screen.py` and `test_zz_screen2.py`. Data pushes now select most of the suite (1942c975, 703e8595: 312 files, 1,149 recorded s); docs-only 19d6c846 selects 66. `pytest tests/test_ci_workflow.py tests/test_affected_tests.py`: 77 passed; actionlint clean.
+- **Metrics:** tools +70, tests +80, tests/content_reads.json +606 (data).
+- **Next:** orchestrator merges.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

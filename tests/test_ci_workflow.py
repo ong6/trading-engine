@@ -1,6 +1,7 @@
 """The CI workflow's structure and its paths filter (tools/affected_tests.py)."""
 from __future__ import annotations
 
+import http.client
 import re
 import subprocess
 import sys
@@ -29,7 +30,7 @@ def test_paths_filter_lists_are_pinned():
                                    ".jsonl", ".md", ".png", ".svg", ".txt", ".webp")
     assert at.FULL_SUITE_PATHS == (
         ".github/", "pyproject.toml", "tests/conftest.py", "tests/speed_plugin.py",
-        "tools/affected_tests.py", "uv.lock",
+        "tests/content_reads.json", "tools/affected_tests.py", "uv.lock",
     )
     assert at.scope(["data/_meta.json", "docs/scope.md", "data/screens/latest.md"]) == "content"
     assert at.scope(["docs/history/incident-tools-2026-09-02/repair_restatements.py"]) == "code"
@@ -245,7 +246,7 @@ def test_the_last_full_success_needs_every_full_test_job_green(monkeypatch):
     assert at.last_full_success("o/r", "t") is None
 
 
-@pytest.mark.parametrize("lookup", [None, OSError("no network")])
+@pytest.mark.parametrize("lookup", [None, OSError("no network"), http.client.IncompleteRead(b"")])
 def test_main_without_a_fully_green_base_plans_the_full_tier(monkeypatch, tmp_path, lookup):
     def last(*args):
         if isinstance(lookup, Exception):

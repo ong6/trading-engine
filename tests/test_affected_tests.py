@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import ast
+import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -185,17 +187,46 @@ def test_a_module_a_computed_import_can_name_runs_the_full_suite(graph):
 
 @pytest.mark.parametrize(("source", "computed"), [
     ('import importlib\nimportlib.import_module(f"engine.jobs.{n}")\n', ["engine.jobs"]),
-    ("from importlib import import_module\nimport_module(name)\n", ["tools.sub"]),
-    ('__import__(prefix + "x")\n', ["tools.sub"]),
-    ('ARGS = [python, "-m", module]\n', ["tools.sub"]),
-    ('ARGS = ("python", "-m", *rest)\n', ["tools.sub"]),
+    ("from importlib import import_module\nimport_module(name)\n", [""]),
+    ('import importlib\nimportlib.import_module("engine." + n)\n', [""]),
+    ('__import__(prefix + "x")\n', [""]),
+    ('ARGS = [python, "-m", module]\n', [""]),
+    ('ARGS = [python, "-m", "engine." + n]\n', [""]),
+    ('ARGS = ("python", "-m", *rest)\n', [""]),
     ('CMD = f"python -m farm.{name} --x"\n', ["farm"]),
+    ('CMD = "python -m %s --x" % name\n', [""]),
+    ('CMD = "python -m engine.{} --x".format(name)\n', [""]),
+    ("import runpy\nrunpy.run_module(name)\n", [""]),
+    ("import importlib.util\nimportlib.util.find_spec(name)\n", [""]),
+    ('import importlib\ngetattr(importlib, "import_module")(name)\n', [""]),
     ('import importlib\nimportlib.import_module("engine.collect")\nARGS = ["-m", "a.b"]\n', []),
 ])
 def test_computed_imports_are_found_with_their_literal_prefix(tmp_path, source, computed):
     (tmp_path / "tools" / "sub").mkdir(parents=True)
     (tmp_path / "tools" / "sub" / "run.py").write_text(source)
     assert at.python_facts(str(tmp_path), "tools/sub/run.py")[2] == computed
+
+
+def test_a_computed_name_without_a_prefix_runs_the_full_suite_for_any_module(tmp_path):
+    files = {"engine/__init__.py": "", "engine/core.py": "", "farm/__init__.py": "",
+             "farm/runner.py": "import runpy\n\n\ndef run(name):\n    runpy.run_module(name)\n",
+             "tests/test_core.py": "from engine import core\n"}
+    for name, text in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text)
+    subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True)
+    selection = at.select(["engine/core.py"], at.Graph(tmp_path, list(files)))
+    assert selection["mode"] == "full"
+    assert "farm/runner.py imports a computed name under any package" in selection["reasons"][0]
+
+
+def test_only_the_reviewed_files_import_computed_names():
+    graph = at.Graph()
+    assert graph.computed == {}, f"unreviewed computed imports: {graph.computed}"
+    assert set(at.REVIEWED_COMPUTED_IMPORTS) == {
+        "farm/research/worker.py", "tests/test_affected_tests.py", "tools/release_deploy.py"}
+    for path in at.REVIEWED_COMPUTED_IMPORTS:  # an exemption that no longer applies goes
+        assert at.python_facts(str(REPO_ROOT), path)[2], path
 
 
 def test_joined_literal_path_parts_name_one_path():
@@ -226,12 +257,24 @@ def test_pinned_lists_name_real_tests_and_the_full_suite_triggers():
     assert at.CONTENT_PATHS == ("data/", "docs/")
 
 
-def test_every_recorded_content_reader_is_reached_by_the_graph_or_always_runs():
-    """Drift check: CONTENT_READERS (recorded reads) against what the graph computes."""
-    graph = at.Graph()
-    reached = set()
-    for path in graph.files:
-        if at.is_content(path, graph.symlinked):
-            reached |= {item for item in graph.closure({path}) if at.is_test_file(item)}
-    missed = set(PINNED["content"]) - reached - set(PINNED["contract"])
-    assert not missed, f"content readers the graph does not reach: {sorted(missed)}"
+def test_every_recorded_content_read_is_reached_by_the_graph_or_always_runs(monkeypatch):
+    """Drift check against recorded reads: the committed tests/content_reads.json, or a fresh
+    full-run record named by AFFECTED_TESTS_READS (``pytest -n 8 --record-reads PATH``)."""
+    monkeypatch.setattr(at, "CONTRACT_TESTS", PINNED["contract"])
+    committed = json.loads(at.CONTENT_READS.read_text())
+    assert at.content_readers(committed) == list(PINNED["content"])
+    fresh = os.environ.get("AFFECTED_TESTS_READS")
+    record = json.loads(Path(fresh).read_text()) if fresh else committed
+    assert at.unreached_content_reads(record, at.Graph()) == []
+
+
+def test_the_drift_check_reports_a_content_read_the_graph_misses(graph):
+    record = {
+        "tests/test_docs.py": ["docs/guide.md"],  # names it: reached
+        "tests/test_job.py": ["data/reports/r.json"],  # a contract test (toy): always runs
+        "tests/test_core.py": ["data/reports/r.json", "engine/core.py"],  # not reached
+        "tests/test_user.py": ["data/reports"],  # a listing: no reader of r.json reaches it
+        "tests/test_rel.py": ["docs/gone.md"],  # no longer tracked: nothing to check
+    }
+    assert at.unreached_content_reads(record, graph) == [
+        "tests/test_core.py reads data/reports/r.json", "tests/test_user.py reads data/reports"]

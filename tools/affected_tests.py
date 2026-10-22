@@ -25,8 +25,10 @@ Selection is static and errs towards running more:
 - The full suite runs for ``FULL_SUITE_PATHS``, for anything every test session loads
   (``tests/conftest.py``'s module-level imports, the speed plugin and the files they name),
   for a deleted non-content file (what used it cannot be traced), for a module under a
-  package some file imports by a computed name (``import_module(f"engine.{x}")``,
-  ``["-m", name]``; with no literal prefix, the importing file's own package), and for a
+  package some file imports by a computed name (``import_module(f"engine.{x}")``; with no
+  literal prefix, as in ``["-m", name]``, ``"engine." + n``, %-formatting, ``run_module``,
+  ``find_spec`` or ``getattr(importlib, ...)``, any module) outside
+  ``REVIEWED_COMPUTED_IMPORTS``, and for a
   changed file no test reaches (an unknown dependency is never assumed to be none).
 """
 from __future__ import annotations
@@ -34,6 +36,7 @@ from __future__ import annotations
 import argparse
 import ast
 import fnmatch
+import http.client
 import json
 import math
 import os
@@ -94,9 +97,11 @@ CONTENT_SUFFIXES = (
     ".csv", ".gif", ".html", ".ico", ".jpeg", ".jpg", ".json", ".jsonl", ".md", ".png", ".svg",
     ".txt", ".webp",
 )
-# Tests that read content when they run, from a full run recorded with ``--record-reads``
-# (``--content-readers`` prints this list from the record). Static analysis misses reads
-# through a module more than one import away from the test.
+# Tests that read content when they run: the readers in CONTENT_READS, the content part of
+# a full run recorded with the speed plugin's ``--record-reads`` (``--save-content-reads``
+# writes it). tests/test_affected_tests.py fails when a recorded reader is neither
+# reached by the graph from what it read nor a contract test.
+CONTENT_READS = REPO_ROOT / "tests" / "content_reads.json"
 CONTENT_READERS = (
     "tests/contracts/test_provider_contracts.py",
     "tests/contracts/test_runtime_environment.py",
@@ -118,6 +123,7 @@ FULL_SUITE_PATHS = (
     "pyproject.toml",
     "tests/conftest.py",
     "tests/speed_plugin.py",
+    "tests/content_reads.json",
     "tools/affected_tests.py",
     "uv.lock",
 )
@@ -135,8 +141,21 @@ MAX_NAME_MATCHES = 8
 TOKEN = re.compile(r"[A-Za-z0-9_*][A-Za-z0-9_./*-]*")
 # A glob names files only with a literal extension: not ``*`` or a calendar (``*-*-*``).
 FILE_GLOB = re.compile(r"\.[A-Za-z0-9]+$")
-# ``-m`` followed by a module name with a computed part, in an f-string.
+# ``-m`` followed by a module name with a computed part, in an f-string, or a placeholder
+# for %-formatting or str.format.
 COMPUTED_DASH_M = re.compile(r"-m\s+([\w.]*)\x00")
+COMPUTED_FORMAT_M = re.compile(r"-m\s+[\w.]*(%[-\w]*[sr]|\{)")
+IMPORT_FUNCTIONS = frozenset({"__import__", "find_spec", "import_module", "run_module"})
+# Files whose computed imports were reviewed and are bounded elsewhere; any other computed
+# import selects the full suite for every change to a module (``select``).
+REVIEWED_COMPUTED_IMPORTS = {
+    "farm/research/worker.py": "loads a study's callback module, verified by hash, inside the "
+                               "research sandbox; farm/research/tests run in the checks job",
+    "tools/release_deploy.py": "_python_module runs `-m *args`; its only caller passes the "
+                               "string-literal module names of run_migration's table, which "
+                               "are import edges already",
+    "tests/test_affected_tests.py": "the computed imports are sources it parses as test data",
+}
 
 
 # CI (``--ci-plan``): summed recorded seconds of a selection per shard, four workers each.
@@ -242,6 +261,8 @@ def python_facts(root: str, path: str) -> tuple | None:
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             if id(node) not in docstrings:
                 strings.append(node.value)
+                if COMPUTED_FORMAT_M.search(node.value):  # "-m %s" % name, "-m {}".format(name)
+                    computed.append("")
         elif isinstance(node, (ast.BinOp, ast.Call)):
             strings += joined_paths(node)
             if isinstance(node, ast.Call):
@@ -254,8 +275,7 @@ def python_facts(root: str, path: str) -> tuple | None:
                 if (isinstance(flag, ast.Constant) and flag.value == "-m"
                         and not isinstance(value, ast.Constant)):
                     computed.append(_literal_head(value))
-    package_name = ".".join(package)
-    return imports, strings, [prefix or package_name for prefix in computed]
+    return imports, strings, computed
 
 
 def _template(node: ast.JoinedStr) -> str:
@@ -272,12 +292,16 @@ def _literal_head(node: ast.AST) -> str:
 
 
 def computed_imports(node: ast.Call) -> list[str]:
-    """``import_module(name)`` or ``__import__(name)`` with a name not written out."""
+    """A module loaded by a name not written out: ``import_module``, ``__import__``,
+    ``runpy.run_module`` or ``find_spec`` given anything but a string literal, and any
+    ``getattr(..., "import_module")``. An f-string's literal prefix bounds the package;
+    anything else (``"engine." + n``, a variable) can name any module: ``""``."""
     func = node.func
     name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-    if name not in {"import_module", "__import__"} or not node.args:
-        return []
-    if isinstance(node.args[0], ast.Constant):
+    if name == "getattr" and len(node.args) > 1 and isinstance(node.args[1], ast.Constant) \
+            and node.args[1].value in IMPORT_FUNCTIONS:
+        return [""]
+    if name not in IMPORT_FUNCTIONS or not node.args or isinstance(node.args[0], ast.Constant):
         return []
     return [_literal_head(node.args[0])]
 
@@ -392,7 +416,7 @@ class Graph:
             if facts is None:  # unparsable: compileall fails; the file itself is selected
                 return imported, read
             imports, strings, computed = facts
-            for prefix in computed:
+            for prefix in computed if path not in REVIEWED_COMPUTED_IMPORTS else ():
                 self.computed.setdefault(prefix, set()).add(path)
             module_level: set[str] = set()
             for name, top in imports:
@@ -429,7 +453,9 @@ class Graph:
         while queue:
             item = queue.pop()
             for reader in sorted(self.readers.get(item, ())):
-                hops = -1 if not reader.endswith(".py") else 1
+                # a script, or any module reading content, passes the change to every
+                # importer; a module reading a code file passes it one import on
+                hops = -1 if not reader.endswith(".py") or is_content(item, self.symlinked) else 1
                 if expanded.get(reader, -2) == -1 or expanded.get(reader, -2) >= hops >= 0:
                     continue
                 expanded[reader] = hops
@@ -613,12 +639,37 @@ def ci_verdict(needs: dict) -> list[str]:
     return problems
 
 
+def reads_content(path: str) -> bool:
+    """A recorded read of content: a content file, or a listing of a content directory."""
+    return is_content(path) or (path.startswith(CONTENT_PATHS) and "." not in path.rsplit("/", 1)[-1])
+
+
+def content_reads(record: dict[str, list[str]]) -> dict[str, list[str]]:
+    """The content part of a ``--record-reads`` record, by test file."""
+    reads = {test: sorted(path for path in paths if reads_content(path))
+             for test, paths in record.items() if is_test_file(test)}
+    return {test: paths for test, paths in sorted(reads.items()) if paths}
+
+
 def content_readers(record: dict[str, list[str]]) -> list[str]:
     """Test files a ``--record-reads`` record shows reading content."""
-    return sorted(
-        test for test, paths in record.items()
-        if is_test_file(test) and any(is_content(path) for path in paths)
-    )
+    return sorted(content_reads(record))
+
+
+def unreached_content_reads(record: dict[str, list[str]], graph: Graph) -> list[str]:
+    """Recorded content reads the selection would not follow: the reading test is not a
+    contract test and no tracked content file it read (or listed) reaches it."""
+    problems = []
+    for test, paths in content_reads(record).items():
+        if test in CONTRACT_TESTS or test not in graph.file_set:
+            continue
+        for path in paths:
+            sources = [path] if path in graph.file_set else [
+                item for item in graph.files
+                if item.startswith(f"{path}/") and is_content(item, graph.symlinked)]
+            if sources and not any(test in graph.closure({source}) for source in sources):
+                problems.append(f"{test} reads {path}")
+    return problems
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -633,6 +684,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="with --run, leave out tests marked slow (CI still runs them)")
     parser.add_argument("--content-readers", metavar="RECORD",
                         help="print the content readers in a --record-reads record and exit")
+    parser.add_argument("--save-content-reads", metavar="RECORD",
+                        help=f"write the content part of a --record-reads record to {CONTENT_READS.name}")
     parser.add_argument("--ci-plan", metavar="EVENT",
                         help="write the CI plan for this GitHub event to $GITHUB_OUTPUT")
     parser.add_argument("--ref", default=os.environ.get("GITHUB_REF", MAIN_REF),
@@ -646,7 +699,7 @@ def main(argv: list[str] | None = None) -> int:
             try:  # fails closed: no lookup means no base, which plans the full tier
                 base = last_full_success(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"],
                                          os.environ.get("GITHUB_API_URL", "https://api.github.com")) or ""
-            except (KeyError, OSError, ValueError) as error:
+            except (KeyError, OSError, ValueError, http.client.HTTPException) as error:
                 print(f"last full run lookup failed ({error!r}): full run")
                 base = ""
         plan = ci_plan(args.ci_plan, base, args.ref)
@@ -661,6 +714,12 @@ def main(argv: list[str] | None = None) -> int:
         problems = ci_verdict(json.loads(os.environ["CI_NEEDS"]))
         print("\n".join(problems) or "every required job passed")
         return 1 if problems else 0
+    if args.save_content_reads:
+        from engine.lib.resources import write_text_atomic  # needs the project environment
+
+        reads = content_reads(json.loads(Path(args.save_content_reads).read_text()))
+        write_text_atomic(CONTENT_READS, json.dumps(reads, indent=1) + "\n")
+        return 0
     if args.content_readers:
         print("\n".join(content_readers(json.loads(Path(args.content_readers).read_text()))))
         return 0
