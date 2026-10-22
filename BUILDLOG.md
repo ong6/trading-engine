@@ -4631,4 +4631,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +60 lines, tools +20 lines, tests +150 lines.
 - **Next:** record the DuckDB version in manifests and fix the memory-limit restore.
 
+## 2026-10-23 — Record the DuckDB version in manifests and restore the memory limit safely (review finding 7)
+
+- **Why:** storage review finding 7: a DuckDB upgrade changes value casts inside the row fingerprints, and verify then reported "backup database invariants do not match its manifest", the same message as a tampered bundle (reproduced with a simulated cast drift); and the fingerprint's memory-limit restore failed on DuckDB 1.3.2 and 1.5.5 ("Unknown unit for memory: 'pib'") because DuckDB prints large limits in a unit its parser rejects.
+- **What:** backup bundles (file-copy and generation-backed) and generation manifests record `duckdb_version`; verify and the generation restore refuse with "DuckDB version differs: … fingerprinted under X, this verifier runs Y; verify with X" before any fingerprint comparison. Bundles and generations written before this field still verify. The saved memory limit is restored as whole KiB parsed from DuckDB's printed text.
+- **Evidence:** `pytest tests/test_backup_database.py tests/test_publish_snapshot.py`: a bundle recorded under 1.3.2 is refused with the version message; an unversioned bundle verifies; "1.2 PiB", "3.7 GiB", "4.0 GB" and "2048 bytes" round-trip through `SET memory_limit`.
+- **Metrics:** engine +25 lines (pinned engine/lib/snapshots.py), tools +20 lines (pinned tools/backup_database.py, tools/publish_snapshot.py), tests +45 lines.
+- **Next:** check the WAL's identity during backup and widen the table-coverage scan.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

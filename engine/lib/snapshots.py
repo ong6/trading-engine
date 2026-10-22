@@ -188,6 +188,26 @@ def logical_value(value: object) -> object:
     return [type(value).__name__, str(value)]
 
 
+_MEMORY_UNITS = {
+    "": 1, "b": 1, "byte": 1, "bytes": 1,
+    "kb": 1000, "mb": 1000**2, "gb": 1000**3, "tb": 1000**4, "pb": 1000**5,
+    "kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4, "pib": 1024**5,
+}
+
+
+def memory_limit_setting(text: str) -> str:
+    """Turn `current_setting('memory_limit')` text into a value `SET memory_limit` accepts.
+
+    DuckDB prints large limits in units its parser rejects (``1.2 PiB``), so the saved value
+    is restored as whole KiB, a unit every supported version parses.
+    """
+    match = re.fullmatch(r"\s*([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]*)\s*", text)
+    if match is None or match.group(2).lower() not in _MEMORY_UNITS:
+        raise ValueError(f"unrecognized DuckDB memory limit: {text!r}")
+    size = float(match.group(1)) * _MEMORY_UNITS[match.group(2).lower()]
+    return f"{max(1, int(size // 1024))}KiB"
+
+
 # Fingerprints run inside DuckDB: each row is encoded canonically and hashed in SQL, then the
 # 32-byte row digests are folded in key order here, so no row is serialized in Python.
 FINGERPRINT_VERSION = "duckdb-row-sha256-v1"
@@ -259,7 +279,9 @@ def query_fingerprint(
             row_count += len(chunk)
             bytes_read += int(chunk["row_bytes"].sum())
     finally:
-        connection.execute(f"SET memory_limit={sql_string(str(previous_limit))}")
+        connection.execute(
+            f"SET memory_limit={sql_string(memory_limit_setting(str(previous_limit)))}"
+        )
     key_min = key_max = None
     if key_columns and row_count:
         selected = ", ".join(sql_identifier(name) for name in key_columns)
@@ -402,6 +424,7 @@ class SnapshotInfo:
     source_snapshot: dict | None = None
     source_storage_identity: dict | None = None
     manifest_sha256: str | None = None
+    duckdb_version: str | None = None
     _lifetime_pin: object | None = field(default=None, compare=False, repr=False)
 
 
@@ -544,7 +567,11 @@ def _generation_info(
         "hot_database", "row_counts", "source_snapshot", "parts", "cold_tables",
         "cohort", "metrics",
     }
-    if set(body) != expected_fields or body.get("manifest_schema_version") != 2:
+    if (
+        set(body) - {"duckdb_version"} != expected_fields
+        or body.get("manifest_schema_version") != 2
+        or not isinstance(body.get("duckdb_version", ""), str)
+    ):
         return None
     generation_id = body.get("generation_id")
     if not isinstance(generation_id, str) or generation_id != snapshot.stem:
@@ -700,6 +727,7 @@ def _generation_info(
         source_snapshot=body["source_snapshot"],
         source_storage_identity=body["source_storage_identity"],
         manifest_sha256=manifest_hash,
+        duckdb_version=body.get("duckdb_version"),
     )
 
 

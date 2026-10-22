@@ -1021,6 +1021,7 @@ def _publish_locked(
         cohort = _install_cohort(directory, captured_cohort)
         body = {
             "manifest_schema_version": 2,
+            "duckdb_version": duckdb.__version__,
             "generation_id": destination.stem,
             "snapshot": destination.name,
             "source_database": str(source.relative_to(repo_root)),

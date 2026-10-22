@@ -1018,7 +1018,11 @@ def _validate_snapshot(snapshot: object, *, schema_version: int) -> None:
 
 
 def _validate_database_metadata(database: object, *, schema_version: int) -> None:
-    if not isinstance(database, dict) or set(database) != DATABASE_FIELDS:
+    if (
+        not isinstance(database, dict)
+        or set(database) - {"duckdb_version"} != DATABASE_FIELDS
+        or not isinstance(database.get("duckdb_version", ""), str)
+    ):
         raise BackupError("backup database manifest is invalid")
     if database["filename"] != DATABASE_FILENAME:
         raise BackupError("backup database filename is invalid")
@@ -1383,6 +1387,7 @@ RESTORE_THREADS = 4
 
 def _restore_generation(info: SnapshotInfo, destination: Path) -> dict:
     """Materialize a complete ordinary DuckDB from one pinned generation."""
+    _require_recorded_duckdb_version(info.duckdb_version, "generation")
     shutil.copyfile(info.path, destination)
     destination.chmod(0o600)
     spill = destination.parent.parent / f".{destination.parent.name}.spill"
@@ -1526,6 +1531,7 @@ def _manifest_body(
             "size_bytes": database.stat().st_size,
             "sha256": _sha256(database),
             "snapshot": snapshot,
+            "duckdb_version": duckdb.__version__,
         },
         "prospective_evidence": _copy_evidence(
             repo_root, bundle, data_dir=data_dir,
@@ -1559,6 +1565,7 @@ def _generation_manifest_body(
             "size_bytes": database.stat().st_size,
             "sha256": _sha256(database),
             "snapshot": snapshot,
+            "duckdb_version": duckdb.__version__,
         },
         "prospective_evidence": cohort["prospective_evidence"],
         "operational_artifacts": cohort["operational_artifacts"],
@@ -1724,6 +1731,15 @@ def _load_manifest(bundle: Path) -> tuple[dict, str]:
     return manifest, recorded_hash
 
 
+def _require_recorded_duckdb_version(recorded: str | None, label: str) -> None:
+    """Fingerprints are only comparable under the DuckDB that recorded them."""
+    if recorded is not None and recorded != duckdb.__version__:
+        raise BackupError(
+            f"DuckDB version differs: the {label} was fingerprinted under {recorded}, "
+            f"this verifier runs {duckdb.__version__}; verify with {recorded}"
+        )
+
+
 def _verify_database(bundle: Path, manifest: dict) -> tuple[dict, dict]:
     database = bundle / DATABASE_FILENAME
     expected = manifest["database"]
@@ -1734,6 +1750,7 @@ def _verify_database(bundle: Path, manifest: dict) -> tuple[dict, dict]:
         raise BackupError("backup database is missing")
     if database.stat().st_size != expected["size_bytes"] or _sha256(database) != expected["sha256"]:
         raise BackupError("backup database file integrity check failed")
+    _require_recorded_duckdb_version(expected.get("duckdb_version"), "backup")
     try:
         connection = duckdb.connect(str(database), read_only=True)
         try:

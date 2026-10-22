@@ -2121,3 +2121,28 @@ def test_sql_string_escapes_quotes_and_rejects_nul():
     assert backup_database._sql_string("a'b") == "'a''b'"
     with pytest.raises(backup_database.BackupError, match="NUL"):
         backup_database._sql_string("a\x00b")
+
+
+def test_verify_names_a_duckdb_version_change_instead_of_tampering(tmp_path):
+    root, source = _repo(tmp_path)
+    destination = tmp_path / "outside" / "snapshot"
+    backup_database.create_backup(root, source, destination)
+    manifest = json.loads((destination / backup_database.MANIFEST_FILENAME).read_text())
+    assert manifest["database"]["duckdb_version"] == duckdb.__version__
+
+    def older_duckdb(payload):
+        payload["database"]["duckdb_version"] = "1.3.2"
+
+    _rewrite_manifest(destination, older_duckdb)
+
+    with pytest.raises(backup_database.BackupError, match="DuckDB version differs.*1.3.2"):
+        backup_database.verify_backup(destination)
+
+
+def test_bundles_without_a_recorded_duckdb_version_still_verify(tmp_path):
+    root, source = _repo(tmp_path)
+    destination = tmp_path / "outside" / "snapshot"
+    backup_database.create_backup(root, source, destination)
+    _rewrite_manifest(destination, lambda payload: payload["database"].pop("duckdb_version"))
+
+    assert backup_database.verify_backup(destination)["status"] == "ok"

@@ -980,3 +980,23 @@ def test_publish_on_change_skips_while_a_writer_has_the_primary_open(tmp_path):
         release.set()
         writer.join(30)
     assert result["status"] == "skipped" and "producer active" in result["reason"]
+
+
+@pytest.mark.parametrize(("printed", "kib"), [
+    ("1.2 PiB", int(1.2 * 1024**5) // 1024), ("3.7 GiB", int(3.7 * 1024**3) // 1024),
+    ("4.0 GB", 4 * 1000**3 // 1024), ("2048 bytes", 2),
+])
+def test_memory_limit_text_is_restored_in_a_unit_duckdb_parses(printed, kib):
+    assert snapshots.memory_limit_setting(printed) == f"{kib}KiB"
+    con = duckdb.connect()
+    try:
+        con.execute(f"SET memory_limit='{snapshots.memory_limit_setting(printed)}'")
+    finally:
+        con.close()
+
+
+def test_generation_manifest_records_the_duckdb_version(tmp_path):
+    root, source = _repo(tmp_path)
+    manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    assert manifest["duckdb_version"] == duckdb.__version__
+    assert snapshots.latest_snapshot(source).duckdb_version == duckdb.__version__
