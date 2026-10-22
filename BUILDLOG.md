@@ -4687,4 +4687,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +1.
 - **Next:** the `checks` job's `farm/research/tests` step.
 
+## 2026-10-22 — Start the research sandbox on a shared-library interpreter (P24 ci-green)
+
+- **Why:** the CI `checks` job's `farm/research/tests` step, added on 2026-10-22, has never passed. The runner has bubblewrap (0.11.1 on Ubuntu 26.04.1, probed on a throwaway branch), but its interpreter is the tool-cache CPython: `libpython3.12.so` found through an absolute runpath under its host prefix, which the sandbox mounts elsewhere. Reproduction with CPython 3.12.13 built the same way (`--enable-shared`, absolute runpath): 34 failed, "/runtime/python/bin/python3: error while loading shared libraries: libpython3.12.so.1.0".
+- **What:** the sandbox sets `LD_LIBRARY_PATH=/runtime/python/lib`, the interpreter's own mounted lib directory. Mounts, isolation and limits are unchanged.
+- **Evidence:** the same run then starts every worker; the remaining failures are the seccomp segfault fixed next.
+- **Metrics:** farm +3.
+- **Next:** pass the seccomp context to `seccomp_rule_add` as a pointer.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
