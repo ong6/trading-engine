@@ -281,3 +281,43 @@ def test_invalid_exact_fetch_is_retained_and_never_reported_missing(con):
                                   history=lambda *_: raw, sleep=lambda _: None)
     assert receipt is None and len(parsed) == 1
     assert db.upsert_prices(con, parsed) == 0
+
+
+def test_insert_values_matches_executemany_across_statement_chunks():
+    import duckdb
+    rows = [[i, None if i % 3 else f"v{i}", float(i) / 7 if i % 2 else None,
+             date(2026, 10, 1) if i % 5 else None] for i in range(1203)]
+    stored = []
+    for multi in (False, True):
+        con = duckdb.connect()
+        con.execute("CREATE TABLE t (i INTEGER, s VARCHAR, x DOUBLE, d DATE)")
+        if multi:
+            db.insert_values(con, "INSERT INTO t VALUES", rows, width=4)
+        else:
+            con.executemany("INSERT INTO t VALUES (?,?,?,?)", rows)
+        stored.append(con.execute("SELECT * FROM t ORDER BY i").fetchall())
+        con.close()
+    assert stored[0] == stored[1] and len(stored[1]) == 1203
+    with pytest.raises(ValueError, match="width"):
+        db.insert_values(duckdb.connect(), "INSERT INTO t VALUES", [[1, 2]], width=4)
+
+
+def test_identical_intraday_refetch_is_summarized_and_changed_bar_kept(con):
+    db.init_schema(con)
+    db.init_queue_schema(con)
+    first = {**BAR, "ts": pd.Timestamp("2026-10-16 13:30"), "interval": "1m"}
+    second = {**first, "ts": pd.Timestamp("2026-10-16 13:31")}
+    assert db.insert_intraday(con, frame(first, second)) == 2
+    stored = con.execute("SELECT * FROM intraday_prices ORDER BY ts").fetchall()
+    third = {**first, "ts": pd.Timestamp("2026-10-16 13:32")}
+    assert db.insert_intraday(con, frame(first, {**second, "close": 10.6}, third)) == 1
+    assert con.execute("SELECT * FROM intraday_prices ORDER BY ts").fetchall()[:2] == stored
+    rows = con.execute(
+        "SELECT reason, ticker, interval, close, observation_json FROM price_observation_rejects "
+        "ORDER BY reason").fetchall()
+    assert [row[:4] for row in rows] == [
+        ("intraday_existing_key", first["ticker"], "1m", 10.6),
+        ("intraday_identical_refetch", None, "1m", None)]
+    summary = json.loads(rows[1][4])
+    assert summary["bar_count"] == 1 and summary["ticker_count"] == 1
+    assert summary["first_ts"] == summary["last_ts"] == "2026-10-16T13:30:00"

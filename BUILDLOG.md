@@ -4179,4 +4179,37 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +13/-6 lines, tests +40.
 - **Next:** orchestrator re-pins P15 (`tools/sec_edgar_capture.py`, new `engine/sec_acceptance.py` in its import closure).
 
+## 2026-10-21 — Batch the TradingView history fact writes (P24 nightly-speed)
+
+- **Why:** P24 nightly-speed. The nightly farm drain is the critical path (median 2,372 of 2,731 s); in its `tradingview_history` job each 50-chunk run spent about 0.7 s per chunk on the network and 6-8 s writing facts, one prior lookup, one latest lookup, one `MAX(id)` and one insert per observation.
+- **What:** `retain_observations` reads the prior and latest revisions once per batch, assigns revisions and ids in observation order exactly as the per-row queries would, and inserts with multi-row VALUES. Inputs it cannot key exactly (naive or non-datetime times, non-string tickers, a non-UTC session) keep the per-row path. `record_fact` shares its checks and row builder with the batch.
+- **Evidence:** store-copy replay of the newest 50 recorded chunks (17,953 facts deleted, then re-captured from their retained bodies and clocks): fact writes 474.6 s before, 63.4 s after; `bitemporal_facts` (5,931,486 rows) and `source_response_receipts` hash identical to the untouched copy on both paths. New test compares batch and per-row results and rows, including replays, revisions, in-batch repeats and errors.
+- **Metrics:** engine +31, server +102, tests +80 lines (net).
+- **Next:** the remaining nightly stages in this lane (snapshot publish, collect, actions, earnings).
+
+## 2026-10-21 — Append price observations with multi-row inserts (P24 nightly-speed)
+
+- **Why:** P24 nightly-speed. The nightly `collect` stage (median 158 s, before screen and league) spends about 1.7 s per 200-name batch in `upsert_prices`, 1.0 s of it appending replacement predecessors one `executemany` row at a time.
+- **What:** `append_price_observations` inserts through a new `db.insert_values`, which binds up to 500 rows per multi-row VALUES statement. Rows, values and order are unchanged.
+- **Evidence:** store-copy replay of the upsert path (newest session deleted, then the last five sessions of 4,058 liquid names re-upserted in 21 batches): 26.25 s before, 16.02 s after; `prices` hashes identical and `price_observation_rejects` identical as a multiset apart from the random ids and the wall-clock `recorded_at` (16,560 rows). New test compares `insert_values` with `executemany` over 1,203 rows.
+- **Metrics:** engine +13, tests +20 lines (net).
+- **Next:** earnings/actions pacing needs an orchestrator ruling on the Yahoo request rate.
+
+## 2026-10-22 — Cache session bounds in the price validator (P24 nightly-speed)
+
+- **Why:** P24 nightly-speed, raised by the ops lane: the 2026-10-21 nightly's `intraday` job ran about 22:45-01:02 (usually 145-212 s), the first night with revision-15 admission. It validates every fetched bar (about 2.4M 1m and 4.1M 5m) and retains each already-stored one as an `intraday_existing_key` observation; a pandas schedule-row lookup was 130 of about 190 microseconds per bar, and the observations were inserted one row at a time.
+- **What:** `observation_reasons` reads each day's NYSE open and close through an `lru_cache`d `_session_bounds`, the same `session_schedule` row as before. With the multi-row observation insert, both per-bar costs are gone; reasons are unchanged.
+- **Evidence:** store-copy replay of the nightly insert path for 40 names (newest session deleted, then 7 days of 1m and 60 days of 5m bars in 50-name batches, 211,392 rows): 234.6 s on main, 51.6 s on this branch; `intraday_prices` identical and the 194,723 retained observations identical apart from random ids and wall-clock stamps. New test compares cached reasons with the schedule-row logic across holidays, an early close and DST.
+- **Metrics:** engine +11, tests +27 lines (net).
+- **Next:** orchestrator ruling on retaining every repeated intraday bar as an observation (about 6M rows a night).
+
+## 2026-10-22 — Summarize identical intraday re-fetches (P24 nightly-speed)
+
+- **Why:** orchestrator ruling, 2026-10-22. The nightly 7-day 1m and 60-day 5m pull re-fetches about six million stored bars, and revision-15 admission kept one `intraday_existing_key` evidence row per bar; on 2026-10-21 that made the intraday job the longest stage (about 22:45-01:02).
+- **What:** `insert_intraday` keeps per-bar evidence for any re-fetched bar whose open, high, low, close, volume or source differs from the stored bar, and for every rejected bar, as before. Bars equal to the stored one are recorded as one `intraday_identical_refetch` row per batch and interval (no ticker; JSON with bar count, ticker count, ticker-set SHA-256, first/last bar and fetch times).
+  No reader needs the identical rows: every consumer of `price_observation_rejects` (`engine/p15_calendar.py`, `engine/collect.py` and `server/market_read_models.py` read `interval='1d'` only, the latter already excluding `intraday_existing_key`; `engine/actions.py` reads `basis_unverified` only) ignores intraday rows, and price admission and provisional settlement, `verify_prices`, the invariants, the P15 price-fetch records and the bitemporal views do not read the table.
+- **Evidence:** store-copy replay (40 names, 210,951 bars, 1 in 97 given a changed volume and 1 in 1,009 an invalid high): insert 50.5 s before, 14.2 s after; `intraday_prices` identical; the 2,006 changed-bar and 210 invalid-bar evidence rows identical; the 192,269 dropped rows are exactly the before-run's rows equal to the stored bar, and the two summaries count 192,269. New test covers the summary and a changed repeat.
+- **Metrics:** engine +49, tests +21 lines (net).
+- **Next:** earnings stays serial (no rate increase; store-writing drain jobs stay sequential).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

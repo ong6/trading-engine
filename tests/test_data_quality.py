@@ -59,3 +59,28 @@ def test_fill_pending_rejects_quarantined_buy_but_allows_sell(con, book):
     assert result["filled"] == 1
     assert con.execute("SELECT status FROM sim_orders WHERE id=2").fetchone() == (
         "filled",)
+
+
+def test_cached_session_bounds_match_schedule_rows():
+    import pandas as pd
+
+    def reference(ts, interval):
+        day = ts.tz_convert("America/New_York").date()
+        schedule = data_quality.session_schedule(day.year)
+        key = pd.Timestamp(day)
+        if key not in schedule.index:
+            return ["off_calendar"]
+        row = schedule.loc[key]
+        if not row.market_open <= ts < row.market_close:
+            return ["off_calendar"]
+        return ["invalid_interval"] if (ts - row.market_open).total_seconds() % (
+            60 if interval == "1m" else 300) else []
+
+    stamps = [pd.Timestamp(day, tz="UTC") + pd.Timedelta(minutes=minute)
+              for day in ("2025-11-28", "2025-12-25", "2026-03-09", "2026-10-13", "2026-10-17")
+              for minute in (0, 13 * 60 + 29, 13 * 60 + 30, 14 * 60 + 33, 18 * 60, 20 * 60, 23 * 60)]
+    for ts in stamps:
+        for interval in ("1m", "5m"):
+            bar = {"ticker": "AAA", "ts": ts, "interval": interval, "open": 1.0,
+                   "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1}
+            assert data_quality.observation_reasons(bar, intraday=True) == reference(ts, interval)
