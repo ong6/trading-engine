@@ -4399,4 +4399,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +45 lines (pinned file engine/lib/snapshots.py), tests +30 lines.
 - **Next:** rerun the store-copy rehearsal.
 
+## 2026-10-22 — Rehearse the storage revision's deploy path on a store copy (blocked at migration)
+
+- **Why:** P24 integrate lane; revision 18 must be rehearsed on a copy before any deploy. `store/backups/` is empty, so the copy is the newest published snapshot (2026-10-22 02:57, SHA-256 matches its manifest; live catalog `865f64aa…`, unchanged since 2026-10-21).
+- **What:** plan 1 s; backup create 661 s (3,980 s with the old Python fingerprint), peak RSS 23.8 GB from `COPY FROM DATABASE`, which main's backup also uses and which fails out of memory under a 4-6 GB cap; verify 168 s; migration apply refused after 324 s with "database is not a supported pre-v2, v2, or r15 catalog", copy unchanged; readers refuse ("no valid published generation") and publication refuses an unmigrated store; restore drill: restored file byte-identical and logical snapshot equal to the verified bundle (154 s), and equal to an earlier run's (fingerprint stable).
+  The live catalog differs from every supported pre-image: tables `experiment_results`, `job_resolutions`, `sim_settlements` exist only live; three `agent_paper_*` tables only in the baseline; eight tables differ in DDL, and live `actions_fetch_log` rows violate the baseline's NOT NULL.
+- **Evidence:** rehearsal log in the integrate report; `python -m engine.schema_migrations apply …` exit 1 with the reason above.
+- **Metrics:** unchanged.
+- **Next:** the lane extends migration 0000 to the live catalog and lazily created tables; then re-rehearse.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
