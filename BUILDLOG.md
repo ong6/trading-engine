@@ -4416,4 +4416,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs +1 file.
 - **Next:** fix the two migration blockers in the storage lane, then repeat the real-copy rehearsal before any re-pin.
 
+## 2026-10-22 — Migrate the deployed catalog exactly and own every first-use table in the baseline
+
+- **Why:** revision-18 blockers B1 and B2: migration 0000 refused the deployed catalog (`865f64aa…`, rebuilt from a published store copy) and a versioned store refuses first-use `CREATE TABLE` (`tests/test_p22_round3.py::test_late_recovery_keeps_cash_delisting` failed with SchemaMigrationRequired for `sim_settlements`).
+- **What:** the deployed catalog is a fifth exact pre-image (schema-only fixture). Bootstrap now rebuilds any existing table whose DDL differs from the fresh initializers' (column order, NOT NULL from accumulated `ADD COLUMN`), copying rows by column name and proving the copy equal (EXCEPT ALL both ways); it refuses if a stored column is missing from the baseline or changes type. The baseline gains the 52 tables code creates on first use or in inactive stores (`experiment_results` with its forward columns, `job_resolutions`, `sim_settlements`, P16, broker and authority ledgers); a new test fails if any `CREATE TABLE` in engine/, sim/, server/ or tools/ names a table the baseline does not create, apart from listed separate databases.
+  `jobs.timeout_s` is now declared by the initializer (it exists live). `actions_fetch_log.attempted_at` stays nullable: 16,435 of 22,419 deployed rows (fetched before 2026-09-07) were logged before the stamp existed, and inventing a time would fabricate evidence; writers always stamp it and readers already order it `NULLS LAST`, skip it in `arg_max`, or require a datetime. `fundamentals_fetch_log.attempted_at` keeps the initializer's nullable declaration (deployed rows are all stamped). New baseline catalog `7286ea9b…`.
+- **Evidence:** `pytest tests/test_schema_migrations.py tests/test_baseline_table_coverage.py tests/test_p22_round3.py` passes, including every deployed row kept across the rebuild.
+- **Metrics:** engine +90 lines (migration 0000, pinned engine/lib/db.py), tests +190 lines.
+- **Next:** bound backup memory, then repeat the real-copy rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

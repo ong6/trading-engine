@@ -1,4 +1,4 @@
-"""Exact post-r15 baseline and fresh/legacy bootstrap migration."""
+"""Exact post-r15 baseline and fresh/legacy/deployed bootstrap migration."""
 from __future__ import annotations
 
 import importlib
@@ -8,11 +8,16 @@ import duckdb
 MIGRATION_ID = 0
 DESCRIPTION = "post-r15 operational catalog baseline"
 STATEMENTS: tuple[str, ...] = ()
-EXPECTED_CATALOG_SHA256 = "dcd1a8ea73f4136bc935f37d506b16b0d65f7928c88788c96a0f2bde809165b7"
+EXPECTED_CATALOG_SHA256 = "7286ea9b55c05d1bb16af2f2faeeb6aa69b1d5f711e1219efb2d5c27709a2e5d"
 SUPPORTED_CATALOG_SHA256 = {
     "pre-v2": "3ea2d60e7c575d4e4e249f3d13ae3ede031a9c5eabf8e7d8b56c6b6205ef6fba",
     "v2": "62bf42557342666325c3b7ee19bf0fb15c564df4c6516be93eb0cf974cbb6034",
-    "r15": EXPECTED_CATALOG_SHA256,
+    "r15": "dcd1a8ea73f4136bc935f37d506b16b0d65f7928c88788c96a0f2bde809165b7",
+    # The deployed store as published 2026-10-21..22: r15 plus the lazily created
+    # experiment_results/job_resolutions/sim_settlements, without the three agent-paper
+    # tables, and eight tables whose DDL accumulated runtime ALTERs.
+    "deployed-2026-10": "865f64aad4529c6f2cde3d0fb72d7b70dd968b85f49905681db1aef825d59a65",
+    "baseline": EXPECTED_CATALOG_SHA256,  # re-running bootstrap is an assertion
 }
 
 EXPECTED_TABLES = frozenset({
@@ -52,6 +57,25 @@ EXPECTED_TABLES = frozenset({
     "source_response_receipts", "split_adjustments", "tradingview_history_attempts",
     "tradingview_history_cohorts", "tradingview_history_symbols", "universe",
     "universe_snapshot",
+    # Baseline-owned since revision 18: first-use tables (B2).
+    "agent_data_discrepancy_decisions", "agent_release_review_observations",
+    "broker_cancellation_events", "broker_emergency_stop_events", "broker_executions",
+    "broker_human_paper_approval_observations", "broker_intents", "broker_order_observations",
+    "broker_paper_authority_retained_events", "broker_paper_authority_risk_evaluations",
+    "broker_reconciliation_differences", "broker_reconciliations",
+    "broker_risk_control_events", "broker_risk_decisions", "broker_snapshots",
+    "broker_submission_events", "broker_submission_resolutions", "experiment_results",
+    "job_resolutions", "p16_book_contracts", "p16_book_fills", "p16_book_state",
+    "p16_book_windows", "p16_calibrations", "p16_challenger_attempts",
+    "p16_challenger_outputs", "p16_challenger_receipts", "p16_challenger_runs",
+    "p16_construct_targets", "p16_evaluation_artifacts", "p16_filing_acceptance",
+    "p16_filing_accessions", "p16_filing_bundles", "p16_filing_cik_responses",
+    "p16_filing_decisions", "p16_filing_labels", "p16_filing_scans",
+    "p16_filing_score_attempts", "p16_filing_work_events", "p16_fill_manifests",
+    "p16_fill_measurements", "p16_fill_source_captures", "p16_limit_attempts",
+    "p16_limit_labels", "p16_order_intents", "p16_position_rules", "p16_screen_versions",
+    "p16_sec_request_events", "p16_sequential_origin_events", "p16_trial_register_v4",
+    "sim_settlements", "simulator_broker_order_keys",
 })
 EXPECTED_VIEWS = frozenset({"portfolio_accounts_v"})
 EXPECTED_SEQUENCES = frozenset({"sim_order_id_seq"})
@@ -85,6 +109,25 @@ BOOTSTRAP_CALLS = (
     ("server.p15_preopen", "init_schema"),
     ("server.p15_price_fetch_attempts", "init_schema"),
     ("server.p15_scoring_store", "init_schema"),
+    # Tables that producers, tools and inactive stores create on first use: on a
+    # versioned store a first-use CREATE is refused, so the baseline owns them.
+    ("engine.job_resolutions", "init_schema"),
+    ("engine.p16_screen_inputs", "init_schema"),
+    ("farm.experiment", "ensure_results_table"),
+    ("farm.experiment_runner", "ensure_forward_columns"),
+    ("server.agent_data_discrepancy_adjudication", "init_schema"),
+    ("server.agent_release_review_store", "init_schema"),
+    ("server.broker_human_paper_approval_store", "init_schema"),
+    ("server.broker_ledger", "init_broker_ledger_schema"),
+    ("server.broker_risk_control", "init_schema"),
+    ("server.p16_book_store", "init_schema"),
+    ("server.p16_challenger_store", "init_schema"),
+    ("server.p16_filing_store", "init_schema"),
+    ("server.p16_fill_store", "init_schema"),
+    ("server.p16_store", "init_schema"),
+    ("server.simulator_broker_adapter", "init_schema"),
+    ("sim.settle", "ensure_table"),
+    ("tools.migrate_agent_paper_authority_store", "_create_empty_schema"),
 )
 DEPENDENCIES = tuple(
     sorted({module_name.replace(".", "/") + ".py" for module_name, _name in BOOTSTRAP_CALLS})
@@ -205,6 +248,78 @@ def _normalize_v2_fill_fees(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("ALTER TABLE sim_fill_fees_r16 RENAME TO sim_fill_fees")
 
 
+def _initialized(con: duckdb.DuckDBPyConnection) -> None:
+    for module_name, function_name in BOOTSTRAP_CALLS:
+        getattr(importlib.import_module(module_name), function_name)(con)
+
+
+def _columns_of(con: duckdb.DuckDBPyConnection, table: str) -> list[tuple[str, str]]:
+    return [
+        (str(name), str(kind)) for name, kind in con.execute(
+            "SELECT column_name, data_type FROM duckdb_columns() "
+            "WHERE database_name=current_database() AND schema_name='main' "
+            "AND table_name=? ORDER BY column_index", [table],
+        ).fetchall()
+    ]
+
+
+def _normalize_drifted_tables(con: duckdb.DuckDBPyConnection) -> list[str]:
+    """Rebuild every existing table whose DDL differs from the baseline, keeping each row.
+
+    Runtime ``ALTER ... ADD COLUMN`` on a long-lived store appends columns in history order
+    and keeps whatever constraints the column was added with, so the deployed DDL can differ
+    from a fresh initializer's in column order and NOT NULL. A table is rebuilt only when
+    every stored column exists in the baseline with the same type; its rows are copied by
+    column name (a baseline-only column takes its declared default, exactly as the runtime
+    ``ADD COLUMN`` would) and the copy is proven equal before the original is released.
+    """
+    reference = duckdb.connect()
+    try:
+        _initialized(reference)
+        canonical = {
+            name: sql for name, sql in reference.execute(
+                "SELECT table_name, sql FROM duckdb_tables() "
+                "WHERE schema_name='main' AND NOT internal AND NOT temporary"
+            ).fetchall()
+        }
+        canonical_columns = {name: _columns_of(reference, name) for name in canonical}
+    finally:
+        reference.close()
+    rebuilt = []
+    stored = con.execute(
+        "SELECT table_name, sql FROM duckdb_tables() WHERE database_name=current_database() "
+        "AND schema_name='main' AND NOT internal AND NOT temporary "
+        "AND table_name<>'schema_migrations' ORDER BY table_name"
+    ).fetchall()
+    for table, sql in stored:
+        if table not in canonical or sql == canonical[table]:
+            continue
+        columns = _columns_of(con, table)
+        target = dict(canonical_columns[table])
+        lost = [name for name, kind in columns if target.get(name) != kind]
+        if lost:
+            raise ValueError(f"{table} cannot be normalized without changing columns: {lost}")
+        names = ", ".join('"' + name.replace('"', '""') + '"' for name, _kind in columns)
+        quoted = '"' + table.replace('"', '""') + '"'
+        holding = f'"__baseline_rebuild_{table}"'
+        count = con.execute(f"SELECT COUNT(*) FROM {quoted}").fetchone()[0]
+        con.execute(f"CREATE TEMP TABLE {holding} AS SELECT {names} FROM {quoted}")
+        con.execute(f"DROP TABLE {quoted}")
+        con.execute(canonical[table])
+        con.execute(f"INSERT INTO {quoted} ({names}) SELECT {names} FROM {holding}")
+        differences = con.execute(
+            f"SELECT (SELECT COUNT(*) FROM (SELECT {names} FROM {holding} EXCEPT ALL "
+            f"SELECT {names} FROM {quoted})) + (SELECT COUNT(*) FROM (SELECT {names} "
+            f"FROM {quoted} EXCEPT ALL SELECT {names} FROM {holding})), "
+            f"(SELECT COUNT(*) FROM {quoted})"
+        ).fetchone()
+        if differences != (0, count):
+            raise ValueError(f"{table} rows changed while normalizing its DDL")
+        con.execute(f"DROP TABLE {holding}")
+        rebuilt.append(table)
+    return rebuilt
+
+
 def bootstrap(con: duckdb.DuckDBPyConnection) -> None:
     """Create/upgrade the exact post-r15 catalog under migration authority."""
     from engine.lib.snapshots import catalog_sha256
@@ -220,11 +335,14 @@ def bootstrap(con: duckdb.DuckDBPyConnection) -> None:
             None,
         )
     if has_objects and source_shape is None:
-        raise ValueError("database is not a supported pre-v2, v2, or r15 catalog")
+        raise ValueError(
+            "database is not a supported pre-v2, v2, r15, or deployed-2026-10 catalog"
+        )
     _legacy_core_upgrades(con)
     if source_shape == "v2":
         _upgrade_v2_accounts(con)
-    for module_name, function_name in BOOTSTRAP_CALLS:
-        getattr(importlib.import_module(module_name), function_name)(con)
+    _initialized(con)
     if source_shape == "v2":
         _normalize_v2_fill_fees(con)
+    if has_objects and _normalize_drifted_tables(con):
+        _initialized(con)  # recreate the indexes dropped with a rebuilt table

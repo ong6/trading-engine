@@ -191,8 +191,13 @@ def test_param_identity_preserves_json_types_and_rejects_nonfinite(qcon):
 # --------------------------------------------------------------------------- #
 def test_ensure_schema_adds_timeout_column_idempotently():
     c = duckdb.connect()
-    db.init_schema(c)
-    db.init_queue_schema(c)
+    # A pre-2026-09-03 jobs table; fresh stores now create the column themselves.
+    c.execute(
+        "CREATE TABLE jobs (id INTEGER PRIMARY KEY, kind VARCHAR, params VARCHAR, "
+        "state VARCHAR DEFAULT 'queued', progress VARCHAR, created_at TIMESTAMP, "
+        "updated_at TIMESTAMP, priority INTEGER DEFAULT 100, mem_mb INTEGER DEFAULT 0, "
+        "last_error VARCHAR)"
+    )
     cols = {r[0] for r in c.execute("DESCRIBE jobs").fetchall()}
     assert "timeout_s" not in cols
     qr.ensure_schema(c)

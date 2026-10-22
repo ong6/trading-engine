@@ -30,6 +30,11 @@ HISTORICAL_FIXTURES = {
         "schema_catalog_r15.json", "c3f5c0b13e8107b9e9e68c8afeca0a7e4701f85b",
         "dcd1a8ea73f4136bc935f37d506b16b0d65f7928c88788c96a0f2bde809165b7",
     ),
+    # Schema-only image of the deployed store's catalog, rebuilt from a published copy.
+    "deployed-2026-10": (
+        "schema_catalog_deployed_2026_10.json", "454cfc6a6f5ee1c973447ea07ea56211b878fe25",
+        "865f64aad4529c6f2cde3d0fb72d7b70dd968b85f49905681db1aef825d59a65",
+    ),
 }
 
 
@@ -261,7 +266,7 @@ def test_interrupted_statement_rolls_back_ledger_and_catalog(tmp_path, monkeypat
         con.close()
 
 
-@pytest.mark.parametrize("shape", ["pre-v2", "v2", "r15"])
+@pytest.mark.parametrize("shape", ["pre-v2", "v2", "r15", "deployed-2026-10"])
 def test_supported_deployed_shapes_reach_exact_baseline(tmp_path, monkeypatch, shape):
     root, database, _verified, expected_catalog = _prepare(
         tmp_path, monkeypatch, shape=shape,
@@ -290,6 +295,99 @@ def test_supported_deployed_shapes_reach_exact_baseline(tmp_path, monkeypatch, s
     finally:
         con.close()
     assert result["database_schema_id"] == 1
+
+
+_DEPLOYED_ROWS = {
+    # Rows written before the attempt stamp existed: the baseline keeps them, unstamped.
+    "actions_fetch_log": [
+        {"ticker": "AAA", "fetched_on": "2026-08-01", "n_splits": 0, "n_dividends": 0,
+         "status": "empty", "source": "yfinance", "attempted_at": None},
+        {"ticker": "BBB", "fetched_on": "2026-10-01", "n_splits": 1, "n_dividends": 0,
+         "status": "ok", "source": "yfinance", "attempted_at": "2026-10-01 01:02:03"},
+    ],
+    "fundamentals_fetch_log": [
+        {"ticker": "AAA", "as_of": "2026-10-01", "status": "ok", "n_fields": 3,
+         "source": "yfinance", "attempted_at": "2026-10-01 01:02:03"},
+    ],
+    "jobs": [{"id": 7, "kind": "collect", "params": "{}", "state": "failed",
+              "created_at": "2026-10-01", "priority": 5, "mem_mb": 1, "timeout_s": 60}],
+    "agent_proposals": [{"id": 1, "proposal_id": "p1", "policy_id": "policy",
+                         "validation_payload": "{}", "ticker": "SPY", "max_notional": 1.5}],
+    "agent_shadow_attempts": [{"id": 1, "decision_window": "w1", "policy_id": "policy",
+                               "ticker": "SPY", "started_at": "2026-10-01"}],
+    "daily_opportunity_runs": [{
+        "id": 1, "market_date": "2026-10-01", "bundle_payload": "{}", "bundle_sha256": "a",
+        "news_status": "ok", "status": "completed", "started_at": "2026-10-01",
+        "model_input_payload": "{}", "model_latency_ms": 2.5,
+    }],
+    "experiment_results": [{"experiment_id": "e1", "config_hash": "c", "run_at": "2026-10-01",
+                            "partition": "full", "n_trades": 3, "trade_date": "2026-10-05",
+                            "net_ret": 0.01}],
+    "job_resolutions": [{"job_id": 7, "payload": "{}", "sha256": "s",
+                         "recorded_at": "2026-10-02"}],
+    "sim_settlements": [{"portfolio_id": "p", "ticker": "DLST", "kind": "cash", "qty": 3.0,
+                         "price": 1.25, "effective": "2026-10-01", "source": "filing"}],
+}
+
+
+def _rows(con, table: str) -> list[dict]:
+    cursor = con.execute(f'SELECT * FROM "{table}"')
+    names = [column[0] for column in cursor.description]
+    return sorted(
+        (dict(zip(names, row, strict=True)) for row in cursor.fetchall()), key=repr,
+    )
+
+
+def test_deployed_shape_migration_keeps_every_row_and_reaches_exact_baseline(
+    tmp_path, monkeypatch,
+):
+    root, database, _verified, expected_catalog = _prepare(
+        tmp_path, monkeypatch, shape="deployed-2026-10",
+    )
+    con = duckdb.connect(str(database))
+    for table, rows in _DEPLOYED_ROWS.items():
+        for row in rows:
+            columns = ", ".join(f'"{name}"' for name in row)
+            marks = ", ".join("?" for _ in row)
+            con.execute(f'INSERT INTO "{table}" ({columns}) VALUES ({marks})', list(row.values()))
+    before = {table: _rows(con, table) for table in _DEPLOYED_ROWS}
+    snapshot_sha = canonical_sha256(backup_database.database_snapshot(con, "market"))
+    con.close()
+    monkeypatch.setattr(backup_database, "verify_backup", lambda _bundle: {
+        "manifest_sha256": BACKUP_MANIFEST,
+        "database_snapshot_sha256": snapshot_sha,
+        "source_database": {"kind": "repository-relative", "path": "store/market.duckdb"},
+    })
+
+    _apply(root, database, expected_catalog)
+
+    con = duckdb.connect(str(database), read_only=True)
+    try:
+        assert schema_migrations.catalog_sha256(con) == (
+            schema_migrations.migrations()[-1].module.EXPECTED_CATALOG_SHA256
+        )
+        assert {table: _rows(con, table) for table in _DEPLOYED_ROWS} == before
+        assert con.execute(
+            "SELECT COUNT(*) FROM actions_fetch_log WHERE attempted_at IS NULL"
+        ).fetchone() == (1,)
+        assert con.execute(
+            "SELECT index_name FROM duckdb_indexes() WHERE table_name='actions_fetch_log'"
+        ).fetchall() == [("actions_fetch_log_resume_idx",)]
+    finally:
+        con.close()
+
+
+def test_baseline_refuses_to_normalize_a_drifted_column_type():
+    module = schema_migrations.migrations()[0].module
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute("CREATE TABLE jobs (id INTEGER PRIMARY KEY, kind VARCHAR, timeout_s VARCHAR)")
+        con.execute("INSERT INTO jobs VALUES (1, 'collect', '60')")
+        with pytest.raises(ValueError, match="cannot be normalized"):
+            module._normalize_drifted_tables(con)
+        assert con.execute("SELECT * FROM jobs").fetchall() == [(1, "collect", "60")]
+    finally:
+        con.close()
 
 
 def test_fresh_empty_bootstrap_reaches_exact_baseline(tmp_path, monkeypatch):

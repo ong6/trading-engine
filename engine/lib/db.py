@@ -773,7 +773,8 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
             updated_at TIMESTAMP,
             priority   INTEGER DEFAULT 100,
             mem_mb     INTEGER DEFAULT 0,
-            last_error VARCHAR
+            last_error VARCHAR,
+            timeout_s  INTEGER     -- per-job ceiling; NULL = the kind's default
         )
         """
     )
@@ -1105,7 +1106,9 @@ def init_actions_schema(con: duckdb.DuckDBPyConnection) -> None:
             n_dividends INTEGER   NOT NULL,
             status      VARCHAR   NOT NULL CHECK (status IN ('ok', 'empty', 'failed')),
             source      VARCHAR   DEFAULT 'yfinance',
-            attempted_at TIMESTAMP NOT NULL
+            -- NULL only on rows logged before the attempt stamp existed (before
+            -- 2026-09-07); writers always stamp it and readers order NULLS LAST.
+            attempted_at TIMESTAMP
         )
         """
     )
