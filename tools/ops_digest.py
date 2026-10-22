@@ -1320,10 +1320,21 @@ def _due(schedule: Schedule, start: datetime, end: datetime) -> list[datetime] |
     return due[-1:] if schedule.output else due  # one output file proves only the latest run
 
 
+def _occupied(schedule: Schedule, moment: datetime, item: JobRun) -> bool:
+    """A timer that fires while its service is still active starts nothing: the slot is
+    taken by the run in progress, not missed."""
+    if schedule.unit is None or item.start is None or item.start > moment:
+        return False
+    if item.seconds is not None:
+        return item.start + timedelta(seconds=item.seconds) >= moment
+    return item.label == "running"
+
+
 def _unmatched(schedule: Schedule, due: list[datetime], runs: list[JobRun]) -> list[datetime]:
     late = timedelta(seconds=schedule.slack_s + RUN_GRACE_S)
     return [moment for moment in due if not any(
         item.start is not None and moment - timedelta(minutes=1) <= item.start <= moment + late
+        or _occupied(schedule, moment, item)
         for item in runs)]
 
 
