@@ -7,7 +7,7 @@ import math
 import re
 import zipfile
 from collections.abc import Iterable
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
 
 import duckdb
@@ -86,6 +86,17 @@ TAG_LOOKUP = {
 }
 
 
+def _label_available_sql(column: str) -> str:
+    """SQL for the conservative availability of a stored label wall clock."""
+    # ICU resolves ambiguous and skipped New York wall clocks to the later instant,
+    # matching engine.sec_acceptance.label_available_at.
+    return f"(({column}) AT TIME ZONE 'UTC') AT TIME ZONE 'America/New_York'"
+
+
+def _event_date_sql(column: str) -> str:
+    return f"CAST(({column}) AT TIME ZONE 'America/New_York' AS DATE)"
+
+
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("""CREATE TABLE IF NOT EXISTS sec_submission_index (
         accession VARCHAR PRIMARY KEY, cik BIGINT NOT NULL, filed DATE NOT NULL,
@@ -113,9 +124,12 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("""CREATE TABLE IF NOT EXISTS sec_archive_loads (
         source_sha256 VARCHAR PRIMARY KEY, kind VARCHAR NOT NULL, source_file VARCHAR NOT NULL,
         loaded_at TIMESTAMPTZ NOT NULL, members BIGINT NOT NULL, rows BIGINT NOT NULL)""")
-    con.execute("""CREATE OR REPLACE VIEW sec_facts_available AS
+    # ``accepted_at`` and ``acceptance_datetime`` hold the SEC label's wall clock at offset
+    # zero, never a trusted instant; availability reads it as New York time
+    # (engine.sec_acceptance rule 2), so stores loaded before that rule stay correct.
+    con.execute(f"""CREATE OR REPLACE VIEW sec_facts_available AS
         SELECT f.*,
-          COALESCE(s.accepted_at,
+          COALESCE({_label_available_sql('s.accepted_at')},
             f.filed::TIMESTAMP AT TIME ZONE 'America/New_York'
               + INTERVAL '1 day' - INTERVAL '1 microsecond') AS available_at
         FROM sec_facts f LEFT JOIN sec_submission_index s ON s.accession=f.accn""")
@@ -130,7 +144,8 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(f"""CREATE OR REPLACE VIEW sec_facts_with_ticker AS
         SELECT x.*,t.ticker FROM sec_facts_available x {ticker_lateral}""")
     con.execute(f"""CREATE OR REPLACE VIEW sec_earnings_events_with_ticker AS
-        SELECT x.*,t.ticker FROM sec_earnings_events x {ticker_lateral}""")
+        SELECT x.*,t.ticker,{_label_available_sql('x.acceptance_datetime')} AS available_at
+        FROM sec_earnings_events x {ticker_lateral}""")
     con.execute("""CREATE OR REPLACE MACRO sec_fundamentals_asof(as_of_ts) AS TABLE
         SELECT * EXCLUDE(row_number) FROM (
           SELECT f.*,ROW_NUMBER() OVER (
@@ -174,6 +189,7 @@ def _text(raw: object, field: str, *, optional: bool = False) -> str | None:
 
 
 def _acceptance(raw: object) -> datetime | None:
+    """Return the label's wall clock at offset zero; its zone claim is not trusted."""
     if raw in {None, ""}:
         return None
     if not isinstance(raw, str):
@@ -184,7 +200,7 @@ def _acceptance(raw: object) -> datetime | None:
         raise FreeSourceError("SEC bulk acceptance timestamp is invalid") from exc
     if value.utcoffset() is None:
         raise FreeSourceError("SEC bulk acceptance timestamp has no timezone")
-    return value
+    return value.replace(tzinfo=timezone.utc)
 
 
 def _json(body: bytes) -> dict:
@@ -602,8 +618,8 @@ def audit(
         facts = con.execute("""SELECT year(filed),COUNT(*),COUNT(DISTINCT cik)
             FROM sec_facts GROUP BY ALL ORDER BY 1""").fetchall()
         companies = con.execute("SELECT COUNT(DISTINCT cik) FROM sec_facts").fetchone()[0]
-        events = con.execute("""SELECT year(acceptance_datetime),COUNT(*)
-            FROM sec_earnings_events GROUP BY ALL ORDER BY 1""").fetchall()
+        events = con.execute("""SELECT year(available_at AT TIME ZONE 'America/New_York'),
+            COUNT(*) FROM sec_earnings_events_with_ticker GROUP BY ALL ORDER BY 1""").fetchall()
         fact_match = con.execute("""SELECT COUNT(*),COUNT(ticker)
             FROM sec_facts_with_ticker""").fetchone()
         event_match = con.execute("""SELECT COUNT(*),COUNT(ticker)
@@ -621,11 +637,11 @@ def audit(
                 COUNT(*) FILTER (WHERE e.ticker IS NOT NULL),
                 COUNT(*) FILTER (WHERE EXISTS (
                   SELECT 1 FROM market.{earnings_table} m WHERE m.ticker=e.ticker
-                    AND abs(date_diff('day',CAST(e.acceptance_datetime AS DATE),
+                    AND abs(date_diff('day',{_event_date_sql('e.available_at')},
                                       m.earnings_date))<=1))
                 FROM sec_earnings_events_with_ticker e""").fetchone()
-            con.execute("""CREATE TEMP VIEW _sec_event_dates AS
-                SELECT ticker,cik,CAST(acceptance_datetime AS DATE) AS event_date
+            con.execute(f"""CREATE TEMP VIEW _sec_event_dates AS
+                SELECT ticker,cik,{_event_date_sql('available_at')} AS event_date
                 FROM sec_earnings_events_with_ticker WHERE ticker IS NOT NULL""")
             con.execute(f"""CREATE TEMP VIEW _engine_earnings_dates AS
                 SELECT ticker,earnings_date FROM market.{earnings_table} GROUP BY ALL""")
@@ -650,13 +666,13 @@ def audit(
                   SELECT 1 FROM _sec_event_dates e WHERE e.ticker=d.ticker
                     AND abs(date_diff('day',d.earnings_date,e.event_date))<=3)
                 ORDER BY md5(ticker||CAST(earnings_date AS VARCHAR)) LIMIT 30""")
-            misses = con.execute("""WITH classified AS (
+            misses = con.execute(f"""WITH classified AS (
                 SELECT s.*,CASE
                   WHEN EXISTS (
                     SELECT 1 FROM sec_earnings_events e
                     JOIN sec_cik_ticker_history h ON h.cik=e.cik
                     WHERE h.ticker=s.ticker AND abs(date_diff(
-                      'day',s.earnings_date,CAST(e.acceptance_datetime AS DATE)))<=3
+                      'day',s.earnings_date,{_event_date_sql(_label_available_sql('e.acceptance_datetime'))}))<=3
                   ) THEN 'different CIK or ticker mapping'
                   WHEN EXISTS (
                     SELECT 1 FROM sec_submission_index x

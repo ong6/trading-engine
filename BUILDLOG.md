@@ -4136,6 +4136,162 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +70, tests +60 lines.
 - **Next:** orchestrator applies on the live store.
 
+## 2026-10-22 — Classify the queue drain summary by its counts
+
+- **Why:** P24 ops check of the 2026-10-21 nightly. Reproduction: `[queue] drain outcome: 4 done,
+  0 timed out, 0 failed, 0 left pending of 4 selected` (run log and TradingView archive log)
+  matched the generic `[queue] … failed` host-failure pattern, so the ops digest counted a clean
+  drain as an error line in three hours and listed it among the loudest error signals.
+- **What:** `tools/ops_digest.classify` reads the drain summary's counts: any timed-out or failed
+  job is an error, jobs left pending a warning, and a clean drain no signal.
+- **Evidence:** four new `test_host_failure_and_fail_soft_messages` cases; the clean and pending
+  ones fail before and all 30 cases pass after.
+- **Metrics:** tools +7, tests +7.
+- **Next:** stop reporting timer slots inside a run in progress as missing (next entry).
+
+## 2026-10-22 — Stop reporting timer slots inside a run in progress as missing
+
+- **Why:** P24 ops check of the 2026-10-21 nightly. Reproduction: `ops_digest --report --hours 12`
+  listed 13 `committee_development` slots as "no run", every one inside a run that was still
+  active (20:15-21:46, 23:31-01:15). A timer that fires while its service is active starts
+  nothing, so those slots were taken, not missed.
+- **What:** `tools/ops_digest._unmatched` treats a timer slot as occupied when a run of that unit
+  started before it and was still running then (or is still running). Cron slots are unchanged:
+  cron starts another process, and a lock refusal stays visible.
+- **Evidence:** new `test_timer_slot_inside_a_run_in_progress_is_not_missing` fails before and
+  passes after; the live 12-hour report from the clone now has no Missing runs section.
+- **Metrics:** tools +11, tests +15.
+- **Next:** nothing admitted.
+
+## 2026-10-21 — Read SEC bulk acceptance labels as New York wall time
+
+- **Why:** P24 sec-time lane; reported by the alpha sec-text lane. Reproduction: 75 filings fetched 2026-10-21 (index page, `.hdr.sgml`, live API, nightly `submissions.zip`); the index "Accepted" equals the SGML `ACCEPTANCE-DATETIME` in 75/75, and the bulk label read as UTC is earlier than it in 21 (12 of a random 30 item 2.02 8-Ks). Before the fix `tests/test_sec_acceptance.py` fails: `0001104659-15-065940` available 08:08:01Z, accepted 12:08:01Z.
+- **What:** `engine/sec_acceptance.py` states the one rule: SGML header (New York) first; else the JSON label's wall clock read as New York time, never earlier than the truth (0, 4–5 or 8–10 h late), capped at the receipt when known; ambiguous DST clocks take the later reading. The bulk store keeps the label's wall clock and its views (`sec_facts_available`, `sec_earnings_events_with_ticker.available_at`) apply the rule, so a store restored from the archive is corrected too; the audit buckets events by New York date. P3 plan and the 2026-10-02 audit carry the amendment.
+- **Evidence:** `pytest tests/test_sec_acceptance.py tests/test_free_sec_bulk.py`: 18 passed; on 388,031 pre-2024-09-25 item 2.02 events (alpha copy of the bulk ZIP) availability moves 4–5 h later and the first tradable open moves later for 58,795 (58,784 pre-open to intraday).
+- **Metrics:** engine +104/-12 lines, tests +133 plus a 77-line recorded fixture, docs +13.
+- **Next:** apply the rule to the P15 live SEC capture.
+
+## 2026-10-21 — Apply the acceptance rule to the P15 live SEC capture
+
+- **Why:** P24 sec-time lane. Reproduction: the 52 live submissions responses recorded on 2026-10-21 replayed through `tools/sec_edgar_capture.capture` record 142 filings and reject 51 of 52 tickers, because it requires the label read as UTC to fall on the filing date; 19.5% of 9,653 capturable rows do not (after-cutoff filings, and labels up to ten hours late). A label read as UTC later than the receipt would also raise `FactError`.
+- **What:** `published_at` is the label's wall clock read as New York time, capped at the receipt (`engine/sec_acceptance.py`); the date check only rejects a label more than seven days before the filing date; a fact's event time is bounded by its publication, since after-cutoff 8-Ks carry the later filing date as report date. `available_at` stays the receipt time, so P15 trigger sessions never used the label.
+- **Evidence:** the same replay records 8,017 filings and rejects 6 tickers (rows from 1999–2000 with no primary document); no fact has publication after availability or event after publication. `pytest tests/test_sec_edgar_capture.py`: 7 passed, the after-cutoff test fails before the change.
+- **Metrics:** tools +13/-6 lines, tests +40.
+- **Next:** orchestrator re-pins P15 (`tools/sec_edgar_capture.py`, new `engine/sec_acceptance.py` in its import closure).
+
+## 2026-10-21 — Batch the TradingView history fact writes (P24 nightly-speed)
+
+- **Why:** P24 nightly-speed. The nightly farm drain is the critical path (median 2,372 of 2,731 s); in its `tradingview_history` job each 50-chunk run spent about 0.7 s per chunk on the network and 6-8 s writing facts, one prior lookup, one latest lookup, one `MAX(id)` and one insert per observation.
+- **What:** `retain_observations` reads the prior and latest revisions once per batch, assigns revisions and ids in observation order exactly as the per-row queries would, and inserts with multi-row VALUES. Inputs it cannot key exactly (naive or non-datetime times, non-string tickers, a non-UTC session) keep the per-row path. `record_fact` shares its checks and row builder with the batch.
+- **Evidence:** store-copy replay of the newest 50 recorded chunks (17,953 facts deleted, then re-captured from their retained bodies and clocks): fact writes 474.6 s before, 63.4 s after; `bitemporal_facts` (5,931,486 rows) and `source_response_receipts` hash identical to the untouched copy on both paths. New test compares batch and per-row results and rows, including replays, revisions, in-batch repeats and errors.
+- **Metrics:** engine +31, server +102, tests +80 lines (net).
+- **Next:** the remaining nightly stages in this lane (snapshot publish, collect, actions, earnings).
+
+## 2026-10-21 — Append price observations with multi-row inserts (P24 nightly-speed)
+
+- **Why:** P24 nightly-speed. The nightly `collect` stage (median 158 s, before screen and league) spends about 1.7 s per 200-name batch in `upsert_prices`, 1.0 s of it appending replacement predecessors one `executemany` row at a time.
+- **What:** `append_price_observations` inserts through a new `db.insert_values`, which binds up to 500 rows per multi-row VALUES statement. Rows, values and order are unchanged.
+- **Evidence:** store-copy replay of the upsert path (newest session deleted, then the last five sessions of 4,058 liquid names re-upserted in 21 batches): 26.25 s before, 16.02 s after; `prices` hashes identical and `price_observation_rejects` identical as a multiset apart from the random ids and the wall-clock `recorded_at` (16,560 rows). New test compares `insert_values` with `executemany` over 1,203 rows.
+- **Metrics:** engine +13, tests +20 lines (net).
+- **Next:** earnings/actions pacing needs an orchestrator ruling on the Yahoo request rate.
+
+## 2026-10-22 — Cache session bounds in the price validator (P24 nightly-speed)
+
+- **Why:** P24 nightly-speed, raised by the ops lane: the 2026-10-21 nightly's `intraday` job ran about 22:45-01:02 (usually 145-212 s), the first night with revision-15 admission. It validates every fetched bar (about 2.4M 1m and 4.1M 5m) and retains each already-stored one as an `intraday_existing_key` observation; a pandas schedule-row lookup was 130 of about 190 microseconds per bar, and the observations were inserted one row at a time.
+- **What:** `observation_reasons` reads each day's NYSE open and close through an `lru_cache`d `_session_bounds`, the same `session_schedule` row as before. With the multi-row observation insert, both per-bar costs are gone; reasons are unchanged.
+- **Evidence:** store-copy replay of the nightly insert path for 40 names (newest session deleted, then 7 days of 1m and 60 days of 5m bars in 50-name batches, 211,392 rows): 234.6 s on main, 51.6 s on this branch; `intraday_prices` identical and the 194,723 retained observations identical apart from random ids and wall-clock stamps. New test compares cached reasons with the schedule-row logic across holidays, an early close and DST.
+- **Metrics:** engine +11, tests +27 lines (net).
+- **Next:** orchestrator ruling on retaining every repeated intraday bar as an observation (about 6M rows a night).
+
+## 2026-10-22 — Summarize identical intraday re-fetches (P24 nightly-speed)
+
+- **Why:** orchestrator ruling, 2026-10-22. The nightly 7-day 1m and 60-day 5m pull re-fetches about six million stored bars, and revision-15 admission kept one `intraday_existing_key` evidence row per bar; on 2026-10-21 that made the intraday job the longest stage (about 22:45-01:02).
+- **What:** `insert_intraday` keeps per-bar evidence for any re-fetched bar whose open, high, low, close, volume or source differs from the stored bar, and for every rejected bar, as before. Bars equal to the stored one are recorded as one `intraday_identical_refetch` row per batch and interval (no ticker; JSON with bar count, ticker count, ticker-set SHA-256, first/last bar and fetch times).
+  No reader needs the identical rows: every consumer of `price_observation_rejects` (`engine/p15_calendar.py`, `engine/collect.py` and `server/market_read_models.py` read `interval='1d'` only, the latter already excluding `intraday_existing_key`; `engine/actions.py` reads `basis_unverified` only) ignores intraday rows, and price admission and provisional settlement, `verify_prices`, the invariants, the P15 price-fetch records and the bitemporal views do not read the table.
+- **Evidence:** store-copy replay (40 names, 210,951 bars, 1 in 97 given a changed volume and 1 in 1,009 an invalid high): insert 50.5 s before, 14.2 s after; `intraday_prices` identical; the 2,006 changed-bar and 210 invalid-bar evidence rows identical; the 192,269 dropped rows are exactly the before-run's rows equal to the stored bar, and the two summaries count 192,269. New test covers the summary and a changed repeat.
+- **Metrics:** engine +49, tests +21 lines (net).
+- **Next:** earnings stays serial (no rate increase; store-writing drain jobs stay sequential).
+
+## 2026-10-22 — Benchmark the research loop with output digests
+
+- **Why:** P24 sim-speed lane: time replay, walk-forward, study panels and statistics, and prove every speed change output-identical.
+- **What:** `tools/sim_bench.py` runs five workloads against a read-only store copy and prints wall seconds, peak RSS and a SHA-256 of each output with timings and code identity removed; replay and walk-forward also hash every row of the book's ledger tables (orders, fills, costs, attempts, equity, dividends, positions, portfolios). Running one command on two checkouts proves identity.
+- **Evidence:** `python -m tools.sim_bench replay --db COPY --window 2025-07-16:2026-07-16` on the 2026-09-28 snapshot copy: same result and ledger digests on main and on this branch (685 s and 111 s).
+- **Metrics:** tools +212 lines.
+- **Next:** speed up the replay session step.
+
+## 2026-10-22 — Batch league marks and skip empty delisting scans
+
+- **Why:** P24 sim-speed: `mark_to_market` read one close per held name (about 36% of a 66-session ew_benchmark replay) and `delistings` scanned the held names' prices every session even when no snapshot could make one delisted.
+- **What:** `portfolio.close_observations` reads all held names' latest admitted closes in one query (bars dated on the mark day first, the ordered search only for the rest); `mark_to_market` uses it and keeps its summation order. `settle.delistings` returns early when no held name has an inactive universe snapshot by the date, which its query requires.
+- **Evidence:** 66-session ew_benchmark replay result and ledger digests unchanged; `tests/test_replay_speed.py` compares batched and per-ticker closes and both delisting outcomes.
+- **Metrics:** sim +50 lines.
+- **Next:** remove the per-session full-ledger replay.
+
+## 2026-10-22 — Resume offline dividend projections from exact ledger prefixes
+
+- **Why:** P24 sim-speed and the ops-lane walk-forward profile: each session's `credit_dividends` copied the book's ledger row by row into a fresh in-memory DuckDB and re-applied it from inception, so fold time grew quadratically with fills (74% of a one-year ew_benchmark replay).
+- **What:** inside `ledger.projection_checkpoints()`, entered only by the backtest replay and walk-forward fold loops, a projection restores the state tables saved after the longest earlier event prefix whose events are identical row for row (running SHA-256 over event keys and rows, plus the portfolio row and account settings), then applies only the remaining events. Offline copies skip the state rows the projection discards and use bulk inserts with each value cast to its column type. The nightly, account and API paths are unchanged.
+- **Evidence:** store-copy digests identical to main for results and every ledger row: ew_benchmark 1y replay 685 → 111 s, 3y replay 6,877 → 555 s; one momo_stopped 24+12-month walk-forward fold (752 sessions) 4,872 → 582 s; dual_momentum 3 folds 186 → 180 s. `tests/test_replay_speed.py` checks cached against full projections, including a back-dated dividend, with under a quarter of the event applications.
+- **Metrics:** sim +115, farm +5 lines.
+- **Next:** fold parallelism cannot be byte-identical (fold order ids continue one sequence); books already run in parallel.
+
+## 2026-10-22 — Build study price panels from columns
+
+- **Why:** P24 sim-speed: `PriceSource.from_duckdb` built one `Bar` per row and wrote the panel element by element; the shared panel was the slowest step of any store-backed study (and the research cache rebuilds it to derive its identity).
+- **What:** `farm/study_columnar.py` reads the same query as numpy columns and scatters it into the same `Panel`/`PriceSource` objects: byte-equal arrays, labels, availability clocks, read-only flags and duplicate/empty-ticker errors. The P18 core types are reused, not changed.
+- **Evidence:** `python -m tools.sim_bench panel --db COPY --tickers 3000 [--legacy]` (3,000 × 3,704 sessions, 10,296,536 bars): 119.4 → 6.7 s, peak RSS 5.1 → 3.2 GB, same panel digest; `tests/test_study_columnar.py`.
+- **Metrics:** farm +165 lines.
+- **Next:** research evaluators can build panels through it.
+
+## 2026-10-22 — Vectorize the stationary bootstrap index recurrence
+
+- **Why:** P24 sim-speed: `calendar_statistics` on a 3,800-session series spent 2.8 of 3.1 s in the column-by-column stationary-bootstrap loop.
+- **What:** each index is its latest restart's start plus the offset since, modulo n; a running maximum of restart columns gives the same int64 matrix from the same draws.
+- **Evidence:** `python -m tools.sim_bench stats`: same digest, 2.7 → 1.6 s (peak RSS +110 MB); `tests/test_walkforward_monthly.py` compares against the recurrence.
+- **Metrics:** farm +11 lines.
+- **Next:** nothing admitted.
+
+## 2026-10-22 — Charge the execution profile on the v2 fill paths (audit E5)
+
+- **Why:** quant-audit E5: next-open, auction and intraday-market fills ignored the order's profile (spread multiplier, fixed adverse movement, participation impact). Reproduction: `tests/test_fill_profiles.py` failed 4 of 9 before the fix (cost_2x and participation_stress priced as baseline).
+- **What:** `_v2_result` scales the path's half-spread by the profile, adds its fixed adverse movement where the path has one and its square-root impact; a touched limit still fills at its limit. Baseline prices are bit-identical.
+- **Evidence:** `pytest tests/test_fill_profiles.py`: 9 passed.
+- **Metrics:** sim +25 lines.
+- **Next:** nothing admitted.
+
+## 2026-10-22 — Reject fills against zero median dollar volume (audit E6)
+
+- **Why:** quant-audit E6: a median dollar volume of exactly 0 made participation 0, so the cap never fired. Reproduction: the zero-volume test filled (`assert 'filled' == 'rejected'`).
+- **What:** league and v2 fills treat a zero median as unbounded participation and reject as illiquid; an unknown median keeps its treatment.
+- **Evidence:** `pytest tests/test_fill_profiles.py`: 10 passed.
+- **Metrics:** sim +4 lines.
+- **Next:** nothing admitted.
+
+## 2026-10-22 — Measure study eligibility on the fill model's 60 bars (audit E7)
+
+- **Why:** quant-audit E7: `Universe.mdv60` took the last 60 sessions while `PriceSource.mdv60`, which prices study fills, takes the last 60 bars. Reproduction: a name trading every other session gave 1,000,000 against 700,000.
+- **What:** eligibility uses the same 60 positive-close bars, each still gated by the decision view.
+- **Evidence:** `pytest tests/test_study_universe.py`: passes.
+- **Metrics:** farm +12 lines.
+- **Next:** nothing admitted.
+
+## 2026-10-22 — Leave provisional open-fault bars out of study sources (audit E8)
+
+- **Why:** quant-audit E8: `PriceSource.from_duckdb` read never-settled bars whose open lies outside [low, high], which every engine open consumer excludes. Reproduction: the fixture's FAULT bar appeared among the source tickers.
+- **What:** the study query (`data.prices_query`, shared with the columnar builder) applies `provisional_open_fault_sql` when the store records fetch stamps. Settled and fault-free provisional bars stay.
+- **Evidence:** `pytest tests/test_study_columnar.py`: 7 passed, both builders equal.
+- **Metrics:** farm +25 lines.
+- **Next:** nothing admitted.
+
+## 2026-10-22 — Issue registration revision 17 over the second P24 merge batch
+
+- **Why:** P24 (active); the second merge batch carries pinned-file changes that need one re-pin, and the walk-forward fix must be live before the 2026-10-25 drain.
+- **What:** merged p24/ops-2, p24/sec-time, p24/nightly-speed and p24/sim-speed. Registration revision 17 re-pins the changed files and adds `engine/sec_acceptance.py`; E1 v8, sector v12 and XS v23 keep their versions, and each explicit migration accepts only the deployed revision-16 digest. P18 core bumped to `p18-study-v3` for audit E7/E8. Disclosed: the SEC acceptance fix revives P15's SEC 8-K source (it had rejected 51 of 52 responses). The storage work becomes revision 18.
+- **Evidence:** full suites 5,848 passed, 0 failed under TZ=UTC and Asia/Singapore with warnings as errors; ruff blocking selections pass; trading-alpha's 287 tests (75) pass against this tree; one walk-forward fold 4,872 s → 582 s with identical ledger digests (sim-speed entry).
+- **Metrics:** see the 2026-10-22 snapshot.
+- **Next:** fast-forward main, run the three runtime-contract migrations, watch tonight's intraday stage time and the first P15 SEC 8-K summary.
+
 ## 2026-10-21 — Land wave-1 b-platform (hygiene gate, lane tool) on the rewritten main
 
 - **Why:** P24 integrate lane; b-platform was reviewed to ACCEPT on the pre-rewrite revision-15 base.

@@ -59,10 +59,21 @@ class Universe:
 
     @staticmethod
     def mdv60(view: PointInTimeView, ticker: str, session: date) -> float | None:
-        rows = view.history(ticker, ("close", "volume"), before=session, limit=60)
-        values = [row["close"] * row["volume"] for row in rows
-                  if row["close"] is not None and row["volume"] is not None]
-        return float(np.median(values)) if values else None
+        """Median close x volume of the last 60 bars before `session` that the
+        view can see: the same bars `PriceSource.mdv60` prices fills from."""
+        panel = view.source.panel
+        ti = panel.ticker_index.get(ticker)
+        if ti is None:
+            return None
+        close, volume = panel.fields["close"][ti], panel.fields["volume"][ti]
+        valid = ((panel.session_days < np.datetime64(session))
+                 & (panel.session_days <= np.datetime64(view.session))
+                 & panel.present[ti] & (close > 0) & ~np.isnan(volume))
+        indexes = np.flatnonzero(valid)[-60:]
+        for index in indexes:  # each input must be known at the decision
+            view.value(ticker, "close", panel.sessions[index])
+            view.value(ticker, "volume", panel.sessions[index])
+        return float(np.median(close[indexes] * volume[indexes])) if indexes.size else None
 
     def eligible(self, view: PointInTimeView, session: date, *, min_mdv60: float = 0,
                  min_price: float = 0) -> list[str]:

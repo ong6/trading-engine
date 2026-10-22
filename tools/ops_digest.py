@@ -109,6 +109,8 @@ HOST_FAILURE_RE = re.compile(
     r"\b(fetch|push) failed\b|\b\w+ failed \(non-fatal\)"
     r"|\bstatus=(failed|error)\b|\bfatal:|\bTIMEOUT\b"
     r"|\[queue[^]]*\].*\bfailed\b", re.IGNORECASE)
+DRAIN_OUTCOME_RE = re.compile(
+    r"\[queue\] drain outcome: \d+ done, (\d+) timed out, (\d+) failed, (\d+) left pending")
 FAILED_COUNT_RE = re.compile(
     r'\b(failed(?:_this_run)?|unavailable_count)["\s]*[:=]\s*([1-9]\d*)\b')
 HOST_LOG_GLOBS = (
@@ -202,6 +204,11 @@ def classify(line: str) -> str | None:
                 "latest snapshot is", "already successfully", "already successful",
                 "not a trading session", "no session")):
         return None
+    # The queue's drain summary names every outcome, so classify it by its counts:
+    # "0 timed out, 0 failed" is a clean drain, not a failure.
+    if outcome := DRAIN_OUTCOME_RE.search(head):
+        timed_out, failed, pending = (int(value) for value in outcome.groups())
+        return "error" if timed_out or failed else ("warn" if pending else None)
     if ERROR_RE.search(head) or HOST_FAILURE_RE.search(head):
         return "error"
     if WARN_RE.search(head) or FAILED_COUNT_RE.search(head):
@@ -1634,10 +1641,21 @@ def _due(schedule: Schedule, start: datetime, end: datetime) -> list[datetime] |
     return due[-1:] if schedule.output else due  # one output file proves only the latest run
 
 
+def _occupied(schedule: Schedule, moment: datetime, item: JobRun) -> bool:
+    """A timer that fires while its service is still active starts nothing: the slot is
+    taken by the run in progress, not missed."""
+    if schedule.unit is None or item.start is None or item.start > moment:
+        return False
+    if item.seconds is not None:
+        return item.start + timedelta(seconds=item.seconds) >= moment
+    return item.label == "running"
+
+
 def _unmatched(schedule: Schedule, due: list[datetime], runs: list[JobRun]) -> list[datetime]:
     late = timedelta(seconds=schedule.slack_s + RUN_GRACE_S)
     return [moment for moment in due if not any(
         item.start is not None and moment - timedelta(minutes=1) <= item.start <= moment + late
+        or _occupied(schedule, moment, item)
         for item in runs)]
 
 

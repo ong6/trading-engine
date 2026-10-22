@@ -1,6 +1,7 @@
 """Admission and exact-response persistence for optional market-data sources."""
 from __future__ import annotations
 
+import json
 import os
 import stat
 from dataclasses import dataclass
@@ -43,6 +44,10 @@ SOURCES = {
         "historical_authority": "retrieval_time_research_only",
     },
 }
+
+
+INSERT_ROWS_PER_STATEMENT = 500
+_FACT_VALUES = "(" + ",".join("?" * 17) + ")"
 
 
 class MarketDataError(ValueError):
@@ -126,32 +131,129 @@ def retain_observations(
     if receipt != (source_id, receipt_dataset, expected_received):
         raise MarketDataError("observation receipt source or dataset does not match")
     ingested = datetime.now(timezone.utc) if ingested_at is None else ingested_at
-    retained = []
     with db.transaction(con):
-        for observation in observations:
-            if set(observation) != {"ticker", "event_at", "payload"}:
-                raise MarketDataError("normalized market-data observation shape is invalid")
-            payload = {**observation["payload"], "source_id": source_id,
-                       "venue_scope": policy["venue_scope"],
-                       "consolidated": policy["consolidated"],
-                       "execution_authority": "none"}
-            prior = con.execute(
-                "SELECT fact_sha256,revision FROM bitemporal_facts WHERE entity_id=? "
-                "AND fact_type=? AND event_at=? AND normalized_sha256=? AND source=? "
-                "AND source_version=? AND receipt_sha256=? ORDER BY revision DESC LIMIT 1",
-                [observation["ticker"], fact_type, observation["event_at"],
-                 canonical_sha256(payload), source_id, source_version, receipt_sha256],
-            ).fetchone()
-            if prior is not None:
-                retained.append({"fact_sha256": prior[0], "revision": int(prior[1]),
-                                 "replayed": True})
-                continue
-            retained.append(bitemporal_facts.record_fact(
-                con, entity_id=observation["ticker"], security_id=observation["ticker"],
-                fact_type=fact_type, event_at=observation["event_at"], published_at=None,
-                available_at=received_at, ingested_at=ingested, payload=payload,
-                source=source_id, source_version=source_version, receipt_sha256=receipt_sha256,
-            ))
+        if _batchable(con, observations):
+            return _retain_batch(con, policy, source_id, receipt_sha256, received_at,
+                                 observations, fact_type, source_version, ingested)
+        return [_retain_one(con, policy, source_id, receipt_sha256, received_at,
+                            observation, fact_type, source_version, ingested)
+                for observation in observations]
+
+
+def _payload(policy: dict, source_id: str, observation: dict) -> dict:
+    if not isinstance(observation, dict) or set(observation) != {"ticker", "event_at", "payload"}:
+        raise MarketDataError("normalized market-data observation shape is invalid")
+    return {**observation["payload"], "source_id": source_id,
+            "venue_scope": policy["venue_scope"],
+            "consolidated": policy["consolidated"],
+            "execution_authority": "none"}
+
+
+def _retain_one(con, policy, source_id, receipt_sha256, received_at, observation,
+                fact_type, source_version, ingested) -> dict:
+    """One observation through the per-row queries (inputs the batch cannot key)."""
+    payload = _payload(policy, source_id, observation)
+    prior = con.execute(
+        "SELECT fact_sha256,revision FROM bitemporal_facts WHERE entity_id=? "
+        "AND fact_type=? AND event_at=? AND normalized_sha256=? AND source=? "
+        "AND source_version=? AND receipt_sha256=? ORDER BY revision DESC LIMIT 1",
+        [observation["ticker"], fact_type, observation["event_at"],
+         canonical_sha256(payload), source_id, source_version, receipt_sha256],
+    ).fetchone()
+    if prior is not None:
+        return {"fact_sha256": prior[0], "revision": int(prior[1]), "replayed": True}
+    return bitemporal_facts.record_fact(
+        con, entity_id=observation["ticker"], security_id=observation["ticker"],
+        fact_type=fact_type, event_at=observation["event_at"], published_at=None,
+        available_at=received_at, ingested_at=ingested, payload=payload,
+        source=source_id, source_version=source_version, receipt_sha256=receipt_sha256,
+    )
+
+
+def _batchable(con: duckdb.DuckDBPyConnection, observations: list) -> bool:
+    """True when every lookup key is a string ticker and an aware datetime on a UTC session,
+    so prefetched rows compare exactly as the per-row parameters do."""
+    return bool(observations) and all(
+        isinstance(item, dict) and isinstance(item.get("ticker"), str)
+        and type(item.get("event_at")) is datetime and item["event_at"].utcoffset() is not None
+        for item in observations
+    ) and con.execute("SELECT current_setting('TimeZone')").fetchone()[0] == "UTC"
+
+
+def _retain_batch(con, policy, source_id, receipt_sha256, received_at, observations,
+                  fact_type, source_version, ingested) -> list[dict]:
+    """``_retain_one`` for each observation in order, with two lookups and one insert.
+
+    Prior and latest revisions are read once for the batch's tickers and event range,
+    then updated as each new revision is assigned, so every observation sees exactly
+    the rows its per-row queries would have seen. Ids stay ``MAX(id)+1`` in order.
+    """
+    keyed = [item["event_at"].astimezone(timezone.utc).replace(tzinfo=None)
+             for item in observations]
+    tickers = sorted({item["ticker"] for item in observations})
+    marks = ",".join("?" for _ in tickers)
+    prior = {
+        (row[0], row[1], row[2]): (row[4], int(row[3]))
+        for row in con.execute(
+            "SELECT entity_id,event_at,normalized_sha256,revision,fact_sha256 "
+            "FROM bitemporal_facts WHERE fact_type=? AND source=? AND source_version=? "
+            f"AND receipt_sha256=? AND entity_id IN ({marks}) "
+            "QUALIFY revision=MAX(revision) OVER (PARTITION BY entity_id,event_at,normalized_sha256)",
+            [fact_type, source_id, source_version, receipt_sha256, *tickers],
+        ).fetchall()
+    }
+    latest = {
+        (row[0], row[1]): (int(row[2]), row[3], row[4])
+        for row in con.execute(
+            "SELECT entity_id,event_at,revision,normalized_sha256,fact_sha256 "
+            f"FROM bitemporal_facts WHERE fact_type=? AND entity_id IN ({marks}) "
+            "AND event_at>=? AND event_at<=? "
+            "QUALIFY revision=MAX(revision) OVER (PARTITION BY entity_id,event_at)",
+            [fact_type, *tickers, min(keyed), max(keyed)],
+        ).fetchall()
+    }
+    receipt_checked, next_id, rows, retained = False, None, [], []
+    for observation, event_key in zip(observations, keyed, strict=True):
+        payload = _payload(policy, source_id, observation)
+        ticker, normalized_sha = observation["ticker"], canonical_sha256(payload)
+        found = prior.get((ticker, event_key, normalized_sha))
+        if found is not None:
+            retained.append({"fact_sha256": found[0], "revision": found[1], "replayed": True})
+            continue
+        event, published, available, ingested_time = bitemporal_facts.validated_fact_times(
+            entity_id=ticker, fact_type=fact_type, source=source_id,
+            source_version=source_version, event_at=observation["event_at"],
+            published_at=None, available_at=received_at, ingested_at=ingested,
+        )
+        if not receipt_checked:
+            bitemporal_facts.require_receipt(con, receipt_sha256)
+            receipt_checked = True
+        normalized = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        current = latest.get((ticker, event))
+        if current is not None and current[1] == normalized_sha:
+            retained.append({"fact_sha256": current[2], "revision": current[0],
+                             "replayed": True})
+            continue
+        revision = 1 if current is None else current[0] + 1
+        if next_id is None:
+            next_id = int(con.execute(
+                "SELECT COALESCE(MAX(id),0)+1 FROM bitemporal_facts").fetchone()[0])
+        row = bitemporal_facts.fact_row(
+            fact_id=next_id + len(rows), entity_id=ticker, security_id=ticker,
+            fact_type=fact_type, event=event, published=published, available=available,
+            ingested=ingested_time, revision=revision, normalized=normalized,
+            normalized_sha=normalized_sha, source=source_id, source_version=source_version,
+            receipt_sha256=receipt_sha256, previous=None if current is None else current[2],
+        )
+        rows.append(row)
+        latest[(ticker, event)] = (revision, normalized_sha, row[-1])
+        prior[(ticker, event, normalized_sha)] = (row[-1], revision)
+        retained.append({"fact_sha256": row[-1], "revision": revision, "replayed": False})
+    for first in range(0, len(rows), INSERT_ROWS_PER_STATEMENT):
+        part = rows[first:first + INSERT_ROWS_PER_STATEMENT]
+        # One multi-row VALUES statement; executemany binds and runs each row separately.
+        con.execute("INSERT INTO bitemporal_facts VALUES " + ",".join([_FACT_VALUES] * len(part)),
+                    [value for row in part for value in row])
     return retained
 
 

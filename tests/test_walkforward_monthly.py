@@ -52,6 +52,23 @@ def test_stationary_bootstrap_block_one_is_iid():
     assert idx.tolist() == [[4, 3, 2, 1, 0]]     # never continues a block
 
 
+@pytest.mark.parametrize("n,n_boot,mean_block,seed", [
+    (1, 3, 4, 0), (2, 5, 1.5, 1), (17, 40, 4, 2), (120, 300, 12, 3), (500, 20, 0.5, 4),
+])
+def test_stationary_bootstrap_indices_match_the_column_recurrence(n, n_boot, mean_block, seed):
+    # The vectorised indices equal the original column-by-column recurrence.
+    rng = np.random.default_rng(seed)
+    p = 1.0 if mean_block <= 1 else 1.0 / mean_block
+    starts = rng.integers(0, n, size=(n_boot, n))
+    cont = rng.random((n_boot, n)) >= p
+    expected = np.empty((n_boot, n), dtype=np.int64)
+    expected[:, 0] = starts[:, 0]
+    for j in range(1, n):
+        expected[:, j] = np.where(cont[:, j], (expected[:, j - 1] + 1) % n, starts[:, j])
+    idx = wm.stationary_bootstrap_indices(n, n_boot, mean_block, np.random.default_rng(seed))
+    assert idx.dtype == np.int64 and np.array_equal(idx, expected)
+
+
 def test_block_bootstrap_ci_constant_series_is_degenerate():
     ci = wm.block_bootstrap_ci([0.01] * 30, stat="mean", n_boot=200)
     assert ci["lo"] == pytest.approx(0.01) and ci["hi"] == pytest.approx(0.01)
