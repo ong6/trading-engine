@@ -196,13 +196,18 @@ def _v2_result(
     qty: float,
     reference_px: float,
     mdv: float | None,
-    slip_bps: float,
+    spread_bps: float,
     fill_kind: str,
     price_source: str,
     bar_ref: str,
     fill_ts: datetime,
     profile: str | execution.ExecutionProfile | None,
+    adverse: bool = True,
+    impact: bool = True,
+    penalty_bps: float = 0.0,
 ) -> FillResult:
+    """Price one v2 fill: the profile scales the path's half-spread and adds its
+    fixed adverse movement (when the path has one) and participation impact."""
     refusal = money_inputs.order_refusal(side, qty, reference_price=reference_px)
     if refusal:
         return FillResult(status="rejected", reject_reason=refusal)
@@ -229,6 +234,14 @@ def _v2_result(
     direction = 1 if side in {"buy", "cover"} else -1
     if side not in {"buy", "sell", "short", "cover"}:
         raise ValueError(f"bad side {side!r}")
+    impact_bps = 0.0
+    if impact and selected.impact_coefficient_bps and participation > 0:
+        impact_bps = selected.impact_coefficient_bps * math.pow(
+            participation / selected.impact_reference_participation,
+            selected.impact_exponent)
+    slip_bps = (spread_bps * selected.spread_multiplier
+                + (selected.fixed_adverse_bps if adverse else 0.0)
+                + impact_bps + penalty_bps)
     fill_px = reference_px * (1 + direction * slip_bps / 1e4)
     if money_inputs.order_refusal(side, qty, fill_price=fill_px) or not math.isfinite(qty * fill_px):
         return FillResult(status="rejected", reject_reason="invalid_order: fill arithmetic")
@@ -240,7 +253,7 @@ def _v2_result(
         cost_bps=slip_bps,
         median_dollar_vol=mdv,
         participation=participation,
-        impact_bps=0.0,
+        impact_bps=impact_bps,
         fee_bps=0.0,
         execution_profile=selected.id,
         fill_kind=fill_kind,
@@ -288,7 +301,6 @@ def attempt_next_open_fill(
     mdv = bar_sources.median_dollar_volume(
         con, ticker, fill_date, source=price_source, available_at=available_at,
     )
-    slip = half_spread_bps(mdv) + 5.0 + penalty_bps
     fill_ts = datetime.combine(
         fill_date, datetime.min.time().replace(hour=9, minute=30),
         bar_sources.NEW_YORK,
@@ -298,7 +310,8 @@ def attempt_next_open_fill(
         qty=qty,
         reference_px=bar.open,
         mdv=mdv,
-        slip_bps=slip,
+        spread_bps=half_spread_bps(mdv),
+        penalty_bps=penalty_bps,
         fill_kind="next_open",
         price_source=price_source,
         bar_ref=bar.bar_ref,
@@ -344,7 +357,6 @@ def attempt_auction_fill(
     )
     # Auction orders trade at one clearing print: half the normal estimated
     # half-spread tier and no fixed adverse-movement component.
-    slip = half_spread_bps(mdv) / 2 + penalty_bps
     opened, _closed = bar_sources.session_bounds(session_date)
     fill_ts = opened if opening else _utc_naive(order_types.session_close(session_date))
     return _v2_result(
@@ -352,7 +364,9 @@ def attempt_auction_fill(
         qty=qty,
         reference_px=reference,
         mdv=mdv,
-        slip_bps=slip,
+        spread_bps=half_spread_bps(mdv) / 2,
+        adverse=False,
+        penalty_bps=penalty_bps,
         fill_kind="open_auction" if opening else "close_auction",
         price_source=price_source,
         bar_ref=bar.bar_ref,
@@ -449,13 +463,12 @@ def attempt_intraday_market_fill(
     mdv = bar_sources.median_dollar_volume(
         con, ticker, session_date, source=daily_price_source, available_at=available_at,
     )
-    slip = half_spread_bps(mdv) + 5.0
     return _v2_result(
         side=side,
         qty=qty,
         reference_px=reference,
         mdv=mdv,
-        slip_bps=slip,
+        spread_bps=half_spread_bps(mdv),
         fill_kind="intraday_bar",
         price_source=price_source,
         bar_ref=bar.bar_ref,
@@ -538,7 +551,10 @@ def attempt_intraday_limit_fill(
         qty=qty,
         reference_px=limit_px,
         mdv=mdv,
-        slip_bps=0.0,
+        # A touched limit fills at its own price: no spread, adverse or impact.
+        spread_bps=0.0,
+        adverse=False,
+        impact=False,
         fill_kind="limit_touch",
         price_source=price_source,
         bar_ref=touched.bar_ref,
