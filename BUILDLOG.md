@@ -4408,4 +4408,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** the lane extends migration 0000 to the live catalog and lazily created tables; then re-rehearse.
 
+## 2026-10-22 — Exercise the post-migration storage path on a reconciled store copy
+
+- **Why:** the deploy path stops at migration (previous entry), so the generation, reader, backup and restore machinery was exercised on a synthetic copy: a fresh baseline catalog filled with the store copy's rows.
+- **What:** reconcile 212 s (live `actions_fetch_log` rows violate the baseline NOT NULL and were left out; three live-only tables dropped); backup 656 s; migration applied in 324 s; first generation published in 365 s (hot file 3.0 GB plus shared cold parts, 7.2 GB for two generations), republish 268 s; readers pin in 5 s and serve board and evidence reads; the invariant checker runs on the generation in 6 s; a generation-backed backup takes 491 s plus 163 s verify, and its restore is byte-identical with an equal logical snapshot. Publication and backup peak at about 24 GB RSS (`COPY FROM DATABASE` and the hot build, as on main). The deploy and rollback checklist is `docs/revision-18-storage-deploy-checklist.md`.
+- **Evidence:** every step exit 0 in the rehearsal log; restore check prints "matches".
+- **Metrics:** docs +1 file.
+- **Next:** fix the two migration blockers in the storage lane, then repeat the real-copy rehearsal before any re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
