@@ -24,7 +24,7 @@ from pathlib import Path
 import duckdb
 
 from engine.lib import db as engine_db
-from engine.lib import resources
+from engine.lib import resources, store_limits
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from engine.lib.snapshots import (
     COLD_APPEND_FRONTIERS,
@@ -50,7 +50,6 @@ _PUBLICATION_LOCK_HELD: ContextVar[bool] = ContextVar(
 # Every DuckDB connection publication opens is capped and spills to the snapshot directory;
 # DuckDB's default (80% of host memory) let the first 12 GB generation reach 24 GB RSS.
 PUBLISH_MEMORY_LIMIT = "4GB"
-CAPTURE_FREE_MARGIN_BYTES = 1 << 30
 CAPTURE_LOCK_WAIT_S = 30.0
 PUBLISH_THREADS = 4
 SPILL_DIRECTORY = ".spill"
@@ -554,9 +553,6 @@ def _open_capture_handle(source: Path, wait_s: float) -> duckdb.DuckDBPyConnecti
 
 def _copy_capture(source: Path, capture: Path) -> None:
     """Copy the primary's bytes (and a pending WAL, replayed into the copy) for the build."""
-    needed = source.stat().st_size + CAPTURE_FREE_MARGIN_BYTES
-    if shutil.disk_usage(capture.parent).free < needed:
-        raise SnapshotError("publication needs free space for a copy of the primary")
     shutil.copyfile(source, capture)
     os.chmod(capture, 0o600)
     wal = source.with_name(f"{source.name}.wal")
@@ -976,6 +972,16 @@ def _publish_locked(
     try:
         lock_started = time.monotonic()
         with backup_database._exclusive_backup_window(repo_root, skip_locks=held_locks):
+            # Checked inside the window, so a backup cannot spend the same free space. The
+            # capture copies the primary, and a generation rewrites the hot part and appends
+            # cold parts: twice the database size is the conservative bound.
+            try:
+                store_limits.require_free_space(
+                    directory, purpose="publish a store snapshot",
+                    need_bytes=2 * store_limits.file_bytes(source),
+                )
+            except store_limits.DiskSpaceError as exc:
+                raise SnapshotError(str(exc)) from exc
             # The capture window: producer locks plus a read-only handle that keeps API
             # writers out only while the file bytes are copied (seconds, not the build).
             source_connection = _bounded(
