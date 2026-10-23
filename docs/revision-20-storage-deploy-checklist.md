@@ -52,18 +52,20 @@ generations; see pre-flight 6.
 - **Known guard bypasses (accepted residual risk).** DDL assembled at run time from values the coverage scan cannot
   resolve, DuckDB relation-API persistence (refused at run time by the guard instead), and statements against the
   separate pit/research databases; publication and backup re-verify the exact catalog, so a bypass fails closed there.
-- **Integrator-owned, still open:** the single re-pin (below); the off-host remote restore drill (needs a
-  generation-backed bundle committed to the private backup repo); orchestrator sign-off on pausing TradingView history.
+- **Still open:** the off-host remote restore drill (needs a generation-backed bundle committed to the private backup
+  repo); orchestrator sign-off on pausing TradingView history.
 
-## Re-pin needed (once, at merge)
+## Re-pin (done on the branch: registration revision 20)
 
-Pinned files changed by the storage revision: `engine/lib/db.py` (P15 + E1/sector/XS runtime), `engine/lib/snapshots.py`,
-`tools/backup_database.py`, `tools/publish_snapshot.py`, `engine/queue_runner.py`, `engine/signals.py`,
-`engine/tradingview_history_archive.py` (P15). 104 pin tests fail only for this.
+`server/p15-registration.json` is revision 20 over the storage revision and the reliability-ops limits
+(`engine/lib/store_limits.py` joins the registered closure). E1 v8, sector v12 and XS v23 keep their versions; each
+runner's `--migrate-runtime-contract` accepts only the deployed revision-19 digest (E1 `2c8ec5b0…`, sector
+`bad25764…`, XS `d00ee812…`), and the deploy script runs the three migrations after the schema migration. A later
+change to a registered file needs another revision.
 
 ## Pre-flight (all must hold)
 
-1. `main` contains the merged branch; both timezone suites green after the single re-pin; `ruff check .` clean.
+1. `main` contains the merged branch at registration revision 20; both timezone suites green; `ruff check .` clean.
 2. `.venv/bin/python -m engine.job_contract audit` → `status: ok`; `python -m tools.schedule_contract_check --static` clean.
 3. Free space ≥ 70 GiB on the store filesystem (restore reserve) plus 3× store size: the backup, the first generation,
    and publication's transient copy of the primary.
@@ -136,39 +138,33 @@ restore drill passes, with the producer lock held and TradingView jobs drained. 
 writers to zstd, after which a code rollback can no longer read new raw payloads; its rollback is the off-host raw
 archive.
 
-## Rehearsal result (2026-10-22, real store copies, after the storage review)
+## Rehearsal result (2026-10-22/23, real store copies)
 
-Copies of the 18:07 published snapshot (12.7 GB, SHA-256 = manifest, catalog `865f64aa…`; `store/backups/` is
-empty), each the `store/market.duckdb` of a sandbox clone at main's 1fae615d (the pre-deploy code) with no remote.
-Deploy and rollback are the committed scripts, run from fresh shells (`env -i`); host steps (units, crontab) are
-stand-ins that only log, and the readers are a real API process for the sandbox store. Wall clock (peak RSS).
+Copies of the 18:07 published snapshot (12.7 GB, SHA-256 = manifest, catalog `865f64aa…`), each the
+`store/market.duckdb` of a sandbox clone with no remote. Deploy and rollback are the committed scripts, run from fresh
+shells (`env -i`); host steps (units, crontab) are stand-ins that only log, and the readers are a real API process for
+the sandbox store. Wall clock (peak RSS).
 
-Deploy at 4a778427 (same migration 0000 as the final head) and the checks after it:
-
-| Step | Result |
-|---|---|
-| pre-flight plan, read-only | 1 s; pre-image `865f64aa…` |
-| pre-flight NOT NULL count, read-only | 1 s; all five columns 0 NULL |
-| backup create + verify | 528 s (5.1 GB) + 171 s (5.0 GB) |
-| migration apply | 339 s (5.0 GB); catalog `7286ea9b…`, plan after `current` |
-| first generation | 706 s (5.1 GB); producer locks and capture handle held 49 s (was 612 s) |
-| readers | health 200 with generation headers; first evidence read 4.6 min (cold projection cache), then 200 |
-| invariants on the generation | 11 s (1.4 GB), all ten pass |
-| evidence read after an API write | 200, `pending_publication: true` (was 503) |
-| republish with one API write per second | 843 s (4.8 GB); capture 131 s; 60 of 127 cold parts reused by frontier; 475 writes 200, 2 returned 503 after the then 45 s wait (now 180 s, rerun below) |
-| publish-on-change after the writes / unchanged | 801 s (4.9 GB), then evidence `pending_publication: false` / 6 s skip |
-| weekend clock (+40 h, one unpublished write) | `/league` 200 `x-generation-stale: true`; `/health` 200 `degraded`; `/meta` and `/agent/evaluation/status` 200 with `stale: true` |
-| queue drain, walkforward child (spy_benchmark, 1 fold) | 59 s (2.4 GB); the child read the published generation; done |
-| one real nightly (`engine/run_daily.sh`, sandbox HOME, no remote, drain budget -1) | 33 min: collect 406 s, actions 497 s, market date **2026-10-22**, screen, league 69 s (33 books' equity advanced from 2026-10-21 to 2026-10-22), sync (local commit only), verify, snapshot 893 s; no `SchemaMigrationRequired`; invariants pass on the new generation |
-| E1, sector and XS records in that nightly | written as **INVALID** ("strategy/execution source changed" / "E1 runtime source changed"): the runtime-contract pins refuse until the single re-pin, as the 104 pin tests predict; repeat this step after the re-pin |
-
-Deploy and rollback at the final head (aa048662), fresh shells:
+Final run at the re-pinned head 5fd9cd59 (registration revision 20, series-B DuckDB limits), from the deployed
+revision-19 code e7cd03a1 with the live checkout's generated `data/` files (deployed contract digests):
 
 | Step | Result |
 |---|---|
-| deploy.sh end to end (fresh shell) | 38 min: plan 1 s, NOT NULL count 1 s, backup 620 s + verify 183 s, migration 370 s, first generation 770 s (5.0 GB), readers 5.4 min, invariants 12 s; every check passed; state in `state.env` |
-| API writes during a republication (one per second) | 488 writes, all 200; slowest waited 130 s for the 131 s capture; republish 893 s (5.4 GB), 60 cold parts reused |
-| rollback.sh from a fresh shell (after a post-release write) | 11 min: backup re-verified 262 s, incident copy and quarantined generations kept, checkout detached at 1fae615d, primary restored byte for byte (SHA-256 equals the copied snapshot), `schema_migrations` absent, the post-release row gone (kept in the incident copy), previous-format snapshot 84 s, previous-code API 200 |
-| peak RSS of any step | 5.4 GB |
+| pre-flight plan / NOT NULL count, read-only | 1 s / 1 s; pre-image `865f64aa…`, all five columns 0 NULL |
+| backup create + verify | 527 s (5.1 GB) + 168 s |
+| migration apply | 341 s (5.0 GB); catalog `7286ea9b…`, plan after `current` |
+| runtime-contract migrations | E1, sector, XS each 1 s, from the deployed digests to `7c5a169d…`, `a39c219d…`, `718d6417…`; the ordinary refresh after them is ACCUMULATING, not INVALID |
+| first generation | 670 s (5.1 GB); producer locks and capture handle held 16 s |
+| readers, first evidence read (no projection yet) | 4.6 min once, then the projection is cached on disk |
+| evidence read, warm / after an API restart / after a write | 200 in 33 s each (`projection_current: true`; `pending_publication` true after the write); the 33-47 s is `agent_evaluation.status`, which takes 47 s on the single-file store as well |
+| republish with one API write per second | 827 s (5.9 GB); capture 17 s; 60 cold parts reused; 539 of 539 writes 200, slowest 18 s |
+| one real nightly (`engine/run_daily.sh`, sandbox HOME, no remote, drain budget -1) | 31 min: collect 302 s, actions 491 s, market date 2026-10-22, league 63 s, 33 books' equity advanced 2026-10-21 → 2026-10-22; sector and XS records ACCUMULATING under the re-pinned contracts; E1 report valid (13 Mondays, no Monday on a Thursday); snapshot 843 s; invariants pass |
+| evidence after the nightly's new inputs | 200 in 46 s with the previous projection (`projection_current: false`); the background warmer made it current 286 s later; no request waited for the cold projection |
+
+Earlier runs at 4a778427 and aa048662 (before the re-pin and series B): the rollback script from a fresh shell
+restored the primary byte for byte (SHA-256 equals the copied snapshot), kept the post-release row in the incident
+copy and served the previous code's API (11 min); a +40 h clock served the board stale-flagged (`/health` 200
+`degraded`) and never 503; a walkforward child ran from the published generation (59 s); publish-on-change cleared
+`pending_publication` and skipped an unchanged primary in 6 s.
 
 The off-host `remote_restore_drill` was not run (needs a generation-backed bundle committed to the private backup repo).

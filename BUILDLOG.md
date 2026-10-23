@@ -4998,4 +4998,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +8 lines, engine +7 lines, tests −2 lines.
 - **Next:** finish the rehearsal.
 
+## 2026-10-23 — Rehearse the re-pinned storage revision with series B limits and a real nightly
+
+- **Why:** orchestrator pass after the re-pin: show valid E1, sector and XS records from a real nightly after the deploy script and its contract migrations, and re-run the write-during-publication and evidence checks with series B's DuckDB limits.
+- **What:** on a copy of the 18:07 snapshot in a sandbox at the deployed revision-19 code (with the live checkout's generated `data/` files, which carry the deployed contract digests), the deploy script at 5fd9cd59 ran the schema migration, the three runtime-contract migrations (each from the deployed digest) and a valid ordinary refresh, then published (capture 16 s). 539 API writes during a republication all returned 200 (slowest 18 s). Evidence reads took 33-47 s warm, after an API restart and after the nightly's new inputs (served the previous projection while the warmer finished in 286 s); the remaining time is the pre-existing `agent_evaluation.status`, 47 s on the single-file store too. The nightly advanced 33 books to 2026-10-22 with sector and XS ACCUMULATING and the E1 report valid. The first deploy attempt stopped correctly: a sandbox seeded only from git carried an older E1 digest than the live checkpoint, and the migration accepts only the deployed one. Copies deleted.
+- **Evidence:** the rehearsal table in `docs/revision-20-storage-deploy-checklist.md`.
+- **Metrics:** docs only.
+- **Next:** orchestrator review and merge; the deploy stays held for trial 287.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
