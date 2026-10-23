@@ -29,9 +29,16 @@ PY="${P20_PY:-$P20_ROOT/.venv/bin/python}"
 export P20_ROOT P20_STATE PY
 P20_RELEASING=0
 
+P20_PAUSED_ONLY=0
 on_error() {
   local rc=$?
   echo "deploy stopped (exit $rc) at: $(tail -1 "$P20_STATE/progress.log" 2>/dev/null)" >&2
+  if test "$P20_PAUSED_ONLY" = 1; then
+    # Refused before anything but the pause: undo it, nothing else changed.
+    trap - ERR
+    p20_resume_pullers && echo "refused before quiescing; the nightly crontab and te-autopush are resumed" >&2
+    exit "$rc"
+  fi
   if test "$P20_RELEASING" = 1; then
     echo "producers were being released and some may be running; inspect them, then roll back with: P20_STATE=$P20_STATE bash $P20_STATE/rollback.sh" >&2
   else
@@ -53,13 +60,18 @@ source "$P20_STATE/common.bash"
 # shellcheck source=ops/storage-r20/host.bash
 source "$P20_STATE/host.bash"
 
+step "pause the nightly and te-autopush (nothing may pull the merge before quiescence)"
+p20_capture
+P20_PAUSED_ONLY=1
+p20_pause_pullers
+
 step "record pre-deploy identity"
 p20_require_main
 git rev-parse --quiet --verify "$P20_APPROVED_SHA^2" >/dev/null \
   || refuse "the approved commit is not a merge (rollback reverts it with -m 1)"
 git merge-base --is-ancestor "$P20_APPROVED_SHA" origin/main \
   || refuse "the approved merge is not on origin/main"
-# Refuse before anything stops: only data/ commits may follow the approved merge on main.
+# Refuse before anything else stops: only data/ commits may follow the approved merge on main.
 p20_data_only_since "$P20_APPROVED_SHA" origin/main
 record P20_ROOT "$P20_ROOT"
 record P20_STATE "$P20_STATE"
@@ -68,9 +80,8 @@ record P20_PREDEPLOY_SHA "$(git rev-parse HEAD)"
 record P20_APPROVED_SHA "$P20_APPROVED_SHA"
 record P20_PHASE captured
 
-step "capture units, crontab and processes"
-p20_capture
 step "quiesce producers, te-autopush and readers"
+P20_PAUSED_ONLY=0
 p20_quiesce
 p20_store_identity record
 record P20_PHASE quiesced

@@ -5126,4 +5126,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** pinned engine/lib/db.py +35 lines; contract literals 3; tests +35 lines.
 - **Next:** deploy pauses the pullers first; rollback restores the forward records.
 
+## 2026-10-23 — Deploy pauses the pullers first; rollback restores the forward records (round-2 decisions, items 1 and 2)
+
+- **Why:** orchestrator decisions. (1) A rollback past the contract migrations left E1's checkpoint and the sector and XS reports with revision-20 digests, which the previous code refused (rehearsed: E1 "checkpoint is invalid", both reviews INVALID). (2) The merge is pushed and the deploy started in one sitting, so the deploy's first step must stop anything that could pull the merge before quiescence.
+- **What:** `deploy.sh` first captures the host state and pauses the nightly (crontab) and `te-autopush.timer`, refusing while a nightly runs; a refusal before quiescence resumes both at once. `rollback.sh`, after restoring the primary, restores the forward records (`P20_FORWARD_RECORDS` in `common.bash`: E1's checkpoint and pages, the sector and XS reports and pages) to the deployed commit's versions through a data commit, runs one normal forward refresh under the previous code, refuses to release unless none of E1, sector or XS is INVALID, and commits the refresh. The deployed commit (`P20_DEPLOYED_SHA`, recorded after the fast-forward) is the commit the verified backup was taken at; it equals the merge's first parent plus the data-only commits before the deploy, so the records match the restored primary even when data commits followed the merge.
+- **Evidence:** `pytest tests/test_storage_r20_ops.py` (6 passed): a refusal at the first check shows only capture, pause and resume; a rollback after release restores the store and the three records, commits and pushes, then releases; a refresh that finds the restored records unusable stops before readers and release with producers quiesced.
+- **Metrics:** ops +55 lines; docs: deploy step 1, rollback step 4 and the forward-records paragraph; tests +110 lines.
+- **Next:** publication cadence; re-pin; rehearse the post-release rollback once more.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

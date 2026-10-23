@@ -2,6 +2,18 @@
 # executed). Requires P20_ROOT, P20_STATE and PY; the callers run under `set -euo pipefail`
 # from the live checkout.
 
+# The files the deploy's runtime-contract migrations rewrite: E1's checkpoint and the sector
+# and XS forward reports (with their rendered pages).
+P20_FORWARD_RECORDS=(
+  data/reports/experiments/e1-spy-monday-forward.json
+  data/reports/experiments/e1-spy-monday-forward.md
+  data/reports/experiments/e1-spy-monday.md
+  data/reports/forward/sector_momentum.json
+  data/reports/forward/sector_momentum.md
+  data/reports/forward/xs_momentum_12_1.json
+  data/reports/forward/xs_momentum_12_1.md
+)
+
 step() { printf '== %s %s\n' "$(date -u +%FT%TZ)" "$*" | tee -a "$P20_STATE/${P20_LOG:-progress.log}"; }
 record() { printf '%s=%q\n' "$1" "$2" >> "$P20_STATE/state.env"; }
 refuse() { echo "refused: $*" >&2; return 1; }

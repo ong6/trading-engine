@@ -22,6 +22,30 @@ p20_capture() {
   touch "$P20_STATE/host-captured"
 }
 
+p20_pause_pullers() {
+  # First, before any check: nothing may move the live checkout onto the pushed merge.
+  # The nightly (crontab) pulls; te-autopush rebases unpushed commits onto origin/main.
+  # A nightly already running refuses the deploy (it may pull at any moment).
+  if pgrep -f 'engine/run_daily[.]sh' >/dev/null; then
+    echo "a nightly is running; deploy after it ends" >&2
+    return 1
+  fi
+  if crontab -l >/dev/null 2>&1; then crontab -r; fi
+  systemctl --user stop te-autopush.timer 2>/dev/null || true
+  local autopush_lock="$HOME/.local/state/te-autopush.lock"
+  if test -e "$autopush_lock"; then
+    flock --wait 300 "$autopush_lock" true || { echo "te-autopush still running" >&2; return 1; }
+  fi
+}
+
+p20_resume_pullers() {
+  # Undo p20_pause_pullers after a refusal that changed nothing else.
+  if test -f "$P20_STATE/had-crontab"; then crontab "$P20_STATE/predeploy.crontab"; fi
+  if grep -q '^te-autopush[.]timer active$' "$P20_STATE/predeploy-units" 2>/dev/null; then
+    systemctl --user start te-autopush.timer
+  fi
+}
+
 p20_quiesce() {
   # Stop the crontab and every managed timer and service (the API and UI included), then
   # prove no producer and no process holds a store file.

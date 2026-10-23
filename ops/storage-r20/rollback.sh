@@ -7,7 +7,9 @@
 # the previous code. Nothing under data/ is copied or reverted; pending producer output goes
 # through the normal data commit first. With a verified pre-migration backup recorded, the
 # primary is then restored byte for byte (writes made after the backup stay in the incident
-# copy); without one, the deploy never wrote the store, and the rollback proves the primary
+# copy), the forward records the contract migrations re-pinned are restored to the deployed
+# commit's versions by a data commit, and one forward refresh must be valid before release;
+# without a backup, the deploy never wrote the store, and the rollback proves the primary
 # unchanged since quiesce and leaves it alone. A rollback stopped part-way is rerun the same
 # way: it keeps the first incident copy, reverts once and restores the primary only once.
 set -euo pipefail
@@ -97,6 +99,28 @@ if test -n "${R20_BACKUP:-}"; then
     touch "$P20_STATE/rollback-restored"
   fi
   cmp "$R20_BACKUP/market.duckdb" store/market.duckdb
+
+  step "restore the forward records the contract migrations re-pinned"
+  # E1's checkpoint and the sector and XS reports carry the re-pinned digests since the
+  # deploy's contract migrations; the previous code refuses those. The versions at the
+  # deployed commit (the commit the verified backup was taken at, before the migrations)
+  # agree with the restored primary, which predates every post-deploy observation.
+  records_from="${P20_DEPLOYED_SHA:-$P20_APPROVED_SHA^1}"
+  for record in "${P20_FORWARD_RECORDS[@]}"; do
+    if git cat-file -e "$records_from:$record" 2>/dev/null; then
+      git show "$records_from:$record" > "$record"
+    fi
+  done
+  p20_data_commit storage_r20_rollback_records
+
+  step "one normal forward refresh under the previous code: E1, sector and XS must be valid"
+  "$PY" -m farm.experiment_runner --report-only
+  "$PY" -m engine.forward_review
+  "$PY" -m engine.xs_forward_review
+  for report in data/reports/forward/sector_momentum.json data/reports/forward/xs_momentum_12_1.json; do
+    "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("status") != "INVALID", (sys.argv[1], d.get("status"))' "$report"
+  done
+  p20_data_commit storage_r20_rollback_refresh
 
   step "publish a snapshot in the previous code's format"
   "$PY" -m tools.publish_snapshot > "$P20_STATE/rollback-publish.json"

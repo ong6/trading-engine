@@ -97,12 +97,13 @@ to a registered file needs another revision.
 
 ## Deploy
 
-The orchestrator merges the approved branch into `origin/main` (a merge commit, `--no-ff`) and starts the deploy right
-after; `P20_APPROVED_SHA` is that merge commit. The live checkout stays on branch `main`. Until the deploy quiesces,
-anything that moves the live checkout onto `origin/main` would run revision-20 code on the unmigrated store: the
-nightly's pull (22:30 UTC weekdays) and a `te-autopush` rebase (it rebases unpushed local commits onto `origin/main`).
-So push the merge outside 22:15-23:59 UTC, with no nightly running, and run the deploy at once. If revision-20 code
-did run first and changed the store's catalog, pre-flight 7 stops the deploy before the backup.
+The orchestrator merges the approved branch into `origin/main` (a merge commit, `--no-ff`) and starts the deploy in
+the same sitting, outside 22:15-23:59 UTC; `P20_APPROVED_SHA` is that merge commit. The live checkout stays on branch
+`main`. Anything that moves the live checkout onto `origin/main` before quiescence would put revision-20 code on the
+unmigrated store: the nightly's pull (22:30 UTC weekdays) and a `te-autopush` rebase. The deploy's first step pauses
+both (the crontab and `te-autopush.timer`; it refuses while a nightly runs). If revision-20 code reaches the
+unmigrated store anyway, every producer's writable open refuses with `SchemaMigrationRequired` ("unmigrated
+operational store … nothing was written") before writing.
 
 ```bash
 set -euo pipefail
@@ -114,7 +115,8 @@ bash "$HOME/r20-deploy.sh"
 
 `ops/storage-r20/deploy.sh`, in order (any failure stops it with producers quiesced):
 
-1. Refuses unless `HEAD` is branch `main` with its upstream, no rebase, merge or revert is in progress, the index is
+1. Pauses the nightly and `te-autopush` (captured first, so release restores them; a refusal before step 2 resumes
+   them at once). Then refuses unless `HEAD` is branch `main` with its upstream, no rebase, merge or revert is in progress, the index is
    clean, `P20_APPROVED_SHA` is a merge commit on `origin/main`, and every commit after it on `origin/main` is an
    ordinary commit that changes only `data/`. This runs before anything stops. It records the pre-deploy commit
    and copies `rollback.sh`, `common.bash` and `host.bash` from the merge into `$P20_STATE`.
@@ -170,7 +172,11 @@ shell whatever is checked out. It never leaves `HEAD` detached and never copies 
    `git revert -m 1 <merge>` on `main` (refusing if a non-`data/` commit follows the merge), pushes it to
    `origin/main` and pulls. `main` must then equal `origin/main` and match the merge's first parent outside `data/`,
    so the nightly pull keeps the previous code. `uv sync`.
-4. With a verified backup: restores the primary byte for byte and publishes a snapshot in the previous code's format.
+4. With a verified backup: restores the primary byte for byte; restores E1's checkpoint and the sector and XS forward
+   reports (and their pages) to the deployed commit's versions, the commit the backup was taken at before the
+   contract migrations, through a data commit; runs one normal forward refresh under the previous code and refuses
+   to release unless E1, sector and XS are all valid (committed by a second data commit); then publishes a snapshot
+   in the previous code's format.
 5. Starts the readers and releases producers with the previous code's installer.
 
 A rerun after a stop part-way keeps the first incident copy, reverts once (the revert commit is recorded in
@@ -185,14 +191,10 @@ nightly under the previous code rewrites them), and every data commit stays in h
 databases (free sources, options, minute bars, SEC bulk) are separate stores that are not restored: they keep rows
 written since release, and their schemas did not change in this revision.
 
-**Forward records after a rollback past the contract migrations (decision open).** Once the deploy's runtime-contract
-migrations ran, E1's checkpoint and the sector and XS reports under `data/` carry the revision-20 digests. The
-rollback does not revert `data/`, so the previous code refuses them and fails closed: E1 raises "E1 forward
-checkpoint is invalid" and both reviews publish INVALID (rehearsed on 2026-10-23). No outcome is lost (the rows are
-in the restored primary, and the INVALID reports keep `last_valid_result`), but none of the three records advances
-until a fixed revision whose migration accepts the revision-20 digest is deployed. The alternative is for the
-rollback to restore exactly these three artifacts (E1's checkpoint and the two forward reports) from the pre-deploy
-commit through a data commit. That is an orchestrator decision; the scripts implement the first behaviour.
+**Forward records after a rollback past the contract migrations.** Since the contract migrations, E1's checkpoint and
+the sector and XS reports carry the revision-20 digests, which the previous code refuses. The rollback restores
+exactly these records (step 4) from the deployed commit: the restored primary predates every post-deploy
+observation, so records and store agree again, and the forward refresh proves it before producers run.
 
 Raw zstd conversion (`tools/convert_raw_payloads.py --apply`) is a separate, later one-off: run only after the
 restore drill passes, with the producer lock held and TradingView jobs drained. It records the store flag that switches

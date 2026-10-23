@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -52,20 +53,51 @@ def connect(*_args, **_kwargs):
     return _Connection()
 ''',
     "tools/__init__.py": "",
-    # A backup create that fails part-way, leaving a partial bundle behind.
+    # A backup create that fails part-way, leaving a partial bundle behind; verify passes
+    # only for a bundle a test marked verified.
     "tools/backup_database.py": '''
-import pathlib, sys
+import json, pathlib, sys
+bundle = pathlib.Path(sys.argv[2])
 if sys.argv[1] == "create":
-    bundle = pathlib.Path(sys.argv[2])
     bundle.mkdir(parents=True)
     (bundle / "market.duckdb").write_bytes(b"partial")
+    sys.exit(1)
+if (bundle / "verified").exists():
+    print(json.dumps({"status": "ok", "manifest_sha256": "m"}))
+    sys.exit(0)
 sys.exit(1)
+''',
+    "tools/publish_snapshot.py": "print('{}')\n",
+    # The previous code's forward runners: valid only on records carrying the deployed digest.
+    "farm/__init__.py": "",
+    "farm/experiment_runner.py": '''
+import json, sys
+record = json.load(open("data/reports/experiments/e1-spy-monday-forward.json"))
+sys.exit(0 if record["digest"] == "deployed" else "E1 forward checkpoint is invalid")
+''',
+    "engine/forward_review.py": '''
+import json, sys
+path = "data/reports/forward/sector_momentum.json"
+valid = json.load(open(path))["digest"] == "deployed"
+json.dump({"status": "ACCUMULATING" if valid else "INVALID", "digest": "deployed"},
+          open(path, "w"))
+sys.exit(0 if valid else 1)
+''',
+    "engine/xs_forward_review.py": '''
+import json, sys
+path = "data/reports/forward/xs_momentum_12_1.json"
+valid = json.load(open(path))["digest"] == "deployed"
+json.dump({"status": "ACCUMULATING" if valid else "INVALID", "digest": "deployed"},
+          open(path, "w"))
+sys.exit(0 if valid else 1)
 ''',
 }
 
 HOST_STUB = """
 p20_call() { echo "$1" >> "$P20_STATE/host-calls"; }
 p20_capture() { p20_call capture; }
+p20_pause_pullers() { p20_call pause-pullers; }
+p20_resume_pullers() { p20_call resume-pullers; }
 p20_quiesce() { p20_call quiesce; }
 p20_autopush() { p20_call autopush; git push -q origin HEAD:main; }
 p20_readers_ready() { p20_call readers; }
@@ -108,6 +140,10 @@ def sandbox(tmp_path, monkeypatch):
     _git(author, "checkout", "-q", "-b", "main")
     files = {f"ops/storage-r20/{path.name}": path.read_text() for path in OPS.iterdir()}
     files.update(STUBS)
+    deployed = json.dumps({"status": "ACCUMULATING", "digest": "deployed"})
+    files.update({f"data/reports/{record}": deployed for record in (
+        "experiments/e1-spy-monday-forward.json", "forward/sector_momentum.json",
+        "forward/xs_momentum_12_1.json")})
     files.update({"code.txt": "previous code\n", "data/report.json": "{}\n",
                   ".gitignore": "store/\n",
                   "server/p15-registration.json": '{"registration_revision": 19}\n'})
@@ -217,7 +253,10 @@ def test_deploy_refuses_main_that_moved_past_the_merge_with_code(sandbox):
     assert deploy.returncode != 0
     assert "changes files outside data/" in deploy.stderr
     assert _git(live, "rev-parse", "HEAD") == before
-    assert not (state / "host-calls").exists()                       # nothing was stopped
+    # Only the first step ran: the nightly and te-autopush were paused, then resumed.
+    assert (state / "host-calls").read_text().splitlines() == [
+        "capture", "pause-pullers", "resume-pullers"]
+    assert "resumed" in deploy.stderr
     assert (live / "store" / "market.duckdb").read_bytes() == b"primary bytes"
 
 
@@ -244,3 +283,72 @@ def test_rollback_without_a_backup_refuses_a_phase_past_the_backup(sandbox):
     assert rollback.returncode != 0
     assert "needs the verified backup" in rollback.stderr
     assert json.loads((state / "store-identity.json").read_text())["wal"] is None
+
+
+def _released_state(sandbox: dict, *, deployed_records: str = "deployed") -> Path:
+    """The state a deploy leaves at release: merge pulled, store migrated, records re-pinned."""
+    live, tmp = sandbox["live"], sandbox["tmp"]
+    _git(live, "pull", "-q", "--ff-only")
+    if deployed_records != "deployed":       # records the backup's commit already carried
+        for record in ("experiments/e1-spy-monday-forward.json",):
+            (live / "data/reports" / record).write_text(json.dumps({"digest": deployed_records}))
+        _git(live, "commit", "-qam", "data: before the deploy")
+        _git(live, "push", "-q", "origin", "HEAD:main")
+    deployed_sha = _git(live, "rev-parse", "HEAD")
+    bundle = tmp / "backups" / "pre-migration"
+    bundle.mkdir(parents=True)
+    (bundle / "market.duckdb").write_bytes(b"primary bytes")
+    (bundle / "verified").touch()
+    (live / "store" / "market.duckdb").write_bytes(b"migrated and written since release")
+    # The contract migrations re-pinned the records; a nightly since release committed them.
+    for record in ("experiments/e1-spy-monday-forward.json", "forward/sector_momentum.json",
+                   "forward/xs_momentum_12_1.json"):
+        (live / "data/reports" / record).write_text(json.dumps({"digest": "revision-20"}))
+    _git(live, "commit", "-qam", "data: nightly after release")
+    _git(live, "push", "-q", "origin", "HEAD:main")
+    state = tmp / "state"
+    state.mkdir(mode=0o700)
+    for name in ("rollback.sh", "common.bash"):
+        shutil.copy(OPS / name, state / name)
+    (state / "state.env").write_text("".join(f"{key}={value}\n" for key, value in {
+        "P20_ROOT": live, "P20_STATE": state, "P20_PY": sys.executable,
+        "P20_PREDEPLOY_SHA": deployed_sha, "P20_APPROVED_SHA": sandbox["approved"],
+        "P20_DEPLOYED_SHA": deployed_sha, "R20_BACKUP": bundle, "R20_MANIFEST": "m",
+        "P20_PHASE": "released"}.items()))
+    return state
+
+
+def test_rollback_after_release_restores_the_forward_records_and_requires_a_valid_refresh(
+    sandbox,
+):
+    live = sandbox["live"]
+    state = _released_state(sandbox)
+
+    rollback = _run(sandbox, "rollback", state)
+
+    assert rollback.returncode == 0, rollback.stderr
+    assert (live / "store" / "market.duckdb").read_bytes() == b"primary bytes"
+    assert (live / "code.txt").read_text() == "previous code\n"
+    for record in ("experiments/e1-spy-monday-forward.json", "forward/sector_momentum.json",
+                   "forward/xs_momentum_12_1.json"):
+        assert json.loads((live / "data/reports" / record).read_text())["digest"] == "deployed"
+    assert _git(live, "status", "--porcelain", "--untracked-files=no") == ""
+    assert _git(live, "rev-parse", "HEAD") == _git(live, "rev-parse", "origin/main")
+    assert "Revert" in _git(live, "log", "--format=%s", "-6")
+    log = (state / "rollback.log").read_text()
+    assert "restore the forward records" in log and "forward refresh" in log
+    assert (state / "host-calls").read_text().splitlines()[-2:] == [
+        "readers", "release-previous"]
+
+
+def test_rollback_after_release_stops_before_release_when_the_refresh_is_invalid(sandbox):
+    # The records at the backup's commit are themselves unusable: the refresh fails closed
+    # and producers stay quiesced.
+    state = _released_state(sandbox, deployed_records="unusable")
+
+    rollback = _run(sandbox, "rollback", state)
+
+    assert rollback.returncode != 0
+    assert "producers stay quiesced" in rollback.stderr
+    calls = (state / "host-calls").read_text().splitlines()
+    assert "release-previous" not in calls and "readers" not in calls
