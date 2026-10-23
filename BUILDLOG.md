@@ -4751,4 +4751,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** CI 1 line; tests 1 line.
 - **Next:** confirm main CI green on GitHub.
 
+## 2026-10-23 — Record the reviewed storage revision and its deploy date in P24
+
+- **Why:** the storage revision passed its fourth review round; P24 closes with it deployed or held with a written checkpoint.
+- **What:** the P24 plan's Progress records the reliability-ops, CI/CD and ci-green landings and the storage revision's ready state, deploy date and preconditions.
+- **Evidence:** `pytest tests/test_documentation_integrity.py tests/test_operating_contract.py` passes.
+- **Metrics:** docs only.
+- **Next:** deploy storage revision 20 after 2026-11-03 06:30 UTC.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

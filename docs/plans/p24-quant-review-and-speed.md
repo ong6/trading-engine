@@ -92,5 +92,16 @@ both timezone suites pass, and does the single re-pin. Lanes never push `main`.
   rehearsal that includes one real nightly, a queue drain and a weekend are in progress; deploy
   waits for a passing re-review and, independently, for a private consumer of the published
   snapshot path to move to generations (not before 2026-11-03).
-- Open: reliability-ops (schedule-contract cleanup, minute-capture unit, status endpoint speed)
-  is in review fixes. The alpha study lanes report in the private repository.
+- 2026-10-22 to 10-23: reliability-ops landed (timer audit, finite minute-capture unit, local
+  schedule-contract overlay, status endpoints 45 s to 3 s and 7 s to 2 s); the CI/CD lane landed
+  (content-only paths filter, PR fast tier, affected-test selection, `ci` gate, slow markers, 25 s
+  duration budget on main); main CI is green again (first since 2026-10-20) after the ci-green
+  rounds fixed dependency advisories, two lint steps, the research sandbox on shared-library
+  interpreters and a shared-setup charge in the duration budget.
+- Checkpoint, storage revision 20: reviewed in four rounds and ready on `p24/storage-r18`
+  (`f0282839`); deploy and rollback scripts rehearsed on mirrored-live sandboxes, including one real
+  nightly and byte-identical restores. Deploy is scheduled after the private trial's first epoch
+  (2026-11-03 06:30 UTC), in one sitting with that consumer's switch to generations, outside
+  22:15-23:59 UTC, after fresh suites on the merge commit and a fresh re-pin check.
+- Open: the deploy above; incremental capture (copy only changed table data) as a follow-up to cut
+  publication I/O. The alpha study lanes report in the private repository.
