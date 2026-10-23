@@ -65,12 +65,6 @@ FARM_DIR = Path(__file__).resolve().parent
 EXPERIMENTS_DIR = FARM_DIR / "experiments"
 REPORTS_DIR = DATA_DIR / "reports" / "experiments"
 CHECKPOINT_SCHEMA_VERSION = 2
-LEGACY_CHECKPOINT_SCHEMA_VERSION = 1
-EXPECTED_LEGACY_OBSERVATIONS = 7
-EXPECTED_LEGACY_THROUGH = "2026-08-31"
-EXPECTED_LEGACY_PREFIX_SHA256 = (
-    "e2603b7c85f5e24e3b019a4ee7058c6732a792647b0c1c2e62a0d111fdf360ad"
-)
 RUNTIME_CONTRACT_VERSION = 8
 SUPERSEDED_RUNTIME_CONTRACT_SHA256 = '5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280'
 RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: engine books charge ibkr_pro_tiered_v1 commissions from the parameterized D0 and restart book evaluation clocks; additive account schema, monotonic order sequence and shared ledger/replay replace the legacy runtime. Snapshot-copy rehearsal proved pre-D0 league.csv and league.md byte-identical. E1 keeps its frozen 20 bp compatibility cost, seven-observation prefix, strategy and verdict rule unchanged; undeployed revision-14 fixes keep the frozen rule: the store's real-bar predicate also needs a positive open, high and low (E1 reads only its connection and frame helpers), and the migration carries the published record written under the predecessor forward config; revision 15 after v2: r15-data preserves rejected observations and gates scalar/calendar/basis admission; r15-money refuses malformed arithmetic and shares trusted fill/mark bars; r15-flow reduces repeated fetches, offline reports and history copies; r15-ops reports recorded outcomes and moves the Sunday history slot; board-2 shows dated quality and prospective gates; r15-tests reuses private fixtures and caps native threads. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged; undeployed revision 15 amended 2026-10-20 by the reviewed fixes landed after v2: liquid split coverage, first-stored split provenance and a quarantining break scan; same-night provisional bars shown flagged; scratch replays never attach live stores and grids keep one reader; finite walk-forward results; snapshot disk cap and once-daily history publication; pre-open reliability, nightly evidence order and scoring report commits; two reviewed model runtimes by hash; same-night bars whose only fault is the open admitted provisionally for their close, never filled, labeled or scored on that open. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged"
@@ -93,27 +87,12 @@ RUNTIME_CONTRACT_FILES = (
 # Filled after the dependency list was frozen. The self-file digest normalizes
 # this literal so the contract can cover its own validation and verdict code.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "7c5a169d6ba58b9af790a339a23d24ee57d20dc22714e59adfec66409b634fa1"
+    "676aa2ae69aa54ee7b41c73e99b0b704531937491a9628669cdd2fcccd6d60e2"
 )
 # The deployed code identity of this same contract version (revision 19, installed
 # 2026-10-22). Revision 20 changed pinned bytes but not what E1 selects, prices, stores
 # or judges, so the version stays and an explicit migration replaces only this digest.
 AMENDED_RUNTIME_CONTRACT_SHA256 = '2c8ec5b06a93edbca6104569c1bb5c66514cd6476f209169ca1f6041cd470538'
-PRIOR_RUNTIME_CONTRACT_VERSION = 7
-PRIOR_RUNTIME_CONTRACT_SHA256 = '5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280'
-PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = '5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612'
-PRIOR_RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: engine books charge ibkr_pro_tiered_v1 commissions from the parameterized D0 and restart book evaluation clocks; additive account schema, monotonic order sequence and shared ledger/replay replace the legacy runtime. Snapshot-copy rehearsal proved pre-D0 league.csv and league.md byte-identical. E1 keeps its frozen 20 bp compatibility cost, seven-observation prefix, strategy and verdict rule unchanged; undeployed revision-14 fixes keep the frozen rule: the store's real-bar predicate also needs a positive open, high and low (E1 reads only its connection and frame helpers), and the migration carries the published record written under the predecessor forward config"
-PRIOR_RUNTIME_CONTRACT_FILES = (
-    'engine/lib/db.py',
-    'engine/lib/provenance.py',
-    'engine/lib/resources.py',
-    'farm/experiment.py',
-    'farm/experiment_runner.py',
-    'sim/calendar.py',
-    'sim/execution.py',
-    'sim/fills.py',
-    'sim/nyse.py',
-)
 PRIOR_V7_FORWARD_CONFIG_SHA256 = "6d0006f70558813b9376619682d9684f9943d1d4be8c4a4c8b2b1acc83897408"
 PRIOR_FORWARD_CONFIG_SHA256 = (
     "399ce03bee8bab4ec592bca71438c6041766311f9610b73ee86921c4930f93b3"
@@ -601,15 +580,13 @@ def _validate_checkpoint(
 
 
 def migrate_runtime_contract(con, cfg: dict) -> dict:
-    """Validate a schema-v1, prior-v2 or amended checkpoint; replace only contract metadata.
+    """Validate the deployed checkpoint and replace only its runtime-contract digest.
 
-    Checkpoint schema v1 anchored the evidence prefix and both config hashes but
-    did not identify the source code governing future rows. Runtime contracts
-    subsequently added that digest. An amended checkpoint is the current version under
-    its deployed digest (``AMENDED_RUNTIME_CONTRACT_SHA256``) with every other contract
-    field current. Every accepted predecessor form must anchor
-    the exact same audited evidence prefix; migration is explicit and fails
-    before writing otherwise.
+    The only accepted predecessor is the checkpoint the deployed revision wrote: the
+    current contract version, files, migration text and forward config under the deployed
+    digest (``AMENDED_RUNTIME_CONTRACT_SHA256``). Every other field must already be current
+    and the stored rows must reproduce its published prefix; migration is explicit and
+    fails before writing otherwise.
     """
     _validate_runtime_contract()
     phash = params_hash_for(cfg)
@@ -620,55 +597,30 @@ def migrate_runtime_contract(con, cfg: dict) -> dict:
     try:
         checkpoint = json.loads(path.read_text())
         count = checkpoint["observations"]
-        common_invalid = (
-            checkpoint["experiment_id"] != cfg["id"]
-            or checkpoint["paper_only"] is not True
-            or checkpoint["automatic_action"] != "none"
-            or checkpoint["parent_config_sha256"] != phash
-            or checkpoint["forward_config_sha256"]
-            not in {forward_config_hash(cfg), PRIOR_V7_FORWARD_CONFIG_SHA256, PRIOR_FORWARD_CONFIG_SHA256}
-            or not isinstance(count, int)
-            or isinstance(count, bool)
-            or count != len(oos)
-        )
-        is_legacy = checkpoint["schema_version"] == LEGACY_CHECKPOINT_SCHEMA_VERSION
-        is_prior_contract = (
+        deployed = (
             checkpoint["schema_version"] == CHECKPOINT_SCHEMA_VERSION
-            and checkpoint.get("runtime_contract_version") == PRIOR_RUNTIME_CONTRACT_VERSION
-            and checkpoint.get("runtime_contract_sha256") == PRIOR_RUNTIME_CONTRACT_SHA256
-            and checkpoint.get("runtime_contract_files")
-            == list(PRIOR_RUNTIME_CONTRACT_FILES)
-            and checkpoint.get("superseded_runtime_contract_sha256")
-            == PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
-            and checkpoint.get("runtime_contract_migration")
-            == PRIOR_RUNTIME_CONTRACT_MIGRATION
-        )
-        is_amended_contract = (
-            checkpoint["schema_version"] == CHECKPOINT_SCHEMA_VERSION
+            and checkpoint["experiment_id"] == cfg["id"]
+            and checkpoint["paper_only"] is True
+            and checkpoint["automatic_action"] == "none"
+            and checkpoint["parent_config_sha256"] == phash
+            and checkpoint["forward_config_sha256"] == forward_config_hash(cfg)
             and checkpoint.get("runtime_contract_version") == RUNTIME_CONTRACT_VERSION
             and checkpoint.get("runtime_contract_sha256") == AMENDED_RUNTIME_CONTRACT_SHA256
             and checkpoint.get("runtime_contract_files") == list(RUNTIME_CONTRACT_FILES)
             and checkpoint.get("superseded_runtime_contract_sha256")
             == SUPERSEDED_RUNTIME_CONTRACT_SHA256
             and checkpoint.get("runtime_contract_migration") == RUNTIME_CONTRACT_MIGRATION
+            and isinstance(count, int)
+            and not isinstance(count, bool)
+            and count == len(oos)
         )
-        if (
-            common_invalid
-            or not (is_legacy or is_prior_contract or is_amended_contract)
-            or (is_legacy and count != EXPECTED_LEGACY_OBSERVATIONS)
-        ):
+        if not deployed:
             raise ValueError("prior E1 checkpoint is invalid")
         prefix = _oos_payload(oos)
         through = prefix[-1]["date"] if prefix else None
-        # A schema-v1 checkpoint is the audited seven-row prefix. A prior-contract
-        # checkpoint anchors the record as published, which the stored rows must match.
         if (
             checkpoint["through"] != through
             or checkpoint["prefix_sha256"] != canonical_sha256(prefix)
-            or (is_legacy and (
-                checkpoint["through"] != EXPECTED_LEGACY_THROUGH
-                or checkpoint["prefix_sha256"] != EXPECTED_LEGACY_PREFIX_SHA256
-            ))
         ):
             raise ValueError("previously published E1 forward prefix changed")
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -1051,7 +1003,7 @@ def main() -> int:
     ap.add_argument(
         "--migrate-runtime-contract",
         action="store_true",
-        help="one-time: validate the exact prior checkpoint and replace only contract metadata",
+        help="one-time: validate the deployed checkpoint and replace only its contract digest",
     )
     args = ap.parse_args()
 

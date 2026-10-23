@@ -5046,4 +5046,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +45 lines (pinned tools/publish_snapshot.py), tests +45 lines.
 - **Next:** the deploy and rollback git flow.
 
+## 2026-10-23 — Runtime-contract migrations accept only the deployed digest and refuse an INVALID report (review round 2, item 6)
+
+- **Why:** round-2 review: `--migrate-runtime-contract` for E1, sector and XS still accepted the predecessor forms of earlier deploys (E1 schema-v1 legacy and prior contract v7, sector v11 and XS v22 with fill model v4 and no cost-break clock). The sector and XS migrations also migrated from the `last_valid_result` an INVALID report preserves. A revision-20 deploy has exactly one valid predecessor: the report the deployed revision 19 published.
+- **What:** each migration accepts only the current contract version, files and migration text under the deployed digest (`AMENDED_RUNTIME_CONTRACT_SHA256`); E1 also requires the current forward config. An INVALID published report is refused ("INVALID; migration refused"); the ordinary review still recovers from `last_valid_result`. The predecessor constants and the fill-model and cost-break-clock restatements are removed. The three `EXPECTED_RUNTIME_CONTRACT_SHA256` literals are re-pinned at a fixed point (E1 `676aa2ae`, sector `7b3ed5a3`, XS `0727df99`).
+- **Evidence:** `pytest tests/test_experiment_runner.py tests/test_forward_review.py tests/test_xs_forward_review.py tests/test_sector_forward_status.py tests/test_xs_forward_status.py tests/test_r15_integration.py tests/test_forward_cost_break_continuity.py`: the deployed form migrates in each family; legacy, older-version, older-config, pre-P22 shapes and INVALID reports are refused without writing; the cost-break continuity tests now migrate from the deployed form.
+- **Metrics:** pinned engine/farm files −150 lines; tests rewritten in place.
+- **Next:** registration re-pin after the remaining round-2 code changes.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

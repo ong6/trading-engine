@@ -74,13 +74,13 @@ def test_revision15_migrates_after_v2_break_and_preserves_frozen_outcomes(con, m
 
     from engine import forward_review as sector
     from engine import xs_forward_review as xs
-    from tests.test_forward_review import _prior_v6_result, _test_baseline
+    from tests.test_forward_review import _deployed_result, _test_baseline
     from tests.test_xs_forward_review import _freeze, _setup, _transition
 
     review = sector if family == 'sector' else xs
     if family == 'sector':
         _test_baseline.__wrapped__(monkeypatch)
-        result = review.migrate_runtime_contract(con, _prior_v6_result(con))
+        result = review.migrate_runtime_contract(con, _deployed_result(con))
     else:
         _setup(con)
         waiting = _freeze(con)
@@ -91,14 +91,9 @@ def test_revision15_migrates_after_v2_break_and_preserves_frozen_outcomes(con, m
                     "'baseline_v1', 'ibkr_pro_tiered_v1', 14, 'D0', current_timestamp)", [book])
     prior = review.evaluate(con, prior_result=result)
     prior = copy.deepcopy(prior)
-    prior['frozen_runtime'].update(
-        runtime_contract_version=review.PRIOR_RUNTIME_CONTRACT_VERSION,
-        runtime_contract_sha256=review.PRIOR_RUNTIME_CONTRACT_SHA256,
-        runtime_contract_files=list(review.PRIOR_RUNTIME_CONTRACT_FILES),
-        superseded_runtime_contract_sha256=review.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256,
-        runtime_contract_migration=review.PRIOR_RUNTIME_CONTRACT_MIGRATION)
+    prior['frozen_runtime']['runtime_contract_sha256'] = review.AMENDED_RUNTIME_CONTRACT_SHA256
     if family == 'xs':
-        prior['frozen_runtime']['signal_boundary']['protocol_contract']['runtime_contract_sha256'] = review.PRIOR_RUNTIME_CONTRACT_SHA256
+        prior['frozen_runtime']['signal_boundary']['protocol_contract']['runtime_contract_sha256'] = review.AMENDED_RUNTIME_CONTRACT_SHA256
     migrated = review.migrate_runtime_contract(con, prior)
     for section in ('status', 'candidate', 'control', 'criterion', 'observation', 'execution', 'metrics'):
         assert migrated[section] == prior[section]

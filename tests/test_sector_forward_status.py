@@ -277,14 +277,7 @@ def test_migrated_sector_cost_clock_projects_before_and_after_d0(con, tmp_path):
 
     _setup_live_sector_forward(con)
     prior = monitor.evaluate(con)
-    prior["frozen_runtime"].update(
-        runtime_contract_version=monitor.PRIOR_RUNTIME_CONTRACT_VERSION,
-        runtime_contract_sha256=monitor.PRIOR_RUNTIME_CONTRACT_SHA256,
-        superseded_runtime_contract_sha256=monitor.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256,
-        runtime_contract_migration=monitor.PRIOR_RUNTIME_CONTRACT_MIGRATION,
-        runtime_contract_files=list(monitor.PRIOR_RUNTIME_CONTRACT_FILES), fill_model="v4")
-    for field in ("evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions"):
-        del prior["observation"][field]
+    prior["frozen_runtime"]["runtime_contract_sha256"] = monitor.AMENDED_RUNTIME_CONTRACT_SHA256
     migrated = monitor.migrate_runtime_contract(con, prior)
     d0 = date(2026, 10, 19)
     assert migrate(con, d0)["routing_changes"] == []

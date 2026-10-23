@@ -507,7 +507,7 @@ def test_runtime_contract_migration_is_explicit(con):
     assert "engine/lib/resources.py" in frozen["runtime_contract_files"]
 
 
-def _pre_signal_v17_checkpoint(con) -> dict:
+def _pre_signal_deployed_checkpoint(con) -> dict:
     _setup(con)
     con.execute("DELETE FROM sim_orders")
     con.execute("DELETE FROM sim_equity")
@@ -517,24 +517,19 @@ def _pre_signal_v17_checkpoint(con) -> dict:
             [portfolio_id],
         )
     prior = review.evaluate(con)
-    frozen = prior["frozen_runtime"]
-    frozen["runtime_contract_version"] = review.PRIOR_RUNTIME_CONTRACT_VERSION
-    frozen["runtime_contract_sha256"] = review.PRIOR_RUNTIME_CONTRACT_SHA256
-    frozen["superseded_runtime_contract_sha256"] = review.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
-    frozen["runtime_contract_migration"] = review.PRIOR_RUNTIME_CONTRACT_MIGRATION
-    frozen["runtime_contract_files"] = list(review.PRIOR_RUNTIME_CONTRACT_FILES)
+    prior["frozen_runtime"]["runtime_contract_sha256"] = review.AMENDED_RUNTIME_CONTRACT_SHA256
     return prior
 
 
 def test_normal_run_refuses_silent_runtime_contract_migration(con):
-    prior = _pre_signal_v17_checkpoint(con)
+    prior = _pre_signal_deployed_checkpoint(con)
 
     with pytest.raises(ValueError, match="requires explicit migration"):
         review.evaluate(con, prior_result=prior)
 
 
 def test_explicit_runtime_contract_migration_preserves_pre_signal_protocol(con):
-    prior = _pre_signal_v17_checkpoint(con)
+    prior = _pre_signal_deployed_checkpoint(con)
 
     migrated = review.migrate_runtime_contract(con, prior)
 
@@ -548,14 +543,14 @@ def test_explicit_runtime_contract_migration_preserves_pre_signal_protocol(con):
         migrated["frozen_runtime"]["runtime_contract_version"]
         == review.RUNTIME_CONTRACT_VERSION
     )
-    assert (
-        migrated["frozen_runtime"]["superseded_runtime_contract_sha256"]
-        == review.PRIOR_RUNTIME_CONTRACT_SHA256
-    )
+    assert migrated["frozen_runtime"] == {
+        **prior["frozen_runtime"],
+        "runtime_contract_sha256": review.EXPECTED_RUNTIME_CONTRACT_SHA256,
+    }
 
 
 def test_runtime_contract_migration_rejects_unpublished_signal_boundary(con):
-    prior = _pre_signal_v17_checkpoint(con)
+    prior = _pre_signal_deployed_checkpoint(con)
     con.execute(
         "INSERT INTO sim_orders VALUES (99, ?, 'AAA', 'buy', 1, ?, 'pending', NULL)",
         [review.CANDIDATE_ID, review.SIGNAL_DATE],
@@ -565,36 +560,12 @@ def test_runtime_contract_migration_rejects_unpublished_signal_boundary(con):
         review.migrate_runtime_contract(con, prior)
 
 
-def _deployed_v21_result(current: dict) -> dict:
-    # The deployed report's shape (2026-10-15 snapshot, contract v21): its signal boundary
-    # pins fill model v4 and the predecessor runtime, and it has no cost-break fields.
-    prior = copy.deepcopy(current)
-    prior["frozen_runtime"].update(
-        {
-            "runtime_contract_version": review.PRIOR_RUNTIME_CONTRACT_VERSION,
-            "runtime_contract_sha256": review.PRIOR_RUNTIME_CONTRACT_SHA256,
-            "superseded_runtime_contract_sha256": (
-                review.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
-            ),
-            "runtime_contract_migration": review.PRIOR_RUNTIME_CONTRACT_MIGRATION,
-            "runtime_contract_files": list(review.PRIOR_RUNTIME_CONTRACT_FILES),
-            "fill_model": "v4",
-        }
-    )
-    prior["frozen_runtime"]["signal_boundary"]["protocol_contract"].update(
-        fill_model="v4", runtime_contract_sha256=review.PRIOR_RUNTIME_CONTRACT_SHA256)
-    for field in ("evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions"):
-        del prior["observation"][field]
-
-    return prior
-
-
 def test_runtime_contract_migration_preserves_accumulated_prefix(con):
     _setup(con)
     waiting = _freeze(con)
     _transition(con)
     current = review.evaluate(con, prior_result=waiting)
-    prior = _deployed_v21_result(current)
+    prior = _deployed_amended_result(current, review.AMENDED_RUNTIME_CONTRACT_SHA256)
 
     migrated = review.migrate_runtime_contract(con, prior)
 
@@ -642,6 +613,31 @@ def test_runtime_contract_migration_replaces_only_the_amended_digest(con):
         review.migrate_runtime_contract(con, changed)
 
 
+def test_runtime_contract_migration_refuses_older_forms_and_invalid_reports(con):
+    _setup(con)
+    waiting = _freeze(con)
+    _transition(con)
+    current = review.evaluate(con, prior_result=waiting)
+    deployed = _deployed_amended_result(current, review.AMENDED_RUNTIME_CONTRACT_SHA256)
+    # The pre-P22 shape (fill model v4, no cost-break clock) and an older version: refused.
+    older = copy.deepcopy(deployed)
+    older["frozen_runtime"]["fill_model"] = "v4"
+    older["frozen_runtime"]["signal_boundary"]["protocol_contract"]["fill_model"] = "v4"
+    for field in ("evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions"):
+        del older["observation"][field]
+    with pytest.raises(ValueError):
+        review.migrate_runtime_contract(con, older)
+    older = copy.deepcopy(deployed)
+    older["frozen_runtime"]["runtime_contract_version"] -= 1
+    with pytest.raises(ValueError, match="not the exact migration checkpoint"):
+        review.migrate_runtime_contract(con, older)
+    # An INVALID report is refused, never migrated from the last valid result it keeps.
+    invalid = review._invalid_result(ValueError("transient"), deployed)
+    assert invalid["last_valid_result"] == deployed
+    with pytest.raises(ValueError, match="INVALID; migration refused"):
+        review.migrate_runtime_contract(con, invalid)
+
+
 def test_invalid_result_is_safe():
     result = review._invalid_result(ValueError("private detail"))
     assert result["status"] == "INVALID"
@@ -681,7 +677,8 @@ def test_cost_break_retains_complete_migrated_prefix_across_repeated_reviews(con
         for book, equity in ((review.CANDIDATE_ID, 39_010.0), (review.CONTROL_ID, 41_010.0)):
             con.execute("INSERT INTO sim_equity VALUES (?, ?, ?, 0, 1)", [book, day, equity])
     current = review.evaluate(con, prior_result=waiting)
-    prior = review.migrate_runtime_contract(con, _deployed_v21_result(current))
+    prior = review.migrate_runtime_contract(
+        con, _deployed_amended_result(current, review.AMENDED_RUNTIME_CONTRACT_SHA256))
     assert prior == current
     d0 = date(2026, 10, 6)
     for book in (review.CANDIDATE_ID, review.CONTROL_ID):
