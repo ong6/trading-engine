@@ -66,7 +66,7 @@ generations; see pre-flight 6.
 ## Re-pin (done on the branch: registration revision 20)
 
 `server/p15-registration.json` is revision 20 over the storage revision and the reliability-ops limits
-(`engine/lib/store_limits.py` joins the registered closure); `registration_sha256` `01126f87…`, `source_commit` the
+(`engine/lib/store_limits.py` joins the registered closure); `registration_sha256` `dadb95b4…`, `source_commit` the
 newest commit touching a registered file. Its `revision_reason` names what changes in collection (TradingView daily
 history, Massive options and five unread macro series paused) and schedules (the new publish-on-change timer; the
 TradingView timer no longer runs), the reader and storage paths and the storage limits, and what does not (frozen
@@ -97,8 +97,12 @@ to a registered file needs another revision.
 
 ## Deploy
 
-The orchestrator merges the approved branch into `origin/main` (a merge commit, `--no-ff`) shortly before the window;
-`P20_APPROVED_SHA` is that merge commit. The live checkout stays on branch `main`.
+The orchestrator merges the approved branch into `origin/main` (a merge commit, `--no-ff`) and starts the deploy right
+after; `P20_APPROVED_SHA` is that merge commit. The live checkout stays on branch `main`. Until the deploy quiesces,
+anything that moves the live checkout onto `origin/main` would run revision-20 code on the unmigrated store: the
+nightly's pull (22:30 UTC weekdays) and a `te-autopush` rebase (it rebases unpushed local commits onto `origin/main`).
+So push the merge outside 22:15-23:59 UTC, with no nightly running, and run the deploy at once. If revision-20 code
+did run first and changed the store's catalog, pre-flight 7 stops the deploy before the backup.
 
 ```bash
 set -euo pipefail
@@ -180,6 +184,15 @@ producers wrote: report files written since release are committed by the data co
 nightly under the previous code rewrites them), and every data commit stays in history. The `store/pit/*.duckdb`
 databases (free sources, options, minute bars, SEC bulk) are separate stores that are not restored: they keep rows
 written since release, and their schemas did not change in this revision.
+
+**Forward records after a rollback past the contract migrations (decision open).** Once the deploy's runtime-contract
+migrations ran, E1's checkpoint and the sector and XS reports under `data/` carry the revision-20 digests. The
+rollback does not revert `data/`, so the previous code refuses them and fails closed: E1 raises "E1 forward
+checkpoint is invalid" and both reviews publish INVALID (rehearsed on 2026-10-23). No outcome is lost (the rows are
+in the restored primary, and the INVALID reports keep `last_valid_result`), but none of the three records advances
+until a fixed revision whose migration accepts the revision-20 digest is deployed. The alternative is for the
+rollback to restore exactly these three artifacts (E1's checkpoint and the two forward reports) from the pre-deploy
+commit through a data commit. That is an orchestrator decision; the scripts implement the first behaviour.
 
 Raw zstd conversion (`tools/convert_raw_payloads.py --apply`) is a separate, later one-off: run only after the
 restore drill passes, with the producer lock held and TradingView jobs drained. It records the store flag that switches

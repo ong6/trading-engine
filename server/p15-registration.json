@@ -215,12 +215,12 @@
       "tools/agent_trial_register.py": "6cd235435466a0a18ec8bcb4c1618f9228e2b3f994583a905ff2da3ed9c7d84d",
       "tools/backup_database.py": "719f475e21e5e3d0782bfaf38ab7599029ab69e38b742ca235148af7cd07e2df",
       "tools/p15_evidence_validation.py": "731b0e9ea8d47141686e885c71c3812074709c9fbde255922e6bbda05b3ccf52",
-      "tools/publish_snapshot.py": "6261200479b0a7da1edd184780ba401b3898465ceb4efad1bfab2cdad0916532",
+      "tools/publish_snapshot.py": "273284d0311fa3428be29d89c511fc6754a58359284eef48c59e3237ab2b9c72",
       "tools/release_manifest.py": "03e7517aac05b0800629307fe46f874ea5478adc47e87be933aa3b991fb7c0ea",
       "tools/sec_edgar_capture.py": "8e7a705262f44532d2c812ed22ccd66c9b35d9633c0f89288d1347fe2a52ea6d",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "dbb2f72d4628128a7039c7aad85f30ae20bbb5ed"
+    "source_commit": "90f62b56b1b90ce227c81d648d21f50f4a92442e"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -409,5 +409,5 @@
     "trend_limit": 20,
     "version": "p15-universe-v1"
   },
-  "registration_sha256": "01126f8770afb491381e7d3b015de6683f609173cee62b36c3cde5d82326bead"
+  "registration_sha256": "dadb95b4ce474acbefe31494f7135e072333aeb7d7e2e2a064691b098dc0dce1"
 }

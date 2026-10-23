@@ -5102,4 +5102,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** pinned tools/publish_snapshot.py 2 lines.
 - **Next:** re-pin; the capture window remains disk-bound (reported to the orchestrator).
 
+## 2026-10-23 — Re-pin after the capture-copy change; document merge sequencing and forward records after a rollback
+
+- **Why:** the fsync change touched registered `tools/publish_snapshot.py`. The rehearsal also showed two operational facts the checklist did not state: once the merge is on `origin/main`, a nightly pull or a `te-autopush` rebase would put revision-20 code on the unmigrated store before the deploy quiesces; and a rollback after the contract migrations leaves E1's checkpoint and the sector and XS reports with revision-20 digests, which the previous code refuses (fails closed), because `data/` is not reverted.
+- **What:** one registered hash re-pinned, `source_commit` 90f62b56, `registration_sha256` `dadb95b4…`; the reason is unchanged and the runtime-contract digests are at their fixed point. The checklist says to push the merge outside 22:15-23:59 UTC with no nightly running and to start the deploy at once, and it records the forward-record consequence of a rollback as an open orchestrator decision (accept INVALID until a fixed revision, or restore exactly those three artifacts from the pre-deploy commit through a data commit).
+- **Evidence:** `pytest tests/test_p15_registration.py tests/test_registration_identity.py tests/test_documentation_integrity.py` passes. In the rehearsal, after the rollback the previous code's `farm.experiment_runner --report-only` raised "E1 forward checkpoint is invalid" and both reviews wrote INVALID.
+- **Metrics:** registration 3 values; docs 2 paragraphs.
+- **Next:** in-sequence nightly rehearsal; report.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
