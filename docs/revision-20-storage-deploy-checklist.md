@@ -72,12 +72,12 @@ generations well before its 2026-12-03 epoch.
 ## Re-pin (done on the branch: registration revision 20)
 
 `server/p15-registration.json` is revision 20 over the storage revision and the reliability-ops limits
-(`engine/lib/store_limits.py` joins the registered closure); `registration_sha256` `bf6964a2…`, `source_commit` the
+(`engine/lib/store_limits.py` joins the registered closure); `registration_sha256` `63a1c9d5…`, `source_commit` the
 newest commit touching a registered file. Its `revision_reason` names what changes in collection (TradingView daily
 history, Massive options and five unread macro series paused) and schedules (the new publish-on-change timer; the
 TradingView timer no longer runs), the reader and storage paths and the storage limits, and what does not (frozen
 verdict rules, scores, labels, gates and valid-data outcomes). E1 v8, sector v12 and XS v23 keep their versions
-(re-pinned digests E1 `2d5f04c2…`, sector `71a5ed9e…`, XS `cc596f13…`); each runner's `--migrate-runtime-contract`
+(re-pinned digests E1 `291fd25c…`, sector `8c2998fa…`, XS `2edb8b29…`); each runner's `--migrate-runtime-contract`
 accepts only the deployed revision-19 digest (E1 `2c8ec5b0…`, sector `bad25764…`, XS `d00ee812…`) and refuses an
 INVALID published report, and the deploy script runs the three migrations after the schema migration. A later change
 to a registered file needs another revision.

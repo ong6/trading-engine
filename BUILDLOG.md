@@ -5190,4 +5190,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs +20 lines.
 - **Next:** re-pin; both timezone suites.
 
+## 2026-10-23 — Re-pin registration revision 20 after the round-3 fixes
+
+- **Why:** round 3 changed registered `engine/lib/db.py` and `tools/publish_snapshot.py`; `engine/lib/db.py` is in all three runtime contracts.
+- **What:** five registered hashes re-pinned, `source_commit` 4d53dda5, `registration_sha256` `63a1c9d5…`; reason unchanged; contract digests E1 `291fd25c`, sector `8c2998fa`, XS `2edb8b29` (fixed point), in the checklist.
+- **Evidence:** both timezone suites at this commit (below in the report).
+- **Metrics:** registration 6 values; docs 2 lines.
+- **Next:** round-3 sign-off.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

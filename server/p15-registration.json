@@ -64,7 +64,7 @@
       "engine/collect.py": "5e2da0e39689d4640de6834d193bf4bd21ea7531e9b123701bc936f4028d7cf1",
       "engine/daily_opportunities.py": "a1ea689abd2ab365dd2ac2aedf31e17bd021a7eecd4e9a0fc303a42f00075d43",
       "engine/earnings.py": "cb53840084c637f4e49f22ac27adbfdd8eeab1b3c22aa3abb8c1293be89a8b0d",
-      "engine/forward_review.py": "27e14dbaf40f99db87a42b74dbfa57ce6eea9118940e15d8db17642dd9470e1b",
+      "engine/forward_review.py": "eaa99cfbaccaff789725489c120c0d05a6b3061670eb2150b07dacb52ac5c293",
       "engine/free_massive_minute.py": "ee1bc0120836e264b52fc016dbc446233f7bff160b7976ee2c697c69e02a1b1d",
       "engine/free_sources.py": "414af6dcd99bba91ea96cd2340f40680a74b39d0dab31aed194aaaca93a49126",
       "engine/fundamentals.py": "98c023b658ee13e247b649e0fd12dd8332f48878a11b188a41e0cfcce9df642a",
@@ -72,7 +72,7 @@
       "engine/intraday.py": "baf545f0f81c7f6bc6542c54cc99baf2da1f34a2d0c40f5f74425cb3372c8108",
       "engine/lib/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "engine/lib/data_quality.py": "8025ff4323d1e6698bbb4be9858d2b33289b1981f05cf311ccc10a1e4c0c1299",
-      "engine/lib/db.py": "41fcf583ac031c5c7bd7650192843b734230e9a33ee0df927cb2a262b451bc15",
+      "engine/lib/db.py": "571f3979d8d43f5fa0b6f0c8bb042bc9e8b5e7b747fe605c0c177c1b6a561de1",
       "engine/lib/driver.sh": "3aa594fc39982ce5b085848d0d459cbf2a1d092a10518574df4eec209e08b4e2",
       "engine/lib/leverage.py": "12295fc760792e5026dc7dbd6b2f3ccd8610a4e4038f5b9699764e14fe3fea68",
       "engine/lib/log.py": "02fd05ba4da797ec62bb467a6bcce93e07929029cdfde21db302fece2ce79bd3",
@@ -101,7 +101,7 @@
       "engine/tradingview_history_archive.py": "c9060c28a57ca875237d4b035fa1cc8303a37017ed94c033e63c38d6585a4743",
       "engine/universe.py": "ad3cf5f62730767081ee7718006ce4f78f4c6bfdbb80ab90caeef118abc276a7",
       "engine/verify_prices.py": "6a018d0206da40853e2b970b57f29be8d8a197f0250062f8dcd145ee226be346",
-      "engine/xs_forward_review.py": "9a53ca4ecd2982724f2870c5f02f461a46396bd8c300536a156cf92441291562",
+      "engine/xs_forward_review.py": "181263a7ac501d58cc3158d9c8982361c7eaf87d2dd0cf5e5bf627e3b1544398",
       "farm/__init__.py": "bf84aec09336388f858d7c1e7c28cab3da1d8d18096ed36ef460ea49114f11e0",
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
       "farm/backtest/__init__.py": "b65d882bc9e7d1ba6e704fc93be8aa4188775ead4cf4028a3da7141c298427b7",
@@ -111,7 +111,7 @@
       "farm/backtest/stats.py": "994e2147b30fad6c061888f51e6b22238500e185424f007ae96a408df3cdf3c8",
       "farm/capital_sensitivity.py": "90119096f6c31e53427ea8ffa61b8af558b131c0f78ff0841183baa024958244",
       "farm/experiment.py": "bf588f503d4bcec829c8083d5dad3fca0846fa80c726301535cf11a854c82abb",
-      "farm/experiment_runner.py": "5db8f355eb1bd311194cb914dd6c2f4092d1b2a35c10e2b2d63ff6c42237d2d7",
+      "farm/experiment_runner.py": "457029df0cb3cbdd949a4222fe7dbbdf75099606a9cdfcad92a1a33131d3ed9b",
       "farm/p15_event_runner.py": "c860f1d9390cdc70b873da3bac7326b45684326c8a273875cefb2831dcbcdb87",
       "farm/stats/__init__.py": "a7e26e929b2d925fd3060ac1af6e20c228479c6552f75dcfcd629b5ff0470b65",
       "farm/stats/equity.py": "e1ffaa2768ff7abed75c053b2273bda215adf6be44c1c60844ed509cbc9bdd1e",
@@ -215,12 +215,12 @@
       "tools/agent_trial_register.py": "6cd235435466a0a18ec8bcb4c1618f9228e2b3f994583a905ff2da3ed9c7d84d",
       "tools/backup_database.py": "719f475e21e5e3d0782bfaf38ab7599029ab69e38b742ca235148af7cd07e2df",
       "tools/p15_evidence_validation.py": "731b0e9ea8d47141686e885c71c3812074709c9fbde255922e6bbda05b3ccf52",
-      "tools/publish_snapshot.py": "6e0572e89468de2d2f9e2286fc5aef5da813ec263100d0d0361e82e8d367e81e",
+      "tools/publish_snapshot.py": "73b64e58f02104cfd8baeb4558f6a4712669db2d18a68508525cec76ed285410",
       "tools/release_manifest.py": "03e7517aac05b0800629307fe46f874ea5478adc47e87be933aa3b991fb7c0ea",
       "tools/sec_edgar_capture.py": "8e7a705262f44532d2c812ed22ccd66c9b35d9633c0f89288d1347fe2a52ea6d",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "cf870c41a586a276f7a944a45ff4f060377a4d5b"
+    "source_commit": "4d53dda5443e053a02b52e39b40fba5ad12ce7ce"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -409,5 +409,5 @@
     "trend_limit": 20,
     "version": "p15-universe-v1"
   },
-  "registration_sha256": "bf6964a27cf64c806bd9f5c72605547bf373cb471b662f04a304f2c7429fb487"
+  "registration_sha256": "63a1c9d548f97aadeaa8a10e1c239a1aaa51e5bc4ab2b1af3ba30fa4b8960266"
 }
