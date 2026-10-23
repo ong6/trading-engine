@@ -5054,4 +5054,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** pinned engine/farm files −150 lines; tests rewritten in place.
 - **Next:** registration re-pin after the remaining round-2 code changes.
 
+## 2026-10-23 — A bundle that records no DuckDB version refuses verify unless explicitly allowed (review round 2, item 7)
+
+- **Why:** round-2 review: manifests written before this revision record no `duckdb_version`, and verify accepted them silently, so a fingerprint taken under another DuckDB could read as tampering or, worse, pass unexamined.
+- **What:** `tools.backup_database verify` and `remote-restore-drill` refuse a bundle without a recorded version ("records no DuckDB version … pass --allow-unrecorded-duckdb-version"); the flag accepts it after the operator confirms which DuckDB wrote it. Bundles this revision creates always record the version, so deploy, migration and backup callers are unaffected. A recorded but different version still refuses with "DuckDB version differs".
+- **Evidence:** `pytest tests/test_backup_database.py` (155 passed): the unrecorded bundle refuses through the API and the CLI, and verifies with the flag.
+- **Metrics:** pinned tools/backup_database.py +45 lines; tests +10 lines.
+- **Next:** the deploy and rollback git flow; the checklist documents the flag.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

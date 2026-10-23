@@ -2139,13 +2139,22 @@ def test_verify_names_a_duckdb_version_change_instead_of_tampering(tmp_path):
         backup_database.verify_backup(destination)
 
 
-def test_bundles_without_a_recorded_duckdb_version_still_verify(tmp_path):
+def test_bundles_without_a_recorded_duckdb_version_verify_only_when_allowed(tmp_path, capsys):
     root, source = _repo(tmp_path)
     destination = tmp_path / "outside" / "snapshot"
     backup_database.create_backup(root, source, destination)
     _rewrite_manifest(destination, lambda payload: payload["database"].pop("duckdb_version"))
 
-    assert backup_database.verify_backup(destination)["status"] == "ok"
+    with pytest.raises(backup_database.BackupError, match="records no DuckDB version"):
+        backup_database.verify_backup(destination)
+    assert backup_database.main(["--repo-root", str(root), "verify", str(destination)]) == 1
+    assert "--allow-unrecorded-duckdb-version" in capsys.readouterr().out
+    assert backup_database.verify_backup(
+        destination, allow_unrecorded_duckdb_version=True)["status"] == "ok"
+    assert backup_database.main([
+        "--repo-root", str(root), "verify", str(destination),
+        "--allow-unrecorded-duckdb-version",
+    ]) == 0
 
 
 @pytest.mark.parametrize("when", ["before_copy", "after_copy"])

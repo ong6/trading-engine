@@ -238,6 +238,7 @@ def remote_restore_drill(
     *,
     scratch_parent: Path,
     rpo_hours: float = 24,
+    allow_unrecorded_duckdb_version: bool = False,
 ) -> dict:
     """Fetch one exact remote commit, verify/health-check it, and clean scratch."""
     if not isinstance(commit, str) or GIT_SHA_PATTERN.fullmatch(commit) is None:
@@ -282,7 +283,9 @@ def remote_restore_drill(
             if path.is_symlink():
                 raise BackupError("remote engine bundle must not contain symlinks")
             path.chmod(0o700 if path.is_dir() else 0o600)
-        engine = verify_backup(engine_bundle)
+        engine = verify_backup(
+            engine_bundle, allow_unrecorded_duckdb_version=allow_unrecorded_duckdb_version,
+        )
         research_results = []
         if not isinstance(plan["research_databases"], list):
             raise BackupError("remote restore research databases are invalid")
@@ -1764,16 +1767,32 @@ def _load_manifest(bundle: Path) -> tuple[dict, str]:
     return manifest, recorded_hash
 
 
-def _require_recorded_duckdb_version(recorded: str | None, label: str) -> None:
-    """Fingerprints are only comparable under the DuckDB that recorded them."""
-    if recorded is not None and recorded != duckdb.__version__:
+def _require_recorded_duckdb_version(
+    recorded: str | None, label: str, *, allow_unrecorded: bool = True,
+) -> None:
+    """Fingerprints are only comparable under the DuckDB that recorded them.
+
+    A bundle that records no version refuses unless the operator passes
+    ``--allow-unrecorded-duckdb-version`` after confirming which DuckDB wrote it.
+    """
+    if recorded is None:
+        if allow_unrecorded:
+            return
+        raise BackupError(
+            f"the {label} records no DuckDB version, so its fingerprints may come from "
+            f"another DuckDB; confirm the writer's version is {duckdb.__version__} and pass "
+            "--allow-unrecorded-duckdb-version"
+        )
+    if recorded != duckdb.__version__:
         raise BackupError(
             f"DuckDB version differs: the {label} was fingerprinted under {recorded}, "
             f"this verifier runs {duckdb.__version__}; verify with {recorded}"
         )
 
 
-def _verify_database(bundle: Path, manifest: dict) -> tuple[dict, dict]:
+def _verify_database(
+    bundle: Path, manifest: dict, *, allow_unrecorded_duckdb_version: bool = False,
+) -> tuple[dict, dict]:
     database = bundle / DATABASE_FILENAME
     expected = manifest["database"]
     if database.is_symlink():
@@ -1783,7 +1802,10 @@ def _verify_database(bundle: Path, manifest: dict) -> tuple[dict, dict]:
         raise BackupError("backup database is missing")
     if database.stat().st_size != expected["size_bytes"] or _sha256(database) != expected["sha256"]:
         raise BackupError("backup database file integrity check failed")
-    _require_recorded_duckdb_version(expected.get("duckdb_version"), "backup")
+    _require_recorded_duckdb_version(
+        expected.get("duckdb_version"), "backup",
+        allow_unrecorded=allow_unrecorded_duckdb_version,
+    )
     try:
         connection = duckdb.connect(str(database), read_only=True)
         try:
@@ -1903,11 +1925,13 @@ def _verify_operational_consistency(bundle: Path, manifest: dict) -> None:
         )
 
 
-def _verify_backup(bundle: Path) -> dict:
+def _verify_backup(bundle: Path, *, allow_unrecorded_duckdb_version: bool = False) -> dict:
     """Verify through a caller-owned descriptor-rooted bundle path."""
     _require_private(bundle, directory=True, label="backup bundle")
     manifest, recorded_hash = _load_manifest(bundle)
-    expected, actual_snapshot = _verify_database(bundle, manifest)
+    expected, actual_snapshot = _verify_database(
+        bundle, manifest, allow_unrecorded_duckdb_version=allow_unrecorded_duckdb_version,
+    )
     evidence = _verify_evidence(bundle, manifest)
     operational = _verify_operational_artifacts(bundle, manifest)
     controls = _verify_operational_controls(bundle, manifest)
@@ -1928,16 +1952,20 @@ def _verify_backup(bundle: Path) -> dict:
     }
 
 
-def _verify_backup_at_descriptor(bundle_fd: int) -> dict:
+def _verify_backup_at_descriptor(
+    bundle_fd: int, *, allow_unrecorded_duckdb_version: bool = False,
+) -> dict:
     """Verify a bundle through its retained directory descriptor."""
     bundle = _descriptor_path(bundle_fd)
     opened = os.fstat(bundle_fd)
     if not stat.S_ISDIR(opened.st_mode):
         raise BackupError("temporary backup bundle has an unexpected file type")
-    return _verify_backup(bundle)
+    return _verify_backup(
+        bundle, allow_unrecorded_duckdb_version=allow_unrecorded_duckdb_version,
+    )
 
 
-def verify_backup(bundle: Path) -> dict:
+def verify_backup(bundle: Path, *, allow_unrecorded_duckdb_version: bool = False) -> dict:
     """Verify a recovery bundle without changing it or the active database."""
     with _open_bundle_for_verification(bundle) as (
         requested,
@@ -1947,7 +1975,9 @@ def verify_backup(bundle: Path) -> dict:
     ):
         descriptor_root = _descriptor_path(bundle_fd)
         initial_tree = _bundle_tree_identity(descriptor_root)
-        result = _verify_backup_at_descriptor(bundle_fd)
+        result = _verify_backup_at_descriptor(
+            bundle_fd, allow_unrecorded_duckdb_version=allow_unrecorded_duckdb_version,
+        )
         if _bundle_tree_identity(descriptor_root) != initial_tree:
             raise BackupError("backup bundle changed during verification")
         _require_verified_bundle_identity(requested, parent_fd, bundle_fd, initial)
@@ -1965,8 +1995,14 @@ def main(argv: list[str] | None = None) -> int:
     create = subparsers.add_parser("create", help="create a new recovery bundle")
     create.add_argument("destination", type=Path)
     create.add_argument("--source", type=Path, default=DEFAULT_DB)
+    unrecorded_help = (
+        "accept a bundle whose manifest records no DuckDB version (written before versions "
+        "were recorded); only after confirming the writer ran this DuckDB"
+    )
     verify = subparsers.add_parser("verify", help="verify an existing recovery bundle")
     verify.add_argument("bundle", type=Path)
+    verify.add_argument("--allow-unrecorded-duckdb-version", action="store_true",
+                        help=unrecorded_help)
     remote = subparsers.add_parser(
         "remote-restore-drill",
         help="fetch and verify the exact remote backup commit without retaining scratch DBs",
@@ -1976,6 +2012,8 @@ def main(argv: list[str] | None = None) -> int:
     remote.add_argument("receipt", type=Path)
     remote.add_argument("--scratch-parent", type=Path, required=True)
     remote.add_argument("--rpo-hours", type=float, default=24)
+    remote.add_argument("--allow-unrecorded-duckdb-version", action="store_true",
+                        help=unrecorded_help)
     args = parser.parse_args(argv)
     repo_root = args.repo_root.resolve()
     try:
@@ -1986,7 +2024,10 @@ def main(argv: list[str] | None = None) -> int:
                 _resolve_from_repo(repo_root, args.destination),
             )
         elif args.command == "verify":
-            result = verify_backup(_resolve_from_repo(repo_root, args.bundle))
+            result = verify_backup(
+                _resolve_from_repo(repo_root, args.bundle),
+                allow_unrecorded_duckdb_version=args.allow_unrecorded_duckdb_version,
+            )
         else:
             result = remote_restore_drill(
                 args.remote,
@@ -1994,6 +2035,7 @@ def main(argv: list[str] | None = None) -> int:
                 _resolve_from_repo(repo_root, args.receipt),
                 scratch_parent=args.scratch_parent,
                 rpo_hours=args.rpo_hours,
+                allow_unrecorded_duckdb_version=args.allow_unrecorded_duckdb_version,
             )
     except (BackupError, OSError) as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))
