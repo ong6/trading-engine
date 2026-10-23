@@ -5182,4 +5182,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +25 lines; server +10 lines; tests +15 lines.
 - **Next:** checklist: re-deploy after a rollback and the deploy plan.
 
+## 2026-10-23 — Checklist: the fixed deploy plan and re-deploy after a rollback (review round 3, item 3)
+
+- **Why:** round-3 review: the checklist did not say that a re-deploy after a rollback must first revert the rollback's revert commit (merging the branch again would bring in only later commits), and the orchestrator fixed the deploy plan.
+- **What:** the checklist states the plan (after trial 287's 2026-11-03 06:30 UTC epoch, merge and deploy in one sitting together with the alpha switch of `confirm_287.py` to `pin_latest_generation`, pre-flight 6, well before the 2026-12-03 epoch) and gives the exact re-deploy commands: revert `P20_REVERT_SHA` on a redeploy branch, merge any fixes there, merge it into `main` with `--no-ff` so the deploy again gets a merge commit.
+- **Evidence:** `pytest tests/test_documentation_integrity.py` passes.
+- **Metrics:** docs +20 lines.
+- **Next:** re-pin; both timezone suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

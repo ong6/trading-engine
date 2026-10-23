@@ -4,8 +4,10 @@ Branch `p24/storage-r18` (storage revision on top of main at 53a86579). Status: 
 re-review**; not deployed. Rehearsed on store copies only (see "Rehearsal result"). Nothing here was run against the
 live store.
 
-**Deploy hold:** Hold until trial 287's 2026-11-03 epoch has run, or until the private consumer is switched to
-generations; see pre-flight 6.
+**Deploy plan (fixed).** Hold until trial 287's 2026-11-03 06:30 UTC epoch has run. Then, in one sitting outside
+22:15-23:59 UTC and the provider windows: the orchestrator merges this branch into `origin/main` and runs the deploy
+together with the alpha-side switch of `confirm_287.py` to `pin_latest_generation` (pre-flight 6), so trial 287 reads
+generations well before its 2026-12-03 epoch.
 
 ## What the revision changes, and the review findings it answers
 
@@ -184,8 +186,23 @@ shell whatever is checked out. It never leaves `HEAD` detached and never copies 
 5. Starts the readers and releases producers with the previous code's installer.
 
 A rerun after a stop part-way keeps the first incident copy, reverts once (the revert commit is recorded in
-`$P20_STATE/rollback.env`) and restores the primary only once. A fixed revision is deployed later by merging it into
-`main` again (a new merge; the revert stays in history).
+`$P20_STATE/rollback.env`) and restores the primary only once.
+
+**Re-deploy after a rollback.** The rollback's revert commit stays on `main`, so merging the branch again would bring
+in only commits made after the first merge: the revert must be reverted first. Revert it on a redeploy branch, merge
+any fixes there, and merge that branch with `--no-ff`, so the deploy again gets a merge commit (it refuses anything
+else, and a later rollback reverts it with `-m 1`):
+
+```bash
+git fetch origin
+git checkout -B r20-redeploy origin/main
+source "$P20_STATE/rollback.env"          # P20_REVERT_SHA, the rollback's revert commit
+git revert --no-edit "$P20_REVERT_SHA"    # restores the revision-20 code on the redeploy branch
+git merge --no-edit <fixed branch>        # only if fixes were made
+git checkout main && git pull --ff-only
+git merge --no-ff -m "Merge r20-redeploy: storage revision 20 again" r20-redeploy
+git push origin main                      # P20_APPROVED_SHA=$(git rev-parse HEAD); deploy at once
+```
 
 A rollback after release **loses every write to the primary made since the backup** (it stays in
 `$P20_STATE/incident/market.duckdb` for manual recovery). Raw payloads written since release stay readable by the
