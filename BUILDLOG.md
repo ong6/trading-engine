@@ -5142,4 +5142,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** pinned tools/publish_snapshot.py +15 lines; units and jobs 5 lines; server 4 lines; tests +30 lines.
 - **Next:** registration re-pin; rehearse the post-release rollback once more.
 
+## 2026-10-23 — Re-pin registration revision 20 after the round-2 decisions
+
+- **Why:** the decisions changed registered files (`engine/lib/db.py`, `tools/publish_snapshot.py`, the P15 pre-open and events units) and the runtime contracts that include `engine/lib/db.py`; the revision reason's schedule sentence was no longer true.
+- **What:** seven registered hashes re-pinned, `source_commit` cf870c41, `registration_sha256` `bf6964a2…`; the reason now says publish-on-change publishes at most every three hours in US market hours, pre-open publishes after its run while events no longer do, and producers refuse to write an unmigrated store. Contract digests E1 `2d5f04c2`, sector `71a5ed9e`, XS `cc596f13` (fixed point) are in the checklist.
+- **Evidence:** `pytest tests/test_p15_registration.py tests/test_p16_registration.py tests/test_registration_identity.py` passes.
+- **Metrics:** registration 9 values; tests 1 assertion; docs 2 lines.
+- **Next:** rehearse the post-release rollback; both timezone suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
