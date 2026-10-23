@@ -4,6 +4,8 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import subprocess
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -907,29 +909,58 @@ def test_duckdb_fingerprint_is_order_type_and_value_sensitive_and_session_stable
     assert con.execute("SELECT current_setting('memory_limit')").fetchone()[0] != "4.0 GiB"
 
 
-def test_publication_identifies_the_primary_while_its_capture_handle_excludes_writers(
-    tmp_path, monkeypatch,
-):
+def test_publication_keeps_writers_out_for_the_whole_capture(tmp_path, monkeypatch):
+    """Review round 2: closing a descriptor on the primary released the handle's fcntl lock."""
     root, source = _repo(tmp_path)
+    writer = (
+        "import duckdb, sys\n"
+        "try:\n"
+        "    c = duckdb.connect(sys.argv[1])\n"
+        "    c.execute(\"INSERT INTO jobs (id,state) VALUES (77, 'done')\")\n"
+        "    c.close()\n"
+        "    print('writer committed')\n"
+        "except duckdb.Error as exc:\n"
+        "    print('writer refused:', type(exc).__name__)\n"
+    )
+    attempts = []
     original = publish_snapshot.source_storage_identity
-    observed = []
 
-    def identity_under_handle(path):
-        try:  # an in-process writer cannot open while the capture handle is held
-            duckdb.connect(str(source)).close()
-            observed.append("writer could open")
-        except duckdb.Error:
-            observed.append("writers excluded")
+    def identity_with_a_writer_from_another_process(path):
+        result = subprocess.run([sys.executable, "-c", writer, str(source)],
+                                capture_output=True, text=True, check=True)
+        attempts.append(result.stdout.strip())
         return original(path)
 
-    monkeypatch.setattr(publish_snapshot, "source_storage_identity", identity_under_handle)
+    monkeypatch.setattr(
+        publish_snapshot, "source_storage_identity", identity_with_a_writer_from_another_process,
+    )
 
     manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
 
-    assert observed == ["writers excluded"]
+    assert attempts and all(attempt.startswith("writer refused") for attempt in attempts)
+    con = duckdb.connect(str(source), read_only=True)
+    try:
+        assert manifest["row_counts"]["main.jobs"] == con.execute(
+            "SELECT COUNT(*) FROM jobs").fetchone()[0]
+    finally:
+        con.close()
     assert manifest["source_storage_identity"] == original(source)
     assert not list(source.parent.glob("snapshots/.capture-*"))
 
+
+def test_publication_refuses_a_primary_that_changed_during_its_capture(tmp_path, monkeypatch):
+    root, source = _repo(tmp_path)
+    original = publish_snapshot._copy_in_child
+
+    def copy_then_touch(path, destination):
+        result = original(path, destination)
+        os.utime(source, ns=(1, 1))  # the primary's identity moves under the capture
+        return result
+
+    monkeypatch.setattr(publish_snapshot, "_copy_in_child", copy_then_touch)
+
+    with pytest.raises(publish_snapshot.SnapshotError, match="changed while it was being captured"):
+        publish_snapshot.publish_snapshot(root, source, now=NOW)
 
 def test_publish_on_change_skips_unchanged_busy_and_running_publications(tmp_path):
     import fcntl

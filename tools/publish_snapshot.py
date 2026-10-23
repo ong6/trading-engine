@@ -10,7 +10,6 @@ import math
 import os
 import re
 import secrets
-import shutil
 import stat
 import subprocess
 import sys
@@ -551,14 +550,59 @@ def _open_capture_handle(source: Path, wait_s: float) -> duckdb.DuckDBPyConnecti
             time.sleep(0.1)  # API writes last milliseconds: take the first gap between them
 
 
-def _copy_capture(source: Path, capture: Path) -> None:
-    """Copy the primary's bytes (and a pending WAL, replayed into the copy) for the build."""
-    shutil.copyfile(source, capture)
+# The byte copy runs in a child process: DuckDB's read-only handle holds a POSIX fcntl lock on
+# the primary, and closing ANY other descriptor this process opened on that file releases it,
+# which would let a writer commit in the middle of the capture.
+_CAPTURE_COPY_CHILD = r"""
+import hashlib, json, os, sys
+source, destination = sys.argv[1], sys.argv[2]
+digest, size = hashlib.sha256(), 0
+with open(source, "rb") as reader, open(destination, "xb") as writer:
+    while chunk := reader.read(8 << 20):
+        digest.update(chunk)
+        writer.write(chunk)
+        size += len(chunk)
+    writer.flush()
+    os.fsync(writer.fileno())
+check = hashlib.sha256()
+with open(destination, "rb") as copied:
+    while chunk := copied.read(8 << 20):
+        check.update(chunk)
+if check.hexdigest() != digest.hexdigest():
+    sys.exit("captured bytes differ from the bytes read")
+print(json.dumps({"sha256": digest.hexdigest(), "size_bytes": size}))
+"""
+
+
+def _copy_in_child(source: Path, destination: Path) -> dict:
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", _CAPTURE_COPY_CHILD, str(source), str(destination)],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        raise SnapshotError(f"capture copy failed: {result.stderr.strip()[-300:]}")
+    return json.loads(result.stdout)
+
+
+def _copy_capture(source: Path, capture: Path) -> dict:
+    """Copy the primary's bytes (and a pending WAL, replayed into the copy) for the build.
+
+    The caller holds the read-only capture handle. This process never opens the primary or its
+    WAL itself; the child copies them and returns the SHA-256 of the bytes it read and wrote,
+    and the primary's storage identity must be the same before and after the copy.
+    """
+    before = source_storage_identity(source)
+    copied = {"database": _copy_in_child(source, capture)}
     os.chmod(capture, 0o600)
     wal = source.with_name(f"{source.name}.wal")
-    if wal.exists():
-        copied_wal = capture.with_name(f"{capture.name}.wal")
-        shutil.copyfile(wal, copied_wal)
+    copied_wal = capture.with_name(f"{capture.name}.wal")
+    if before["wal"] is not None:
+        copied["wal"] = _copy_in_child(wal, copied_wal)
+    if source_storage_identity(source) != before:
+        raise SnapshotError("the primary changed while it was being captured")
+    if copied["database"]["size_bytes"] != before["database"]["size_bytes"]:
+        raise SnapshotError("the captured copy's size differs from the primary's")
+    if before["wal"] is not None:
         replay = duckdb.connect(str(capture))
         try:
             replay.execute("CHECKPOINT")
@@ -566,6 +610,7 @@ def _copy_capture(source: Path, capture: Path) -> None:
             replay.close()
         if copied_wal.exists():
             raise SnapshotError("captured copy's WAL was not checkpointed")
+    return copied
 
 
 def _build_hot_database(

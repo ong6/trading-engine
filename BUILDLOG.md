@@ -5038,4 +5038,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** CI 1 line; tests 1 line.
 - **Next:** confirm main CI green on GitHub.
 
+## 2026-10-23 — Copy the capture in a child process so the handle's lock holds (review round 2, item 1)
+
+- **Why:** round-2 review, reproduced: DuckDB's read-only capture handle holds a POSIX fcntl lock on the primary, and `shutil.copyfile` closing its own descriptor on the same file released that lock for the whole process, so a writer in another process committed mid-capture; the generation had 3 rows against the primary's 4 and still reported `pending_publication: false`.
+- **What:** this process never opens the primary or its WAL during the capture: a child process copies them, hashing the bytes it reads and re-reading the copy to prove the same SHA-256. The primary's storage identity must be identical before and after the copy, and the copy's size must equal the primary's, or publication refuses with "the primary changed while it was being captured".
+- **Evidence:** `pytest tests/test_publish_snapshot.py`: a writer in another process during the capture is refused and the generation's rows equal the primary's; with the old in-process copy the same test fails (the writer commits and the identity check refuses); an identity change during the copy refuses.
+- **Metrics:** tools +45 lines (pinned tools/publish_snapshot.py), tests +45 lines.
+- **Next:** the deploy and rollback git flow.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
