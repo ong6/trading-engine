@@ -962,9 +962,22 @@ def test_publication_refuses_a_primary_that_changed_during_its_capture(tmp_path,
     with pytest.raises(publish_snapshot.SnapshotError, match="changed while it was being captured"):
         publish_snapshot.publish_snapshot(root, source, now=NOW)
 
+def _market_hours_after(moment: datetime, hours: float = 4) -> datetime:
+    """A weekday 11:00 New York at least ``hours`` after ``moment`` (generations record
+    the wall clock, and publish-on-change publishes only in weekday market hours)."""
+    from zoneinfo import ZoneInfo
+
+    new_york = ZoneInfo("America/New_York")
+    day = (moment + timedelta(hours=hours)).astimezone(new_york).date()
+    while True:
+        candidate = datetime(day.year, day.month, day.day, 11, tzinfo=new_york)
+        if candidate.weekday() < 5 and candidate >= moment + timedelta(hours=hours):
+            return candidate.astimezone(timezone.utc)
+        day += timedelta(days=1)
+
+
 def _later() -> datetime:
-    """Past publish-on-change's hourly limit (generations record the wall clock)."""
-    return datetime.now(timezone.utc) + timedelta(hours=2)
+    return _market_hours_after(datetime.now(timezone.utc))
 
 
 def test_publish_on_change_skips_unchanged_busy_and_running_publications(tmp_path):
@@ -994,26 +1007,35 @@ def test_publish_on_change_skips_unchanged_busy_and_running_publications(tmp_pat
     assert changed["row_counts"]["main.jobs"] == 1
 
 
-def test_publish_on_change_publishes_at_most_once_an_hour(tmp_path):
+def test_publish_on_change_publishes_in_market_hours_at_most_every_three_hours(tmp_path):
     root, source = _repo(tmp_path)
     first = publish_snapshot.publish_snapshot(root, source, now=NOW)
     writer = duckdb.connect(str(source))
     writer.execute("INSERT INTO jobs (id,state) VALUES (5, 'done')")
     writer.close()
-    as_of = datetime.fromisoformat(first["as_of"])
+    open_ = _market_hours_after(datetime.fromisoformat(first["as_of"]), hours=3)  # 11:00 NY
 
-    early = publish_snapshot.publish_snapshot(
-        root, source, if_changed=True, now=as_of + timedelta(minutes=30))
-    assert early["status"] == "skipped" and "at most once an hour" in early["reason"]
-    due = publish_snapshot.publish_snapshot(
-        root, source, if_changed=True, now=as_of + timedelta(minutes=55))
+    def publish(at):
+        return publish_snapshot.publish_snapshot(root, source, if_changed=True, now=at)
+
+    saturday = open_ + timedelta(days=5 - open_.weekday())
+    for outside in (open_ - timedelta(hours=4), open_ + timedelta(hours=9), saturday):
+        skipped = publish(outside)          # 07:00 and 20:00 New York, and a Saturday
+        assert skipped["status"] == "skipped" and "market hours" in skipped["reason"]
+    due = publish(open_)
     assert due["generation_id"] != first["generation_id"]
+    writer = duckdb.connect(str(source))
+    writer.execute("INSERT INTO jobs (id,state) VALUES (6, 'done')")
+    writer.close()
+    soon = publish(datetime.fromisoformat(due["as_of"]) + timedelta(hours=2))
+    assert soon["status"] == "skipped"
+    assert "every three hours" in soon["reason"] or "market hours" in soon["reason"]
 
 
 def test_publish_on_change_skips_a_change_confined_to_tables_no_reader_uses(tmp_path):
     root, source = _repo(tmp_path)
     first = publish_snapshot.publish_snapshot(root, source, now=NOW)
-    later = datetime.fromisoformat(first["as_of"]) + timedelta(hours=2)
+    later = _market_hours_after(datetime.fromisoformat(first["as_of"]))
     unread = "pit_import_batches"
     assert f"main.{unread}" in publish_snapshot.UNREAD_TABLES
     writer = duckdb.connect(str(source))

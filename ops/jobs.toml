@@ -605,10 +605,11 @@ description = "Trading engine P15 cancel-only pre-open reassessment"
 after = ["network-online.target", "trae-proxy.service"]
 wants = ["network-online.target", "trae-proxy.service"]
 exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "server.p15_preopen", "--run"] }]
+exec_start_post = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.publish_snapshot"], ignore_failure = true }]
 environment = ["PYTHONUNBUFFERED=1"]
 nice = 19
 io_scheduling_class = "idle"
-timeout_start = "20min"
+timeout_start = "40min"
 private_tmp = true
 protect_system = "full"
 protect_control_groups = true
@@ -650,7 +651,6 @@ description = "Trading engine P15 shadow event scoring"
 after = ["network-online.target", "trae-proxy.service"]
 wants = ["network-online.target", "trae-proxy.service"]
 exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "farm.p15_event_runner", "--run"] }]
-exec_start_post = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.publish_snapshot", "--min-age-minutes", "120"], ignore_failure = true }]
 environment = ["PYTHONUNBUFFERED=1"]
 nice = 19
 io_scheduling_class = "idle"

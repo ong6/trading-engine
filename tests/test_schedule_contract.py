@@ -351,10 +351,11 @@ def test_reader_holding_a_store_for_write_is_an_undeclared_writer():
 def test_windows_follow_the_timer_zone_and_runtime():
     units = {entry["unit"]: entry for entry in MANIFEST["units"]}
     preopen = units["trading-engine-p15-preopen.service"]
-    # 09:05 New York is 13:05 UTC in October; 20 min runtime plus 5 min slack.
+    # 09:05 New York is 13:05 UTC in October; 40 min runtime (the run and one publication)
+    # plus 5 min slack.
     assert not sc.in_window(preopen, units, datetime(2026, 10, 19, 13, 4, tzinfo=UTC))
-    assert sc.in_window(preopen, units, datetime(2026, 10, 19, 13, 30, tzinfo=UTC))
-    assert not sc.in_window(preopen, units, datetime(2026, 10, 19, 13, 31, tzinfo=UTC))
+    assert sc.in_window(preopen, units, datetime(2026, 10, 19, 13, 50, tzinfo=UTC))
+    assert not sc.in_window(preopen, units, datetime(2026, 10, 19, 13, 51, tzinfo=UTC))
     # 09:05 New York is 14:05 UTC after the November clock change.
     assert sc.in_window(preopen, units, datetime(2026, 11, 2, 14, 10, tzinfo=UTC))
     assert sc.span_seconds("1h 30min") == 5400 and sc.span_seconds("infinity") is None

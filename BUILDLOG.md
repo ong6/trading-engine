@@ -5134,4 +5134,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** ops +55 lines; docs: deploy step 1, rollback step 4 and the forward-records paragraph; tests +110 lines.
 - **Next:** publication cadence; re-pin; rehearse the post-release rollback once more.
 
+## 2026-10-23 — Publish after the nightly and the P15 jobs, otherwise at most every three hours in market hours (round-2 decisions, item 3)
+
+- **Why:** orchestrator decision: about 0.9 TB written per weekday on a shared disk is too much. Publish after the nightly, P15 scoring and P15 pre-open; otherwise at most once every 3 hours during US market hours when evidence inputs changed; no weekend publications beyond the job-driven ones; evidence staleness budget about 3.5 h.
+- **What:** `--if-changed` publishes only on weekdays 09:30-16:00 New York (13:30-20:00 UTC in summer time, 14:30-21:00 in winter) and skips while the newest generation is under 175 minutes old (once every three hours on the half-hour timer); the input checks are unchanged. P15 pre-open publishes after its run (`ExecStartPost`, timeout 40 min, schedule-contract runtime 40 min). P15 events no longer publish: a publication inside its 14-minute, every-15-minutes run would be killed by its own timeout or make it miss windows, and publish-on-change covers its evidence. The evidence budget is 210 minutes; responses still flag `pending_publication`. Settle's 07:45 and 11:55 UTC writes are published by the pre-open run. The checklist's I/O section carries the new volume and lists incremental capture as an open follow-up.
+- **Evidence:** `pytest tests/test_publish_snapshot.py tests/test_server_db.py tests/test_schedule_contract.py tests/test_service_units.py`: 07:00 and 20:00 New York and a Saturday skip as outside market hours, 11:00 New York publishes, and a change two hours later skips under the three-hour limit; the units and windows match. Expected: 5 publications per weekday (P15 scoring, pre-open, about 16:42 and 19:42 UTC, the nightly), about 0.28 TB written and 0.16 TB read, one on Saturday and none on Sunday: about 1.5 TB a week against about 4.7 TB at most hourly.
+- **Metrics:** pinned tools/publish_snapshot.py +15 lines; units and jobs 5 lines; server 4 lines; tests +30 lines.
+- **Next:** registration re-pin; rehearse the post-release rollback once more.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

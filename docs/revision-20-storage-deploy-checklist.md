@@ -25,17 +25,20 @@ generations; see pre-flight 6.
   only "no generation" refuses. Responses carry `x-generation-stale` and `x-pending-publication`; `/meta` and
   `/agent/evaluation/status` return the served generation's `as_of`, age, budget, `stale` and `pending_publication`;
   `/health` reports `degraded` (HTTP 200) when the board is stale. A generation is stale when it is past its budget
-  (board 24 h, evidence 90 min) and possibly behind the primary.
+  (board 24 h, evidence 3.5 h) and possibly behind the primary.
 - **Finding 3 (fixed): publication cadence and API writes.** Evidence writers: accounts-settle (07:45, 11:55 UTC),
   agent-data-capture (01:25), agent-shadow (01:30), daily opportunity (02:00), hourly and four-hour opportunity
   (New York market hours), P15 pre-open (09:05 New York), P15 scoring (02:30, publishes), P15 events (publishes at
   most every 2 h), P16 challengers (disabled), and API POSTs. The new `trading-engine-publish-on-change` timer
-  (:12 and :42 UTC, minutes no other unit starts at) republishes at most once an hour (it skips while the newest
-  generation, from any publisher, is under 55 minutes old), only when the primary changed, and not when every table
-  whose storage changed is one no code the API imports names (`UNREAD_TABLES`); it skips at once when a publication,
-  producer lock or writer is active. The nightly's own publication at its end is the "once after the nightly". Bound:
-  with no producer running, evidence lags its last write by at most 60 min plus one publication, inside the 90-minute
-  evidence budget. Its schedule-contract entry declares `writes: store/snapshots`. Publication now holds the producer locks and one read-only handle only while
+  (:12 and :42 UTC, minutes no other unit starts at) publishes only on weekdays during US market hours (09:30-16:00
+  New York), at most once every three hours (it skips while the newest generation, from any publisher, is under 175
+  minutes old), only when the primary changed, and not when every table whose storage changed is one no code the API
+  imports names (`UNREAD_TABLES`); it skips at once when a publication, producer lock or writer is active. The
+  nightly, P15 scoring and P15 pre-open publish after themselves; P15 events no longer do. Weekends carry only those
+  job publications. Bound: in market hours evidence lags its last write by at most 3 hours plus one publication, inside
+  the 3.5-hour evidence budget; settle's 07:45 and 11:55 UTC writes wait for the pre-open publication (up to about
+  5.5 hours) and are served flagged `pending_publication` meanwhile. Its schedule-contract entry declares `writes:
+  store/snapshots`. Publication now holds the producer locks and one read-only handle only while
   it copies the primary (49-131 s for the 12.7 GB copy in the rehearsal, against 10 minutes before), then builds the
   generation from the copy; API writes wait up to 180 s for that handle instead of failing (cost: a write arriving
   during a capture is delayed until it ends).
@@ -61,7 +64,8 @@ generations; see pre-flight 6.
   resolve, DuckDB relation-API persistence (refused at run time by the guard instead), and statements against the
   separate pit/research databases; publication and backup re-verify the exact catalog, so a bypass fails closed there.
 - **Still open:** the off-host remote restore drill (needs a generation-backed bundle committed to the private backup
-  repo); orchestrator sign-off on pausing TradingView history.
+  repo); orchestrator sign-off on pausing TradingView history; incremental capture (copy only changed
+  table data instead of the whole 12.8 GB primary) as a follow-up to cut publication I/O.
 
 ## Re-pin (done on the branch: registration revision 20)
 
@@ -147,8 +151,8 @@ bash "$HOME/r20-deploy.sh"
 
 1. `python -m engine.schema_migrations plan` → `status: current`, schema id 1.
 2. `curl -sI localhost:8000/health` shows `x-data-source: snapshot`, `x-generation-id`, `x-generation-stale: false`.
-3. Within 90 minutes of any write, `/agent/evaluation/status` reports `generation.pending_publication: false` (the
-   publish-on-change timer ran) and never 503.
+3. During US market hours, within 3.5 hours of any write, `/agent/evaluation/status` reports
+   `generation.pending_publication: false` (publish-on-change ran) and never 503.
 4. `python -m tools.check_invariants --snapshot latest` exits 0 (shadow).
 5. First nightly after deploy: books advance, E1, sector and XS records are written, no `SchemaMigrationRequired`;
    P15 scoring and pre-open green; ops digest shows no `held-active` or `held-enabled`.
@@ -210,17 +214,16 @@ disk (the scratch capture copy and DuckDB spill, deleted first), so **56.4 GB wr
 API writers wait, took 89 s and 154 s (the copy is bound by the disk: a plain `cp` of the same file took 137 s at the
 same hour); API writes wait up to 180 s.
 
-Expected weekday volume, from the writers' schedules (P15 events every 15 minutes and the hourly opportunity in New
-York hours, settle, capture, shadow, daily opportunity), plus the nightly's and P15 scoring's own publications:
+Expected volume, from the writers' schedules and the publishers' own runs:
 
-| Publish-on-change | Its publications | All publications | Written | Read |
-|---|---|---|---|---|
-| every :12/:42 slot after a change (before this pass) | 23 | 25 | about 1.4 TB | about 0.8 TB |
-| at most hourly (this revision) | 14 (01:42, 02:42, 08:12, 12:12, 13:12-21:12 hourly, 22:42) | 16 | about 0.9 TB | about 0.5 TB |
+| Publication policy | Per weekday | Written per weekday | Per week |
+|---|---|---|---|
+| publish-on-change every :12/:42 slot after a change, events every 2 h (before round 2) | 25 | about 1.4 TB | about 7.3 TB |
+| at most hourly (first round-2 pass) | 16 | about 0.9 TB | about 4.7 TB |
+| nightly, P15 scoring and P15 pre-open after themselves; otherwise at most every 3 h in market hours (this revision) | 5 (scoring, pre-open, about 16:42 and 19:42 UTC, nightly) | about 0.28 TB written, 0.16 TB read | 26 publications, about 1.5 TB (Saturday: scoring only; Sunday: none) |
 
-Weekend days have four to five publications (about 0.25 TB written). The orchestrator should weigh whether this
-volume is acceptable on the shared disk, or whether evidence publication should be limited further (for example to
-the hours P15 events and the hourly opportunity run).
+Follow-up (open, not built): incremental capture, copying only changed table data instead of the whole 12.8 GB file,
+would cut the capture copy and most of each publication's writes.
 
 ## Rehearsal result (2026-10-23, mirrored-live sandboxes)
 

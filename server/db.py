@@ -34,13 +34,14 @@ from engine.lib.snapshots import (
 
 _DATA_SOURCE_STATE: ContextVar[dict | None] = ContextVar("api_data_source_state", default=None)
 # Staleness budgets: a generation older than its dataset's budget is still served, but the
-# response says it is stale and /health reports "degraded". Publish-on-change republishes
-# a changed primary at most once an hour on its half-hour timer, so evidence lags its last
-# write by at most 60 minutes plus one publication (about 15 minutes); 90 minutes covers it.
+# response says it is stale and /health reports "degraded". During US market hours a changed
+# primary is republished at most once every three hours (publish-on-change),
+# so evidence there lags its last write by at most 3 hours plus one publication (about 15
+# minutes); 3.5 hours covers it. Responses still flag pending_publication.
 GENERAL_GENERATION_MAX_AGE = timedelta(hours=24)
 DATASET_GENERATION_MAX_AGE = {
     "board": GENERAL_GENERATION_MAX_AGE,
-    "evidence": timedelta(minutes=90),
+    "evidence": timedelta(minutes=210),
 }
 _DATASET_CLASS: ContextVar[str] = ContextVar("api_dataset_class", default="board")
 # A publication holds a read-only capture handle while it copies the primary: 50-130 s for

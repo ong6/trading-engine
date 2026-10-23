@@ -18,7 +18,9 @@ import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
+from datetime import time as clock_time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import duckdb
 
@@ -52,10 +54,14 @@ PUBLISH_MEMORY_LIMIT = "4GB"
 CAPTURE_LOCK_WAIT_S = 30.0
 PUBLISH_THREADS = 4
 SPILL_DIRECTORY = ".spill"
-# Publish-on-change runs on the :12/:42 timer but publishes at most once an hour: it skips
-# while the newest generation (from any publisher: the nightly, P15 scoring or events, or
-# itself) is younger than this, which on a half-hour timer means one slot in two.
-PUBLISH_ON_CHANGE_MIN_INTERVAL = timedelta(minutes=55)
+# Publication cadence. The nightly, P15 scoring and P15 pre-open publish themselves.
+# Publish-on-change runs
+# on the :12/:42 timer but publishes only on weekdays during US market hours (New York
+# 09:30-16:00) and only while the newest generation (from any publisher) is at least this
+# old: once every three hours on the half-hour timer. Weekends carry only job publications.
+PUBLISH_ON_CHANGE_MIN_INTERVAL = timedelta(minutes=175)
+MARKET_HOURS_ET = (clock_time(9, 30), clock_time(16, 0))
+_NEW_YORK = ZoneInfo("America/New_York")
 # Each generation's per-table storage signatures, beside the generations (retention only
 # touches generation files), so publish-on-change can tell which tables changed since.
 STORAGE_SIGNATURES_FILE = "storage-signatures.json"
@@ -956,8 +962,9 @@ def publish_snapshot(
 def _unchanged_generation(source: Path, now: datetime) -> dict | None:
     """Publish-on-change's skip decision, or None to publish.
 
-    Skips when the newest generation was captured from the primary's current bytes, when it
-    is younger than ``PUBLISH_ON_CHANGE_MIN_INTERVAL``, or when some table's storage changed
+    Skips outside weekday US market hours, when the newest generation was captured from the
+    primary's current bytes, when it is younger than ``PUBLISH_ON_CHANGE_MIN_INTERVAL``, or
+    when some table's storage changed
     since its capture and every such table is one no reader uses. A busy primary also skips.
     """
     try:
@@ -967,6 +974,11 @@ def _unchanged_generation(source: Path, now: datetime) -> dict | None:
     try:
         skipped = {"status": "skipped", "snapshot": pin.info.path.name,
                    "as_of": pin.info.as_of.isoformat()}
+        local = now.astimezone(_NEW_YORK)
+        if local.weekday() >= 5 or not MARKET_HOURS_ET[0] <= local.time() < MARKET_HOURS_ET[1]:
+            return {**skipped, "reason": (
+                "outside weekday US market hours: publish-on-change publishes only "
+                "09:30-16:00 New York; the nightly and the P15 jobs publish themselves")}
         if pin.info.source_storage_identity == source_storage_identity(source):
             return {**skipped, "reason": (
                 "the newest generation was captured from the primary's current bytes")}
@@ -974,7 +986,7 @@ def _unchanged_generation(source: Path, now: datetime) -> dict | None:
         if age < PUBLISH_ON_CHANGE_MIN_INTERVAL:
             return {**skipped, "reason": (
                 f"the newest generation is {age.total_seconds() / 60:.0f} minutes old; "
-                "publish-on-change publishes at most once an hour")}
+                "publish-on-change publishes at most once every three hours")}
         recorded = _recorded_signatures(snapshot_directory(source), pin.info.generation_id)
         if recorded is None:
             return None
@@ -1260,9 +1272,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--if-changed",
         action="store_true",
-        help="publish-on-change: skip when the newest generation matches the primary, is "
-        "younger than 55 minutes, or differs only in tables no reader uses, or when a "
-        "publication or producer is running",
+        help="publish-on-change: publish only on weekdays 09:30-16:00 New York, and skip "
+        "when the newest generation matches the primary, is younger than 175 minutes, or "
+        "differs only in tables no reader uses, or when a publication or producer is running",
     )
     parser.add_argument(
         "--held-lock",

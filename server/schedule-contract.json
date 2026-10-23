@@ -103,7 +103,7 @@
      "calendar": ["Mon..Fri *-*-* 09:05:00 America/New_York"]},
     {"unit": "trading-engine-p15-preopen.service", "origin": "repo",
      "source": "server/trading-engine-p15-preopen.service", "state": "enabled",
-     "activation": "timer", "timer": "trading-engine-p15-preopen.timer", "max_runtime": "20min",
+     "activation": "timer", "timer": "trading-engine-p15-preopen.timer", "max_runtime": "40min",
      "store": {"access": "writer", "writes": ["store/market.duckdb"], "reads": [], "windows": "schedule"}},
 
     {"unit": "trading-engine-p15-events.timer", "origin": "repo",

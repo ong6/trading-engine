@@ -92,7 +92,7 @@ def test_newest_generation_is_served_and_flagged_never_refused(monkeypatch, tmp_
         return SimpleNamespace(
             info=SimpleNamespace(
                 path=Path("generation.duckdb"),
-                as_of=datetime.now(timezone.utc) - timedelta(hours=2),
+                as_of=datetime.now(timezone.utc) - timedelta(hours=4),
                 generation_id="market-20261019T000000000000Z",
                 source_storage_identity=captured,
             ),
@@ -112,7 +112,7 @@ def test_newest_generation_is_served_and_flagged_never_refused(monkeypatch, tmp_
 
     assert calls == [{}, {}]  # no freshness refusal for either dataset
     assert board["generation_id"] == "market-20261019T000000000000Z"
-    # two hours old but identical to the primary: current, not stale
+    # four hours old (past the evidence budget) but identical to the primary: not stale
     assert (board["stale"], board["pending_publication"]) == (False, False)
     assert (evidence["stale"], evidence["pending_publication"]) == (True, True)
     assert evidence["budget_seconds"] == db.DATASET_GENERATION_MAX_AGE["evidence"].seconds
