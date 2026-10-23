@@ -5174,4 +5174,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** pinned tools/publish_snapshot.py +30 lines; tests +55 lines.
 - **Next:** checklist items; projection code identity from the import graph.
 
+## 2026-10-23 — The projection's code identity covers its modules' transitive imports (review round 3, item 3)
+
+- **Why:** round-3 review: the evaluation projection's code identity hashed five hand-listed files, so a change in a library they import (for example `sim/nyse.py`, which dates maturity) left a persisted projection flagged current.
+- **What:** `tools.affected_tests.import_closure` resolves imports the way the affected-tests graph does (a module and the package `__init__` files its import executes), but walks only from the given roots. `server/main.py` hashes `EVALUATION_CODE_ROOTS` plus every repo-local module they import transitively (252 files today), computed once per process on first use (about 2 s) rather than at import.
+- **Evidence:** `pytest tests/test_agent_routes.py tests/test_affected_tests.py`: the identity covers the roots and transitive modules such as `engine/lib/db.py`, `engine/lib/provenance.py` and `sim/nyse.py`; changing a root or a transitively imported module changes it.
+- **Metrics:** tools +25 lines; server +10 lines; tests +15 lines.
+- **Next:** checklist: re-deploy after a rollback and the deploy plan.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

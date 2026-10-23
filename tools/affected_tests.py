@@ -286,6 +286,32 @@ def python_facts(root: str, path: str) -> tuple | None:
     return imports, strings, computed
 
 
+def import_closure(roots: tuple[str, ...], root: Path = REPO_ROOT) -> tuple[str, ...]:
+    """The repo-local Python files ``roots`` import, transitively (the roots included).
+
+    The same import resolution as ``Graph`` (a module and the package ``__init__`` files its
+    import executes), over the importing files only: cheap enough to run at process start.
+    """
+    def resolve(name: str) -> list[str]:
+        parts, found = name.split("."), []
+        for end in range(1, len(parts) + 1):
+            stem = Path(root, *parts[:end])
+            for candidate in (stem.with_suffix(".py"), stem / "__init__.py"):
+                if candidate.is_file():
+                    found.append(candidate.relative_to(root).as_posix())
+        return found
+
+    seen, stack = set(roots), list(roots)
+    while stack:
+        facts = python_facts(str(root), stack.pop())
+        for name, _top in (facts[0] if facts else ()):
+            for path in resolve(name):
+                if path not in seen:
+                    seen.add(path)
+                    stack.append(path)
+    return tuple(sorted(seen))
+
+
 def _template(node: ast.JoinedStr) -> str:
     """An f-string's literal parts with NUL where a value is formatted in."""
     return "".join(part.value if isinstance(part, ast.Constant) else "\0" for part in node.values)

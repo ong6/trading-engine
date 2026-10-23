@@ -661,7 +661,7 @@ def test_agent_evaluation_generation_key_covers_table_content(con, monkeypatch):
     at = datetime(2026, 10, 22, 15, tzinfo=timezone.utc)
 
     key = main._evaluation_generation_key(con, at)
-    assert key[:3] == ("a" * 64, main.EVALUATION_CODE_SHA256, ("2026-10-22", "2026-10-22"))
+    assert key[:3] == ("a" * 64, main.evaluation_code_sha256(), ("2026-10-22", "2026-10-22"))
     assert [(table, signature is not None) for table, signature in key[3]] == [
         ("audit_with_id", True), ("audit_without_id", True), ("audit_missing", False)]
     assert main._evaluation_generation_key(con, at) == key
@@ -724,27 +724,38 @@ def test_evaluation_key_changes_with_the_utc_and_new_york_evaluation_dates(con, 
     assert key(5, day=23) != key(5)
 
 
+def test_evaluation_code_identity_covers_the_projection_modules_transitive_imports():
+    files = set(main.evaluation_code_files())
+    assert set(main.EVALUATION_CODE_ROOTS) <= files
+    # Repo-local modules the projection imports, directly or through others.
+    assert {"engine/lib/db.py", "engine/lib/provenance.py", "sim/nyse.py",
+            "server/p16_status_adapter.py"} <= files
+    assert all(path.endswith(".py") and not path.startswith(("tests/", ".venv/"))
+               for path in files)
+
+
 def test_evaluation_key_changes_with_the_projection_code(con, monkeypatch, tmp_path):
     monkeypatch.setattr(main, "P15_AUDITED_TABLES", ())
     monkeypatch.setattr(main.p15_evaluation, "registration_sha256", lambda: "a" * 64)
     at = datetime(2026, 10, 22, 15, tzinfo=timezone.utc)
     before = main._evaluation_generation_key(con, at)
-    for relative in main.EVALUATION_CODE_FILES:
+    repo = main.pathlib.Path(main.__file__).resolve().parents[1]
+    files = main.evaluation_code_files()
+    for relative in files:
         target = tmp_path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes((main.pathlib.Path(main.__file__).resolve().parents[1]
-                            / relative).read_bytes())
-    assert main._evaluation_code_sha256(tmp_path) == main.EVALUATION_CODE_SHA256
-    seen = {main.EVALUATION_CODE_SHA256}
-    for relative in main.EVALUATION_CODE_FILES:
+        target.write_bytes((repo / relative).read_bytes())
+    assert main._evaluation_code_sha256(tmp_path) == main.evaluation_code_sha256()
+    # A root and a module only reached transitively (a library the projection imports)
+    # each change the identity.
+    for relative in ("server/main.py", "sim/nyse.py"):
         target = tmp_path / relative
         original = target.read_bytes()
         target.write_bytes(original + b"\n# changed\n")
-        seen.add(main._evaluation_code_sha256(tmp_path))
+        assert main._evaluation_code_sha256(tmp_path) != main.evaluation_code_sha256()
         target.write_bytes(original)
-    assert len(seen) == len(main.EVALUATION_CODE_FILES) + 1
 
-    monkeypatch.setattr(main, "EVALUATION_CODE_SHA256", "0" * 64)
+    monkeypatch.setattr(main, "evaluation_code_sha256", lambda: "0" * 64)
     assert main._evaluation_generation_key(con, at) != before
 
 

@@ -11,6 +11,7 @@ Run from repo root:  .venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -260,9 +261,11 @@ def _validated_ticket_id(value: int) -> int:
         raise HTTPException(422, "ticket identifier is invalid") from exc
 
 
-# The code that computes the evaluation projection: a change to any of it invalidates a
-# persisted projection even when the registration and the evidence did not change.
-EVALUATION_CODE_FILES = (
+# The modules that compute the evaluation projection. Their code identity covers them and
+# every repo-local module they import, transitively (tools.affected_tests.import_closure):
+# a change to any of it invalidates a persisted projection even when the registration and
+# the evidence did not change.
+EVALUATION_CODE_ROOTS = (
     "engine/p15_evaluation.py",
     "server/agent_evaluation.py",
     "server/main.py",
@@ -273,15 +276,24 @@ _EVALUATION_ET = ZoneInfo("America/New_York")
 _REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
+def evaluation_code_files(root: pathlib.Path = _REPOSITORY_ROOT) -> tuple[str, ...]:
+    from tools.affected_tests import import_closure
+
+    return import_closure(EVALUATION_CODE_ROOTS, root)
+
+
 def _evaluation_code_sha256(root: pathlib.Path = _REPOSITORY_ROOT) -> str:
     digest = hashlib.sha256()
-    for relative in EVALUATION_CODE_FILES:
+    for relative in evaluation_code_files(root):
         digest.update(relative.encode() + b"\0")
         digest.update(hashlib.sha256((root / relative).read_bytes()).digest())
     return digest.hexdigest()
 
 
-EVALUATION_CODE_SHA256 = _evaluation_code_sha256()
+@functools.cache
+def evaluation_code_sha256() -> str:
+    """This process's projection code identity (computed once, on first use: about 2 s)."""
+    return _evaluation_code_sha256()
 
 
 def _evaluation_clock(generated_at: datetime) -> tuple[str, str]:
@@ -330,7 +342,7 @@ def _evaluation_generation_key(con: duckdb.DuckDBPyConnection, generated_at: dat
     projection code, evaluation dates and the content of every audited table."""
     return (
         p15_evaluation.registration_sha256(),
-        EVALUATION_CODE_SHA256,
+        evaluation_code_sha256(),
         _evaluation_clock(generated_at),
         _evaluation_table_signatures(con),
     )
