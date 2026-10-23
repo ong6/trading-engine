@@ -72,7 +72,7 @@ generations well before its 2026-12-03 epoch.
 ## Re-pin (done on the branch: registration revision 20)
 
 `server/p15-registration.json` is revision 20 over the storage revision and the reliability-ops limits
-(`engine/lib/store_limits.py` joins the registered closure); `registration_sha256` `63a1c9d5…`, `source_commit` the
+(`engine/lib/store_limits.py` joins the registered closure); `registration_sha256` `9f14aac3…`, `source_commit` the
 newest commit touching a registered file. Its `revision_reason` names what changes in collection (TradingView daily
 history, Massive options and five unread macro series paused) and schedules (the new publish-on-change timer; the
 TradingView timer no longer runs), the reader and storage paths and the storage limits, and what does not (frozen

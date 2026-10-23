@@ -5206,4 +5206,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** pinned tools/publish_snapshot.py +12 lines; server 3 lines; tests +35 lines.
 - **Next:** re-pin.
 
+## 2026-10-23 — Re-pin registration revision 20 after the round-4 sweep change
+
+- **Why:** the wider stale sweep changed registered `tools/publish_snapshot.py`; `server/main.py`, `tools/affected_tests.py` and the tests are not registered.
+- **What:** one registered hash re-pinned, `source_commit` 382f0af9, `registration_sha256` `9f14aac3…`; the runtime-contract digests are unchanged (fixed point); the checklist carries the new value.
+- **Evidence:** the CI-equivalent suites in the report.
+- **Metrics:** registration 3 values; docs 1 line.
+- **Next:** round-4 sign-off.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
