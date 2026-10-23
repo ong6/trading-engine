@@ -292,8 +292,13 @@ def _evaluation_code_sha256(root: pathlib.Path = _REPOSITORY_ROOT) -> str:
 
 @functools.cache
 def evaluation_code_sha256() -> str:
-    """This process's projection code identity (computed once, on first use: about 2 s)."""
+    """This process's projection code identity: the code this process imported."""
     return _evaluation_code_sha256()
+
+
+# Fixed when the API process imports this module (about 2 s), not on the first request, so a
+# checkout that changes in between cannot label the old code's projection with the new code.
+evaluation_code_sha256()
 
 
 def _evaluation_clock(generated_at: datetime) -> tuple[str, str]:

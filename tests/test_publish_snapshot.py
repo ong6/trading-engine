@@ -1190,7 +1190,8 @@ def _publication_killed_mid_capture(root, source, signum):
     child = subprocess.Popen(
         [sys.executable, "-m", "tools.publish_snapshot", "--repo-root", str(root),
          "--source", str(source)],
-        cwd=Path(__file__).resolve().parents[1], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        cwd=Path(__file__).resolve().parents[1],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,   # no pipes left open
     )
     deadline = time.monotonic() + 120
     sent = False
@@ -1233,3 +1234,31 @@ def test_the_next_publication_reclaims_what_a_killed_one_left(tmp_path):
     assert manifest["generation_id"]
     assert not [p for p in directory.iterdir()
                 if p.name.startswith(".capture-") or p.name.endswith(".tmp")]
+
+
+def test_publication_sweeps_stale_scratch_files_in_subdirectories_too(tmp_path):
+    root, source = _repo(tmp_path, cold=True)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    directory = source.parent / "snapshots"
+    stale = [
+        directory / ".capture-market-x.0123.duckdb",
+        directory / ".capture-market-x.0123.duckdb.wal",
+        directory / ".market-x.duckdb.abcd.tmp",
+        directory / ".parts" / ".prices.abcd.parquet.tmp",
+        directory / "blobs" / "ab" / ".abcdef.1234.tmp",
+        directory / publish_snapshot.SPILL_DIRECTORY / "duckdb_temp_storage-0.tmp",
+    ]
+    for path in stale:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"left by a killed publication")
+    kept = sorted(p for p in directory.rglob("*") if p.is_file() and p not in stale)
+
+    second = publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=1))
+
+    assert second["generation_id"] != first["generation_id"]
+    assert not [path for path in stale if path.exists()]
+    survivors = {p for p in directory.rglob("*") if p.is_file()}
+    # Retention may drop the oldest generation; nothing a published generation needs is gone.
+    assert (directory / second["snapshot"]).exists() and all(
+        (directory / record["path"]).exists() for record in second["parts"])
+    assert any(p in survivors for p in kept)

@@ -734,6 +734,12 @@ def test_evaluation_code_identity_covers_the_projection_modules_transitive_impor
                for path in files)
 
 
+def test_evaluation_code_identity_is_fixed_when_the_api_imports():
+    # Computed at import, so a checkout that changes before the first request cannot
+    # relabel the projection key.
+    assert main.evaluation_code_sha256.cache_info().currsize == 1
+
+
 def test_evaluation_key_changes_with_the_projection_code(con, monkeypatch, tmp_path):
     monkeypatch.setattr(main, "P15_AUDITED_TABLES", ())
     monkeypatch.setattr(main.p15_evaluation, "registration_sha256", lambda: "a" * 64)

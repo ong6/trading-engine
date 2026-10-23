@@ -5198,4 +5198,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** registration 6 values; docs 2 lines.
 - **Next:** round-3 sign-off.
 
+## 2026-10-23 — Round-4 fixes: warning-clean kill tests, code identity at import, a wider stale sweep
+
+- **Why:** round-4 review. The two kill tests failed under CI's `-W error` (`ResourceWarning: unclosed file` from their Popen pipes); the projection code identity was computed on the first request, so a `git pull` before it could label the old code's projection with the new code; and the stale sweep missed a killed run's cold-part `.parquet.tmp` and blob temp files in subdirectories.
+- **What:** the kill tests send the child's output to `/dev/null`. `server/main.py` fixes `evaluation_code_sha256()` when the API process imports it. The sweep (under the publication lock) walks the generation directory: top-level `.capture-*.duckdb` and WAL, every `.*.tmp` at any depth (`.parts/.*.parquet.tmp`, `blobs/*/.*.tmp`, generation, manifest and pointer temps) and DuckDB's `.spill` files.
+- **Evidence:** both timezone suites exactly as CI runs them, plus the research tests (commands in the report); a publication removes planted stale files at the top level, in `.parts`, in `blobs` and in `.spill` and still publishes; the identity is cached after import.
+- **Metrics:** pinned tools/publish_snapshot.py +12 lines; server 3 lines; tests +35 lines.
+- **Next:** re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

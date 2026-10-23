@@ -1053,20 +1053,28 @@ def _recorded_signatures(directory: Path, generation_id: str | None) -> dict[str
 def _sweep_stale_publication_files(directory: Path) -> list[str]:
     """Remove what a killed publication left behind; the caller holds the publication lock.
 
-    A publication's scratch files (`.capture-*.duckdb` and its WAL, about the store's size,
-    and `.*.tmp` generation and pointer files) live only while it runs, and cleanup runs in
-    its `finally`. SIGKILL, the OOM killer or a power loss skip that, so every publication
-    first removes them: with the lock held, no other publication can own one.
+    A publication's scratch files live only while it runs, and cleanup runs in its
+    `finally`: the capture copy (`.capture-*.duckdb` and its WAL, about the store's size),
+    every `.*.tmp` it writes before an atomic rename (generation, manifest, pointer, cold part
+    `.parts/.*.parquet.tmp`, blob `blobs/*/.*.tmp`), and DuckDB's spill files. SIGKILL, the
+    OOM killer or a power loss skip that, so every publication first removes them: with the
+    lock held, no other publication can own one.
     """
     removed = []
-    for path in directory.iterdir():
+    for path in directory.rglob("*"):
+        if path.is_symlink() or not path.is_file():
+            continue
+        relative = path.relative_to(directory)
         name = path.name
-        stale = (name.startswith(".capture-") and name.endswith((".duckdb", ".duckdb.wal"))) or (
-            name.startswith(".") and name.endswith(".tmp")
+        stale = (
+            (len(relative.parts) == 1 and name.startswith(".capture-")
+             and name.endswith((".duckdb", ".duckdb.wal")))
+            or (name.startswith(".") and name.endswith(".tmp"))
+            or relative.parts[0] == SPILL_DIRECTORY
         )
-        if stale and not path.is_symlink() and path.is_file():
+        if stale:
             path.unlink(missing_ok=True)
-            removed.append(name)
+            removed.append(relative.as_posix())
     return removed
 
 
