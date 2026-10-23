@@ -1,6 +1,6 @@
 # Storage revision (r16-gen + r16-raw, now numbered revision 20 after main took registration revisions 18 and 19) — deploy checklist
 
-Branch `p24/storage-r18` (storage revision on top of main at 1fae615d). Status: **review findings fixed, awaiting
+Branch `p24/storage-r18` (storage revision on top of main at 53a86579). Status: **review findings fixed, awaiting
 re-review**; not deployed. Rehearsed on store copies only (see "Rehearsal result"). Nothing here was run against the
 live store.
 
@@ -199,33 +199,51 @@ restore drill passes, with the producer lock held and TradingView jobs drained. 
 writers to zstd, after which a code rollback can no longer read new raw payloads; its rollback is the off-host raw
 archive.
 
-## Rehearsal result (2026-10-22/23, real store copies)
+## Publication I/O (measured 2026-10-23)
 
-Copies of the 18:07 published snapshot (12.7 GB, SHA-256 = manifest, catalog `865f64aa…`), each the
-`store/market.duckdb` of a sandbox clone with no remote. Deploy and rollback are the committed scripts, run from fresh
-shells (`env -i`); host steps (units, crontab) are stand-ins that only log, and the readers are a real API process for
-the sandbox store. Wall clock (peak RSS).
+One republication of the 12.8 GB store (a later generation, 60 of 67 cold parts reused), with the whole process tree
+accounted from `/proc/<pid>/io`: 955 s, 31.3 GB read, 120.6 GB of pages dirtied, of which 64.1 GB never reached the
+disk (the scratch capture copy and DuckDB spill, deleted first), so **56.4 GB written**; the capture copy alone is
+12.8 GB of that. A first generation (every cold part new) dirtied 74-76 GB. The capture window, in which producers and
+API writers wait, took 89 s and 154 s (the copy is bound by the disk: a plain `cp` of the same file took 137 s at the
+same hour); API writes wait up to 180 s.
 
-Final run at the re-pinned head 5fd9cd59 (registration revision 20, series-B DuckDB limits), from the deployed
-revision-19 code e7cd03a1 with the live checkout's generated `data/` files (deployed contract digests):
+Expected weekday volume, from the writers' schedules (P15 events every 15 minutes and the hourly opportunity in New
+York hours, settle, capture, shadow, daily opportunity), plus the nightly's and P15 scoring's own publications:
 
-| Step | Result |
+| Publish-on-change | Its publications | All publications | Written | Read |
+|---|---|---|---|---|
+| every :12/:42 slot after a change (before this pass) | 23 | 25 | about 1.4 TB | about 0.8 TB |
+| at most hourly (this revision) | 14 (01:42, 02:42, 08:12, 12:12, 13:12-21:12 hourly, 22:42) | 16 | about 0.9 TB | about 0.5 TB |
+
+Weekend days have four to five publications (about 0.25 TB written). The orchestrator should weigh whether this
+volume is acceptable on the shared disk, or whether evidence publication should be limited further (for example to
+the hours P15 events and the hourly opportunity run).
+
+## Rehearsal result (2026-10-23, mirrored-live sandboxes)
+
+Each sandbox mirrors the live checkout: branch `main` tracking a bare origin (a local repository) at the live main,
+the live checkout's uncommitted `data/` outputs (`data/_meta.json` modified, `data/reports/producer-detail/`
+untracked), the lane's virtualenv, and a copy of a live published snapshot (SHA-256 equal to its manifest) as the
+primary. An "orchestrator" clone pushes `main` + `p24/storage-r18` as a `--no-ff` merge; deploy and rollback are the
+merge's own scripts, run from fresh shells (`env -i`); host steps (units, crontab) are stand-ins that only log, and
+the readers are a real API process for the sandbox store. Times are UTC, outside 22:15-23:59 and the provider windows,
+except where noted.
+
+| Scenario (head) | Result |
 |---|---|
-| pre-flight plan / NOT NULL count, read-only | 1 s / 1 s; pre-image `865f64aa…`, all five columns 0 NULL |
-| backup create + verify | 527 s (5.1 GB) + 168 s |
-| migration apply | 341 s (5.0 GB); catalog `7286ea9b…`, plan after `current` |
-| runtime-contract migrations | E1, sector, XS each 1 s, from the deployed digests to `7c5a169d…`, `a39c219d…`, `718d6417…`; the ordinary refresh after them is ACCUMULATING, not INVALID |
-| first generation | 670 s (5.1 GB); producer locks and capture handle held 16 s |
-| readers, first evidence read (no projection yet) | 4.6 min once, then the projection is cached on disk |
-| evidence read, warm / after an API restart / after a write | 200 in 33 s each (`projection_current: true`; `pending_publication` true after the write); the 33-47 s is `agent_evaluation.status`, which takes 47 s on the single-file store as well |
-| republish with one API write per second | 827 s (5.9 GB); capture 17 s; 60 cold parts reused; 539 of 539 writes 200, slowest 18 s |
-| one real nightly (`engine/run_daily.sh`, sandbox HOME, no remote, drain budget -1) | 31 min: collect 302 s, actions 491 s, market date 2026-10-22, league 63 s, 33 books' equity advanced 2026-10-21 → 2026-10-22; sector and XS records ACCUMULATING under the re-pinned contracts; E1 report valid (13 Mondays, no Monday on a Thursday); snapshot 843 s; invariants pass |
-| evidence after the nightly's new inputs | 200 in 46 s with the previous projection (`projection_current: false`); the background warmer made it current 286 s later; no request waited for the cold projection |
+| fast-forward refusal (ceea1800) | `origin/main` carries a code commit after the merge: the deploy refuses at its first step ("changes files outside data/"); nothing stopped, `HEAD` and the primary's identity unchanged |
+| failed backup create, rollback (ceea1800) | `main` moved by a data commit; the deploy commits and pushes the uncommitted outputs (`engine.sync`: push rejected, rebased, pushed), fast-forwards, passes the pre-flights; backup create fails (unwritable parent); `state.env` has no `R20_BACKUP`, phase `code-switched`. The rollback proves the primary unchanged since quiesce, commits `Revert "Merge …"` on `main`, pushes and pulls: `HEAD` = `origin/main`, code = the merge's first parent, registration 19, every data commit and output kept, store untouched; a rerun is a no-op ("already reverted") |
+| deploy, rollback after release (ceea1800, 23:14 copy) | deploy 35 min (backup create 521 s + verify 172 s, migration 347 s, contract migrations 1 s each, first generation 755 s, first evidence read 4.4 min); only `data/` after the merge; E1 `676aa2ae`, sector `7b3ed5a3`, XS `0727df99`; `/meta` shows all three ACCUMULATING. Publish-on-change right after the republication skips ("captured from the primary's current bytes"), and after an API write skips ("13 minutes old; at most once an hour"). The rollback after release keeps the incident copy, commits the outputs written since release, reverts on `main`, restores the primary byte for byte (SHA-256 equal to the pre-deploy copy) and serves the previous code's API (11 min) |
+| same, measured (ceea1800, 23:14 copy) | the republication I/O above; the rollback after release again byte-identical (10 min) |
+| deploy, one real nightly, rollback after release (final head cd0892a8, 02:54 copy after the host's P15 scoring, `main` at the live dcc194b4) | deploy 33 min (backup 559 + 189 s, migration 380 s, first generation 789 s); every active book at 2026-10-22; `engine/run_daily.sh` (sandbox HOME, drain budget -1) 39 min, every stage exit 0: collect 292 s, actions 1,118 s, market date 2026-10-22, screen, league, sector and XS ACCUMULATING under `7b3ed5a3`/`0727df99`, E1 checkpoint `676aa2ae` with 13 observations, sync pushed its screen commit to the sandbox origin, snapshot 786 s. The rollback after release kept that commit, reverted on `main` and restored the primary byte for byte (8 min) |
 
-Earlier runs at 4a778427 and aa048662 (before the re-pin and series B): the rollback script from a fresh shell
-restored the primary byte for byte (SHA-256 equals the copied snapshot), kept the post-release row in the incident
-copy and served the previous code's API (11 min); a +40 h clock served the board stale-flagged (`/health` 200
-`degraded`) and never 503; a walkforward child ran from the published generation (59 s); publish-on-change cleared
-`pending_publication` and skipped an unchanged primary in 6 s.
+Two runs did not reach the nightly, by design: on the post-nightly 23:14 copy the nightly stops at market-date
+("active portfolio checkpoints disagree: 2026-10-21, 2026-10-22") because the P15 books advance only at the host's
+02:30 P15 scoring (the same check, unchanged from main, refuses on the copy itself); and backup create refuses
+("screen-metadata-behind", "evidence-invalid") when the checkout's committed reports are newer or older than the
+store, until the checkout matches the store's evening. In the first scenario-3 run the sandbox nightly started at
+02:15, its collect ended at 02:19 and its actions stage ran 02:19-02:26 inside the 02:20-02:50 window before it was
+paused until 02:50.
 
 The off-host `remote_restore_drill` was not run (needs a generation-backed bundle committed to the private backup repo).

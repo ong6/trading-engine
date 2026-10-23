@@ -5110,4 +5110,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** registration 3 values; docs 2 paragraphs.
 - **Next:** in-sequence nightly rehearsal; report.
 
+## 2026-10-23 — Rehearse round 2 in mirrored-live sandboxes; record publication I/O
+
+- **Why:** round-2 review asked for a re-rehearsal at the final head in a sandbox that mirrors the live checkout (branch `main`, an origin remote, uncommitted `data/` outputs), covering a deploy with `main` moving, the fast-forward refusal, a rollback after a failed backup create, a rollback after release by a revert commit and one real nightly, and for publish-on-change's copy volume.
+- **What:** five sandboxes, each a `main` checkout tracking a local bare origin with the live checkout's uncommitted outputs and a hash-verified copy of a live snapshot, the approved merge pushed by an orchestrator clone; deploy and rollback from fresh shells; host steps stubbed, readers a real API. The checklist's rehearsal section is replaced by these results and gains a publication I/O section.
+- **Evidence:** fast-forward refusal before anything stopped; failed backup create left no `R20_BACKUP` and the rollback reverted on `main`, pushed, pulled, kept every output and left the store's identity unchanged (rerun a no-op); two deploys plus rollbacks after release restored the primary byte for byte; at the final head cd0892a8, a deploy from the 02:54 post-scoring copy and one real `run_daily.sh` (39 min, every stage exit 0, sector and XS ACCUMULATING, E1 13 observations under the re-pinned digests, its sync pushed to the sandbox origin), then a rollback after release kept the nightly's commit. One republication: 56.4 GB written net (120.6 GB dirtied, 64.1 GB cancelled), 31.3 GB read; about 0.9 TB written per weekday at most hourly against about 1.4 TB before. Both timezone suites pass (`pytest -n 6`, exit 0, no failures).
+- **Metrics:** docs: rehearsal and I/O sections rewritten.
+- **Next:** orchestrator decisions: forward records after a rollback past the contract migrations; whether the publication volume needs a further limit.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
