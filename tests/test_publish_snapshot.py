@@ -962,6 +962,11 @@ def test_publication_refuses_a_primary_that_changed_during_its_capture(tmp_path,
     with pytest.raises(publish_snapshot.SnapshotError, match="changed while it was being captured"):
         publish_snapshot.publish_snapshot(root, source, now=NOW)
 
+def _later() -> datetime:
+    """Past publish-on-change's hourly limit (generations record the wall clock)."""
+    return datetime.now(timezone.utc) + timedelta(hours=2)
+
+
 def test_publish_on_change_skips_unchanged_busy_and_running_publications(tmp_path):
     import fcntl
 
@@ -969,7 +974,7 @@ def test_publish_on_change_skips_unchanged_busy_and_running_publications(tmp_pat
     first = publish_snapshot.publish_snapshot(root, source, now=NOW)
     directory = source.parent / "snapshots"
 
-    unchanged = publish_snapshot.publish_snapshot(root, source, if_changed=True)
+    unchanged = publish_snapshot.publish_snapshot(root, source, if_changed=True, now=_later())
     assert unchanged["status"] == "skipped" and unchanged["snapshot"] == first["snapshot"]
 
     writer = duckdb.connect(str(source))
@@ -977,16 +982,114 @@ def test_publish_on_change_skips_unchanged_busy_and_running_publications(tmp_pat
     writer.close()
     with open(root / ".nightly.lock", "a") as producer:  # a producer is running
         fcntl.flock(producer.fileno(), fcntl.LOCK_EX)
-        busy = publish_snapshot.publish_snapshot(root, source, if_changed=True)
+        busy = publish_snapshot.publish_snapshot(root, source, if_changed=True, now=_later())
     assert busy["status"] == "skipped" and "producer active" in busy["reason"]
     with open(directory / ".generation-publish.lock", "a") as running:
         fcntl.flock(running.fileno(), fcntl.LOCK_EX)
-        concurrent = publish_snapshot.publish_snapshot(root, source, if_changed=True)
+        concurrent = publish_snapshot.publish_snapshot(root, source, if_changed=True, now=_later())
     assert concurrent == {"status": "skipped", "reason": "another publication is running"}
 
-    changed = publish_snapshot.publish_snapshot(root, source, if_changed=True)
+    changed = publish_snapshot.publish_snapshot(root, source, if_changed=True, now=_later())
     assert changed["generation_id"] != first["generation_id"]
     assert changed["row_counts"]["main.jobs"] == 1
+
+
+def test_publish_on_change_publishes_at_most_once_an_hour(tmp_path):
+    root, source = _repo(tmp_path)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    writer = duckdb.connect(str(source))
+    writer.execute("INSERT INTO jobs (id,state) VALUES (5, 'done')")
+    writer.close()
+    as_of = datetime.fromisoformat(first["as_of"])
+
+    early = publish_snapshot.publish_snapshot(
+        root, source, if_changed=True, now=as_of + timedelta(minutes=30))
+    assert early["status"] == "skipped" and "at most once an hour" in early["reason"]
+    due = publish_snapshot.publish_snapshot(
+        root, source, if_changed=True, now=as_of + timedelta(minutes=55))
+    assert due["generation_id"] != first["generation_id"]
+
+
+def test_publish_on_change_skips_a_change_confined_to_tables_no_reader_uses(tmp_path):
+    root, source = _repo(tmp_path)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    later = datetime.fromisoformat(first["as_of"]) + timedelta(hours=2)
+    unread = "pit_import_batches"
+    assert f"main.{unread}" in publish_snapshot.UNREAD_TABLES
+    writer = duckdb.connect(str(source))
+    writer.execute(
+        f"INSERT INTO {unread} VALUES ('b', 1, 'd', 'v', '1', 'l', TIMESTAMP '2026-10-01', "
+        "false, '{}', 'f', 0, TIMESTAMP '2026-10-01')")
+    writer.close()
+
+    skipped = publish_snapshot.publish_snapshot(root, source, if_changed=True, now=later)
+    assert skipped["status"] == "skipped"
+    assert skipped["reason"] == f"only tables no reader uses changed: main.{unread}"
+
+    writer = duckdb.connect(str(source))
+    writer.execute("INSERT INTO jobs (id,state) VALUES (9, 'done')")
+    writer.close()
+    published = publish_snapshot.publish_snapshot(root, source, if_changed=True, now=later)
+    assert published["generation_id"] != first["generation_id"]
+    recorded = json.loads(
+        (source.parent / "snapshots" / publish_snapshot.STORAGE_SIGNATURES_FILE).read_text())
+    assert recorded["generation_id"] == published["generation_id"]
+    assert set(recorded["signatures"]) == set(published["row_counts"])
+
+
+def test_storage_signatures_change_only_for_the_written_table(tmp_path):
+    path = tmp_path / "store.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE a AS SELECT range AS id FROM range(200000)")
+    con.execute("CREATE TABLE b AS SELECT range AS id FROM range(200000)")
+    con.close()
+
+    def signatures():
+        reader = duckdb.connect(str(path), read_only=True)
+        try:
+            return publish_snapshot.storage_signatures(reader)
+        finally:
+            reader.close()
+
+    before = signatures()
+    writer = duckdb.connect(str(path))
+    writer.execute("UPDATE a SET id = id + 1000000 WHERE id = 7")
+    writer.close()
+    after_update = signatures()
+    assert after_update["main.a"] != before["main.a"]
+    assert after_update["main.b"] == before["main.b"]
+    # A write still in the WAL shows too.
+    subprocess.run([sys.executable, "-c", (
+        "import duckdb, os, sys; c = duckdb.connect(sys.argv[1]); "
+        "c.execute(\"SET checkpoint_threshold='1TB'\"); "
+        "c.execute('INSERT INTO b VALUES (-1)'); os._exit(0)"), str(path)], check=True)
+    assert path.with_name("store.duckdb.wal").exists()
+    pending = signatures()
+    assert pending["main.b"] != after_update["main.b"]
+    assert pending["main.a"] == after_update["main.a"]
+
+
+def test_unread_tables_are_named_by_no_code_the_api_imports():
+    import re
+    from collections import defaultdict
+
+    from tools import affected_tests
+
+    graph = affected_tests.Graph()
+    imports = defaultdict(set)
+    for dependency, importers in graph.importers.items():
+        for importer in importers:
+            imports[importer].add(dependency)
+    closure, pending = set(), ["server/main.py"]
+    while pending:
+        path = pending.pop()
+        if path not in closure:
+            closure.add(path)
+            pending.extend(imports.get(path, ()))
+    text = "\n".join((graph.root / path).read_text() for path in closure if path.endswith(".py"))
+    assert len(closure) > 100
+    for qualified in publish_snapshot.UNREAD_TABLES:
+        assert not re.search(rf"\b{re.escape(qualified.split('.', 1)[1])}\b", text), qualified
 
 
 def test_publish_on_change_skips_while_a_writer_has_the_primary_open(tmp_path):
@@ -1007,7 +1110,7 @@ def test_publish_on_change_skips_while_a_writer_has_the_primary_open(tmp_path):
     writer.start()
     try:
         assert ready.wait(30)
-        result = publish_snapshot.publish_snapshot(root, source, if_changed=True)
+        result = publish_snapshot.publish_snapshot(root, source, if_changed=True, now=_later())
     finally:
         release.set()
         writer.join(30)

@@ -25,14 +25,17 @@ generations; see pre-flight 6.
   only "no generation" refuses. Responses carry `x-generation-stale` and `x-pending-publication`; `/meta` and
   `/agent/evaluation/status` return the served generation's `as_of`, age, budget, `stale` and `pending_publication`;
   `/health` reports `degraded` (HTTP 200) when the board is stale. A generation is stale when it is past its budget
-  (board 24 h, evidence 45 min) and possibly behind the primary.
+  (board 24 h, evidence 90 min) and possibly behind the primary.
 - **Finding 3 (fixed): publication cadence and API writes.** Evidence writers: accounts-settle (07:45, 11:55 UTC),
   agent-data-capture (01:25), agent-shadow (01:30), daily opportunity (02:00), hourly and four-hour opportunity
   (New York market hours), P15 pre-open (09:05 New York), P15 scoring (02:30, publishes), P15 events (publishes at
   most every 2 h), P16 challengers (disabled), and API POSTs. The new `trading-engine-publish-on-change` timer
-  (:12 and :42 UTC, minutes no other unit starts at) republishes only when the primary changed and skips at once when
-  a publication, producer lock or writer is active. Bound: with no producer running, evidence lags its last write by
-  at most 30 min plus one publication. Publication now holds the producer locks and one read-only handle only while
+  (:12 and :42 UTC, minutes no other unit starts at) republishes at most once an hour (it skips while the newest
+  generation, from any publisher, is under 55 minutes old), only when the primary changed, and not when every table
+  whose storage changed is one no code the API imports names (`UNREAD_TABLES`); it skips at once when a publication,
+  producer lock or writer is active. The nightly's own publication at its end is the "once after the nightly". Bound:
+  with no producer running, evidence lags its last write by at most 60 min plus one publication, inside the 90-minute
+  evidence budget. Its schedule-contract entry declares `writes: store/snapshots`. Publication now holds the producer locks and one read-only handle only while
   it copies the primary (49-131 s for the 12.7 GB copy in the rehearsal, against 10 minutes before), then builds the
   generation from the copy; API writes wait up to 180 s for that handle instead of failing (cost: a write arriving
   during a capture is delayed until it ends).
@@ -133,7 +136,7 @@ bash "$HOME/r20-deploy.sh"
 
 1. `python -m engine.schema_migrations plan` → `status: current`, schema id 1.
 2. `curl -sI localhost:8000/health` shows `x-data-source: snapshot`, `x-generation-id`, `x-generation-stale: false`.
-3. Within 45 minutes of any write, `/agent/evaluation/status` reports `generation.pending_publication: false` (the
+3. Within 90 minutes of any write, `/agent/evaluation/status` reports `generation.pending_publication: false` (the
    publish-on-change timer ran) and never 503.
 4. `python -m tools.check_invariants --snapshot latest` exits 0 (shadow).
 5. First nightly after deploy: books advance, E1, sector and XS records are written, no `SchemaMigrationRequired`;

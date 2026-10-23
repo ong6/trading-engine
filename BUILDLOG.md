@@ -5078,4 +5078,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +75 lines (server/main.py, server/db.py); tests +90 lines.
 - **Next:** revision reason; publish-on-change I/O; re-pin.
 
+## 2026-10-23 — Publish-on-change at most hourly, and not for a change no reader sees (review round 2, item 8)
+
+- **Why:** round-2 review: every publish-on-change run that found the primary changed copied the whole 12.7 GB primary, up to 48 times a day on the :12/:42 timer, whether or not anything a reader uses had changed.
+- **What:** `--if-changed` now also skips while the newest generation (from any publisher) is under 55 minutes old, so on the half-hour timer it publishes at most once an hour; the nightly's own publication at its end is the once-after-the-nightly. Each publication records every table's storage signature (`pragma_storage_info`: row groups, segments, stats, blocks, pending updates; metadata only) taken on the capture handle, in `store/snapshots/storage-signatures.json`. Publish-on-change computes the same on a read-only probe of the primary and skips when every table whose signature changed is in `UNREAD_TABLES` (the two `pit_import_*` tables: 82 of the store's 84 tables are named by code the API imports, so the board or evidence may read them). Equal signatures never skip (a checkpoint can reuse freed blocks). The evidence staleness budget is 90 minutes (60 minutes plus one publication). The schedule-contract entry is a writer with `writes: ["store/snapshots"]`.
+- **Evidence:** `pytest tests/test_publish_snapshot.py tests/test_server_db.py tests/test_schedule_contract.py`: a change 30 minutes after a generation skips and one 55 minutes after publishes; a write to `pit_import_batches` alone skips with its name and a `jobs` insert then publishes and records the new generation's signatures; signatures change for the written table only, including a write still in the WAL; no file in the API's import closure names an `UNREAD_TABLES` table. `schedule_contract_check --static` ok. Storage signatures over all 84 tables of the 2026-09-28 copy take 2.4 s.
+- **Metrics:** pinned tools/publish_snapshot.py +95 lines; server 1 line; tests +125 lines.
+- **Next:** measured copy volume per publication and per day in the mirrored-live rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -149,7 +149,7 @@
     {"unit": "trading-engine-publish-on-change.service", "origin": "repo",
      "source": "server/trading-engine-publish-on-change.service", "state": "enabled",
      "activation": "timer", "timer": "trading-engine-publish-on-change.timer", "max_runtime": "25min",
-     "store": {"access": "reader", "reads": ["store/market.duckdb"], "writes": [],
+     "store": {"access": "writer", "reads": ["store/market.duckdb"], "writes": ["store/snapshots"],
                "windows": "schedule"}},
 
     {"unit": "trading-engine-p16-challengers.timer", "origin": "repo",

@@ -52,6 +52,16 @@ PUBLISH_MEMORY_LIMIT = "4GB"
 CAPTURE_LOCK_WAIT_S = 30.0
 PUBLISH_THREADS = 4
 SPILL_DIRECTORY = ".spill"
+# Publish-on-change runs on the :12/:42 timer but publishes at most once an hour: it skips
+# while the newest generation (from any publisher: the nightly, P15 scoring or events, or
+# itself) is younger than this, which on a half-hour timer means one slot in two.
+PUBLISH_ON_CHANGE_MIN_INTERVAL = timedelta(minutes=55)
+# Each generation's per-table storage signatures, beside the generations (retention only
+# touches generation files), so publish-on-change can tell which tables changed since.
+STORAGE_SIGNATURES_FILE = "storage-signatures.json"
+# Tables no code the API imports names: a change confined to them is not worth a copy.
+# Every other table, including any added later, counts as read by the board or evidence.
+UNREAD_TABLES = frozenset({"main.pit_import_batches", "main.pit_import_rows"})
 
 
 def _bounded(connection: duckdb.DuckDBPyConnection, directory: Path):
@@ -921,7 +931,7 @@ def publish_snapshot(
     directory = snapshot_directory(source)
     _mkdir_durable(source.parent, directory)
     if if_changed:
-        unchanged = _unchanged_generation(source)
+        unchanged = _unchanged_generation(source, now or datetime.now(timezone.utc))
         if unchanged is not None:
             return unchanged
     try:
@@ -943,22 +953,88 @@ def publish_snapshot(
         raise
 
 
-def _unchanged_generation(source: Path) -> dict | None:
+def _unchanged_generation(source: Path, now: datetime) -> dict | None:
+    """Publish-on-change's skip decision, or None to publish.
+
+    Skips when the newest generation was captured from the primary's current bytes, when it
+    is younger than ``PUBLISH_ON_CHANGE_MIN_INTERVAL``, or when some table's storage changed
+    since its capture and every such table is one no reader uses. A busy primary also skips.
+    """
     try:
         pin = pin_latest_generation(source)
     except GenerationError:
         return None
     try:
-        if pin.info.source_storage_identity != source_storage_identity(source):
+        skipped = {"status": "skipped", "snapshot": pin.info.path.name,
+                   "as_of": pin.info.as_of.isoformat()}
+        if pin.info.source_storage_identity == source_storage_identity(source):
+            return {**skipped, "reason": (
+                "the newest generation was captured from the primary's current bytes")}
+        age = now - pin.info.as_of
+        if age < PUBLISH_ON_CHANGE_MIN_INTERVAL:
+            return {**skipped, "reason": (
+                f"the newest generation is {age.total_seconds() / 60:.0f} minutes old; "
+                "publish-on-change publishes at most once an hour")}
+        recorded = _recorded_signatures(snapshot_directory(source), pin.info.generation_id)
+        if recorded is None:
             return None
-        return {
-            "status": "skipped",
-            "reason": "the newest generation was captured from the primary's current bytes",
-            "snapshot": pin.info.path.name,
-            "as_of": pin.info.as_of.isoformat(),
-        }
+        try:
+            probe = duckdb.connect(str(source), read_only=True)
+        except duckdb.Error as exc:
+            return {**skipped, "reason": f"producer active: {exc}"}
+        try:
+            current = storage_signatures(probe)
+        finally:
+            probe.close()
+        changed = sorted(name for name in recorded.keys() | current.keys()
+                         if recorded.get(name) != current.get(name))
+        # Skip only on positive evidence. Equal signatures prove nothing (a checkpoint can
+        # reuse freed blocks), so a primary whose identity changed with no signature
+        # difference is published.
+        if changed and not set(changed) - UNREAD_TABLES:
+            return {**skipped, "reason": (
+                f"only tables no reader uses changed: {', '.join(changed)}")}
+        return None
     finally:
         pin.close()
+
+
+def storage_signatures(connection: duckdb.DuckDBPyConnection) -> dict[str, str]:
+    """Each table's storage layout (row groups, segments, blocks, pending updates), hashed.
+
+    Metadata only: seconds on the full store. A write to a table changes its signature (a
+    write still in the WAL included) and leaves every other table's alone. A difference
+    proves a change; equality does not prove its absence, because a checkpoint can reuse
+    freed blocks.
+    """
+    database = connection.execute("SELECT current_database()").fetchone()[0]
+    tables = connection.execute(
+        "SELECT schema_name, table_name FROM duckdb_tables() "
+        "WHERE database_name=? AND NOT internal ORDER BY 1, 2", [database],
+    ).fetchall()
+    signatures = {}
+    for schema, table in tables:
+        rows = connection.execute(
+            "SELECT row_group_id, column_name, column_id, column_path, segment_id, "
+            "segment_type, count, compression, stats, has_updates, persistent, block_id, "
+            "block_offset "
+            "FROM pragma_storage_info(?) ORDER BY ALL", [_qualified(schema, table)],
+        ).fetchall()
+        signatures[f"{schema}.{table}"] = hashlib.sha256(
+            json.dumps(rows, default=str).encode()
+        ).hexdigest()
+    return signatures
+
+
+def _recorded_signatures(directory: Path, generation_id: str | None) -> dict[str, str] | None:
+    try:
+        recorded = json.loads((directory / STORAGE_SIGNATURES_FILE).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(recorded, dict) or recorded.get("generation_id") != generation_id:
+        return None
+    signatures = recorded.get("signatures")
+    return signatures if isinstance(signatures, dict) else None
 
 
 def _publish_locked(
@@ -1041,6 +1117,7 @@ def _publish_locked(
                 )
                 schema_identity = engine_db.require_compatible_database_schema(source_connection)
                 captured_cohort = _capture_cohort(repo_root, snapshot)
+                signatures = storage_signatures(source_connection)
                 _copy_capture(source, capture)
                 # Identify the primary while the handle still excludes writers (finding 4).
                 storage_identity = source_storage_identity(source)
@@ -1132,6 +1209,13 @@ def _publish_locked(
         finally:
             final_pin.close()
         published = True
+        try:
+            resources.write_text_atomic(directory / STORAGE_SIGNATURES_FILE, json.dumps(
+                {"generation_id": destination.stem, "signatures": signatures},
+                sort_keys=True,
+            ))
+        except OSError:
+            pass  # publish-on-change then publishes at its next slot instead of comparing
         if previous_pin is not None:
             previous_pin.close()
             previous_pin = None
@@ -1176,8 +1260,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--if-changed",
         action="store_true",
-        help="publish-on-change: skip when the newest generation matches the primary, or "
-        "when a publication or producer is running",
+        help="publish-on-change: skip when the newest generation matches the primary, is "
+        "younger than 55 minutes, or differs only in tables no reader uses, or when a "
+        "publication or producer is running",
     )
     parser.add_argument(
         "--held-lock",
