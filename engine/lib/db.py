@@ -595,7 +595,8 @@ def connect(path: str | Path | None = None, *,
                     and _is_unmigrated_operational_store(connection)):
                 connection.close()
                 raise SchemaMigrationRequired(
-                    f"{path.name} is an unmigrated operational store (a supported pre-image): "
+                    f"{path.name} is an unmigrated operational store (no migration ledger, "
+                    "tables older code built): "
                     "this code writes only to a migrated store; run the deploy's "
                     "engine.schema_migrations apply first (nothing was written)"
                 )
@@ -616,10 +617,13 @@ _OPERATIONAL_CORE_TABLES = ("prices", "portfolios", "jobs")
 
 
 def _is_unmigrated_operational_store(connection: duckdb.DuckDBPyConnection) -> bool:
-    """An operational store whose catalog is one of migration 0000's pre-images.
+    """An operational store without a migration ledger that older code built.
 
-    Such a store has not been migrated; a fresh database built by today's initializers
-    (tests, scratch stores) is not a pre-image and is left alone.
+    Any unversioned store holding the core tables is refused, whatever its catalog hash,
+    unless it is fresh: every baseline table it holds has exactly today's DDL (a store
+    today's initializers built, in tests or a scratch run). Every store older code built
+    carries tables whose DDL drifted from the baseline (the deployed store has six), and a
+    table created since (lazily, or by hand) does not change that.
     """
     present = {row[0] for row in connection.execute(
         "SELECT table_name FROM information_schema.tables WHERE table_schema='main' "
@@ -630,12 +634,8 @@ def _is_unmigrated_operational_store(connection: duckdb.DuckDBPyConnection) -> b
         return False
     import importlib
 
-    from engine.lib.snapshots import catalog_sha256
-
     baseline = importlib.import_module("engine.migrations.0000_post_r15_baseline")
-    pre_images = {digest for name, digest in baseline.SUPPORTED_CATALOG_SHA256.items()
-                  if name != "baseline"}
-    return catalog_sha256(connection) in pre_images
+    return bool(baseline.drifted_tables(connection))
 
 
 def _require_columns(

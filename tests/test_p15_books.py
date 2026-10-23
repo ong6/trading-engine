@@ -758,7 +758,11 @@ def test_split_factor_adjusts_pending_entry_and_fixed_stop(con):
     ).fetchone() == (3,)
 
 
-def test_complete_dry_run_window_uses_copy_and_leaves_source_unchanged(tmp_path):
+def test_complete_dry_run_window_uses_copy_and_leaves_source_unchanged(tmp_path, monkeypatch):
+    # The fixture's hand-built tables stand in for an older store's DDL; this test is about
+    # the operation, not the unmigrated-store refusal (tests/test_schema_migrations.py).
+    monkeypatch.setattr(db_module_for_guard(), "_is_unmigrated_operational_store",
+                        lambda _connection: False)
     database = tmp_path / "market.duckdb"
     con = db.connect(database)
     db.init_schema(con)
@@ -850,3 +854,8 @@ def test_missing_p15_money_state_refuses_without_write(con, missing):
     with pytest.raises(p15_books.P15BookError, match='unavailable'):
         p15_books._equity_and_halt(con, book, signal, datetime(2024, 6, 4))
     assert con.execute('SELECT * FROM p15_book_state ORDER BY portfolio_id').fetchall() == before
+
+
+def db_module_for_guard():
+    from engine.lib import db as _db
+    return _db

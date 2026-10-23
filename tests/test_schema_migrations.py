@@ -865,3 +865,27 @@ def test_a_fresh_store_and_a_pit_store_still_open_for_writing(tmp_path):
     pit.execute("CREATE TABLE prices (ticker VARCHAR, date DATE)")
     pit.close()
     db.connect(tmp_path / "pit.duckdb", wait_s=0).close()
+
+
+def test_a_drifted_unmigrated_store_is_refused_whatever_its_catalog_hash(tmp_path):
+    # The round-3 repro: the deployed pre-image plus one lazily created table no longer has
+    # a supported hash, and is still refused (its drifted tables say older code built it).
+    import hashlib
+
+    from engine.lib import db
+
+    database = tmp_path / "market.duckdb"
+    _database(database, "deployed-2026-10")
+    con = duckdb.connect(str(database))
+    con.execute("CREATE TABLE IF NOT EXISTS lazily_created (x INT)")
+    assert schema_migrations.catalog_sha256(con) not in set(
+        schema_migrations.migrations()[0].module.SUPPORTED_CATALOG_SHA256.values())
+    con.close()
+    before = hashlib.sha256(database.read_bytes()).hexdigest()
+
+    with pytest.raises(db.SchemaMigrationRequired, match="unmigrated operational store"):
+        db.connect(database, wait_s=0)
+    db.connect(database, read_only=True, wait_s=0).close()
+    assert hashlib.sha256(database.read_bytes()).hexdigest() == before
+    with db.schema_change_authority():
+        db.connect(database, wait_s=0).close()     # the migration itself may open it

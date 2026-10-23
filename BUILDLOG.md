@@ -5158,4 +5158,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs: one rehearsal row.
 - **Next:** round-3 review.
 
+## 2026-10-23 — Refuse any unversioned operational store older code built, whatever its catalog hash (review round 3, item 2)
+
+- **Why:** round-3 review, reproduced: the refusal matched only the exact pre-image hashes, so the deployed store plus one lazily created table (no longer a supported hash) was still opened for writing — exactly the store pre-flight 7 refuses after a code switch.
+- **What:** a writable open of a store with no migration ledger that holds the core tables (`prices`, `portfolios`, `jobs`) is refused unless the store is fresh, meaning every baseline table it holds has exactly today's DDL (migration 0000's `drifted_tables` is empty). No hash is consulted. Every store older code built carries drifted tables (the deployed one six), and a table created since does not change that. Read-only opens, migration authority, fresh stores (today's initializers, including logical copies of them) and pit stores are unaffected. Tests that hand-build stand-ins for older stores to exercise the legacy one-off tools (`migrate_agent_*`, `initialize_agent_paper_book`) and two operation tests lift the refusal explicitly. Contract digests re-pinned (E1 `291fd25c`, sector `8c2998fa`, XS `2edb8b29`).
+- **Evidence:** `pytest tests/test_schema_migrations.py`: the repro case (deployed pre-image plus `lazily_created`, hash not supported) is refused with the file unchanged, read-only and authority opens still work; the four pre-images refuse; fresh and pit stores open. Full suite (`-n 8`) otherwise unchanged.
+- **Metrics:** pinned engine/lib/db.py net −2 lines; contract literals 3; tests +80 lines.
+- **Next:** stale capture sweep and SIGTERM cleanup.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

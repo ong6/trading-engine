@@ -546,7 +546,11 @@ def test_sequence_state_survives_generations_restore_and_next_migration(
     assert migrated["applied"] == [1]
 
 
-def test_backup_restores_persisted_p15_look_with_external_anchor(tmp_path):
+def test_backup_restores_persisted_p15_look_with_external_anchor(tmp_path, monkeypatch):
+    # The fixture's hand-built tables stand in for an older store's DDL; this test is about
+    # the operation, not the unmigrated-store refusal (tests/test_schema_migrations.py).
+    monkeypatch.setattr(db_module_for_guard(), "_is_unmigrated_operational_store",
+                        lambda _connection: False)
     root, source = _repo(tmp_path)
     destination = tmp_path / "outside" / "snapshot"
     configured_data = tmp_path / "configured-data"
@@ -2194,3 +2198,8 @@ def test_create_refuses_a_wal_commit_by_a_writer_outside_the_locks(tmp_path, mon
         backup_database.create_backup(root, source, destination)
     assert committed == [when]
     assert not destination.exists()
+
+
+def db_module_for_guard():
+    from engine.lib import db as _db
+    return _db
