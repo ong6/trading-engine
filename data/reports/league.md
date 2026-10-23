@@ -13,16 +13,14 @@
 | 9 | Template Top 5 (regime-gated) | 2026-07-17 | $38,211 | −2.02% | −5.06% | −24.43% | 5 | 92 | −5.35% |
 | 10 | Dual Momentum (GEM) | 2026-07-17 | $38,002 | −2.56% | −5.59% | −5.32% | 1 | 4 | −1.01% |
 | 11 | Dual Momentum (regime-gated) | 2026-07-17 | $38,002 | −2.56% | −5.59% | −5.32% | 1 | 4 | −1.01% |
-| 12 | p15_ai_ranked | 2026-09-26 | $9,225 ‡ | −7.75% | −6.79% | −9.34% | 8 | 68 | −3.11% |
-| 13 | p15_hybrid_veto | 2026-09-26 | $9,222 ‡ | −7.78% | −6.82% | −11.43% | 9 | 41 | −0.72% |
-| 14 | p15_rule_control | 2026-09-26 | $9,170 ‡ | −8.30% | −7.34% | −12.54% | 9 | 41 | −0.59% |
-| 15 | Equal-Weight Benchmark | 2026-07-17 | $35,070 | −10.08% | −13.11% | −18.82% | 50 | 184 | −7.29% |
+| 12 | p15_ai_ranked | 2026-09-26 | $9,174 | −8.26% | −7.30% | −9.34% | 7 | 72 | −2.97% |
+| 13 | Equal-Weight Benchmark | 2026-07-17 | $35,070 | −10.08% | −13.11% | −18.82% | 50 | 184 | −7.29% |
+| 14 | p15_hybrid_veto | 2026-09-26 | $8,889 | −11.11% | −10.15% | −12.46% | 9 | 42 | −3.60% |
+| 15 | p15_rule_control | 2026-09-26 | $8,862 | −11.38% | −10.43% | −12.85% | 9 | 42 | −2.82% |
 | 16 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $33,532 | −14.02% | −14.11% | −17.31% | 50 | 50 | −2.92% |
 | 17 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $33,528 | −14.03% | −13.82% | −16.71% | 50 | 119 | −6.00% |
 
 _Regime: **risk-on** · each return uses its book's persisted starting capital · as of 2026-10-22._
-
-_‡ marked through 2026-10-21: p15_ai_ranked, p15_hybrid_veto, p15_rule_control. A P15 book is marked by its own window after that session's P15 fills, never provisionally by the league._
 
 ## Commission break
 
@@ -39,10 +37,10 @@ _‡ marked through 2026-10-21: p15_ai_ranked, p15_hybrid_veto, p15_rule_control
 | Template Top 5 (regime-gated) | +3.21% | $6.78 |
 | Dual Momentum (GEM) | +0.09% | $0.00 |
 | Dual Momentum (regime-gated) | +0.09% | $0.00 |
-| p15_ai_ranked | −0.36% | $5.30 |
-| p15_hybrid_veto | +2.53% | $1.96 |
-| p15_rule_control | +3.12% | $1.46 |
+| p15_ai_ranked | −0.91% | $6.86 |
 | Equal-Weight Benchmark | −1.07% | $0.00 |
+| p15_hybrid_veto | −1.17% | $2.31 |
+| p15_rule_control | −0.35% | $1.81 |
 | XS Momentum 12-1 (unscreened control) | +3.29% | $0.00 |
 | EW Screen — Inverse-Vol Weighted | −0.50% | $0.00 |
 
