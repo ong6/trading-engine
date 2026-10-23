@@ -572,8 +572,8 @@ with open(source, "rb") as reader, open(destination, "xb") as writer:
         digest.update(chunk)
         writer.write(chunk)
         size += len(chunk)
-    writer.flush()
-    os.fsync(writer.fileno())
+# No fsync: the copy is a scratch file discarded on any failure, and forcing 12 GB to disk
+# here would hold the capture window (and API writers) for a minute or more.
 check = hashlib.sha256()
 with open(destination, "rb") as copied:
     while chunk := copied.read(8 << 20):

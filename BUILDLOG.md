@@ -5094,4 +5094,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** registration 7 values; tests 1 assertion.
 - **Next:** mirrored-live rehearsal at the final head; both timezone suites.
 
+## 2026-10-23 — Do not fsync the scratch capture copy inside the capture window
+
+- **Why:** the mirrored-live rehearsal measured the capture window (producer locks plus the read-only handle that keeps API writers waiting) at 89 s and 154 s on the 12.8 GB copy, against 16-17 s before the child-process copy; the child fsynced the whole scratch copy inside the window. API writes wait at most 180 s.
+- **What:** the child no longer fsyncs. The copy is a scratch file that any failure discards, so durability buys nothing; it still hashes the bytes it reads and re-reads the copy to prove the same SHA-256.
+- **Evidence:** `pytest tests/test_publish_snapshot.py` passes. On the same disk at the same hour, the child copy of the 12.6 GB 02:54 copy took 142 s and a plain `cp` 137 s: the window is now bound by the disk's copy rate, not by the fsync.
+- **Metrics:** pinned tools/publish_snapshot.py 2 lines.
+- **Next:** re-pin; the capture window remains disk-bound (reported to the orchestrator).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
