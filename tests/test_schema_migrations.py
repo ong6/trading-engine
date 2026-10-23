@@ -830,3 +830,38 @@ def test_compatibility_rejects_catalog_drift_and_migration_hash_drift(
             schema_migrations.require_compatible_schema(con)
     finally:
         con.close()
+
+
+@pytest.mark.parametrize("shape", ["pre-v2", "v2", "r15", "deployed-2026-10"])
+def test_new_code_refuses_to_write_an_unmigrated_store_and_writes_nothing(tmp_path, shape):
+    # A nightly pull of this revision onto the deployed store before its migration: every
+    # producer's writable open refuses loudly; readers still open it read-only.
+    import hashlib
+
+    from engine.lib import db
+
+    database = tmp_path / "store" / "market.duckdb"
+    database.parent.mkdir(parents=True)
+    _database(database, shape)
+    before = hashlib.sha256(database.read_bytes()).hexdigest()
+
+    with pytest.raises(db.SchemaMigrationRequired, match="unmigrated operational store"):
+        db.connect(database, wait_s=0)
+    reader = db.connect(database, read_only=True, wait_s=0)
+    reader.close()
+
+    assert hashlib.sha256(database.read_bytes()).hexdigest() == before
+    assert not database.with_name("market.duckdb.wal").exists()
+
+
+def test_a_fresh_store_and_a_pit_store_still_open_for_writing(tmp_path):
+    from engine.lib import db
+
+    fresh = db.connect(tmp_path / "fresh.duckdb", wait_s=0)
+    db.init_schema(fresh)
+    fresh.close()
+    db.connect(tmp_path / "fresh.duckdb", wait_s=0).close()
+    pit = duckdb.connect(str(tmp_path / "pit.duckdb"))
+    pit.execute("CREATE TABLE prices (ticker VARCHAR, date DATE)")
+    pit.close()
+    db.connect(tmp_path / "pit.duckdb", wait_s=0).close()

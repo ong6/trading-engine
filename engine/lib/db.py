@@ -591,6 +591,14 @@ def connect(path: str | Path | None = None, *,
                 except schema_registry.SchemaIdentityError:
                     connection.close()
                     raise
+            if (not versioned and not read_only and not _SCHEMA_CHANGE_AUTHORITY.get()
+                    and _is_unmigrated_operational_store(connection)):
+                connection.close()
+                raise SchemaMigrationRequired(
+                    f"{path.name} is an unmigrated operational store (a supported pre-image): "
+                    "this code writes only to a migrated store; run the deploy's "
+                    "engine.schema_migrations apply first (nothing was written)"
+                )
             return GuardedConnection(connection, versioned=versioned)
         except Exception as exc:  # duckdb.IOException et al.
             if isinstance(exc, schema_registry.SchemaIdentityError):
@@ -601,6 +609,33 @@ def connect(path: str | Path | None = None, *,
                   f"retrying in {_LOCK_RETRY_S:.0f}s")
             time.sleep(_LOCK_RETRY_S)
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+# Tables only the operational store has (the pit and research databases hold none of them).
+_OPERATIONAL_CORE_TABLES = ("prices", "portfolios", "jobs")
+
+
+def _is_unmigrated_operational_store(connection: duckdb.DuckDBPyConnection) -> bool:
+    """An operational store whose catalog is one of migration 0000's pre-images.
+
+    Such a store has not been migrated; a fresh database built by today's initializers
+    (tests, scratch stores) is not a pre-image and is left alone.
+    """
+    present = {row[0] for row in connection.execute(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema='main' "
+        f"AND table_name IN ({', '.join('?' * len(_OPERATIONAL_CORE_TABLES))})",
+        list(_OPERATIONAL_CORE_TABLES),
+    ).fetchall()}
+    if present != set(_OPERATIONAL_CORE_TABLES):
+        return False
+    import importlib
+
+    from engine.lib.snapshots import catalog_sha256
+
+    baseline = importlib.import_module("engine.migrations.0000_post_r15_baseline")
+    pre_images = {digest for name, digest in baseline.SUPPORTED_CATALOG_SHA256.items()
+                  if name != "baseline"}
+    return catalog_sha256(connection) in pre_images
 
 
 def _require_columns(

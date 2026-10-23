@@ -5118,4 +5118,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs: rehearsal and I/O sections rewritten.
 - **Next:** orchestrator decisions: forward records after a rollback past the contract migrations; whether the publication volume needs a further limit.
 
+## 2026-10-23 — Revision-20 code refuses to write an unmigrated store (round-2 decisions, item 2)
+
+- **Why:** orchestrator decision: if the nightly's pull (or a te-autopush rebase) puts revision-20 code on the unmigrated store anyway, it must refuse loudly and write nothing. The rehearsal showed it did not: a revision-20 nightly on an unmigrated copy ran its universe stage and appended rows.
+- **What:** `engine.lib.db.connect` refuses a writable open of an operational store (it holds `prices`, `portfolios` and `jobs`) that has no migration ledger and whose catalog is one of migration 0000's pre-images (pre-v2, v2, r15, deployed-2026-10), with `SchemaMigrationRequired` ("unmigrated operational store … nothing was written"), before any statement. Read-only opens, the migration itself (schema-change authority), fresh databases built by today's initializers and the pit and research databases are unaffected. `engine/lib/db.py` is in all three runtime contracts: digests re-pinned at a fixed point (E1 `2d5f04c2`, sector `71a5ed9e`, XS `cc596f13`).
+- **Evidence:** `pytest tests/test_schema_migrations.py`: for each of the four pre-images the writable open raises, a read-only open works, and the file's SHA-256 is unchanged with no WAL created; a fresh initialized store and a pit-shaped store still open for writing. The full suite (`-n 8`, 247 s) shows no other change.
+- **Metrics:** pinned engine/lib/db.py +35 lines; contract literals 3; tests +35 lines.
+- **Next:** deploy pauses the pullers first; rollback restores the forward records.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
