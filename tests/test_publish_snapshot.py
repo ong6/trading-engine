@@ -1180,3 +1180,56 @@ def test_publication_waits_out_a_short_writer_before_capturing(tmp_path):
     finally:
         writer.join(30)
     assert manifest["row_counts"]["main.jobs"] == 1
+
+
+def _publication_killed_mid_capture(root, source, signum):
+    """Start a publication in a child process and send ``signum`` once its capture exists."""
+    import signal as _signal
+
+    directory = source.parent / "snapshots"
+    child = subprocess.Popen(
+        [sys.executable, "-m", "tools.publish_snapshot", "--repo-root", str(root),
+         "--source", str(source)],
+        cwd=Path(__file__).resolve().parents[1], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    deadline = time.monotonic() + 120
+    sent = False
+    while time.monotonic() < deadline and child.poll() is None:
+        if directory.exists() and any(p.name.startswith(".capture-") for p in directory.iterdir()):
+            child.send_signal(signum)
+            sent = True
+            break
+        time.sleep(0.002)
+    child.wait(120)
+    assert sent, "the publication finished before its capture was seen"
+    assert _signal.Signals(signum)
+    return child.returncode, sorted(
+        p.name for p in directory.iterdir()
+        if p.name.startswith(".capture-") or (p.name.startswith(".") and p.name.endswith(".tmp"))
+    )
+
+
+def test_a_terminated_publication_removes_its_capture(tmp_path):
+    import signal as _signal
+
+    root, source = _repo(tmp_path, cold=True)
+    returncode, leftovers = _publication_killed_mid_capture(root, source, _signal.SIGTERM)
+
+    assert returncode != 0
+    assert leftovers == []
+
+
+def test_the_next_publication_reclaims_what_a_killed_one_left(tmp_path):
+    import signal as _signal
+
+    root, source = _repo(tmp_path, cold=True)
+    returncode, leftovers = _publication_killed_mid_capture(root, source, _signal.SIGKILL)
+    assert returncode == -_signal.SIGKILL
+    assert any(name.startswith(".capture-") for name in leftovers)   # SIGKILL skips cleanup
+
+    manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
+
+    directory = source.parent / "snapshots"
+    assert manifest["generation_id"]
+    assert not [p for p in directory.iterdir()
+                if p.name.startswith(".capture-") or p.name.endswith(".tmp")]

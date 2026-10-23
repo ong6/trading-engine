@@ -10,6 +10,7 @@ import math
 import os
 import re
 import secrets
+import signal
 import stat
 import subprocess
 import sys
@@ -1049,6 +1050,31 @@ def _recorded_signatures(directory: Path, generation_id: str | None) -> dict[str
     return signatures if isinstance(signatures, dict) else None
 
 
+def _sweep_stale_publication_files(directory: Path) -> list[str]:
+    """Remove what a killed publication left behind; the caller holds the publication lock.
+
+    A publication's scratch files (`.capture-*.duckdb` and its WAL, about the store's size,
+    and `.*.tmp` generation and pointer files) live only while it runs, and cleanup runs in
+    its `finally`. SIGKILL, the OOM killer or a power loss skip that, so every publication
+    first removes them: with the lock held, no other publication can own one.
+    """
+    removed = []
+    for path in directory.iterdir():
+        name = path.name
+        stale = (name.startswith(".capture-") and name.endswith((".duckdb", ".duckdb.wal"))) or (
+            name.startswith(".") and name.endswith(".tmp")
+        )
+        if stale and not path.is_symlink() and path.is_file():
+            path.unlink(missing_ok=True)
+            removed.append(name)
+    return removed
+
+
+def _terminate(signum, _frame) -> None:
+    """SIGTERM (systemd's stop and timeout signal) unwinds like an error, so `finally` runs."""
+    raise SystemExit(128 + signum)
+
+
 def _publish_locked(
     repo_root: Path,
     source: Path,
@@ -1059,6 +1085,7 @@ def _publish_locked(
     min_age_minutes: float | None,
     capture_wait_s: float = CAPTURE_LOCK_WAIT_S,
 ) -> dict:
+    _sweep_stale_publication_files(directory)
     checked_at = datetime.now(timezone.utc)
     started = time.monotonic()
     previous_pin = None
@@ -1284,6 +1311,7 @@ def main(argv: list[str] | None = None) -> int:
         help="producer lock already inherited by this process",
     )
     args = parser.parse_args(argv)
+    signal.signal(signal.SIGTERM, _terminate)
     repo_root = args.repo_root.resolve()
     source = args.source if args.source.is_absolute() else repo_root / args.source
     if args.retention_dry_run:

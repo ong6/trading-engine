@@ -5166,4 +5166,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** pinned engine/lib/db.py net −2 lines; contract literals 3; tests +80 lines.
 - **Next:** stale capture sweep and SIGTERM cleanup.
 
+## 2026-10-23 — A killed publication no longer leaks its 12.7 GB capture (review round 3, item 1)
+
+- **Why:** round-3 review, reproduced: a publication stopped by SIGTERM (systemd's timeout or shutdown) left its `.capture-*.duckdb` in `store/snapshots`, and later publications never removed it; cleanup ran only in `finally`, which SIGTERM's default action and SIGKILL skip.
+- **What:** every publication, with the publication lock held, first removes stale `.capture-*.duckdb` (and WAL) and `.*.tmp` files in the generation directory: no other publication can own one under the lock. The CLI turns SIGTERM into `SystemExit`, so the `finally` cleanup runs (the copy child is killed by `subprocess.run` on the way out).
+- **Evidence:** `pytest tests/test_publish_snapshot.py`: a publication sent SIGTERM mid-capture leaves no capture or `.tmp` file (with the handler removed the same test fails); one sent SIGKILL leaves its capture, and the next publication removes it and publishes.
+- **Metrics:** pinned tools/publish_snapshot.py +30 lines; tests +55 lines.
+- **Next:** checklist items; projection code identity from the import graph.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
