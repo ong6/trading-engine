@@ -11,6 +11,7 @@ Run from repo root:  .venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -23,6 +24,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from threading import Event, Lock, Thread
 from typing import Annotated, Any, Iterator, Literal, TypeAlias, TypeVar
+from zoneinfo import ZoneInfo
 
 import duckdb
 from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request
@@ -258,26 +260,80 @@ def _validated_ticket_id(value: int) -> int:
         raise HTTPException(422, "ticket identifier is invalid") from exc
 
 
-def _evaluation_generation_key(con: duckdb.DuckDBPyConnection) -> tuple:
-    """Fingerprint every table read by P15 evidence validation/projection."""
-    registration = p15_evaluation.registration_sha256()
-    columns = con.execute(
-        "SELECT table_name,column_name FROM information_schema.columns "
-        f"WHERE table_name IN ({','.join(['?'] * len(P15_AUDITED_TABLES))})",
-        list(P15_AUDITED_TABLES),
-    ).fetchall()
-    by_table: dict[str, set[str]] = {}
-    for table, column in columns:
-        by_table.setdefault(table, set()).add(column)
-    generations = []
+# The code that computes the evaluation projection: a change to any of it invalidates a
+# persisted projection even when the registration and the evidence did not change.
+EVALUATION_CODE_FILES = (
+    "engine/p15_evaluation.py",
+    "server/agent_evaluation.py",
+    "server/main.py",
+    "server/p16_status_adapter.py",
+    "tools/agent_trial_register.py",
+)
+_EVALUATION_ET = ZoneInfo("America/New_York")
+_REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+def _evaluation_code_sha256(root: pathlib.Path = _REPOSITORY_ROOT) -> str:
+    digest = hashlib.sha256()
+    for relative in EVALUATION_CODE_FILES:
+        digest.update(relative.encode() + b"\0")
+        digest.update(hashlib.sha256((root / relative).read_bytes()).digest())
+    return digest.hexdigest()
+
+
+EVALUATION_CODE_SHA256 = _evaluation_code_sha256()
+
+
+def _evaluation_clock(generated_at: datetime) -> tuple[str, str]:
+    """The projection's dependence on the evaluation time.
+
+    Maturity and the missing-label grace (p15_evaluation ``_mature``) count observed sessions
+    through the UTC evaluation date, event maturity counts them through the New York date,
+    and every other cutoff compares stored timestamps, all at or before the generation's
+    capture. Every maturity or label-grace boundary is therefore a change of one of these two
+    dates, so keying on both invalidates the projection at each boundary (and at most twice
+    a day otherwise).
+    """
+    utc = generated_at.astimezone(timezone.utc)
+    return utc.date().isoformat(), utc.astimezone(_EVALUATION_ET).date().isoformat()
+
+
+def _evaluation_table_signatures(con: duckdb.DuckDBPyConnection) -> tuple:
+    """A content signature of every table the projection reads.
+
+    A served generation carries each table's logical SHA-256 in its manifest (cold tables
+    through their append-only part fingerprints), so an in-place correction changes the
+    signature at no read cost. A connection without a generation (tests, tools) hashes the
+    rows themselves: count plus an order-independent sum of row hashes.
+    """
+    info = getattr(con, "generation_info", None)
+    published = ((info.source_snapshot or {}).get("table_sha256") if info is not None else None)
+    if published:
+        return tuple((table, published.get(f"main.{table}")) for table in P15_AUDITED_TABLES)
+    present = {row[0] for row in con.execute(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
+    ).fetchall()}
+    signatures = []
     for table in P15_AUDITED_TABLES:
-        if table not in by_table:
-            generations.append((table, 0, None))
+        if table not in present:
+            signatures.append((table, None))
             continue
-        maximum = ",MAX(id)" if "id" in by_table[table] else ""
-        row = con.execute(f'SELECT COUNT(*){maximum} FROM "{table}"').fetchone()
-        generations.append((table, int(row[0]), row[1] if maximum else None))
-    return registration, tuple(generations)
+        count, content = con.execute(
+            f'SELECT COUNT(*), CAST(COALESCE(SUM(hash(t)), 0) AS VARCHAR) FROM "{table}" t'
+        ).fetchone()
+        signatures.append((table, f"{int(count)}:{content}"))
+    return tuple(signatures)
+
+
+def _evaluation_generation_key(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> tuple:
+    """Identity of every input to the evidence validation and projection: registration,
+    projection code, evaluation dates and the content of every audited table."""
+    return (
+        p15_evaluation.registration_sha256(),
+        EVALUATION_CODE_SHA256,
+        _evaluation_clock(generated_at),
+        _evaluation_table_signatures(con),
+    )
 
 
 def _compute_p15_projection(con, generated_at: datetime) -> tuple[dict, dict]:
@@ -342,14 +398,15 @@ def _cached_p15_projection(
 ) -> tuple[dict, dict]:
     """The P15 projection for the served generation's evidence inputs.
 
-    The cache is keyed by the identity of the inputs (registration plus each audited table's
-    row count and highest id), so a republication that changed none of them reuses it, in
+    The cache is keyed by the identity of the inputs (registration, projection code,
+    evaluation dates and each audited table's content signature), so a republication that
+    changed none of them reuses it, in
     this process or, through the file beside the primary, in the next one. When the inputs
     changed, the previous projection is served (flagged by ``evaluation_projection_current``)
     while the background warmer recomputes it, so no request waits for the cold projection;
     only a store that never had one computes it in the request.
     """
-    key = _json_key(_evaluation_generation_key(con))
+    key = _json_key(_evaluation_generation_key(con, generated_at))
     cached = _loaded_evaluation_cache()
     if cached is not None and cached[0] == key:
         _PROJECTION_STATE.set(True)
@@ -386,11 +443,12 @@ class _EvaluationWarmer:
         except DBBusyError:
             return False
         try:
-            key = _json_key(_evaluation_generation_key(con))
+            now = datetime.now(timezone.utc)
+            key = _json_key(_evaluation_generation_key(con, now))
             cached = _loaded_evaluation_cache()
             if cached is not None and cached[0] == key:
                 return False
-            _store_evaluation_cache(key, _compute_p15_projection(con, datetime.now(timezone.utc)))
+            _store_evaluation_cache(key, _compute_p15_projection(con, now))
             return True
         finally:
             con.close()

@@ -75,6 +75,11 @@ class _PinnedConnection:
     def __getattr__(self, name: str):
         return getattr(self._connection, name)
 
+    @property
+    def generation_info(self):
+        """The pinned generation's manifest record (``SnapshotInfo``)."""
+        return self._pin.info
+
     def close(self) -> None:
         try:
             self._connection.close()

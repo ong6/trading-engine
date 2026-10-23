@@ -5070,4 +5070,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** ops +120 lines; docs: checklist deploy and rollback sections rewritten; tests +230 lines.
 - **Next:** projection cache key; revision reason; publish-on-change I/O; re-pin; mirrored-live rehearsal.
 
+## 2026-10-23 — Key the evaluation projection by content, evaluation dates and projection code (review round 2, item 4)
+
+- **Why:** round-2 review, reproduced: the persisted projection was keyed by the registration and each audited table's `COUNT(*)`/`MAX(id)`, so an in-place correction (same count and ids), a day passing a maturity or label-grace boundary, or a change to the projection code served the old projection with `evaluation_projection_current: true`.
+- **What:** the key is (registration SHA-256, projection code SHA-256, evaluation dates, table content signatures). Code: the SHA-256 of `engine/p15_evaluation.py`, `server/agent_evaluation.py`, `server/main.py`, `server/p16_status_adapter.py` and `tools/agent_trial_register.py`, computed at import. Dates: the UTC evaluation date (P15 maturity and the missing-label grace count observed sessions through it) and the New York date (event maturity counts through that); every maturity or grace boundary is a change of one of them, and the other cutoffs compare stored timestamps that precede the generation's capture. Content: the served generation's manifest already records each table's logical SHA-256 (cold tables through their append-only part fingerprints), read through the new `generation_info` on the pinned connection at no query cost; a connection without a generation hashes count plus the sum of row hashes.
+- **Evidence:** `pytest tests/test_agent_routes.py` (32 passed): an in-place update with the same count and ids changes the signature; republishing unchanged inputs keeps the key and republishing after an in-place `prices` update changes only the `prices` signature; 05:00 and 23:00 UTC share a key, 02:00 UTC (the previous New York date) and the next UTC date do not; each of the five code files changes the code identity.
+- **Metrics:** server +75 lines (server/main.py, server/db.py); tests +90 lines.
+- **Next:** revision reason; publish-on-change I/O; re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
