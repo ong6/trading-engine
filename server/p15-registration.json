@@ -64,7 +64,7 @@
       "engine/collect.py": "5e2da0e39689d4640de6834d193bf4bd21ea7531e9b123701bc936f4028d7cf1",
       "engine/daily_opportunities.py": "a1ea689abd2ab365dd2ac2aedf31e17bd021a7eecd4e9a0fc303a42f00075d43",
       "engine/earnings.py": "cb53840084c637f4e49f22ac27adbfdd8eeab1b3c22aa3abb8c1293be89a8b0d",
-      "engine/forward_review.py": "4e4f4ca759d39709463c0dc8bcce87b8aeae618694655fb78146029b92ef4fd9",
+      "engine/forward_review.py": "39499b75192d16d828dfdb948b1803823230c9ef664d391447f481102ce80ec0",
       "engine/free_massive_minute.py": "ee1bc0120836e264b52fc016dbc446233f7bff160b7976ee2c697c69e02a1b1d",
       "engine/free_sources.py": "414af6dcd99bba91ea96cd2340f40680a74b39d0dab31aed194aaaca93a49126",
       "engine/fundamentals.py": "98c023b658ee13e247b649e0fd12dd8332f48878a11b188a41e0cfcce9df642a",
@@ -101,7 +101,7 @@
       "engine/tradingview_history_archive.py": "c9060c28a57ca875237d4b035fa1cc8303a37017ed94c033e63c38d6585a4743",
       "engine/universe.py": "ad3cf5f62730767081ee7718006ce4f78f4c6bfdbb80ab90caeef118abc276a7",
       "engine/verify_prices.py": "6a018d0206da40853e2b970b57f29be8d8a197f0250062f8dcd145ee226be346",
-      "engine/xs_forward_review.py": "1c059595ffb133a6c09bc288e45e05c9203c40e80abd9e72981e405ab1209914",
+      "engine/xs_forward_review.py": "300a191d84b71c49201df0d1496f8cdbca66d544fd500ea6ae8a28d796f7cc8e",
       "farm/__init__.py": "bf84aec09336388f858d7c1e7c28cab3da1d8d18096ed36ef460ea49114f11e0",
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
       "farm/backtest/__init__.py": "b65d882bc9e7d1ba6e704fc93be8aa4188775ead4cf4028a3da7141c298427b7",
@@ -111,7 +111,7 @@
       "farm/backtest/stats.py": "994e2147b30fad6c061888f51e6b22238500e185424f007ae96a408df3cdf3c8",
       "farm/capital_sensitivity.py": "90119096f6c31e53427ea8ffa61b8af558b131c0f78ff0841183baa024958244",
       "farm/experiment.py": "bf588f503d4bcec829c8083d5dad3fca0846fa80c726301535cf11a854c82abb",
-      "farm/experiment_runner.py": "fae86fd82f8a45cf89761839f5743c05021c0c70ef8ac0ba1b556d38bb627fe5",
+      "farm/experiment_runner.py": "fef93e2072476b7b6c7c84a28115dd6846dc11cda325b0be110edd87437dfa85",
       "farm/p15_event_runner.py": "c860f1d9390cdc70b873da3bac7326b45684326c8a273875cefb2831dcbcdb87",
       "farm/stats/__init__.py": "a7e26e929b2d925fd3060ac1af6e20c228479c6552f75dcfcd629b5ff0470b65",
       "farm/stats/equity.py": "e1ffaa2768ff7abed75c053b2273bda215adf6be44c1c60844ed509cbc9bdd1e",
@@ -213,14 +213,14 @@
       "sim/valuation.py": "f856a1b5b4581f7f2cab70eba077d4c9939c224ae61e6668d6d5fa059d72a5f1",
       "tools/__init__.py": "1f23b3f78a32b5567d64752ddc564b1182bdfe50616b87bca6a3a603b597d927",
       "tools/agent_trial_register.py": "6cd235435466a0a18ec8bcb4c1618f9228e2b3f994583a905ff2da3ed9c7d84d",
-      "tools/backup_database.py": "402b94707445ebea78815f6b0abc9fce5f21b5ca0ce12b5812fdeef09ac0e815",
+      "tools/backup_database.py": "719f475e21e5e3d0782bfaf38ab7599029ab69e38b742ca235148af7cd07e2df",
       "tools/p15_evidence_validation.py": "731b0e9ea8d47141686e885c71c3812074709c9fbde255922e6bbda05b3ccf52",
-      "tools/publish_snapshot.py": "c6df760edf1b232534a088408a4960b41288ccbe56dbe57ef75204fcfc34c1b8",
+      "tools/publish_snapshot.py": "6261200479b0a7da1edd184780ba401b3898465ceb4efad1bfab2cdad0916532",
       "tools/release_manifest.py": "03e7517aac05b0800629307fe46f874ea5478adc47e87be933aa3b991fb7c0ea",
       "tools/sec_edgar_capture.py": "8e7a705262f44532d2c812ed22ccd66c9b35d9633c0f89288d1347fe2a52ea6d",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "fffa1437f1a2625aa35ce475b811749c7e2df6ce"
+    "source_commit": "dbb2f72d4628128a7039c7aad85f30ae20bbb5ed"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -368,8 +368,7 @@
   "registered_at": "2026-10-03T02:52:40Z",
   "registration_id": "p15-profitability-evidence-loop-v1",
   "registration_revision": 20,
-  "registration_sha256": "42a89d0b0df5824e47c542aa23a2cbbfb7b9f88d1cdf707241d59cdcd2bd610d",
-  "revision_reason": "Revision 20 after deployed revision 19 (installed 2026-10-22), from the P24 storage revision: the operational store is versioned by explicit schema migrations whose baseline is frozen as data (the deployed catalog is an exact pre-image; drifted tables are rebuilt with every row kept and proven equal); API reads serve immutable hot/cold generations, flagged stale or pending publication instead of refused, while every producer keeps reading the primary; publication copies the primary under the producer locks and builds from the copy, and a publish-on-change timer keeps generations within their budgets; backups copy the quiesced file bytes and record the DuckDB version and WAL identity; new raw payloads stay in the legacy encoding until a later conversion one-off; unread TradingView history and option collection stay paused; and a free-space reserve with per-role DuckDB limits bounds store connections. What is fetched, admitted, stored, priced, filled, scored and labeled is unchanged. Runtime contracts E1 v8, sector v12 and XS v23 keep their versions and what they compute; each explicit migration replaces only the deployed revision-19 digest. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged.",
+  "revision_reason": "Revision 20 after deployed revision 19 (installed 2026-10-22), from the P24 storage revision. Collection changes: TradingView daily history collection is paused (server/collection-policy.json; its timer and service become disabled), Massive option collection is paused (tools/free_massive_options.py), and five macro series without a reader are no longer fetched (gex, pc_total, aaii_bull, free_credit and cot_es_lev_net; engine/signals.py); their stored history is kept and each pause is one flag. Schedule changes: a new publish-on-change timer (:12 and :42 UTC) republishes the read-only store generation at most once an hour, and the TradingView history timer no longer runs; no other unit's schedule changes. Reader and storage paths: the operational store is versioned by explicit schema migrations whose baseline is frozen as data (the deployed catalog is an exact pre-image; drifted tables are rebuilt with every row kept and proven equal); API reads serve immutable hot/cold generations, flagged stale or pending publication instead of refused, while every producer keeps reading the primary; publication copies the primary under the producer locks and builds from the copy; backups copy the quiesced file bytes and record the DuckDB version and WAL identity; new raw payloads keep the legacy encoding until a later conversion one-off. Storage limits: a free-space reserve and per-role DuckDB thread and memory limits bound store connections. Unchanged: for every source and series still collected, what is fetched, admitted, stored, priced, filled, scored and labeled. Runtime contracts E1 v8, sector v12 and XS v23 keep their versions and what they compute; each explicit migration replaces only the deployed revision-19 digest and refuses any other predecessor. Frozen verdict rules, scores, labels, gates and valid-data outcomes remain unchanged.",
   "schema_version": 1,
   "scoring": {
     "actions": [
@@ -409,5 +408,6 @@
     "mover_limit": 40,
     "trend_limit": 20,
     "version": "p15-universe-v1"
-  }
+  },
+  "registration_sha256": "01126f8770afb491381e7d3b015de6683f609173cee62b36c3cde5d82326bead"
 }

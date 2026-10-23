@@ -5086,4 +5086,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** pinned tools/publish_snapshot.py +95 lines; server 1 line; tests +125 lines.
 - **Next:** measured copy volume per publication and per day in the mirrored-live rehearsal.
 
+## 2026-10-23 — Re-pin registration revision 20 with an accurate revision reason (review round 2, item 5)
+
+- **Why:** round-2 review: the revision reason said what is fetched is unchanged and listed schedules among the unchanged items, but this revision newly pauses TradingView daily history, Massive options and five unread macro series (`engine/signals.py`), adds the publish-on-change timer, changes the reader and storage paths and adds storage limits. This pass also changed registered files (the three forward runners, the backup tool and the publisher).
+- **What:** `revision_reason` states the collection changes, the schedule changes (the new timer; the TradingView timer stops), the reader and storage paths and the storage limits, and that frozen verdict rules, scores, labels, gates and valid-data outcomes are unchanged. Five registered file hashes re-pinned, `source_commit` dbb2f72d, `registration_sha256` `01126f87…`; the registration test pins the new reason. The checklist's re-pin section carries the new digests.
+- **Evidence:** `pytest tests/test_p15_registration.py tests/test_p16_registration.py tests/test_registration_identity.py` passes.
+- **Metrics:** registration 7 values; tests 1 assertion.
+- **Next:** mirrored-live rehearsal at the final head; both timezone suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

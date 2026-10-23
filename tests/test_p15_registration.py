@@ -282,7 +282,29 @@ def test_p15_registration_revision_and_self_hash():
 
     assert registration["schema_version"] == 1
     assert registration["registration_revision"] == 20
-    assert registration["revision_reason"] == "Revision 20 after deployed revision 19 (installed 2026-10-22), from the P24 storage revision: the operational store is versioned by explicit schema migrations whose baseline is frozen as data (the deployed catalog is an exact pre-image; drifted tables are rebuilt with every row kept and proven equal); API reads serve immutable hot/cold generations, flagged stale or pending publication instead of refused, while every producer keeps reading the primary; publication copies the primary under the producer locks and builds from the copy, and a publish-on-change timer keeps generations within their budgets; backups copy the quiesced file bytes and record the DuckDB version and WAL identity; new raw payloads stay in the legacy encoding until a later conversion one-off; unread TradingView history and option collection stay paused; and a free-space reserve with per-role DuckDB limits bounds store connections. What is fetched, admitted, stored, priced, filled, scored and labeled is unchanged. Runtime contracts E1 v8, sector v12 and XS v23 keep their versions and what they compute; each explicit migration replaces only the deployed revision-19 digest. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged."
+    assert registration["revision_reason"] == (
+        "Revision 20 after deployed revision 19 (installed 2026-10-22), from the P24 storage revisi"
+        "on. Collection changes: TradingView daily history collection is paused (server/collection-"
+        "policy.json; its timer and service become disabled), Massive option collection is paused ("
+        "tools/free_massive_options.py), and five macro series without a reader are no longer fetch"
+        "ed (gex, pc_total, aaii_bull, free_credit and cot_es_lev_net; engine/signals.py); their st"
+        "ored history is kept and each pause is one flag. Schedule changes: a new publish-on-change"
+        " timer (:12 and :42 UTC) republishes the read-only store generation at most once an hour, "
+        "and the TradingView history timer no longer runs; no other unit's schedule changes. Reader"
+        " and storage paths: the operational store is versioned by explicit schema migrations whose"
+        " baseline is frozen as data (the deployed catalog is an exact pre-image; drifted tables ar"
+        "e rebuilt with every row kept and proven equal); API reads serve immutable hot/cold genera"
+        "tions, flagged stale or pending publication instead of refused, while every producer keeps"
+        " reading the primary; publication copies the primary under the producer locks and builds f"
+        "rom the copy; backups copy the quiesced file bytes and record the DuckDB version and WAL i"
+        "dentity; new raw payloads keep the legacy encoding until a later conversion one-off. Stora"
+        "ge limits: a free-space reserve and per-role DuckDB thread and memory limits bound store c"
+        "onnections. Unchanged: for every source and series still collected, what is fetched, admit"
+        "ted, stored, priced, filled, scored and labeled. Runtime contracts E1 v8, sector v12 and X"
+        "S v23 keep their versions and what they compute; each explicit migration replaces only the"
+        " deployed revision-19 digest and refuses any other predecessor. Frozen verdict rules, scor"
+        "es, labels, gates and valid-data outcomes remain unchanged."
+    )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
     assert recorded == canonical_sha256(registration)
