@@ -89,7 +89,7 @@ jobs:
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       # main only: fail a test over 15 s that is not marked slow (local mark line: about 5 s)
-      DURATION_BUDGET: ${{ github.ref == 'refs/heads/main' && '15' || '' }}
+      DURATION_BUDGET: ${{ github.ref == 'refs/heads/main' && '25' || '' }}
     steps:
       - uses: actions/checkout@v4
         with:

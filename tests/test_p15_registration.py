@@ -8,6 +8,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from engine import daily_opportunities, p15_evaluation, p15_event_sources
 from engine.lib.provenance import canonical_sha256
 from farm import p15_event_runner
@@ -577,6 +579,7 @@ def test_p15_registered_file_hashes_match_checkout():
     )
 
 
+@pytest.mark.slow  # about 5 s: five import closures over the registered sources
 def test_p15_entrypoints_are_discovered_without_manual_seeds():
     discoverable = {
         "engine/universe.py",
