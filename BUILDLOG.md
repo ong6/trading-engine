@@ -5150,4 +5150,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** registration 9 values; tests 1 assertion; docs 2 lines.
 - **Next:** rehearse the post-release rollback; both timezone suites.
 
+## 2026-10-23 — Rehearse the post-release rollback with the forward-record restore
+
+- **Why:** orchestrator decision 1 asked for the post-release rollback to be re-run once with the record restore.
+- **What:** a mirrored-live sandbox at b939c275 (02:54 copy, `main` at the live dcc194b4, the live checkout's uncommitted output) ran from 07:50 UTC: deploy (its first step pausing the nightly and `te-autopush`, stubbed), an API write after release, then the rollback from a fresh shell.
+- **Evidence:** the deploy migrated E1, sector and XS to the re-pinned digests (all ACCUMULATING). The rollback restored the primary byte for byte (SHA-256 equal to the copy), committed the restored records (`storage_r20_rollback_records`, 5 files), and the previous code's refresh was valid: sector ACCUMULATING `bad25764`, XS ACCUMULATING `d00ee812`, E1 checkpoint `2c8ec5b0` with 13 observations, `--report-only` clean; the refresh was committed; `main` = `origin/main` and the code is the merge's first parent; the previous code's API answered 200. Both timezone suites pass at b939c275.
+- **Metrics:** docs: one rehearsal row.
+- **Next:** round-3 review.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
