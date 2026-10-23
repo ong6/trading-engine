@@ -41,14 +41,19 @@ generations; see pre-flight 6.
   `tools.convert_raw_payloads --apply` records the store flag `store/raw-payload-encoding.json`; a test runs main's
   reader over what the branch writes.
 - **Finding 7 (fixed):** backup and generation manifests record the DuckDB version; verify refuses a version change
-  with "DuckDB version differs", not the tamper message. The fingerprint's memory-limit restore parses DuckDB's text.
+  with "DuckDB version differs", not the tamper message. A bundle written before versions were recorded refuses
+  ("records no DuckDB version") unless `verify` or `remote-restore-drill` gets `--allow-unrecorded-duckdb-version`;
+  pass it only after confirming the bundle was written under the DuckDB this verifier runs (`duckdb.__version__`;
+  on 2026-10-23 the live virtualenv and this revision's lock both run DuckDB 1.5.5). The fingerprint's memory-limit restore parses
+  DuckDB's text.
 - **Finding 8 (fixed):** backup create checks the source WAL's identity, refusing a WAL-only commit by a writer outside
   the locks.
 - **Finding 5 (fixed): this checklist.** Deploy and rollback are scripts (`ops/storage-r20/`) run from fresh shells
   under `set -euo pipefail`, every result checked; state persists in `$P20_STATE/state.env`; backup, migration and
-  publication take the producer locks themselves (never inside a held lock); `predeploy.sha` is recorded before the
-  checkout moves; units are staged without starting timers and timers start only at release, never the paused
-  TradingView timer; the release runs the live schedule-contract check (the ops digest's held-active check).
+  publication take the producer locks themselves (never inside a held lock); the live checkout stays on branch
+  `main` and neither script copies or reverts anything under `data/`; units are staged without starting timers and
+  timers start only at release, never the paused TradingView timer; the live schedule-contract check runs before
+  release and again after it.
 - **Known guard bypasses (accepted residual risk).** DDL assembled at run time from values the coverage scan cannot
   resolve, DuckDB relation-API persistence (refused at run time by the guard instead), and statements against the
   separate pit/research databases; publication and backup re-verify the exact catalog, so a bypass fails closed there.
@@ -84,23 +89,45 @@ change to a registered file needs another revision.
 
 ## Deploy
 
+The orchestrator merges the approved branch into `origin/main` (a merge commit, `--no-ff`) shortly before the window;
+`P20_APPROVED_SHA` is that merge commit. The live checkout stays on branch `main`.
+
 ```bash
 set -euo pipefail
-export P20_ROOT="$HOME/trading-engine" P20_STATE="$HOME/.local/state/r20-deploy" P20_APPROVED_SHA=<full sha>
+export P20_ROOT="$HOME/trading-engine" P20_STATE="$HOME/.local/state/r20-deploy" P20_APPROVED_SHA=<full merge sha>
 git -C "$P20_ROOT" fetch --quiet origin
 git -C "$P20_ROOT" show "$P20_APPROVED_SHA:ops/storage-r20/deploy.sh" > "$HOME/r20-deploy.sh"
 bash "$HOME/r20-deploy.sh"
 ```
 
-`ops/storage-r20/deploy.sh` records the pre-deploy commit before the checkout moves, then: captures units, crontab and
-processes; quiesces producers and readers (`ops/storage-r20/host.bash`); keeps generated `data/` and `logs/` changes
-aside, checks out the approved commit (registration revision 20) and puts them back; asserts the pre-image read-only; creates and verifies the pre-migration backup under a canonical path (`$HOME/r20-backups`);
-migrates and asserts `current`; runs the E1, sector and XS `--migrate-runtime-contract` migrations (each accepts
-only the deployed revision-19 digest) and one ordinary refresh that must not be INVALID; publishes the first generation; stages units with `install_automation --stage`
-(nothing starts); starts the readers and checks the generation headers, the evidence route
-(`pending_publication: false`), the invariants and retention; then releases producers with the full
-`install_automation --apply` and restarts the host timers that ran before, never the paused TradingView timer, and
-runs the live schedule-contract check. Every value the rollback needs is in `$P20_STATE/state.env`.
+`ops/storage-r20/deploy.sh`, in order (any failure stops it with producers quiesced):
+
+1. Refuses unless `HEAD` is branch `main` with its upstream, no rebase, merge or revert is in progress, the index is
+   clean, `P20_APPROVED_SHA` is a merge commit on `origin/main`, and every commit after it on `origin/main` is an
+   ordinary commit that changes only `data/`. This runs before anything stops. It records the pre-deploy commit
+   and copies `rollback.sh`, `common.bash` and `host.bash` from the merge into `$P20_STATE`.
+2. Captures units, crontab and processes, then quiesces producers, readers and `te-autopush` (waiting for a running
+   autopush's lock) and records the primary's file identity.
+3. Runs the normal data commit: `engine.sync` commits pending producer output under `data/` and pushes it (a
+   rejected push rebases onto `origin/main` once); `te-autopush` pushes any local commit sync left behind. The
+   tracked tree must then be clean and `origin/main` must hold every local commit.
+4. `git pull --ff-only`, then refuses unless `HEAD` contains the merge and only `data/` commits follow it (checked
+   again just before the pull too, because `main` may move in between). Refusals here happen before the store is
+   touched. `uv sync`; the registration must be revision 20.
+5. Pre-flights 7 and 8 (read-only); backup create and verify under `$HOME/r20-backups`. The bundle is recorded in
+   `state.env` (`R20_BACKUP`, `R20_MANIFEST`) only after it verifies.
+6. Migrates (`--source-commit` is the deployed `HEAD`) and asserts `current`; runs the E1, sector and XS
+   `--migrate-runtime-contract` migrations (each accepts only the deployed revision-19 digest and refuses an INVALID
+   published report) and one ordinary refresh; then asserts that E1's checkpoint and the sector and XS reports carry
+   the re-pinned digests and that neither report is INVALID.
+7. Publishes the first generation; stages units with `install_automation --stage` (nothing starts); starts the
+   readers and checks the generation headers, the evidence route (`pending_publication: false`), `/meta`'s
+   `e1_forward`, `forward_review` and `xs_forward_review` (none INVALID), the invariants and retention.
+8. Runs `schedule_contract_check --live` and refuses any violation except the ones quiescence explains (`not-active`
+   timers, `missing-cron`).
+9. Releases producers with the full `install_automation --apply`, restarts the host timers that ran before (never the
+   paused TradingView timer), and runs the live schedule-contract check again. A failure from here on says producers
+   may be running.
 
 ## Verify after release (stop at the first failure and roll back)
 
@@ -119,19 +146,32 @@ runs the live schedule-contract check. Every value the rollback needs is in `$P2
 P20_STATE="$HOME/.local/state/r20-deploy" bash "$HOME/.local/state/r20-deploy/rollback.sh"
 ```
 
-The deploy copies `ops/storage-r20/rollback.sh` into `$P20_STATE`, so it runs from a fresh shell whatever is checked
-out. It quiesces, refuses unless the recorded pre-migration backup verifies with the recorded manifest hash, keeps the
-incident primary and quarantines the generations, removes the publish-on-change units, checks out the pre-deploy
-commit detached (so the nightly cannot pull the reverted revision back), restores the primary byte for byte, publishes
-a snapshot in the previous code's format, starts the readers and releases producers with the previous code's
-installer.
+The deploy copies `rollback.sh`, `common.bash` and `host.bash` into `$P20_STATE`, so the rollback runs from a fresh
+shell whatever is checked out. It never leaves `HEAD` detached and never copies or reverts anything under `data/`:
+
+1. Quiesces. With a recorded backup it refuses unless the bundle verifies with the recorded manifest hash, then keeps
+   the incident primary and quarantines the generations. Without one (the deploy stopped at or before the backup,
+   including a failed backup create) it refuses unless the phase is at or before `code-switched` and the primary's
+   file identity is unchanged since quiesce: the store was never written, so it is left alone.
+2. Removes the publish-on-change units.
+3. Runs the normal data commit, `git pull --ff-only`, and, when `HEAD` carries the approved merge, commits
+   `git revert -m 1 <merge>` on `main` (refusing if a non-`data/` commit follows the merge), pushes it to
+   `origin/main` and pulls. `main` must then equal `origin/main` and match the merge's first parent outside `data/`,
+   so the nightly pull keeps the previous code. `uv sync`.
+4. With a verified backup: restores the primary byte for byte and publishes a snapshot in the previous code's format.
+5. Starts the readers and releases producers with the previous code's installer.
+
+A rerun after a stop part-way keeps the first incident copy, reverts once (the revert commit is recorded in
+`$P20_STATE/rollback.env`) and restores the primary only once. A fixed revision is deployed later by merging it into
+`main` again (a new merge; the revert stays in history).
 
 A rollback after release **loses every write to the primary made since the backup** (it stays in
 `$P20_STATE/incident/market.duckdb` for manual recovery). Raw payloads written since release stay readable by the
-previous code, because they are in the legacy plain encoding until the conversion flag is set. `data/` follows the
-checkout: tracked report files return to the pre-deploy commit's versions (the versions written since release are kept
-in `$P20_STATE/incident/data-artifacts`), and commits the nightly pushed since release stay in history. The `store/pit/*.duckdb` databases (free sources, options, minute bars, SEC bulk) are separate
-stores that are not restored: they keep rows written since release, and their schemas did not change in this revision.
+previous code, because they are in the legacy plain encoding until the conversion flag is set. `data/` keeps what
+producers wrote: report files written since release are committed by the data commit and stay as they are (the next
+nightly under the previous code rewrites them), and every data commit stays in history. The `store/pit/*.duckdb`
+databases (free sources, options, minute bars, SEC bulk) are separate stores that are not restored: they keep rows
+written since release, and their schemas did not change in this revision.
 
 Raw zstd conversion (`tools/convert_raw_payloads.py --apply`) is a separate, later one-off: run only after the
 restore drill passes, with the producer lock held and TradingView jobs drained. It records the store flag that switches

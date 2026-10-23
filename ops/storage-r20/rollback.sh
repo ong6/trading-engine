@@ -2,11 +2,14 @@
 # Storage revision 20 rollback (docs/revision-20-storage-deploy-checklist.md). Run from a fresh
 # shell using the copy the deploy saved:   P20_STATE=<deploy state directory> bash "$P20_STATE/rollback.sh"
 #
-# It restores the verified pre-migration backup byte for byte and the pre-deploy commit.
-# Writes to the primary made after the backup are lost (they stay in the incident copy);
-# data/ follows the checkout and store/pit databases keep their rows (see the checklist).
-# It refuses unless the recorded backup verifies. A rollback stopped part-way is rerun the
-# same way: it keeps the first incident copy and restores the primary only once.
+# The live checkout stays on branch main: when HEAD carries the approved merge, the rollback
+# commits `git revert -m 1 <merge>` on main, pushes it and pulls, so the nightly pull keeps
+# the previous code. Nothing under data/ is copied or reverted; pending producer output goes
+# through the normal data commit first. With a verified pre-migration backup recorded, the
+# primary is then restored byte for byte (writes made after the backup stay in the incident
+# copy); without one, the deploy never wrote the store, and the rollback proves the primary
+# unchanged since quiesce and leaves it alone. A rollback stopped part-way is rerun the same
+# way: it keeps the first incident copy, reverts once and restores the primary only once.
 set -euo pipefail
 
 : "${P20_STATE:?set P20_STATE to the deploy state directory}"
@@ -14,24 +17,27 @@ P20_STATE="$(realpath "$P20_STATE")"
 test -f "$P20_STATE/state.env" || { echo "no deploy state in $P20_STATE" >&2; exit 2; }
 # shellcheck disable=SC1091
 source "$P20_STATE/state.env"
-: "${P20_ROOT:?state.env lacks P20_ROOT}" "${P20_PREDEPLOY_SHA:?state.env lacks P20_PREDEPLOY_SHA}"
+: "${P20_ROOT:?state.env lacks P20_ROOT}" "${P20_APPROVED_SHA:?state.env lacks P20_APPROVED_SHA}"
 PY="${P20_PY:-$P20_ROOT/.venv/bin/python}"
-export P20_ROOT P20_STATE PY
+P20_LOG=rollback.log
+export P20_ROOT P20_STATE PY P20_LOG
 cd "$P20_ROOT"
+# shellcheck disable=SC1091
+source "$P20_STATE/common.bash"
 # shellcheck disable=SC1091
 source "${P20_HOST_HELPERS:-$P20_STATE/host.bash}"
 
 trap 'rc=$?; echo "rollback stopped (exit $rc) at: $(tail -1 "$P20_STATE/rollback.log" 2>/dev/null); producers stay quiesced" >&2; exit $rc' ERR
-step() { printf '== %s %s\n' "$(date -u +%FT%TZ)" "$*" | tee -a "$P20_STATE/rollback.log"; }
-json_field() { "$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2"; }
 
 step "rollback from phase ${P20_PHASE:-unknown}"
-case "${P20_PHASE:-}" in
-  captured|quiesced|code-switched)
-    test -z "${R20_BACKUP:-}" || { echo "unexpected backup before the backup phase" >&2; false; } ;;
-esac
+if test -z "${R20_BACKUP:-}"; then
+  case "${P20_PHASE:-}" in
+    captured|quiesced|data-committed|code-switched) ;;
+    *) refuse "phase ${P20_PHASE:-unknown} needs the verified backup, but none is recorded" ;;
+  esac
+fi
 
-step "quiesce producers and readers"
+step "quiesce producers, te-autopush and readers"
 p20_quiesce
 
 if test -n "${R20_BACKUP:-}"; then
@@ -48,28 +54,36 @@ if test -n "${R20_BACKUP:-}"; then
     if test -e store/snapshots; then mv store/snapshots "$P20_STATE/incident/quarantined-generations"; fi
     touch "$P20_STATE/rollback-incident-kept"
   fi
+elif test -e "$P20_STATE/store-identity.json"; then
+  step "no verified backup: prove the primary unchanged since quiesce"
+  p20_store_identity check
 fi
 
 step "remove units the previous code does not know"
 p20_remove_new_units
 
-step "check out the pre-deploy commit $P20_PREDEPLOY_SHA"
-git diff --cached --exit-code >/dev/null
-if test -n "$(git status --porcelain --untracked-files=no -- . ':!data' ':!logs')"; then
-  echo "tracked changes outside data/ and logs/" >&2; false
+step "data commit, then revert the approved merge on main"
+p20_require_main
+p20_data_commit storage_r20_rollback
+git pull --ff-only --quiet
+P20_REVERT_SHA=""
+# shellcheck disable=SC1091
+if test -f "$P20_STATE/rollback.env"; then source "$P20_STATE/rollback.env"; fi
+if test -n "$P20_REVERT_SHA" && git merge-base --is-ancestor "$P20_REVERT_SHA" HEAD; then
+  step "the approved merge is already reverted by $P20_REVERT_SHA"
+elif git merge-base --is-ancestor "$P20_APPROVED_SHA" HEAD; then
+  # Only data/ commits may follow the merge, so the revert restores exactly the previous code.
+  p20_data_only_since "$P20_APPROVED_SHA" HEAD
+  git revert -m 1 --no-edit "$P20_APPROVED_SHA" >/dev/null
+  printf 'P20_REVERT_SHA=%q\n' "$(git rev-parse HEAD)" > "$P20_STATE/rollback.env"
+else
+  step "HEAD never carried the approved merge: no revert needed"
 fi
-# Generated data/ files written since release are kept with the incident, then data/ returns
-# to the pre-deploy commit's versions, matching the restored primary.
-mkdir -p -m 700 "$P20_STATE/incident/data-artifacts"
-git diff --name-only -z -- data | while IFS= read -r -d '' changed; do
-  mkdir -p "$P20_STATE/incident/data-artifacts/$(dirname "$changed")"
-  cp -a "$changed" "$P20_STATE/incident/data-artifacts/$changed"
-done
-git checkout --quiet HEAD -- data
-# Detached on purpose: the nightly pulls only on a branch with an upstream, so it cannot pull
-# the rolled-back revision in again. Return to the branch once a fixed revision is approved.
-git checkout --quiet --detach "$P20_PREDEPLOY_SHA"
-test "$(git rev-parse HEAD)" = "$P20_PREDEPLOY_SHA"
+if test -n "$(git rev-list '@{upstream}..HEAD')"; then git push --quiet origin HEAD:main; fi
+git pull --ff-only --quiet
+test "$(git rev-parse HEAD)" = "$(git rev-parse '@{upstream}')"
+git diff --quiet "$P20_APPROVED_SHA^1" HEAD -- . ':!data' \
+  || refuse "main differs from the pre-merge code outside data/"
 if test "${P20_SYNC_VENV:-1}" = 1; then uv sync --extra dev --frozen --quiet; fi
 
 if test -n "${R20_BACKUP:-}"; then
@@ -92,4 +106,4 @@ step "readers"
 p20_readers_ready
 step "release producers with the previous unit set"
 p20_release_previous
-step "rolled back to $P20_PREDEPLOY_SHA"
+step "rolled back to $(git rev-parse HEAD) (code of ${P20_APPROVED_SHA:0:12}^1)"

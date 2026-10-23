@@ -40,12 +40,25 @@ p20_quiesce() {
     state="$(systemctl --user show "$name" --property=ActiveState --value)"
     case "$state" in inactive|failed) ;; *) echo "still $state: $name" >&2; return 1 ;; esac
   done
+  # A te-autopush run started before the stop holds its lock until it finishes.
+  local autopush_lock="$HOME/.local/state/te-autopush.lock"
+  if test -e "$autopush_lock"; then
+    flock --wait 300 "$autopush_lock" true || { echo "te-autopush still running" >&2; return 1; }
+  fi
   local stores=()
   mapfile -d '' stores < <(find "$P20_ROOT/store" -type f \
     \( -name '*.duckdb' -o -name '*.duckdb.wal' \) -print0)
   if ((${#stores[@]})) && fuser "${stores[@]}" 2>/dev/null; then
     echo "a process still holds a store file" >&2
     return 1
+  fi
+}
+
+p20_autopush() {
+  # The host's te-autopush, once, for local commits the data commit could not push (it
+  # normalises identities and rebases only on a clean tree). A oneshot: start waits for it.
+  if systemctl --user cat te-autopush.service >/dev/null 2>&1; then
+    systemctl --user start te-autopush.service
   fi
 }
 
@@ -86,9 +99,31 @@ p20_release() {
   p20_verify_held
 }
 
+p20_schedule_check() {
+  # The live schedule contract, read-only: refuse any violation outside the rules listed.
+  # Before release producers are quiesced, so stopped timers (not-active) and the removed
+  # crontab (missing-cron) are expected; every other rule (held-enabled, held-active,
+  # not-installed, an off-manifest unit or cron line, ...) stops the deploy.
+  local label="$1"; shift
+  local out="$P20_STATE/schedule-contract-$label.json" rc=0
+  "$PY" -m tools.schedule_contract_check --live --json --engine-root "$P20_ROOT" > "$out" || rc=$?
+  test "$rc" = 0 || test "$rc" = 2 || { echo "schedule contract check failed ($rc)" >&2; return 1; }
+  "$PY" - "$out" "$@" <<'PYCODE'
+import json, sys
+result, tolerated = json.load(open(sys.argv[1])), set(sys.argv[2:])
+if result.get("errors"):
+    sys.exit(f"schedule contract check errors: {result['errors']}")
+refused = [v for v in result["violations"] if v["rule"] not in tolerated]
+for violation in refused:
+    print(f"schedule contract: {violation['rule']} {violation['subject']}", file=sys.stderr)
+sys.exit(1 if refused else 0)
+PYCODE
+}
+
 p20_verify_held() {
-  # The ops digest's held-active check, run now: no held or paused unit may be active.
-  "$PY" -m tools.schedule_contract_check --live > "$P20_STATE/schedule-contract-live.txt"
+  # After release: the ops digest's checks, run now. No held or paused unit may be enabled
+  # or active, and every autostart unit must be installed and enabled.
+  p20_schedule_check released not-active
   if systemctl --user is-active --quiet "$P20_TRADINGVIEW_TIMER"; then
     echo "the paused TradingView timer is active" >&2
     return 1
