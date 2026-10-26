@@ -165,20 +165,20 @@ jobs:
       # node_modules exactly as `npm ci` leaves it for this lock, package.json and Node;
       # any change to them misses and runs `npm ci`, which also checks they agree.
       - id: modules
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ui/node_modules
           key: ${{ runner.os }}-node${{ steps.node.outputs.node-version }}-modules-${{ hashFiles('ui/package-lock.json', 'ui/package.json') }}
       - if: steps.modules.outputs.cache-hit != 'true'
         run: npm ci
       - if: steps.modules.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ui/node_modules
           key: ${{ steps.modules.outputs.cache-primary-key }}
       - run: npm audit --omit=dev --audit-level=moderate
       - run: npm test
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ui/.next/cache
           key: ${{ runner.os }}-next-${{ hashFiles('ui/package-lock.json') }}-${{ hashFiles('ui/app/**', 'ui/next.config.*', 'ui/jsconfig.json', 'ui/tsconfig.json') }}
