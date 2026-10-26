@@ -1,8 +1,8 @@
 # Experiment e1-spy-monday — FORWARD (out-of-sample) record
 
-*Forward phase registered 2026-07-29 · report generated 2026-10-23 22:42 UTC · params hash `5dc40ff465de67a9` · forward-config hash `0f8038af4bc3c03a`*
+*Forward phase registered 2026-07-29 · report generated 2026-10-26 22:42 UTC · params hash `5dc40ff465de67a9` · forward-config hash `0f8038af4bc3c03a`*
 
-> **NO RESULT YET — 13 of 40 out-of-sample Mondays.** This experiment is not evaluated until the pre-registered sample is complete. Anything below is an accumulating record, **not** a verdict: reading a mean or a t-stat at n=13 and calling it a finding is exactly the peeking the §12.3 protocol exists to prevent. **27 Mondays to go.**
+> **NO RESULT YET — 14 of 40 out-of-sample Mondays.** This experiment is not evaluated until the pre-registered sample is complete. Anything below is an accumulating record, **not** a verdict: reading a mean or a t-stat at n=14 and calling it a finding is exactly the peeking the §12.3 protocol exists to prevent. **26 Mondays to go.**
 
 ## Frozen registration
 
@@ -37,6 +37,7 @@ Registration source: `farm/experiments/e1-spy-monday.yaml` (pre-registered 2026-
 | 11 | 2026-10-05 | 769.69 | 774.83 | +0.6678% | +0.4667% | +0.5335% | -1.6541% |
 | 12 | 2026-10-12 | 778.78 | 778.10 | -0.0873% | -0.2869% | +0.4457% | -1.9363% |
 | 13 | 2026-10-19 | 767.23 | 766.48 | -0.0978% | -0.2974% | +0.3475% | -2.2279% |
+| 14 | 2026-10-26 | 762.25 | 765.37 | +0.4093% | +0.2087% | +0.7583% | -2.0238% |
 
 _Every row is one real stored SPY daily bar; holiday Mondays have no bar and are simply absent (no trade that week). Rows are append-only — a Monday is written once, after its session has settled, and never revised. The published machine-readable checkpoint hashes the complete stored prefix._
 
@@ -44,12 +45,12 @@ _Every row is one real stored SPY daily bar; holiday Mondays have no bar and are
 
 | Series | n | mean/Monday | sd | t-stat | cumulative | win rate |
 |---|--:|--:|--:|--:|--:|--:|
-| gross | 13 | +0.0282% | 0.5798% | 0.18 | +0.348% | 5/13 |
-| **net — 20bp r/t (kill series)** | 13 | -0.1716% | 0.5786% | -1.07 | -2.228% | 4/13 |
-| net — 3bp r/t (registered) | 13 | -0.0018% | 0.5796% | -0.01 | -0.043% | 5/13 |
+| gross | 14 | +0.0555% | 0.5663% | 0.37 | +0.758% | 6/14 |
+| **net — 20bp r/t (kill series)** | 14 | -0.1445% | 0.5651% | -0.96 | -2.024% | 5/14 |
+| net — 3bp r/t (registered) | 14 | +0.0254% | 0.5661% | 0.17 | +0.336% | 6/14 |
 
-- **Mondays recorded:** 13 / 40 · **Mondays to kill-evaluation:** **27**.
-- **Kill test (runs once, at n = 40):** kill if `mean <= 0` **or** `t < 0.5` on the net series. Current standing — mean -0.1716%, t -1.07 — **would KILL** if the criterion were applied today, which it is **not**.
+- **Mondays recorded:** 14 / 40 · **Mondays to kill-evaluation:** **26**.
+- **Kill test (runs once, at n = 40):** kill if `mean <= 0` **or** `t < 0.5` on the net series. Current standing — mean -0.1445%, t -0.96 — **would KILL** if the criterion were applied today, which it is **not**.
 - **Frozen cost sensitivity:** net uses compatibility profile `baseline_v1` (`6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db`), 20bp round-trip for SPY's liquidity tier — 6.7× stricter than the 3bp the backtest registered. The registered-cost row is shown so the forward record can also be read against the original pre-registration.
 
 ## Backtest context — NOT part of the out-of-sample record
@@ -69,5 +70,5 @@ The full pre-registered backtest (1990→2026, in-sample vs a locked holdout, de
 - **No fabricated bars.** A Monday without a real stored open+close (market holiday) produces no row at all, rather than a synthetic flat trade.
 - **No peeking-driven change.** The config, the cost model, the kill rule and the sample size were all frozen before this evidence existed. If E1 is killed at n=40 it is killed; there is no re-optimization branch.
 - **Negative results are published exactly like positive ones** — the farm exists to kill bad ideas cheaply (§12.3).
-- **Storage:** no new settled Mondays — nothing appended; the report was regenerated from `experiment_results` (re-running is a no-op by design).
+- **Storage:** 1 row(s) appended to `experiment_results` (append-only, partition `oos:<date>`) at 2026-10-26 22:42 UTC.
 

@@ -2,10 +2,10 @@
   "automatic_action": "none",
   "experiment_id": "e1-spy-monday",
   "forward_config_sha256": "0f8038af4bc3c03a958d01f0c8c58cde4e987189c6034d5a95b43b562f4e8cb2",
-  "observations": 13,
+  "observations": 14,
   "paper_only": true,
   "parent_config_sha256": "5dc40ff465de67a9b887966ba853bf5dfcb310076edd171739c4fd7ebe925d35",
-  "prefix_sha256": "804da9a972b14627b60a375b1561b0ea03d02022f8386a4fb43e0cb71894dc85",
+  "prefix_sha256": "2e9c45379485886a3a958e061c0097f709cc09f257e0f1048eccca225bcd5b44",
   "runtime_contract_files": [
     "engine/lib/data_quality.py",
     "engine/lib/db.py",
@@ -27,5 +27,5 @@
   "runtime_contract_version": 8,
   "schema_version": 2,
   "superseded_runtime_contract_sha256": "5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280",
-  "through": "2026-10-19"
+  "through": "2026-10-26"
 }
