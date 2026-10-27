@@ -14,15 +14,13 @@
 | 10 | Dual Momentum (GEM) | 2026-07-17 | $38,072 | −2.38% | −5.60% | −5.72% | 1 | 4 | −0.14% |
 | 11 | Dual Momentum (regime-gated) | 2026-07-17 | $38,072 | −2.38% | −5.60% | −5.72% | 1 | 4 | −0.14% |
 | 12 | Equal-Weight Benchmark | 2026-07-17 | $36,546 | −6.29% | −9.52% | −18.82% | 50 | 184 | +1.02% |
-| 13 | p15_ai_ranked | 2026-09-26 | $9,157 ‡ | −8.43% | −7.65% | −9.49% | 7 | 77 | −1.10% |
-| 14 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $34,769 | −10.85% | −10.82% | −16.71% | 50 | 119 | +1.41% |
-| 15 | p15_hybrid_veto | 2026-09-26 | $8,904 ‡ | −10.96% | −10.19% | −12.46% | 9 | 47 | −1.01% |
-| 16 | p15_rule_control | 2026-09-26 | $8,843 ‡ | −11.57% | −10.79% | −13.03% | 9 | 45 | −0.56% |
+| 13 | p15_ai_ranked | 2026-09-26 | $9,148 | −8.52% | −7.75% | −9.58% | 5 | 82 | −0.26% |
+| 14 | p15_hybrid_veto | 2026-09-26 | $8,939 | −10.61% | −9.84% | −12.46% | 9 | 48 | −1.56% |
+| 15 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $34,769 | −10.85% | −10.82% | −16.71% | 50 | 119 | +1.41% |
+| 16 | p15_rule_control | 2026-09-26 | $8,894 | −11.06% | −10.28% | −13.03% | 9 | 46 | −1.01% |
 | 17 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $33,730 | −13.51% | −13.79% | −17.31% | 50 | 50 | +0.58% |
 
 _Regime: **risk-on** · each return uses its book's persisted starting capital · as of 2026-10-26._
-
-_‡ marked through 2026-10-23: p15_ai_ranked, p15_hybrid_veto, p15_rule_control. A P15 book is marked by its own window after that session's P15 fills, never provisionally by the league._
 
 ## Commission break
 
@@ -40,10 +38,10 @@ _‡ marked through 2026-10-23: p15_ai_ranked, p15_hybrid_veto, p15_rule_control
 | Dual Momentum (GEM) | +0.28% | $0.00 |
 | Dual Momentum (regime-gated) | +0.28% | $0.00 |
 | Equal-Weight Benchmark | +3.10% | $0.00 |
-| p15_ai_ranked | −1.10% | $8.74 |
+| p15_ai_ranked | −1.20% | $10.78 |
+| p15_hybrid_veto | −0.62% | $4.53 |
 | EW Screen — Inverse-Vol Weighted | +3.18% | $0.00 |
-| p15_hybrid_veto | −1.01% | $4.18 |
-| p15_rule_control | −0.56% | $2.93 |
+| p15_rule_control | +0.01% | $3.28 |
 | XS Momentum 12-1 (unscreened control) | +3.90% | $0.00 |
 
 _† commissions from the recorded cost-profile break (2026-10-19); evaluation clocks restart at each break._

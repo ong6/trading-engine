@@ -47,8 +47,8 @@
     "store_gb": 43.18
   },
   "price_verify": {
-    "last_run": "2026-10-23T22:44:40.475287+00:00",
-    "as_of": "2026-10-23",
+    "last_run": "2026-10-26T22:44:03.599924+00:00",
+    "as_of": "2026-10-26",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -61,22 +61,38 @@
       "low",
       "close"
     ],
-    "names_selected": 174,
-    "names_checked": 174,
-    "names_agreeing": 174,
+    "names_selected": 173,
+    "names_checked": 171,
+    "names_agreeing": 171,
     "names_disagreeing": 0,
-    "names_not_checked": 0,
-    "not_checked_reasons": {},
-    "not_checked_names": [],
-    "bars_compared": 697,
-    "field_comparisons": 2788,
+    "names_not_checked": 2,
+    "not_checked_reasons": {
+      "symbol_not_found": 1,
+      "source_identity": 1
+    },
+    "not_checked_names": [
+      {
+        "ticker": "ACA",
+        "why": "held",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "GFLW",
+        "why": "sample",
+        "reason": "source_identity",
+        "detail": "etf answer has no volume on any of 15 rows: an index level or indicative value, not trades"
+      }
+    ],
+    "bars_compared": 684,
+    "field_comparisons": 2736,
     "worst": {
-      "ticker": "AGEN",
-      "date": "2026-10-19",
-      "field": "low",
-      "store": 6.06,
-      "source": 6.055,
-      "diff_bp": 8.25
+      "ticker": "UAMY",
+      "date": "2026-10-20",
+      "field": "high",
+      "store": 3.24,
+      "source": 3.235,
+      "diff_bp": 15.43
     },
     "worst_is_disagreement": false,
     "disagreements": [],
@@ -95,53 +111,53 @@
     "volume_note": "volume differs by design on the newest session (same-day volume settles after the close); measured, never alarmed on",
     "volume_median_abs_diff_pct_latest_session": null,
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
-    "volume_bars_compared": 697,
+    "volume_bars_compared": 684,
     "newest_session": {
-      "session": "2026-10-23",
+      "session": "2026-10-26",
       "status": "not_checked",
       "reason": "source_lag",
-      "names_with_store_bar": 173,
+      "names_with_store_bar": 171,
       "names_compared": 0,
-      "source_latest_session": "2026-10-22"
+      "source_latest_session": "2026-10-23"
     },
-    "provisional_note": "on 2026-10-23 (newest stored session) the source had a bar for 0 of 173 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
+    "provisional_note": "on 2026-10-26 (newest stored session) the source had a bar for 0 of 171 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
     "provisional_ohl_median_bp": null,
     "provisional_ohl_max_bp": null,
     "provisional_ohl_over_tolerance": 0,
     "provisional_comparisons": 0,
     "store_missing_sessions": {},
     "n_names_store_missing_sessions": 0,
-    "secs": 107.9,
+    "secs": 101.8,
     "evidence_receipt": {
-      "sha256": "6b0bd2877c793ecd9aa447215d63ee5b72a317bc8de831bd93eb3b70a8d25691",
-      "path": "price-verify/6b0bd2877c793ecd9aa447215d63ee5b72a317bc8de831bd93eb3b70a8d25691.json",
-      "bytes": 673023
+      "sha256": "6c70a3ab0c97acf3d20dea5becfd89ab3b72d51551fe5f46aa029ecafbcf27a9",
+      "path": "price-verify/6c70a3ab0c97acf3d20dea5becfd89ab3b72d51551fe5f46aa029ecafbcf27a9.json",
+      "bytes": 666445
     },
     "name_results_report": {
       "path": "reports/producer-detail/price-verify.json",
-      "names": 174,
-      "bytes": 59351,
-      "sha256": "d8ba4f267e416e15b1ba5e66220294287f898077a05beb314d055d4548b404b2"
+      "names": 173,
+      "bytes": 58657,
+      "sha256": "5acdeebd2cff25277f40980be650996e9d78161001f0a34e4df007afd5049d9a"
     }
   },
   "intraday": {
-    "last_run": "2026-10-23T23:09:10.096357+00:00",
-    "tickers_requested": 934,
-    "tickers_with_data": 934,
-    "new_rows_1m": 357547,
-    "new_rows_5m": 139660,
+    "last_run": "2026-10-26T23:09:43.614708+00:00",
+    "tickers_requested": 946,
+    "tickers_with_data": 946,
+    "new_rows_1m": 350294,
+    "new_rows_5m": 115835,
     "failed_tickers": 0,
     "failed_batches": 0,
-    "store_gb": 39.75,
+    "store_gb": 43.18,
     "coverage_report": {
       "path": "reports/producer-detail/intraday-coverage.json",
       "tickers": {
-        "1m": 934,
-        "5m": 934
+        "1m": 946,
+        "5m": 946
       }
     },
-    "fetched_rows": 4070094,
-    "payload_bytes": 616509532
+    "fetched_rows": 4150770,
+    "payload_bytes": 628732392
   },
   "signals_incremental": {
     "mode": "incremental",
@@ -149,17 +165,17 @@
     "sources": {
       "squeezemetrics": {
         "status": "ok",
-        "rows_fetched": 7788,
+        "rows_fetched": 7790,
         "rows_inserted": 2,
         "series": [
           "dix",
           "gex"
         ],
-        "secs": 2.0
+        "secs": 2.1
       },
       "vix": {
         "status": "ok",
-        "rows_fetched": 13601,
+        "rows_fetched": 13603,
         "rows_inserted": 2,
         "series": [
           "vix",
@@ -169,7 +185,7 @@
       },
       "fred": {
         "status": "ok",
-        "rows_fetched": 103,
+        "rows_fetched": 99,
         "rows_inserted": 2,
         "series": [
           "hy_oas",
@@ -177,7 +193,7 @@
           "nfci",
           "t10y2y"
         ],
-        "secs": 1.6
+        "secs": 1.7
       },
       "putcall": {
         "status": "ok",
@@ -187,7 +203,7 @@
           "pc_equity",
           "pc_total"
         ],
-        "secs": 7.3
+        "secs": 7.8
       },
       "aaii": {
         "status": "ok",
@@ -197,7 +213,7 @@
           "aaii_bear",
           "aaii_bull"
         ],
-        "secs": 0.9
+        "secs": 1.2
       },
       "finra_margin": {
         "status": "ok",
@@ -207,25 +223,25 @@
           "free_credit",
           "margin_debt"
         ],
-        "secs": 0.9
+        "secs": 1.2
       },
       "short_interest": {
         "status": "ok",
         "rows_fetched": 2,
-        "rows_inserted": 0,
+        "rows_inserted": 1,
         "series": [
           "short_interest_dtc"
         ],
-        "secs": 10.5
+        "secs": 11.7
       },
       "cot": {
         "status": "ok",
         "rows_fetched": 10,
-        "rows_inserted": 1,
+        "rows_inserted": 0,
         "series": [
           "cot_es_lev_net"
         ],
-        "secs": 4.3
+        "secs": 1.2
       },
       "breadth": {
         "status": "ok",
@@ -236,7 +252,7 @@
           "breadth_pct_200",
           "zweig_ratio"
         ],
-        "secs": 0.7
+        "secs": 0.6
       }
     },
     "rows_inserted": 12,
@@ -244,50 +260,50 @@
     "series_totals": {
       "aaii_bear": 2047,
       "aaii_bull": 2047,
-      "breadth_nh_nl": 3723,
-      "breadth_pct_200": 3723,
+      "breadth_nh_nl": 3724,
+      "breadth_pct_200": 3724,
       "cot_es_lev_net": 1063,
-      "dix": 3894,
+      "dix": 3895,
       "free_credit": 200,
-      "gex": 3894,
-      "hy_oas": 847,
+      "gex": 3895,
+      "hy_oas": 848,
       "icsa": 3120,
       "margin_debt": 357,
       "nfci": 2911,
-      "pc_equity": 4209,
-      "pc_total": 4209,
-      "short_interest_dtc": 76,
-      "t10y2y": 12596,
-      "vix": 9300,
-      "vix3m": 4301,
-      "zweig_ratio": 3723
+      "pc_equity": 4210,
+      "pc_total": 4210,
+      "short_interest_dtc": 77,
+      "t10y2y": 12597,
+      "vix": 9301,
+      "vix3m": 4302,
+      "zweig_ratio": 3724
     },
-    "last_run": "2026-10-23T23:09:41.569624+00:00",
-    "store_gb": 39.75
+    "last_run": "2026-10-26T23:10:14.441160+00:00",
+    "store_gb": 43.18
   },
   "earnings": {
-    "last_run": "2026-10-23T23:29:01.170497+00:00",
-    "as_of": "2026-10-23",
-    "universe": 2861,
+    "last_run": "2026-10-26T23:42:49.338979+00:00",
+    "as_of": "2026-10-26",
+    "universe": 2864,
     "universe_source": "fundamentals-coverage \u222a screen-passers",
     "selection": {
-      "mode": "nightly-bounded",
+      "mode": "weekly-full",
       "near_sessions": 21,
       "stale_after_days": 7,
-      "unknown": 412,
-      "near": 2250,
+      "unknown": 0,
+      "near": 0,
       "stale": 0,
-      "deferred": 199
+      "deferred": 0
     },
-    "selected_for_refresh": 2662,
-    "deferred_this_run": 199,
-    "pulled_this_run": 2662,
-    "with_upcoming_date": 2600,
-    "no_upcoming_date": 62,
+    "selected_for_refresh": 2864,
+    "deferred_this_run": 0,
+    "pulled_this_run": 2864,
+    "with_upcoming_date": 2800,
+    "no_upcoming_date": 64,
     "failed_tickers": 0,
-    "rows_inserted_this_run": 2600,
-    "rows_for_as_of": 2600,
-    "store_gb": 39.75
+    "rows_inserted_this_run": 2800,
+    "rows_for_as_of": 2800,
+    "store_gb": 43.19
   },
   "screen_date": "2026-10-26",
   "last_screen": "2026-10-26T22:41:30.025772+00:00",
@@ -443,20 +459,20 @@
     "target_symbols": 4063,
     "limitation": "current-liquid-universe snapshot; survivor-biased and retrieval-time-only; not historical membership or promotion-quality stock-selection evidence",
     "attempts": {
-      "complete": 7842,
+      "complete": 7891,
       "empty": 881,
-      "failed": 88,
+      "failed": 89,
       "refused": 14
     },
     "unresolved_failed_windows": 4,
     "refused_windows": 14,
-    "fact_count": 2869352,
-    "symbols_with_facts": 3789,
+    "fact_count": 2885594,
+    "symbols_with_facts": 3797,
     "symbols_checkpointed": 4058,
     "symbols_unstarted": 5,
     "checkpoint_start": "2023-07-05",
     "checkpoint_end": "2026-07-11",
-    "target_through": "2026-10-23",
+    "target_through": "2026-10-26",
     "symbols_caught_up": 0,
     "symbols_pending": 4063,
     "fact_start": "2022-01-03",
@@ -465,12 +481,12 @@
     "execution_authority": "none",
     "operational_price_mutation": false,
     "attempted_this_run": 50,
-    "completed_this_run": 48,
-    "empty_this_run": 1,
+    "completed_this_run": 49,
+    "empty_this_run": 0,
     "failed_this_run": 1,
     "refused_this_run": 0,
-    "through": "2026-10-23",
-    "last_run": "2026-10-26T21:47:55.847573+00:00"
+    "through": "2026-10-26",
+    "last_run": "2026-10-26T23:49:35.658988+00:00"
   },
   "price_verify_full": {
     "last_run": "2026-10-24T02:41:07.428982+00:00",
