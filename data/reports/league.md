@@ -15,14 +15,12 @@
 | 11 | Dual Momentum (regime-gated) | 2026-07-17 | $38,286 | −1.83% | −5.63% | −5.72% | 1 | 4 | +0.08% |
 | 12 | Equal-Weight Benchmark | 2026-07-17 | $38,184 | −2.09% | −5.89% | −18.82% | 50 | 184 | +4.38% |
 | 13 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $36,071 | −7.51% | −8.04% | −16.71% | 50 | 119 | +3.95% |
-| 14 | p15_ai_ranked | 2026-09-26 | $9,148 ‡ | −8.52% | −8.30% | −9.58% | 5 | 82 | −0.26% |
+| 14 | p15_ai_ranked | 2026-09-26 | $9,224 | −7.76% | −7.55% | −9.58% | 5 | 87 | +0.15% |
 | 15 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $35,330 | −9.41% | −10.24% | −17.31% | 50 | 50 | +1.74% |
-| 16 | p15_hybrid_veto | 2026-09-26 | $8,939 ‡ | −10.61% | −10.39% | −12.46% | 9 | 48 | −1.56% |
-| 17 | p15_rule_control | 2026-09-26 | $8,894 ‡ | −11.06% | −10.84% | −13.03% | 9 | 46 | −1.01% |
+| 16 | p15_rule_control | 2026-09-26 | $9,053 | −9.47% | −9.25% | −13.03% | 9 | 48 | −0.51% |
+| 17 | p15_hybrid_veto | 2026-09-26 | $9,047 | −9.53% | −9.31% | −12.46% | 9 | 51 | −1.50% |
 
 _Regime: **risk-on** · each return uses its book's persisted starting capital · as of 2026-10-27._
-
-_‡ marked through 2026-10-26: p15_ai_ranked, p15_hybrid_veto, p15_rule_control. A P15 book is marked by its own window after that session's P15 fills, never provisionally by the league._
 
 ## Commission break
 
@@ -41,10 +39,10 @@ _‡ marked through 2026-10-26: p15_ai_ranked, p15_hybrid_veto, p15_rule_control
 | Dual Momentum (regime-gated) | +0.84% | $0.00 |
 | Equal-Weight Benchmark | +7.72% | $0.00 |
 | EW Screen — Inverse-Vol Weighted | +7.04% | $0.00 |
-| p15_ai_ranked | −1.20% | $10.78 |
+| p15_ai_ranked | −0.38% | $12.81 |
 | XS Momentum 12-1 (unscreened control) | +8.83% | $0.00 |
-| p15_hybrid_veto | −0.62% | $4.53 |
-| p15_rule_control | +0.01% | $3.28 |
+| p15_rule_control | +1.80% | $4.05 |
+| p15_hybrid_veto | +0.59% | $5.67 |
 
 _† commissions from the recorded cost-profile break (2026-10-19); evaluation clocks restart at each break._
 
