@@ -316,7 +316,7 @@ def test_loader_rejects_unversioned_or_alternate_model_tampering(con, monkeypatc
             decision_window_id=result["decision_window"],
         )
 
-    assert agent_model_client.MODEL == "GPT-5.6-Sol:max"
+    assert agent_model_client.MODEL == "GPT-6.1-Sol:max"
 
 
 def test_hybrid_loader_derives_allow_binding_without_writes(con, monkeypatch):

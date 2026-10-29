@@ -391,6 +391,26 @@ def build_report(
     }
 
 
+def _model_strata_lines(strata: dict | None) -> list[str]:
+    if not strata:
+        return []
+    lines = ["## Scoring model strata", "",
+             f"Model amendment {strata['decided_on']}: {strata['from_model']} to "
+             f"{strata['to_model']}. The tests above are pooled across both models; each "
+             "decision keeps the model it was made with. The post-switch stratum is a "
+             "diagnostic and never changes pass or kill.", ""]
+    post = strata.get("post_switch_primary")
+    if post is None:
+        return [*lines, "- Post-switch: no scoring session yet", ""]
+    lines.append(f"- Post-switch from {post['first_market_date']}: "
+                 f"{post['scored_session_count']} scored sessions, mean IC difference "
+                 f"{post['mean_delta_ic']}")
+    lines.extend(f"- {item['portfolio_id']} since {item['start_date']}: return {item['return']} "
+                 "(includes positions opened before the switch)"
+                 for item in strata["post_switch_books"])
+    return [*lines, ""]
+
+
 def p15_markdown(report: dict) -> str:
     p15, p8, trials = (report["p15"], report["p8_evaluation"],
                        report["trial_count_register"])
@@ -412,6 +432,7 @@ def p15_markdown(report: dict) -> str:
              f"- Missing mature labels: {primary['missing_mature_label_count']}",
              f"- Next look: {next_look if next_look is not None else 'complete'} scored sessions",
              f"- Earliest next-look date: {primary.get('earliest_next_look_date')}", "",
+             *_model_strata_lines(p15.get("model_strata")),
              "## Comparator books", "", f"Status: {books['status']}"]
     for item in books["books"]:
         lines.append(f"- {item['portfolio_id']}: {item['closed_trade_count']} closed trades, "

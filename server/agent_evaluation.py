@@ -888,7 +888,6 @@ def _validate_p15_samples(con, row, context, run):
             != expected_grid:
         raise EvaluationError("P15 scoring sample set is incomplete")
     sample_ids, usage = [], {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-    model_identity = agent_model_client.identity(role="p15_scoring")
     for sample_row in samples:
         (chunk, sample, seed, ticker_order, request, request_sha, status, response_id,
          response, response_sha, model, model_version, proxy_version, proxy_sha, runtime,
@@ -896,6 +895,13 @@ def _validate_p15_samples(con, row, context, run):
          sample_started, sample_completed) = sample_row
         request_payload = json.loads(request)
         request_input = json.loads(request_payload["input"])
+        # Each sample is checked against the registered model it was requested from, so
+        # evidence from before the 2026-10-29 model amendment keeps its recorded identity.
+        requested_model = request_payload.get("model")
+        if (requested_model not in agent_model_client.REGISTERED_MODELS
+                or requested_model != row["model"]):
+            raise EvaluationError("P15 scoring sample model identity differs")
+        model_identity = agent_model_client.identity(role="p15_scoring", model=requested_model)
         expected_chunk = {item["ticker"]: item for item in context["candidates"][
             chunk * 10:(chunk + 1) * 10
         ]}
@@ -910,8 +916,8 @@ def _validate_p15_samples(con, row, context, run):
                 != set(expected_chunk)
                 or any(item != expected_chunk[item["ticker"]]
                        for item in request_input["candidates"])
-                or agent_model_client.p15_scoring_request_payload(request_input)
-                != request_payload
+                or agent_model_client.p15_scoring_request_payload(
+                    request_input, model=requested_model) != request_payload
                 or canonical_sha256(request_payload) != request_sha
                 or status not in {"completed", "failed"}
                 or sample_completed is None or sample_completed < sample_started
@@ -924,7 +930,7 @@ def _validate_p15_samples(con, row, context, run):
                 or proxy_version != model_identity["required_proxy_version"]
                 or proxy_sha != model_identity["required_proxy_source_sha256"]
                 or not agent_model_client.traecli_runtime_matches(model_identity, runtime)
-                or upstream_family != agent_model_client.UPSTREAM_MODEL_FAMILY
+                or upstream_family != agent_model_client.upstream_model_family(requested_model)
                 or catalog_sha != model_identity["model_catalog_entry_sha256"]):
             raise EvaluationError("P15 scoring sample model identity differs")
         if response is not None:

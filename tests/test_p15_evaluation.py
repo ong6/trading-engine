@@ -426,7 +426,8 @@ def test_rolled_back_look_never_publishes_external_anchor(con, tmp_path):
 def _primary_schema(con):
     con.execute("CREATE TABLE agent_evaluation_traces "
                 "(id BIGINT,market_date DATE,observed_at TIMESTAMP,completed_at TIMESTAMP,"
-                "information_cutoff_at TIMESTAMP,trace_sha256 VARCHAR,policy_id VARCHAR)")
+                "information_cutoff_at TIMESTAMP,trace_sha256 VARCHAR,policy_id VARCHAR,"
+                "model VARCHAR DEFAULT 'GPT-5.6-Sol:max')")
     con.execute("CREATE TABLE agent_evaluation_decisions "
                 "(id BIGINT,trace_id BIGINT,decision VARCHAR,decision_payload VARCHAR,"
                 "decision_sha256 VARCHAR)")
@@ -440,7 +441,8 @@ def test_primary_rows_are_asof_and_reject_duplicate_daily_traces(con):
     _primary_schema(con)
     day = p15_evaluation.ORIGIN_EPOCH
     con.executemany(
-        "INSERT INTO agent_evaluation_traces VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO agent_evaluation_traces (id,market_date,observed_at,completed_at,"
+        "information_cutoff_at,trace_sha256,policy_id) VALUES (?,?,?,?,?,?,?)",
         [(1, day, datetime(2026, 9, 29, 20), datetime(2026, 12, 2),
           datetime(2026, 9, 29, 20), "a" * 64, "p15-scoring-v1"),
          (2, day, datetime(2026, 9, 29, 20), datetime(2026, 9, 29, 21),
@@ -463,7 +465,8 @@ def test_primary_scores_same_mature_cohort_and_flags_missing_labels(con):
     _primary_schema(con)
     market_date = p15_evaluation.ORIGIN_EPOCH
     con.execute(
-        "INSERT INTO agent_evaluation_traces VALUES (1,?,?,?,?,?,'p15-scoring-v1')",
+        "INSERT INTO agent_evaluation_traces (id,market_date,observed_at,completed_at,"
+        "information_cutoff_at,trace_sha256,policy_id) VALUES (1,?,?,?,?,?,'p15-scoring-v1')",
         [market_date, datetime(2026, 9, 29, 20), datetime(2026, 9, 29, 20),
          datetime(2026, 9, 29, 20), "a" * 64],
     )
@@ -505,7 +508,8 @@ def test_primary_waits_three_sessions_before_invalidating_missing_used_label(con
     _primary_schema(con)
     market_date = p15_evaluation.ORIGIN_EPOCH
     con.execute(
-        "INSERT INTO agent_evaluation_traces VALUES (1,?,?,?,?,?,'p15-scoring-v1')",
+        "INSERT INTO agent_evaluation_traces (id,market_date,observed_at,completed_at,"
+        "information_cutoff_at,trace_sha256,policy_id) VALUES (1,?,?,?,?,?,'p15-scoring-v1')",
         [market_date, datetime(2026, 9, 29, 20), datetime(2026, 9, 29, 20),
          datetime(2026, 9, 29, 20), "a" * 64],
     )
@@ -820,3 +824,34 @@ def test_overall_pass_requires_primary_book_bound_and_all_drawdowns(con, monkeyp
     book_result["comparisons"][0]["promotion_status"] = "pass"
     projected = p15_evaluation.project(con, generated_at=NOW)["p15"]
     assert projected["status"] == "pass" and projected["promotion_ready"] is True
+
+
+def test_post_switch_stratum_keeps_each_decision_on_its_own_model(con):
+    days = [date(2026, 10, 27), date(2026, 10, 28), date(2026, 10, 29), date(2026, 10, 30)]
+    old, new = "GPT-5.6-Sol:max", "GPT-6.1-Sol:max"
+    rows = [{"market_date": day, "model": old if day < date(2026, 10, 29) else new}
+            for day in days]
+    grid = [{"market_date": day.isoformat(), "origin_index": index, "status": "scored",
+             "delta_ic": 0.1 * (index + 1), "model_ic": 0.2, "baseline_ic": 0.1}
+            for index, day in enumerate(days)]
+    strata = p15_evaluation._by_scoring_model(grid, rows)
+    assert [(item["model"], item["first_market_date"], item["scored_session_count"])
+            for item in strata] == [(old, "2026-10-27", 2), (new, "2026-10-29", 2)]
+    assert strata[1]["mean_delta_ic"] == pytest.approx(0.35)
+    assert all(item["role"] == "diagnostic_only_never_changes_pass_or_kill" for item in strata)
+
+    con.execute("CREATE TABLE p15_book_windows (portfolio_id VARCHAR, market_date DATE, "
+                "equity DOUBLE)")
+    for portfolio_id in p15_evaluation.BOOK_IDS:
+        con.executemany("INSERT INTO p15_book_windows VALUES (?,?,?)",
+                        [(portfolio_id, day, 100.0 + index) for index, day in enumerate(days)])
+    result = p15_evaluation.model_strata(con, {"diagnostics": {"by_scoring_model": strata}})
+    assert result["from_model"] == old and result["to_model"] == new
+    assert result["post_switch_first_market_date"] == "2026-10-29"
+    assert result["post_switch_primary"] == strata[1]
+    assert [(item["start_date"], item["end_date"]) for item in result["post_switch_books"]] \
+        == [("2026-10-29", "2026-10-30")] * 3
+    assert result["post_switch_books"][0]["return"] == pytest.approx(103 / 102 - 1)
+    before = p15_evaluation.model_strata(
+        con, {"diagnostics": {"by_scoring_model": strata[:1]}})
+    assert before["post_switch_primary"] is None and before["post_switch_books"] == []

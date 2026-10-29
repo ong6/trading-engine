@@ -163,7 +163,11 @@ def _verify_model_response(
         != context["decision_model"]["model_catalog_entry_sha256"]
         or (
             not legacy
-            and response["upstream_model_family"] != agent_model_client.UPSTREAM_MODEL_FAMILY
+            and response["upstream_model_family"] != (
+                agent_model_client.upstream_model_family(response["model"])
+                if response["model"] in agent_model_client.REGISTERED_MODELS
+                else agent_model_client.UPSTREAM_MODEL_FAMILY
+            )
         )
         or (
             not legacy
@@ -269,10 +273,15 @@ def _attempt(
         "allowed_evidence_ids": sorted(_allowlisted_evidence(context)),
         "context": context,
     }
+    # Rebuild the request for the registered model the attempt recorded (retained attempts
+    # from before the 2026-10-29 model amendment keep theirs).
+    request_model = (model.get("model") if isinstance(model, dict)
+                     and model.get("model") in agent_model_client.REGISTERED_MODELS
+                     else agent_model_client.MODEL)
     expected_request = (
-        agent_model_client.request_payload(model_input)
+        agent_model_client.request_payload(model_input, model=request_model)
         if expected_mode == "agent_only"
-        else agent_model_client.veto_request_payload(model_input)
+        else agent_model_client.veto_request_payload(model_input, model=request_model)
     )
     started_at = _utc(stored["started_at"], "agent attempt start time")
     expected_window = "agent-shadow-v2:" + canonical_sha256(

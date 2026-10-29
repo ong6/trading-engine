@@ -20,6 +20,10 @@ from sim import book_breaks, nyse
 
 POLICY_ID = "p15-scoring-v1"
 BOOK_IDS = ("p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto")
+# Owner-directed model amendment (registration revision 20). Decisions keep the model their
+# trace records; the registered tests stay pooled and the post-switch stratum is diagnostic.
+MODEL_AMENDMENT = {"decided_on": "2026-10-29", "from_model": "GPT-5.6-Sol:max",
+                   "to_model": "GPT-6.1-Sol:max"}
 LOOKS = (60, 90, 120)
 LOOK_TARGETS = {60: 12, 90: 18, 120: 24}
 ALPHA = 0.05 / 3
@@ -267,7 +271,7 @@ def _primary_rows(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> lis
         return []
     rows = con.execute(
         "SELECT t.market_date,t.observed_at,t.completed_at,t.information_cutoff_at,t.trace_sha256,"
-        "d.id,d.decision,d.decision_payload,d.decision_sha256,l.horizon_sessions,l.label_basis,"
+        "t.model,d.id,d.decision,d.decision_payload,d.decision_sha256,l.horizon_sessions,l.label_basis,"
         "l.net_excess_return,l.missing_bar_status,l.labeled_at,l.label_sha256 "
         "FROM agent_evaluation_traces t JOIN agent_evaluation_decisions d ON d.trace_id=t.id "
         "LEFT JOIN agent_evaluation_labels_v2 l ON l.decision_id=d.id "
@@ -279,7 +283,7 @@ def _primary_rows(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> lis
     ).fetchall()
     result: dict[int, dict] = {}
     daily_traces: dict[date, str] = {}
-    for (market_date, observed_at, completed_at, cutoff_at, trace_sha, decision_id,
+    for (market_date, observed_at, completed_at, cutoff_at, trace_sha, model, decision_id,
          decision, raw, decision_sha, horizon, basis, net, missing, labeled, label_sha) in rows:
         if market_date in daily_traces and daily_traces[market_date] != trace_sha:
             raise P15EvaluationError("P15 market session has multiple scoring traces")
@@ -288,7 +292,7 @@ def _primary_rows(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> lis
             "decision_id": int(decision_id), "market_date": market_date,
             "observed_at": observed_at, "completed_at": completed_at,
             "information_cutoff_at": cutoff_at, "trace_sha256": trace_sha,
-            "decision": decision, "decision_sha256": decision_sha,
+            "model": model, "decision": decision, "decision_sha256": decision_sha,
             "payload": json.loads(raw), "labels": {},
         })
         if horizon is not None:
@@ -942,6 +946,7 @@ def primary(
         "mean_model_ic": _mean([item["model_ic"] for item in h10]),
         "mean_baseline_ic": _mean([item["baseline_ic"] for item in h10]),
     }
+    diagnostics["by_scoring_model"] = _by_scoring_model(grid, rows)
     return {"status": status, "candidate_count": len(rows),
             "scored_session_count": len(scored),
             "insufficient_session_count": insufficient,
@@ -950,6 +955,60 @@ def primary(
             "origin_epoch": ORIGIN_EPOCH.isoformat(),
             "earliest_next_look_date": None if next_date is None else next_date.isoformat(),
             "diagnostics": diagnostics}
+
+
+def _by_scoring_model(grid: list[dict], rows: list[dict]) -> list[dict]:
+    """Primary-statistic diagnostic per scoring model; never changes pass or kill."""
+    models = {row["market_date"].isoformat(): row.get("model") for row in rows}
+    strata: dict[str, list[dict]] = {}
+    for item in grid:
+        if item.get("status") == "scored" and item["market_date"] in models:
+            strata.setdefault(models[item["market_date"]], []).append(item)
+    first_dates = {}
+    for market_date, model in sorted(models.items()):
+        first_dates.setdefault(model, market_date)
+    return [{
+        "model": model, "first_market_date": first_dates[model],
+        "scored_session_count": len(strata.get(model, [])),
+        "primary_offset_session_count": sum(
+            item["origin_index"] % PRIMARY_STRIDE == PRIMARY_OFFSET
+            for item in strata.get(model, [])),
+        "mean_delta_ic": _mean([float(item["delta_ic"]) for item in strata.get(model, [])]),
+        "mean_champion_ic": _mean([float(item["model_ic"]) for item in strata.get(model, [])]),
+        "mean_rule_ic": _mean([float(item["baseline_ic"]) for item in strata.get(model, [])]),
+        "role": "diagnostic_only_never_changes_pass_or_kill",
+    } for model in sorted(first_dates, key=first_dates.get)]
+
+
+def model_strata(con: duckdb.DuckDBPyConnection, primary_result: dict) -> dict:
+    """The AI books and primary statistic since the model amendment, beside the pooled result."""
+    by_model = primary_result.get("diagnostics", {}).get("by_scoring_model", [])
+    post = next((item for item in by_model
+                 if item["model"] == MODEL_AMENDMENT["to_model"]), None)
+    result = {**MODEL_AMENDMENT, "pooled": "registered primary, looks and books (unchanged)",
+              "attribution": "each decision keeps the model its scoring trace records",
+              "role": "diagnostic_only_never_changes_pass_or_kill",
+              "post_switch_first_market_date": None if post is None
+              else post["first_market_date"],
+              "post_switch_primary": post, "post_switch_books": []}
+    if post is None or not table_exists(con, "p15_book_windows"):
+        return result
+    start = date.fromisoformat(post["first_market_date"])
+    for portfolio_id in BOOK_IDS:
+        values = con.execute(
+            "SELECT market_date,equity FROM p15_book_windows WHERE portfolio_id=? "
+            "AND market_date>=? ORDER BY market_date", [portfolio_id, start],
+        ).fetchall()
+        first, last = (values[0], values[-1]) if values else (None, None)
+        result["post_switch_books"].append({
+            "portfolio_id": portfolio_id,
+            "start_date": None if first is None else first[0].isoformat(),
+            "end_date": None if last is None else last[0].isoformat(),
+            "return": None if first is None or not first[1]
+            else float(last[1]) / float(first[1]) - 1,
+            "includes_positions_opened_before_switch": True,
+        })
+    return result
 
 
 def _series_metrics(values: list[tuple[date, float]]) -> dict:
@@ -1289,6 +1348,7 @@ def project(con: duckdb.DuckDBPyConnection, *, generated_at: datetime) -> dict:
                 ).isoformat(), "status": status, "primary": primary_result,
                 "books": book_result, "preopen": preopen_result, "events": event_result,
                 "observer_pairing": observer_pairing(con, generated_at),
+                "model_strata": model_strata(con, primary_result),
                 "promotion_ready": promotion_ready,
                 "promotion_authority": "owner_review_required"},
         "p8_evaluation": p8_rule(con, generated_at),

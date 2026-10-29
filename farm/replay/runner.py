@@ -36,7 +36,7 @@ from farm.replay.notes import (
     visible_mature_labels,
     visible_notes,
 )
-from farm.replay.registration import SPLIT_KNOWLEDGE_PRIMARY
+from farm.replay.registration import MODEL_CUTOFFS, SPLIT_KNOWLEDGE_PRIMARY
 from farm.replay.store import open_store
 from farm.replay.universe import build_session_universe
 from server import agent_model_client, p15_scoring_store
@@ -110,6 +110,14 @@ class ReplaySessionStore:
     def __post_init__(self) -> None:
         if self._test_execute_phase is not None and "PYTEST_CURRENT_TEST" not in os.environ:
             raise ValueError("test_only_execute_phase")
+        # A historical replay is valid only for a model with a registered training cutoff;
+        # the live client's model (GPT-6.1-Sol since 2026-10-29) has none.
+        live = (agent_model_client.generate_p15_scoring_json,
+                agent_model_client.generate_p15_preopen_json)
+        if (self._test_execute_phase is None
+                and (self.score_generate in live or self.preopen_generate in live)
+                and agent_model_client.MODEL.split(":")[0] not in MODEL_CUTOFFS):
+            raise ReplayRunnerError("replay_model_has_no_registered_cutoff")
 
     @cached_property
     def price_index(self):

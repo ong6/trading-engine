@@ -10,8 +10,8 @@ from engine.lib.provenance import canonical_sha256
 from server import agent_model_client
 
 REVIEWED_RUNTIME = "traecli 0.210.1"
-ROLES = ("proposal", "veto", "opportunity", "p15_scoring", "p15_preopen", "p15_event",
-         "trade_tool", "historical_replay")
+ROLES = ("proposal", "veto", "opportunity", "intraday_opportunity", "p15_scoring",
+         "p15_preopen", "p15_event", "trade_tool", "historical_replay")
 
 
 class Response:
@@ -155,11 +155,11 @@ def test_status_uses_only_loopback_allowlisted_routes_and_sanitizes_health():
     result = agent_model_client.status(connection_factory=factory)
 
     assert result == {
-        "schema_version": 4,
+        "schema_version": 5,
         "transport": "trae_cli_proxy",
         "endpoint": "http://127.0.0.1:8317/v1/responses",
         "api": "openai_responses",
-        "model": "GPT-5.6-Sol:max",
+        "model": "GPT-6.1-Sol:max",
         "model_version": "unversioned-catalog-alias",
         "provider_model_revision": None,
         "provider_model_revision_available": False,
@@ -178,6 +178,7 @@ def test_status_uses_only_loopback_allowlisted_routes_and_sanitizes_health():
         "toolset_sha256": canonical_sha256([]),
         "tools": "none",
         "execution_authority": "none",
+        "reasoning_effort": "high",
     }
     assert [item["path"] for item in observed] == ["/healthz", "/v1/models"]
     assert "token" not in result
@@ -219,7 +220,8 @@ def test_generate_json_uses_no_tools_and_returns_strict_object():
     }
     model_request = next(item for item in observed if item["path"] == "/v1/responses")
     request = json.loads(model_request["body"])
-    assert request["model"] == "GPT-5.6-Sol:max"
+    assert request["model"] == "GPT-6.1-Sol:max"
+    assert request["reasoning"] == {"effort": "high"}
     assert request["stream"] is False
     assert request["store"] is False
     assert request["tools"] == []
@@ -546,7 +548,7 @@ def test_reviewed_runtime_allowlist_pins_current_build_by_hash():
     )
     for role in ROLES:
         current = agent_model_client.identity(role=role)
-        assert current["schema_version"] == 4
+        assert current["schema_version"] == 5
         assert "required_traecli_runtime" not in current
         assert current["reviewed_traecli_runtime_sha256"] == list(
             agent_model_client.REVIEWED_TRAECLI_RUNTIME_SHA256
@@ -632,7 +634,7 @@ def test_runtime_change_between_reviewed_builds_during_generation_is_a_mismatch(
 def test_retained_identities_are_accepted_by_hash_only(monkeypatch):
     for table in (agent_model_client.RETAINED_SCHEMA_2_IDENTITY_SHA256,
                   agent_model_client.RETAINED_SCHEMA_3_IDENTITY_SHA256):
-        assert set(table) == set(ROLES)
+        assert set(table) == set(ROLES) - {"intraday_opportunity"}
     retained = {**agent_model_client.identity(role="veto"), "schema_version": 3}
     retained.pop("reviewed_traecli_runtime_sha256")
     retained["required_traecli_runtime"] = "traecli 0.1.0"
@@ -649,7 +651,7 @@ def test_retained_identities_are_accepted_by_hash_only(monkeypatch):
         current = agent_model_client.identity(role=role)
         assert agent_model_client.accepted_identity(current, role=role)
         assert not agent_model_client.accepted_identity({**current, "model": "other"}, role=role)
-        for schema in (2, 3, [3], True):
+        for schema in (2, 3, 4, [3], True):
             assert not agent_model_client.accepted_identity(
                 {**current, "schema_version": schema}, role=role
             )
@@ -676,3 +678,48 @@ def test_aggregate_runtime_label_is_deterministic():
     assert summarize([]) == "unobserved"
     mixed = summarize(["b", "a", "b"])
     assert mixed == summarize(["a", "b"]) == f"mixed:{canonical_sha256(['a', 'b'])}"
+
+
+def test_model_amendment_keeps_prior_identities_and_sets_effort_per_role():
+    # Revision 19 registered these GPT-5.6-Sol:max identities; the prior model rebuilds them
+    # byte for byte, so evidence made before the 2026-10-29 amendment keeps its attribution.
+    registered = {
+        "p15_scoring": "80f3bf067440c9278eb956a5261c391cf8045df22e00e7d3282643adf66cfebe",
+        "p15_preopen": "46773c410f11608fa15e951d4411f081ad8c803262a33cf7c4803f1e154aeee2",
+        "p15_event": "6ba3338f163fa36271514a129404c2c41fc08113eebfdddce383832eb27560bc",
+    }
+    prior = agent_model_client.PRIOR_MODEL
+    for role, digest in registered.items():
+        retained = agent_model_client.identity(role=role, model=prior)
+        assert canonical_sha256(retained) == digest
+        assert agent_model_client.accepted_identity(retained, role=role)
+        assert not agent_model_client.accepted_identity(
+            {**retained, "model": agent_model_client.MODEL}, role=role)
+        assert agent_model_client.accepted_identity(
+            agent_model_client.identity(role=role), role=role)
+    assert agent_model_client.REGISTERED_MODELS == ("GPT-5.6-Sol:max", "GPT-6.1-Sol:max")
+    assert agent_model_client.upstream_model_family(prior) == "gpt-5.6-sol"
+    assert agent_model_client.upstream_model_family() == "gpt-6.1-sol"
+    with pytest.raises(agent_model_client.ConnectorError, match="not registered"):
+        agent_model_client.identity(role="p15_scoring", model="GPT-5.6-Sol")
+    efforts = {role: agent_model_client.identity(role=role)["reasoning_effort"]
+               for role in ROLES}
+    assert efforts == {
+        "proposal": "high", "veto": "high", "opportunity": "high",
+        "intraday_opportunity": "medium", "p15_scoring": "high", "p15_preopen": "high",
+        "p15_event": "medium", "trade_tool": "high", "historical_replay": "high",
+    }
+    payload = {"value": 1}
+    for builder, effort in (
+        (agent_model_client.p15_scoring_request_payload, "high"),
+        (agent_model_client.p15_preopen_request_payload, "high"),
+        (agent_model_client.opportunity_request_payload, "high"),
+        (agent_model_client.p15_event_request_payload, "medium"),
+        (agent_model_client.intraday_opportunity_request_payload, "medium"),
+    ):
+        assert builder(payload)["model"] == "GPT-6.1-Sol:max"
+        assert builder(payload)["reasoning"] == {"effort": effort}
+        assert builder(payload, model=prior)["model"] == prior
+        assert builder(payload, model=prior)["reasoning"] == {"effort": "high"}
+    assert agent_model_client.EXPECTED_MODEL_CATALOG_ENTRY["routing_key"] == "gpt-6.1-sol__max"
+    assert agent_model_client.EXPECTED_MODEL_CATALOG_ENTRY["context_window"] == 475_000

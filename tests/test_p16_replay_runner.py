@@ -301,11 +301,16 @@ def test_lockbox_tag_uses_the_logical_clock_so_reruns_match(tmp_path, monkeypatc
         or SimpleNamespace(tag="confirmatory"),
     )
     committed = datetime(2026, 9, 27, 21, tzinfo=timezone.utc)
-    store = ReplaySessionStore(**_store_kwargs(tmp_path, lockbox=runner.ReplayLockboxRun(
+    def no_model(_payload):
+        raise AssertionError("the lockbox tag makes no model call")
+
+    store = ReplaySessionStore(**_store_kwargs(
+        tmp_path, score_generate=no_model, preopen_generate=no_model,
+        lockbox=runner.ReplayLockboxRun(
         ledger=None, begin={"experiment_id": "e", "cohort_id": "c", "committed_at": committed},
         trial_id="t", execution_id="x", registration_sha256="1" * 64,
         sessions=(SESSIONS[29],),
-    )))
+        )))
     logical = session_phases(SESSIONS[29])["score"]
     assert runner._lockbox_tag(store, logical) == runner._lockbox_tag(store, logical)
     assert seen == [committed, committed]
@@ -356,3 +361,10 @@ def test_phase_override_refused_outside_pytest(tmp_path, monkeypatch):
     monkeypatch.delenv("PYTEST_CURRENT_TEST")
     with pytest.raises(ValueError, match="test_only_execute_phase"):
         ReplaySessionStore(**_store_kwargs(tmp_path, _test_execute_phase=lambda *_args: []))
+
+
+def test_live_model_without_registered_cutoff_is_refused(tmp_path):
+    # GPT-6.1-Sol (the live model since 2026-10-29) has no registered training cutoff, so a
+    # historical replay may not call it; an explicit generator (or a seam) is required.
+    with pytest.raises(ValueError, match="replay_model_has_no_registered_cutoff"):
+        ReplaySessionStore(**_store_kwargs(tmp_path))

@@ -261,12 +261,14 @@ def _verify_decisions(con, config: dict, decisions: list[dict]) -> None:
         expected_aliases = aliases if record["variant"] in {
             "price_blinded", "price_synthetic_perturbed"
         } else None
-        request_hash = canonical_sha256(
-            agent_model_client.historical_replay_request_payload(prompt)
-        )
+        # A retained decision keeps the registered model it was made with.
+        if record.get("model") not in agent_model_client.REGISTERED_MODELS:
+            raise ReplayError("retained historical decision identity is invalid")
+        request_hash = canonical_sha256(agent_model_client.historical_replay_request_payload(
+            prompt, model=record["model"]
+        ))
         if (record.get("prompt") != prompt or record.get("alias_map") != expected_aliases
                 or record.get("request_sha256") != request_hash
-                or record.get("model") != agent_model_client.MODEL
                 or record.get("model_version") != agent_model_client.MODEL_VERSION):
             raise ReplayError("retained historical decision identity is invalid")
         validate(record.get("decision"), prompt["choices"])

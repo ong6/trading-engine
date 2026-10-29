@@ -41,7 +41,7 @@ def test_context_is_bounded_reproducible_and_has_no_execution_authority(con):
     assert first["policy"]["execution_authority"] == "none"
     assert len(first["policy"]["registration_sha256"]) == 64
     assert first["decision_model"]["transport"] == "trae_cli_proxy"
-    assert first["decision_model"]["model"] == "GPT-5.6-Sol:max"
+    assert first["decision_model"]["model"] == "GPT-6.1-Sol:max"
     assert first["decision_model"]["model_version"] == "unversioned-catalog-alias"
     assert first["decision_model"]["provider_model_revision"] is None
     assert (

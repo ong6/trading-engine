@@ -13,7 +13,7 @@ from engine.lib.provenance import canonical_sha256
 
 from .json_utils import loads_object
 
-CONNECTOR_SCHEMA_VERSION = 4
+CONNECTOR_SCHEMA_VERSION = 5
 PROXY_HOST = "127.0.0.1"
 PROXY_PORT = 8317
 PROXY_API = "openai_responses"
@@ -31,11 +31,44 @@ REVIEWED_TRAECLI_RUNTIMES = {
 }
 REVIEWED_TRAECLI_RUNTIME_SHA256 = tuple(sorted(REVIEWED_TRAECLI_RUNTIMES.values()))
 REQUIRED_PROXY_SOURCE_SHA256 = "61d66eadb3eae92306cdf080470e816b38401383b947df785820a8ad6f7d16c6"
-MODEL = "GPT-5.6-Sol:max"
+# Owner-directed model amendment (P15 registration revision 20, 2026-10-29): every new call
+# uses MODEL at the reasoning effort of its role. Evidence made before the amendment keeps the
+# identity it was recorded with: the PRIOR_* constants rebuild that connector-schema-4
+# identity exactly, so it is validated as recorded and never relabelled.
+MODEL = "GPT-6.1-Sol:max"
 MODEL_VERSION = "unversioned-catalog-alias"
-UPSTREAM_MODEL_FAMILY = "gpt-5.6-sol"
+UPSTREAM_MODEL_FAMILY = "gpt-6.1-sol"
 EXPECTED_MODEL_CATALOG_ENTRY = {
     "id": MODEL,
+    "object": "model",
+    "owned_by": "trae",
+    "created": 0,
+    "config_name": "gpt-6.1-sol",
+    "harness_mode": "codex",
+    "context_window": 475_000,
+    "description": "support reasoning, beta.",
+    "routing_key": "gpt-6.1-sol__max",
+    "catalog_comp_hash": "3000",
+}
+MODEL_CATALOG_ENTRY_SHA256 = canonical_sha256(EXPECTED_MODEL_CATALOG_ENTRY)
+# Once-a-day decisions reason at high effort; the 15-minute event scorer and the hourly and
+# four-hour observers at medium.
+REASONING_EFFORT = {
+    "proposal": "high",
+    "veto": "high",
+    "opportunity": "high",
+    "intraday_opportunity": "medium",
+    "p15_scoring": "high",
+    "p15_preopen": "high",
+    "p15_event": "medium",
+    "trade_tool": "high",
+    "historical_replay": "high",
+}
+PRIOR_CONNECTOR_SCHEMA_VERSION = 4
+PRIOR_MODEL = "GPT-5.6-Sol:max"
+PRIOR_UPSTREAM_MODEL_FAMILY = "gpt-5.6-sol"
+PRIOR_MODEL_CATALOG_ENTRY = {
+    "id": PRIOR_MODEL,
     "object": "model",
     "owned_by": "trae",
     "created": 0,
@@ -46,8 +79,8 @@ EXPECTED_MODEL_CATALOG_ENTRY = {
     "routing_key": "gpt-5.6-sol__max",
     "catalog_comp_hash": "3000",
 }
-MODEL_CATALOG_ENTRY_SHA256 = canonical_sha256(EXPECTED_MODEL_CATALOG_ENTRY)
-REASONING_EFFORT = "high"
+PRIOR_REASONING_EFFORT = "high"
+REGISTERED_MODELS = (PRIOR_MODEL, MODEL)
 MAX_OUTPUT_TOKENS = 4_096
 MAX_INPUT_BYTES = 262_144
 MAX_RESPONSE_BYTES = 262_144
@@ -431,14 +464,38 @@ def status(*, connection_factory: ConnectionFactory = _connection) -> dict:
     }
 
 
-def identity(*, role: str = "proposal") -> dict:
-    """Return the frozen non-secret connector identity without network access."""
+def _registered_model(model: object) -> str:
+    if model not in REGISTERED_MODELS:
+        raise ConnectorError("agent model is not registered")
+    return model
+
+
+def upstream_model_family(model: object = MODEL) -> str:
+    """The upstream family a registered model's responses must report."""
+    return (PRIOR_UPSTREAM_MODEL_FAMILY if _registered_model(model) == PRIOR_MODEL
+            else UPSTREAM_MODEL_FAMILY)
+
+
+def reasoning_effort(role: str, model: object = MODEL) -> str:
+    """The reasoning effort a registered model is called with for one role."""
+    if role not in REASONING_EFFORT:
+        raise ConnectorError("agent model role is not allowlisted")
+    return (PRIOR_REASONING_EFFORT if _registered_model(model) == PRIOR_MODEL
+            else REASONING_EFFORT[role])
+
+
+def identity(*, role: str = "proposal", model: object = MODEL) -> dict:
+    """Return the frozen non-secret connector identity without network access.
+
+    ``model`` selects a registered model; PRIOR_MODEL returns the schema-4 identity its
+    retained evidence was recorded with.
+    """
     toolset = []
     if role == "proposal":
         instructions = INSTRUCTIONS
     elif role == "veto":
         instructions = VETO_INSTRUCTIONS
-    elif role == "opportunity":
+    elif role in {"opportunity", "intraday_opportunity"}:
         instructions = OPPORTUNITY_INSTRUCTIONS
     elif role == "p15_scoring":
         instructions = P15_SCORING_INSTRUCTIONS
@@ -453,17 +510,19 @@ def identity(*, role: str = "proposal") -> dict:
         instructions = HISTORICAL_REPLAY_INSTRUCTIONS
     else:
         raise ConnectorError("agent model role is not allowlisted")
-    return {
-        "schema_version": CONNECTOR_SCHEMA_VERSION,
+    prior = _registered_model(model) == PRIOR_MODEL
+    catalog_entry = PRIOR_MODEL_CATALOG_ENTRY if prior else EXPECTED_MODEL_CATALOG_ENTRY
+    result = {
+        "schema_version": PRIOR_CONNECTOR_SCHEMA_VERSION if prior else CONNECTOR_SCHEMA_VERSION,
         "transport": "trae_cli_proxy",
         "endpoint": f"http://{PROXY_HOST}:{PROXY_PORT}{PROXY_RESPONSES_PATH}",
         "api": PROXY_API,
-        "model": MODEL,
+        "model": model,
         "model_version": MODEL_VERSION,
         "provider_model_revision": None,
         "provider_model_revision_available": False,
-        "model_catalog_entry": dict(EXPECTED_MODEL_CATALOG_ENTRY),
-        "model_catalog_entry_sha256": MODEL_CATALOG_ENTRY_SHA256,
+        "model_catalog_entry": dict(catalog_entry),
+        "model_catalog_entry_sha256": canonical_sha256(catalog_entry),
         "required_proxy_version": REQUIRED_PROXY_VERSION,
         "required_proxy_source_sha256": REQUIRED_PROXY_SOURCE_SHA256,
         "reviewed_traecli_runtime_sha256": list(REVIEWED_TRAECLI_RUNTIME_SHA256),
@@ -472,10 +531,13 @@ def identity(*, role: str = "proposal") -> dict:
         "tools": "submit_paper_trade" if toolset else "none",
         "execution_authority": "none",
     }
+    if not prior:
+        result["reasoning_effort"] = reasoning_effort(role, model)
+    return result
 
 
 def accepted_identity(model: object, *, role: str) -> bool:
-    """Whether a persisted connector identity is the current, schema-2 or schema-3 one."""
+    """Whether a persisted connector identity is the current one or a retained schema 2-4 one."""
     if not isinstance(model, dict):
         return False
     schema = model.get("schema_version")
@@ -484,6 +546,8 @@ def accepted_identity(model: object, *, role: str) -> bool:
     )
     if retained is not None:
         return canonical_sha256(model) == retained.get(role)
+    if type(schema) is int and schema == PRIOR_CONNECTOR_SCHEMA_VERSION:
+        return model == identity(role=role, model=PRIOR_MODEL)
     return model == identity(role=role)
 
 
@@ -548,7 +612,9 @@ def _output_text(response: dict) -> str:
     return messages[0]
 
 
-def _request_payload(input_payload: dict, instructions: str) -> dict:
+def _request_payload(
+    input_payload: dict, instructions: str, *, model: str = MODEL, effort: str = "high",
+) -> dict:
     """Build the exact bounded request sent to the Trae proxy."""
     if not isinstance(input_payload, dict):
         raise ConnectorError("agent model input must be a JSON object")
@@ -562,7 +628,7 @@ def _request_payload(input_payload: dict, instructions: str) -> dict:
     except (TypeError, ValueError) as exc:
         raise ConnectorError("agent model input is not canonical JSON") from exc
     request = {
-        "model": MODEL,
+        "model": model,
         "stream": False,
         "store": False,
         "instructions": instructions,
@@ -571,7 +637,7 @@ def _request_payload(input_payload: dict, instructions: str) -> dict:
         "tool_choice": "none",
         "parallel_tool_calls": False,
         "max_output_tokens": MAX_OUTPUT_TOKENS,
-        "reasoning": {"effort": REASONING_EFFORT},
+        "reasoning": {"effort": effort},
     }
     try:
         encoded = json.dumps(
@@ -587,47 +653,57 @@ def _request_payload(input_payload: dict, instructions: str) -> dict:
     return request
 
 
-def request_payload(input_payload: dict) -> dict:
+def _role_request(input_payload: dict, instructions: str, role: str, model: object) -> dict:
+    return _request_payload(input_payload, instructions, model=_registered_model(model),
+                            effort=reasoning_effort(role, model))
+
+
+def request_payload(input_payload: dict, *, model: str = MODEL) -> dict:
     """Build the proposal-role request sent to the Trae proxy."""
-    return _request_payload(input_payload, INSTRUCTIONS)
+    return _role_request(input_payload, INSTRUCTIONS, "proposal", model)
 
 
-def veto_request_payload(input_payload: dict) -> dict:
+def veto_request_payload(input_payload: dict, *, model: str = MODEL) -> dict:
     """Build the veto-role request sent to the Trae proxy."""
-    return _request_payload(input_payload, VETO_INSTRUCTIONS)
+    return _role_request(input_payload, VETO_INSTRUCTIONS, "veto", model)
 
 
-def opportunity_request_payload(input_payload: dict) -> dict:
+def opportunity_request_payload(input_payload: dict, *, model: str = MODEL) -> dict:
     """Build the daily-opportunity request sent to the Trae proxy."""
-    return _request_payload(input_payload, OPPORTUNITY_INSTRUCTIONS)
+    return _role_request(input_payload, OPPORTUNITY_INSTRUCTIONS, "opportunity", model)
 
 
-def p15_scoring_request_payload(input_payload: dict) -> dict:
+def intraday_opportunity_request_payload(input_payload: dict, *, model: str = MODEL) -> dict:
+    """Build the hourly or four-hour observer request (daily-opportunity instructions)."""
+    return _role_request(input_payload, OPPORTUNITY_INSTRUCTIONS, "intraday_opportunity", model)
+
+
+def p15_scoring_request_payload(input_payload: dict, *, model: str = MODEL) -> dict:
     """Build the tool-free P15 candidate-scoring request."""
-    return _request_payload(input_payload, P15_SCORING_INSTRUCTIONS)
+    return _role_request(input_payload, P15_SCORING_INSTRUCTIONS, "p15_scoring", model)
 
 
-def p15_preopen_request_payload(input_payload: dict) -> dict:
+def p15_preopen_request_payload(input_payload: dict, *, model: str = MODEL) -> dict:
     """Build the tool-free cancel-only P15 pre-open request."""
-    return _request_payload(input_payload, P15_PREOPEN_INSTRUCTIONS)
+    return _role_request(input_payload, P15_PREOPEN_INSTRUCTIONS, "p15_preopen", model)
 
 
-def p15_event_request_payload(input_payload: dict) -> dict:
+def p15_event_request_payload(input_payload: dict, *, model: str = MODEL) -> dict:
     """Build the tool-free P15 event-scoring request."""
-    return _request_payload(input_payload, P15_EVENT_INSTRUCTIONS)
+    return _role_request(input_payload, P15_EVENT_INSTRUCTIONS, "p15_event", model)
 
 
-def trade_tool_request_payload(input_payload: dict) -> dict:
+def trade_tool_request_payload(input_payload: dict, *, model: str = MODEL) -> dict:
     """Build a request that permits exactly one named paper-intent tool."""
-    request = _request_payload(input_payload, TRADE_TOOL_INSTRUCTIONS)
+    request = _role_request(input_payload, TRADE_TOOL_INSTRUCTIONS, "trade_tool", model)
     request["tools"] = [TRADE_TOOL]
     request["tool_choice"] = "required"
     return request
 
 
-def historical_replay_request_payload(input_payload: dict) -> dict:
+def historical_replay_request_payload(input_payload: dict, *, model: str = MODEL) -> dict:
     """Build the tool-free P10 historical-diagnostic request."""
-    return _request_payload(input_payload, HISTORICAL_REPLAY_INSTRUCTIONS)
+    return _role_request(input_payload, HISTORICAL_REPLAY_INSTRUCTIONS, "historical_replay", model)
 
 
 def _generate_json(
@@ -735,6 +811,19 @@ def generate_opportunity_json(
     return _generate_json(
         input_payload,
         payload_builder=opportunity_request_payload,
+        connection_factory=connection_factory,
+    )
+
+
+def generate_intraday_opportunity_json(
+    input_payload: dict,
+    *,
+    connection_factory: ConnectionFactory = _connection,
+) -> ConnectorResult:
+    """Request one tool-free batch of hourly or four-hour observer assessments."""
+    return _generate_json(
+        input_payload,
+        payload_builder=intraday_opportunity_request_payload,
         connection_factory=connection_factory,
     )
 

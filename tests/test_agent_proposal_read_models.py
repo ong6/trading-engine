@@ -94,7 +94,7 @@ def test_projection_has_exact_bounded_public_shape(con):
                 "registration_sha256"
             ],
             "agent_id": "paper-research-agent",
-            "model": "GPT-5.6-Sol:max",
+            "model": "GPT-6.1-Sol:max",
             "model_version": "unversioned-catalog-alias",
             "strategy_id": "dual_momentum",
             "ticker": "SPY",

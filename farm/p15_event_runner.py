@@ -185,6 +185,17 @@ def _window(observed_at: datetime) -> tuple[str, date]:
     return f"{POLICY_ID}:{local.date().isoformat()}:{local.hour:02}:{local.minute:02}", local.date()
 
 
+def _registered_request_sha256(payload: dict, response: str | None) -> set[str]:
+    """Request hashes a stored call may carry: the model its response names, else any
+    registered one (calls before the 2026-10-29 model amendment keep their own model)."""
+    models = agent_model_client.REGISTERED_MODELS
+    recorded = None if response is None else json.loads(response).get("model")
+    if recorded in models:
+        models = (recorded,)
+    return {canonical_sha256(agent_model_client.p15_event_request_payload(payload, model=model))
+            for model in models}
+
+
 def _replay_window(con, window_id: str) -> dict:
     row = con.execute(
         "SELECT session_date,observed_at,information_cutoff_at,completed_at,status,reason,source_summary,"
@@ -215,9 +226,9 @@ def _replay_window(con, window_id: str) -> dict:
                          "status": call_status, "error": error,
                          "started_at": started.replace(tzinfo=timezone.utc).isoformat(),
                          "completed_at": completed.replace(tzinfo=timezone.utc).isoformat()}
-        if canonical_sha256(agent_model_client.p15_event_request_payload(
-            request_payload
-        )) != request_sha or (response is not None and canonical_sha256(
+        if request_sha not in _registered_request_sha256(
+            request_payload, response
+        ) or (response is not None and canonical_sha256(
             json.loads(response)
         ) != response_sha) or call_status == "running" or canonical_sha256(
             call_identity

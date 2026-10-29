@@ -106,7 +106,10 @@ def test_current_status_reports_every_activation_blocker_without_writes(con, mon
     assert status["execution_authority"] == "none"
     assert status["broker_route"] == "absent"
     assert status["live_trading"] == "disabled"
+    # P7's manifest binds the GPT-5.6-Sol:max proposal and veto identities; after the
+    # 2026-10-29 model amendment it stays blocked until P7 is registered on the new model.
     assert status["blockers"] == [
+        "manifest_dependencies_current",
         "trial_policy_implementations",
         "shared_data_admission",
         "independent_fx_boundary",
@@ -122,7 +125,16 @@ def test_current_status_reports_every_activation_blocker_without_writes(con, mon
     ]
     assert status["blocker_count"] == len(status["blockers"])
     gates = {gate["name"]: gate for gate in status["gates"]}
-    assert gates["manifest_dependencies_current"]["status"] == "pass"
+    assert gates["manifest_dependencies_current"]["status"] == "blocked"
+    assert gates["manifest_dependencies_current"]["evidence"]["mismatched_bindings"] == [
+        "proposal_model_identity_sha256", "veto_model_identity_sha256",
+    ]
+    bindings = p7_trial_status.registration()["legacy_bindings"]
+    prior = p7_trial_status.agent_model_client.PRIOR_MODEL
+    assert bindings["proposal_model_identity_sha256"] == canonical_sha256(
+        p7_trial_status.agent_model_client.identity(model=prior))
+    assert bindings["veto_model_identity_sha256"] == canonical_sha256(
+        p7_trial_status.agent_model_client.identity(role="veto", model=prior))
     assert gates["fault_drills_current"]["status"] == "blocked"
     assert gates["fault_drills_current"]["evidence"]["p7_trial_drills_implemented"] is False
     assert gates["shared_data_admission"]["evidence"]["content_fingerprint_verified"] is False

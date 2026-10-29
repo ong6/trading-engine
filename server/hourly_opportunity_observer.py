@@ -167,7 +167,8 @@ def _unavailable_assessment(candidate: dict, failures: list[dict], market_date: 
 def _observe_connected(
     variant_id: str, *, connection: duckdb.DuckDBPyConnection,
     database: Path = DEFAULT_DB, now: datetime | None = None,
-    generate=agent_model_client.generate_opportunity_json, fetch_news=daily_opportunity_news._fetch,
+    generate=agent_model_client.generate_intraday_opportunity_json,
+    fetch_news=daily_opportunity_news._fetch,
     fetch_quote=intraday_source._fetch, capture_cross_checks=_capture_cross_checks,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
@@ -346,7 +347,8 @@ def _observe_connected(
 
 def _observe(
     variant_id: str, *, database: Path = DEFAULT_DB, now: datetime | None = None,
-    generate=agent_model_client.generate_opportunity_json, fetch_news=daily_opportunity_news._fetch,
+    generate=agent_model_client.generate_intraday_opportunity_json,
+    fetch_news=daily_opportunity_news._fetch,
     fetch_quote=intraday_source._fetch, capture_cross_checks=_capture_cross_checks,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
@@ -369,7 +371,8 @@ def _observe(
 
 def observe(
     variant_id: str, *, database: Path = DEFAULT_DB, now: datetime | None = None,
-    generate=agent_model_client.generate_opportunity_json, fetch_news=daily_opportunity_news._fetch,
+    generate=agent_model_client.generate_intraday_opportunity_json,
+    fetch_news=daily_opportunity_news._fetch,
     fetch_quote=intraday_source._fetch, capture_cross_checks=_capture_cross_checks,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:

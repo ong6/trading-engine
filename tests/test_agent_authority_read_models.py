@@ -296,7 +296,7 @@ def test_readiness_is_shadow_only_and_exposes_concrete_blockers(con):
         )
         assert (
             by_name["provider_stable_model_revision"]["evidence"]["model"]
-            == "GPT-5.6-Sol:max"
+            == "GPT-6.1-Sol:max"
         )
         assert (
             by_name["provider_stable_model_revision"]["evidence"]["model_version"]
