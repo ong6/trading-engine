@@ -87,7 +87,7 @@
       "engine/money/halts.py": "77d9b496b22b88ca7b1f9a54a817bade3df5c2a4278b5f26260fe33d474f6148",
       "engine/money/limits.py": "a6496437d7c3bb98757ae379f41450e3c1d7f277e410bdcc195edc89846b9968",
       "engine/p15_calendar.py": "de7fba7e914f1fb73d866aed27c44092ba9f0eca477904d8a51330dc8d077e0a",
-      "engine/p15_evaluation.py": "0c878b0d628b3e42c9954e841afc66d9fc4b328e187183dba5e5c4d5622cdf56",
+      "engine/p15_evaluation.py": "b6881a6e9b0ce73185e2fd081e70ad601810e6e48de10c51569cf8ce5b852642",
       "engine/p15_event_sources.py": "fb2831a69168d4ffd4dfec0c283601e30d94d017ebaff4103967bd61559df488",
       "engine/paper_accounts.py": "70542f8f415e54d414ac42aaff59a18027608636e38c9caaa029ffc67abc725f",
       "engine/price_quarantine.py": "546fefcf618e0b7d66b8b6316f0666fd813e4ec2e4659a132ef5cc6b00d1033c",
@@ -111,7 +111,7 @@
       "farm/capital_sensitivity.py": "90119096f6c31e53427ea8ffa61b8af558b131c0f78ff0841183baa024958244",
       "farm/experiment.py": "bf588f503d4bcec829c8083d5dad3fca0846fa80c726301535cf11a854c82abb",
       "farm/experiment_runner.py": "88b9a1f7c78e38d1d8083456a17e00dafca83243722c0bd9a51d88011fd967b0",
-      "farm/p15_event_runner.py": "c860f1d9390cdc70b873da3bac7326b45684326c8a273875cefb2831dcbcdb87",
+      "farm/p15_event_runner.py": "9b854aa624e46d6bca8125bbf9e9c69567d0133470d1f4a240490cf43a60d56a",
       "farm/stats/__init__.py": "a7e26e929b2d925fd3060ac1af6e20c228479c6552f75dcfcd629b5ff0470b65",
       "farm/stats/equity.py": "e1ffaa2768ff7abed75c053b2273bda215adf6be44c1c60844ed509cbc9bdd1e",
       "farm/stats/inference.py": "cbff44805c8a93a754d2d330cb69a764c2b2d9c76a483e0c4fd404bd5ec07455",
@@ -126,9 +126,9 @@
       "farm/walkforward/runtime_contract.py": "0719e6086dd265d1a26076a41ce01f0ec99b7805322b84f8ed6bfbf35897fe92",
       "server/__init__.py": "c462735edca08a01b1bda392e672430ed441aca796251c6adcaf6b5e648ea4b5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "21f444cdb21606f61d71170d6933ddc9174b581f6812957a43f9d9b0e11c056f",
-      "server/agent_evaluation_reporting.py": "e910598bb9dabd3c2ac85c96b4d64cf3443e407141d54897795a46a3594f9065",
-      "server/agent_model_client.py": "6d08b8fce5328ac6242d7ee5b5af0ee593f52641a6d5e57db91734bd38a23aa4",
+      "server/agent_evaluation.py": "8c1a72774bd253562f7ba9e531d0e9752649f1c012dc4d7f5a184daaaf83e1c2",
+      "server/agent_evaluation_reporting.py": "a666d59236ad9ee5b48a4522018cc0a8010fe7c956f107659e4b9e3d129ac22b",
+      "server/agent_model_client.py": "fd9c3a2cfc165a285e8c53fcc83c3bc1e0a811776f8dfd62fc32b5f2103864c3",
       "server/daily_opportunity_execution.py": "bfe15b976408ce4ac275761e140d8456ac4527b09610be23f7d1ca72d25c1c0e",
       "server/daily_opportunity_news.py": "cfefc2b70cfaf9f50a03c387577a81fcd0a1fff3f3021c061f609e14ed6bcf10",
       "server/daily_opportunity_runner.py": "5b3897b6c04ec8bb1e876896eaf0bc120a190265ae443f91f3c97e34d6b06dd2",
@@ -137,7 +137,7 @@
       "server/driver_log.py": "5fc397573b907da2fe0ade7cdb64c01f0119c3ee4610d9ae5c68c8407e9693e5",
       "server/driver_monitor.py": "79d8577855156344d34745ad89e6fd0035a1e008556a93825bdc33a07db60873",
       "server/file_utils.py": "79d3fccabe4fadc0467c82bfc5c442f7eb74aee77ef199c15979634b451cbedf",
-      "server/hourly_opportunity_observer.py": "81a13d4f999d583cc390ccaf8e26fd5b8f3ce5ec50fe541f130099927583a5ab",
+      "server/hourly_opportunity_observer.py": "7dfeab3176200918f12b00e36bcf920b631c62d14362c79d27f90deed26a4913",
       "server/intraday_source.py": "83a85c249f51cfd7b0cfc3120376d2c14be628cf51806f79719c184307aeb9a2",
       "server/json_utils.py": "e08ff1e169c9f2b183f27b43c27a762fa046a1283e0c75c56055db81e80539fc",
       "server/market_data_sources.py": "cf006d701e6025c0c4b2eb926982cb54833f84ce4caaacb2068ac581503aa062",
@@ -219,7 +219,7 @@
       "tools/sec_edgar_capture.py": "8e7a705262f44532d2c812ed22ccd66c9b35d9633c0f89288d1347fe2a52ea6d",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "bde70d07bbfda2cd2dcfe9ab58f552dc484d90af"
+    "source_commit": "375cd07c09f2085e32c0b1ac560941b4082de42c"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -321,11 +321,12 @@
     "maximum_decisions_per_session": 60,
     "maximum_universe": 300,
     "maximum_workers": 8,
-    "model_identity_sha256": "6ba3338f163fa36271514a129404c2c41fc08113eebfdddce383832eb27560bc",
+    "model_identity_sha256": "b43b5bb31cbb6c693bb2275ff065b01a83dccabb1f0bb94f437ea0f5c751f2c1",
     "mover_atr_threshold_multiple": 2.0,
     "mover_minimum_absolute_return": 0.04,
     "mover_minimum_relative_volume": 2.0,
     "policy_id": "p15-events-v1",
+    "reasoning_effort": "medium",
     "schedule": "09:35,09:50,10:05-15:50 at :05/:20/:35/:50 America/New_York",
     "sec_acceptance_after_previous_cik_scan": true,
     "sources": [
@@ -355,20 +356,54 @@
     "schema_version": 2,
     "spy_net_return_stored": true
   },
+  "model_amendment": {
+    "after_cutoff_rule": "live forward decisions are made after any training cutoff, so the after-cutoff rule holds for both models; the GPT-6.1-Sol training cutoff is unknown and recorded as such",
+    "amendment_id": "p15-model-amendment-2026-10-29",
+    "attribution": "every decision keeps the model identity recorded with it; decisions made before the switch stay attributed to GPT-5.6-Sol:max and are validated against that identity, never relabelled",
+    "authority": "owner_directed",
+    "decided_on": "2026-10-29",
+    "effective": "the first P15 scoring, pre-open and event call after this revision is installed",
+    "evidence_reporting": "the registered primary test, its looks and the book comparisons stay pooled across both models under unchanged rules; a post-switch stratum (sessions scored by GPT-6.1-Sol:max and AI-book returns from its first scored session) is reported beside them as a diagnostic that never changes pass or kill",
+    "from": {
+      "connector_schema_version": 4,
+      "model": "GPT-5.6-Sol:max",
+      "model_catalog_entry_sha256": "18ee8f3f3213e233abf774882351aeb36b7984332b6e31e9222e7e6b26abed7a",
+      "model_identity_sha256": {
+        "events": "6ba3338f163fa36271514a129404c2c41fc08113eebfdddce383832eb27560bc",
+        "preopen": "46773c410f11608fa15e951d4411f081ad8c803262a33cf7c4803f1e154aeee2",
+        "scoring": "80f3bf067440c9278eb956a5261c391cf8045df22e00e7d3282643adf66cfebe"
+      },
+      "reasoning_effort": "high",
+      "upstream_model_family": "gpt-5.6-sol"
+    },
+    "to": {
+      "connector_schema_version": 5,
+      "model": "GPT-6.1-Sol:max",
+      "model_catalog_entry_sha256": "5ef6bc1cd74302f70c5a28185be5237fd52377dc67c2830a80c4e276f0560fd2",
+      "reasoning_effort": {
+        "events": "medium",
+        "preopen": "high",
+        "scoring": "high"
+      },
+      "training_cutoff": "unknown",
+      "upstream_model_family": "gpt-6.1-sol"
+    }
+  },
   "preopen": {
     "authority": "cancel_only",
     "deadline": "09:25:00 America/New_York",
     "instructions_sha256": "11c3faf0f864ab8ce68deb81a3b08ef261501be9f7a4e0a0596b4e02d2e453a7",
-    "model_identity_sha256": "46773c410f11608fa15e951d4411f081ad8c803262a33cf7c4803f1e154aeee2",
+    "model_identity_sha256": "a78ed1ec3b67bd8888d13d329c07ebd3c19eefe4521d103613a96fc9a9da276d",
     "policy_id": "p15-preopen-v1",
+    "reasoning_effort": "high",
     "schedule": "09:05 America/New_York weekdays",
     "session_only": true
   },
   "registered_at": "2026-10-03T02:52:40Z",
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registration_revision": 19,
-  "registration_sha256": "b0eb214893b69ae2215bcf984b8ab9ec4905153742308878d461ceed5ae96370",
-  "revision_reason": "Revision 19 after deployed revision 18 (installed 2026-10-22), from the P24 reliability-data change: backtest replays and walk-forward fold books, which have no portfolio_accounts row, now take the live book's cost profile and its effective-dated break, so sessions from the 2026-10-19 break pay the ibkr_pro_tiered_v1 dollar fees the live books pay (before, they resolved to baseline_v1 and paid none, although the walk-forward runtime contract already stated ibkr from D0); fees remain cash debits in sim_fill_fees, never part of the fill price, and results report dollar_fees inside modeled_total_cost_dollars. No stored walk-forward or backtest result includes a session after the break, so no stored outcome changes; candidate and experiment books passed as a book dict keep baseline_v1. Runtime contracts E1 v8, sector v12 and XS v23 are untouched. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. The storage work previously numbered revision 19 becomes revision 20.",
+  "registration_revision": 20,
+  "registration_sha256": "b7558ffb3b4c93e01433f5cebd55a216579b30ea365efc5f0f6c993ff94da339",
+  "revision_reason": "Revision 20 after deployed revision 19, an owner-directed model amendment decided 2026-10-29: P15 scoring, pre-open and events, and the daily, hourly and four-hour opportunity calls, move from GPT-5.6-Sol:max (effort high) to GPT-6.1-Sol:max, at reasoning effort high for the once-a-day decisions (scoring, pre-open, daily opportunity) and medium for the 15-minute event scorer and the hourly and four-hour observers. The connector identity becomes schema 5 and records the effort; evidence made before the switch keeps its schema-4 GPT-5.6-Sol:max identity, is validated against it and is never relabelled. The evaluation report adds a diagnostic post-switch stratum beside the unchanged pooled tests. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. The storage work previously numbered revision 20 becomes revision 21.",
   "schema_version": 1,
   "scoring": {
     "actions": [
@@ -389,11 +424,12 @@
     "hybrid_veto_below_expected_excess_bp_5": 0.0,
     "instructions_sha256": "fa5b287cfd82f2e840f422a3e357a821bfcbdd8f73ca8aa68a73b5fc9912186d",
     "maximum_event_facts": 120,
-    "model": "GPT-5.6-Sol:max",
-    "model_identity_sha256": "80f3bf067440c9278eb956a5261c391cf8045df22e00e7d3282643adf66cfebe",
+    "model": "GPT-6.1-Sol:max",
+    "model_identity_sha256": "2832a742bdc678d7a485edae2753b209903dcd715dc80e3648bdff8b6572bfde",
     "model_version": "unversioned-catalog-alias",
     "policy_id": "p15-scoring-v1",
     "provider_revision_available": false,
+    "reasoning_effort": "high",
     "samples_per_chunk": 3,
     "toolset_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },

@@ -280,8 +280,8 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 19
-    assert registration["revision_reason"] == "Revision 19 after deployed revision 18 (installed 2026-10-22), from the P24 reliability-data change: backtest replays and walk-forward fold books, which have no portfolio_accounts row, now take the live book's cost profile and its effective-dated break, so sessions from the 2026-10-19 break pay the ibkr_pro_tiered_v1 dollar fees the live books pay (before, they resolved to baseline_v1 and paid none, although the walk-forward runtime contract already stated ibkr from D0); fees remain cash debits in sim_fill_fees, never part of the fill price, and results report dollar_fees inside modeled_total_cost_dollars. No stored walk-forward or backtest result includes a session after the break, so no stored outcome changes; candidate and experiment books passed as a book dict keep baseline_v1. Runtime contracts E1 v8, sector v12 and XS v23 are untouched. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. The storage work previously numbered revision 19 becomes revision 20."
+    assert registration["registration_revision"] == 20
+    assert registration["revision_reason"] == "Revision 20 after deployed revision 19, an owner-directed model amendment decided 2026-10-29: P15 scoring, pre-open and events, and the daily, hourly and four-hour opportunity calls, move from GPT-5.6-Sol:max (effort high) to GPT-6.1-Sol:max, at reasoning effort high for the once-a-day decisions (scoring, pre-open, daily opportunity) and medium for the 15-minute event scorer and the hourly and four-hour observers. The connector identity becomes schema 5 and records the effort; evidence made before the switch keeps its schema-4 GPT-5.6-Sol:max identity, is validated against it and is never relabelled. The evaluation report adds a diagnostic post-switch stratum beside the unchanged pooled tests. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. The storage work previously numbered revision 20 becomes revision 21."
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
     assert recorded == canonical_sha256(registration)
@@ -325,6 +325,7 @@ def test_p15_registered_constants_match_runtime():
         "model_identity_sha256": canonical_sha256(scoring_identity),
         "instructions_sha256": scoring_identity["instructions_sha256"],
         "toolset_sha256": scoring_identity["toolset_sha256"],
+        "reasoning_effort": "high",
         "database_wait_seconds": p15_scoring_runner.DB_WAIT_S,
         "maximum_event_facts": p15_event_sources.MAX_SCORING_EVENT_FACTS,
         "admissible_window": "after_market_close_before_next_session_open",
@@ -380,6 +381,7 @@ def test_p15_registered_constants_match_runtime():
         "deadline": "09:25:00 America/New_York", "authority": "cancel_only",
         "model_identity_sha256": canonical_sha256(preopen_identity),
         "instructions_sha256": preopen_identity["instructions_sha256"],
+        "reasoning_effort": "high",
         "session_only": True,
     }
     event_identity = agent_model_client.identity(role="p15_event")
@@ -397,6 +399,7 @@ def test_p15_registered_constants_match_runtime():
         "execution_authority": "none", "latency_target_p95_ms": 600000,
         "model_identity_sha256": canonical_sha256(event_identity),
         "instructions_sha256": event_identity["instructions_sha256"],
+        "reasoning_effort": "medium",
         "database_released_during_model_calls": True,
         "first_availability_only": True,
         "sec_acceptance_after_previous_cik_scan": True,
@@ -512,6 +515,42 @@ def test_p15_registered_constants_match_runtime():
         ),
         "price_fetch_availability": "after_collection_completion",
     }
+
+
+def test_p15_model_amendment_keeps_prior_identities_and_discloses_the_switch():
+    amendment = _registration()["model_amendment"]
+    prior = agent_model_client.PRIOR_MODEL
+    sections = (("scoring", "p15_scoring"), ("preopen", "p15_preopen"),
+                ("events", "p15_event"))
+    assert amendment["authority"] == "owner_directed"
+    assert amendment["decided_on"] == p15_evaluation.MODEL_AMENDMENT["decided_on"] == "2026-10-29"
+    assert amendment["from"] == {
+        "model": prior, "upstream_model_family": "gpt-5.6-sol",
+        "model_catalog_entry_sha256": canonical_sha256(
+            agent_model_client.PRIOR_MODEL_CATALOG_ENTRY),
+        "connector_schema_version": 4, "reasoning_effort": "high",
+        # Revision 19's registered identities, rebuilt by the client's prior model.
+        "model_identity_sha256": {
+            "scoring": "80f3bf067440c9278eb956a5261c391cf8045df22e00e7d3282643adf66cfebe",
+            "preopen": "46773c410f11608fa15e951d4411f081ad8c803262a33cf7c4803f1e154aeee2",
+            "events": "6ba3338f163fa36271514a129404c2c41fc08113eebfdddce383832eb27560bc",
+        },
+    }
+    for section, role in sections:
+        assert amendment["from"]["model_identity_sha256"][section] == canonical_sha256(
+            agent_model_client.identity(role=role, model=prior))
+    assert amendment["to"] == {
+        "model": agent_model_client.MODEL, "upstream_model_family": "gpt-6.1-sol",
+        "model_catalog_entry_sha256": agent_model_client.MODEL_CATALOG_ENTRY_SHA256,
+        "connector_schema_version": 5,
+        "reasoning_effort": {"scoring": "high", "preopen": "high", "events": "medium"},
+        "training_cutoff": "unknown",
+    }
+    assert (p15_evaluation.MODEL_AMENDMENT["from_model"], p15_evaluation.MODEL_AMENDMENT[
+        "to_model"]) == (amendment["from"]["model"], amendment["to"]["model"])
+    assert "never relabelled" in amendment["attribution"]
+    assert "never changes pass or kill" in amendment["evidence_reporting"]
+    assert "unknown" in amendment["after_cutoff_rule"]
 
 
 def test_p15_registered_derived_identities_match_code():

@@ -136,6 +136,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-29 | Engine model calls move from GPT-5.6-Sol:max to GPT-6.1-Sol:max (effort high for once-a-day decisions, medium for events and the intraday observers) as a disclosed model amendment: decisions keep the model they were made with, evidence is reported pooled and as a post-switch stratum | P15 revision 20; feedback |
 | 2026-10-22 | Every agent entry doc opens with one shared block stating what we are building, the end goal (linked to the north star), what is live and what we are working on; other docs link to it instead of restating the goal | feedback; `AGENTS.md`, `README.md`, `docs/README.md` |
 | 2026-10-21 | Senior-quant review (P24): spread agents to evaluate and fix the pipelines, improve speed, make alpha generation and the engine work properly, and find new strategies; "You can do anything you want, as long as you feel it needs fixing; no need to ask me anything; you can just push." | P24; feedback |
 | 2026-10-21 | Retire paper books with no after-cost edge; agents may retire a no-edge book themselves, recording the evidence. First batch: turtle_breakout, mr_overlay (+gated), daily_opportunity_agent_v1, low_vol, ew_trend_gated, template_top10_banded (+gated); `active = FALSE`, equity history and positions kept, one `portfolio_retired` audit row each | Strategy scorecard 2026-10-20; audit_log |

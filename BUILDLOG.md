@@ -4767,4 +4767,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged (shell driver and unit only).
 - **Next:** confirm the 2026-10-30 02:00 UTC run exits 0 in under 5 min and no unit fails on the store lock that day.
 
+## 2026-10-29 — Move the engine's model calls to GPT-6.1-Sol:max (P15 revision 20)
+
+- **Why:** owner ruling 2026-10-29 (`docs/feedback.md`): switch the nightly model calls to GPT-6.1, effort as needed.
+- **What:** `server/agent_model_client.py` calls GPT-6.1-Sol:max (catalog `gpt-6.1-sol__max`, 475k context) with an effort per role: high for P15 scoring and pre-open, the daily opportunity and its trade tool; medium for P15 events and the hourly and four-hour observers (new `intraday_opportunity` role, same instructions). Connector identity schema 5 records the effort.
+- **What:** evidence made before the switch keeps its schema-4 GPT-5.6-Sol:max identity: P15 scoring samples, event-call replays, shadow attempts and P10 records are checked against the model they recorded; nothing is relabelled. P7's manifest still binds the 5.6 identities, so its dependency gate reports blocked.
+- **What:** registration revision 20 discloses the amendment (prior identities as in revision 19, new model and effort, training cutoff unknown). The P15 report adds a diagnostic post-switch stratum (IC by scoring model, AI-book returns since the first GPT-6.1 session) beside the unchanged pooled tests.
+- **Evidence:** one live call through the proxy: catalog entry hash matches, runtime reviewed, upstream family `gpt-6.1-sol`, strict JSON back in 1.6 s. `build_report` on the published snapshot validates all retained GPT-5.6 evidence with the new code; its output differs from main's only by the added strata.
+- **Review:** one fresh reviewer, no critical finding. A P15 scoring run interrupted before the deploy cannot resume after it (fails closed), so the deploy waits for no open run. A historical replay now refuses the live model (no registered cutoff); P16's filing client follows the base model and its timer is off.
+- **Metrics:** server/engine/farm small deltas (client eras, validators, strata).
+- **Next:** confirm the 2026-10-30 02:00 and 02:30 UTC runs record GPT-6.1-Sol:max.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

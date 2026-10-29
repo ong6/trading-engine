@@ -811,3 +811,21 @@ building and the end goal and what we want."
 stated once, in `product.md`'s north star, and other documents link to it instead of restating
 it. `product.md` lists "What the owner wants now" from this ledger, quoting the owner. →
 `AGENTS.md`, `README.md`, `docs/README.md`, `docs/product.md`.
+
+## 2026-10-29 — Switch the engine's model calls to GPT-6.1-Sol
+
+**Verdict.** "Switch the nightly [model calls] to GPT-6.1. Choose the effort level as needed.
+Make sure everything else is working fine."
+
+**Rule change.** The engine's model calls (P15 scoring, pre-open and events; the daily, hourly
+and four-hour opportunity calls) move from GPT-5.6-Sol:max to GPT-6.1-Sol:max. Effort, chosen
+by the orchestrator: high for the once-a-day decisions (scoring, pre-open, daily opportunity),
+medium for the 15-minute event scorer and the hourly and four-hour observers. This amends the
+frozen-model condition of the P15 registration as a disclosed owner-directed model amendment
+(revision 20): every decision keeps the model it was made with, and decisions before the switch
+stay attributed to GPT-5.6-Sol:max and are never relabelled. The registered tests stay pooled
+under unchanged rules, with a post-switch stratum reported beside them as a diagnostic. Live
+forward decisions are after any training cutoff, so the after-cutoff rule holds; GPT-6.1-Sol's
+training cutoff is recorded as unknown. P7's manifest still binds the GPT-5.6-Sol:max identities
+and reports that dependency as blocked until P7 is registered on the new model. →
+`server/p15-registration.json`, `server/agent_model_client.py`, `product.md`.
