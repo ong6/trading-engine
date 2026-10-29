@@ -15,14 +15,12 @@
 | 11 | Dual Momentum (GEM) | 2026-07-17 | $38,417 | −1.49% | −5.65% | −5.72% | 1 | 4 | −0.10% |
 | 12 | Dual Momentum (regime-gated) | 2026-07-17 | $38,417 | −1.49% | −5.65% | −5.72% | 1 | 4 | −0.10% |
 | 13 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $36,938 | −5.29% | −6.17% | −16.71% | 50 | 119 | +4.24% |
-| 14 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $36,180 | −7.23% | −8.41% | −17.31% | 50 | 50 | +3.08% |
-| 15 | p15_ai_ranked | 2026-09-26 | $9,224 ‡ | −7.76% | −7.89% | −9.58% | 5 | 87 | +0.15% |
-| 16 | p15_rule_control | 2026-09-26 | $9,053 ‡ | −9.47% | −9.59% | −13.03% | 9 | 48 | −0.51% |
-| 17 | p15_hybrid_veto | 2026-09-26 | $9,047 ‡ | −9.53% | −9.65% | −12.46% | 9 | 51 | −1.50% |
+| 14 | p15_ai_ranked | 2026-09-26 | $9,338 | −6.62% | −6.74% | −9.58% | 7 | 90 | +1.23% |
+| 15 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $36,180 | −7.23% | −8.41% | −17.31% | 50 | 50 | +3.08% |
+| 16 | p15_rule_control | 2026-09-26 | $9,212 | −7.88% | −8.00% | −13.03% | 9 | 50 | +0.46% |
+| 17 | p15_hybrid_veto | 2026-09-26 | $9,208 | −7.92% | −8.05% | −12.46% | 9 | 52 | −0.16% |
 
 _Regime: **risk-on** · each return uses its book's persisted starting capital · as of 2026-10-28._
-
-_‡ marked through 2026-10-27: p15_ai_ranked, p15_rule_control, p15_hybrid_veto. A P15 book is marked by its own window after that session's P15 fills, never provisionally by the league._
 
 ## Commission break
 
@@ -41,10 +39,10 @@ _‡ marked through 2026-10-27: p15_ai_ranked, p15_rule_control, p15_hybrid_veto
 | Dual Momentum (GEM) | +1.19% | $0.00 |
 | Dual Momentum (regime-gated) | +1.19% | $0.00 |
 | EW Screen — Inverse-Vol Weighted | +9.62% | $0.00 |
+| p15_ai_ranked | +0.86% | $13.99 |
 | XS Momentum 12-1 (unscreened control) | +11.45% | $0.00 |
-| p15_ai_ranked | −0.38% | $12.81 |
-| p15_rule_control | +1.80% | $4.05 |
-| p15_hybrid_veto | +0.59% | $5.67 |
+| p15_rule_control | +3.59% | $4.85 |
+| p15_hybrid_veto | +2.37% | $6.02 |
 
 _† commissions from the recorded cost-profile break (2026-10-19); evaluation clocks restart at each break._
 
