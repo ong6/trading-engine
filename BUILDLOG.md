@@ -4759,4 +4759,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs only.
 - **Next:** deploy storage revision 20 after 2026-11-03 06:30 UTC.
 
+## 2026-10-29 — Stop the daily-opportunity unit's restart loop
+
+- **Why:** demonstrated defect. On 2026-10-28 and 10-29 `run_daily_opportunity.sh` finished its model call in about 2 min, then `server.agent_evaluation_reporting` ran past the unit's `RuntimeMaxSec=10min`; `Restart=on-failure` with `RestartSec=5min` started it again every 15 min, under `StartLimitBurst=3` per 30 min, so it looped from 02:00 UTC holding the store's writer and P15 scoring, P15 events and both intraday observers failed on the lock.
+- **What:** the driver runs only `server.daily_opportunity_runner`; the evaluation report it duplicated already runs in `run_p15_scoring.sh` at 02:30 UTC. The unit's start-limit window is 1 h (registry and rendered unit), so three timed-out attempts (3 × 15 min) end the run instead of looping. The test checks both, and the architecture reference's timer row is updated.
+- **Evidence:** `pytest tests/test_service_units.py tests/test_job_contract.py` passes; `python -m engine.job_contract audit` reports no differences.
+- **Metrics:** unchanged (shell driver and unit only).
+- **Next:** confirm the 2026-10-30 02:00 UTC run exits 0 in under 5 min and no unit fails on the store lock that day.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

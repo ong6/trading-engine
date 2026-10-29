@@ -362,7 +362,7 @@ unit = "trading-engine-daily-opportunity.service"
 description = "Trading engine daily opportunity assessment"
 after = ["network-online.target", "trae-proxy.service"]
 wants = ["network-online.target", "trae-proxy.service"]
-start_limit_interval = "30min"
+start_limit_interval = "1h"
 start_limit_burst = 3
 type = "exec"
 exec_start = [{ argv = ["%h/trading-engine/server/run_daily_opportunity.sh"] }]

@@ -121,16 +121,24 @@ def test_persistent_header_exposes_scheduler_health_and_entry_count():
     assert "sourceControl.behind" in header
 
 
-def test_daily_opportunity_publishes_canonical_evaluation_after_success():
+def test_daily_opportunity_runs_only_the_model_step_and_bounds_its_restarts():
     unit = _unit("server/trading-engine-daily-opportunity.service")
     runner = _unit("server/run_daily_opportunity.sh")
     assert "Type=exec" in unit and "Restart=on-failure" in unit
     assert "ExecStart=%h/trading-engine/server/run_daily_opportunity.sh" in unit
     assert "ExecStartPost=" not in unit
-    assert "python -m server.daily_opportunity_runner" in runner
-    assert ".venv/bin/python -m server.agent_evaluation_reporting" in runner
-    assert "report_status" in runner and "restart suppressed" in runner
+    assert "exec .venv/bin/python -m server.daily_opportunity_runner" in runner
+    # The evaluation report runs in run_p15_scoring.sh at 02:30; here it overran
+    # RuntimeMaxSec and the restarts held the store's writer all day (2026-10-28/29).
+    code = [line for line in runner.splitlines() if not line.lstrip().startswith("#")]
+    assert not any("agent_evaluation_reporting" in line for line in code)
     assert "RestartPreventExitStatus=75" in unit
+    # Every attempt can last RuntimeMaxSec plus RestartSec; the start limit must stop the
+    # unit after StartLimitBurst attempts instead of letting it loop.
+    minutes = {"10min": 10, "5min": 5, "1h": 60}
+    attempt = minutes[_directive(unit, "RuntimeMaxSec")] + minutes[_directive(unit, "RestartSec")]
+    burst = int(_directive(unit, "StartLimitBurst"))
+    assert burst * attempt < minutes[_directive(unit, "StartLimitIntervalSec")]
     _assert_common_service_hardening(unit)
 
 
