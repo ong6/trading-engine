@@ -4805,4 +4805,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/product unchanged; tools +200 LOC (session snapshot).
 - **Next:** orchestrator acceptance and deployment of the digest lane.
 
+## 2026-10-30 — Recognize sparse recurring operations warnings
+
+- **Why:** P24 digest lane, round-2 orchestrator ruling: recurring findings separated by silent hours still made 46 of 96 quiet-day digests WARN.
+- **What:** Establish chronic warnings after a previous-day recurrence or three distinct observations in 24 hours, retaining the consecutive rule. Compare increases across gaps and retain first sightings; FAIL always alerts.
+  Batch each known chronic key's daily reminder in the first UTC-day digest without inventing observations. Expire unseen keys after 72 hours and retain at most 512 keys in 256 KiB; history loss or eviction leaves findings unsuppressed.
+- **Evidence:** `pytest tests/test_ops_digest.py tests/test_model_gateway_check.py` passes: October 24–27 WARN falls from 46 to 14 of 96 hours; all 27 archived FAIL hours and every first sighting still alert. Retention, byte/key limits and reminder observations have regression coverage.
+- **Metrics:** server/product unchanged; tools +69 LOC (session snapshot).
+- **Next:** orchestrator acceptance of the recurrence rule and source-defect triage.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

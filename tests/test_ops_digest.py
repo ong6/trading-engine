@@ -1244,7 +1244,7 @@ def _finding(count=1, severity=1):
             'count': count, 'severity': severity}
 
 
-def test_chronic_history_worsening_severity_reminders_and_resolution(tmp_path):
+def test_chronic_history_worsening_severity_reminders_and_silent_hours(tmp_path):
     state = tmp_path / 'state.json'
     start = datetime(2026, 10, 24, 12, tzinfo=UTC)
     for h in range(ops_digest.CHRONIC_HOURS):
@@ -1264,7 +1264,8 @@ def test_chronic_history_worsening_severity_reminders_and_resolution(tmp_path):
     assert item['category'] == 'worsening' and item['alert']
     ops_digest.classify_findings(start + timedelta(hours=16), [], state)
     [item], _ = ops_digest.classify_findings(start + timedelta(hours=17), [_finding()], state)
-    assert item['category'] == 'new' and item['alert']
+    assert item['category'] == 'chronic' and not item['alert']
+    assert item['first_seen'] == '2026-10-24T12:00:00Z'
 
 
 @pytest.mark.parametrize('contents', [None, '{broken', '[]', '{"version": 99, "items": {}}',
@@ -1324,5 +1325,147 @@ def test_archived_week_replay_preserves_every_fail_and_makes_warnings_exceptiona
     assert all(row['after'] == 'FAIL' and row['failed_runs'] > 0 for row in failures)
     quiet_days = [row for row in results if '2026-10-24' <= row['hour'] < '2026-10-28']
     assert len(quiet_days) == 96
-    assert sum(row['after'] == 'WARN' for row in quiet_days) < len(quiet_days) / 2
+    assert sum(row['after'] == 'WARN' for row in quiet_days) <= len(quiet_days) / 4
     assert not any(row['after'] == 'FAIL' for row in quiet_days)
+    seen = set()
+    for row in results:
+        alerts = {item['key'] for item in row['alerts']}
+        for item in row['alerts'] + row['chronic']:
+            if item['key'] not in seen:
+                assert item['key'] in alerts  # every first sighting remains visible
+            seen.add(item['key'])
+
+
+def test_sparse_recurrence_uses_three_distinct_hours_and_keeps_first_alerts(tmp_path):
+    state = tmp_path / 'state.json'
+    start = ops_digest.floor_hour(NOW)
+    for h in (0, 0, 4, 4):
+        [item], _ = ops_digest.classify_findings(start + timedelta(hours=h), [_finding()], state)
+        assert item['category'] == 'new' and item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=8), [_finding()], state)
+    assert item['category'] == 'chronic' and not item['alert']
+    assert item['first_seen'] == ops_digest._iso(start)
+    # A key first introduced today still gets its own first alert.
+    fresh = {**_finding(), 'key': 'new-key'}
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=9), [fresh], state)
+    assert item['category'] == 'new' and item['alert']
+
+
+def test_previous_utc_day_recurrence_can_be_more_than_24_hours_old(tmp_path):
+    state = tmp_path / 'state.json'
+    start = datetime(2026, 10, 24, tzinfo=UTC)
+    ops_digest.classify_findings(start, [_finding(3)], state)
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=47), [_finding(2)], state)
+    assert item['category'] == 'chronic' and item['reminder'] and item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=47), [_finding(2)], state)
+    assert not item['alert']  # at most one reminder on this UTC day
+
+
+def test_sparse_count_or_severity_increase_always_alerts_after_reminder(tmp_path):
+    state = tmp_path / 'state.json'
+    start = datetime(2026, 10, 24, 12, tzinfo=UTC)
+    ops_digest.classify_findings(start, [_finding()], state)
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=24), [_finding()], state)
+    assert item['category'] == 'chronic' and item['reminder']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=26), [_finding(2)], state)
+    assert item['category'] == 'worsening' and item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=28), [_finding(2, 2)], state)
+    assert item['category'] == 'worsening' and item['alert']
+    for h in (30, 32, 34):
+        [item], _ = ops_digest.classify_findings(start + timedelta(hours=h), [_finding(2, 3)], state)
+        assert item['alert']  # FAIL never suppressed, including a sparse chronic FAIL
+
+
+def test_three_distinct_hours_must_be_inside_the_last_24_hours(tmp_path):
+    state = tmp_path / 'state.json'
+    start = datetime(2026, 10, 24, tzinfo=UTC)
+    for h in (0, 4, 48, 52):
+        [item], _ = ops_digest.classify_findings(start + timedelta(hours=h), [_finding()], state)
+        assert item['category'] == 'new' and item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=56), [_finding()], state)
+    assert item['category'] == 'chronic' and not item['alert']
+
+
+def test_history_retains_silent_keys_for_72_hours_and_then_prunes(tmp_path):
+    state = tmp_path / 'state.json'
+    start = ops_digest.floor_hour(NOW)
+    ops_digest.classify_findings(start, [_finding()], state)
+    ops_digest.classify_findings(start + timedelta(hours=72), [], state)
+    assert 'fixed-condition' in json.loads(state.read_text())['items']
+    ops_digest.classify_findings(start + timedelta(hours=73), [], state)
+    assert json.loads(state.read_text())['items'] == {}
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=74), [_finding()], state)
+    assert item['category'] == 'new' and item['alert']
+    assert item['first_seen'] == ops_digest._iso(start + timedelta(hours=74))
+
+
+def test_state_key_and_byte_caps_eviction_never_hides_a_finding(tmp_path, monkeypatch):
+    state = tmp_path / 'state.json'
+    monkeypatch.setattr(ops_digest, 'MAX_FINDING_STATE_KEYS', 2)
+    monkeypatch.setattr(ops_digest, 'MAX_FINDING_STATE_BYTES', 1024)
+    items = [{**_finding(), 'key': k} for k in ['a', 'b', 'c', 'x' * 2048]]
+    results, error = ops_digest.classify_findings(NOW, items, state)
+    kept = json.loads(state.read_text())['items']
+    assert error and len(kept) == 2 and state.stat().st_size <= 1024
+    assert all(item['alert'] for item in results if item['key'] not in kept)
+    forgotten = next(item for item in items if item['key'] not in kept)
+    [item], _ = ops_digest.classify_findings(NOW + timedelta(hours=1), [forgotten], state)
+    assert item['category'] == 'new' and item['alert']
+
+
+def test_oversized_or_invalid_recurrence_state_is_unsuppressed(tmp_path, monkeypatch):
+    state = tmp_path / 'state.json'
+    monkeypatch.setattr(ops_digest, 'MAX_FINDING_STATE_BYTES', 1024)
+    state.write_text(' ' * 1025)
+    [item], error = ops_digest.classify_findings(NOW, [_finding()], state)
+    assert item['alert'] and item['category'] == 'new' and error
+    assert state.stat().st_size <= 1024
+    contents = json.loads(state.read_text())
+    contents['items']['fixed-condition']['seen_hours'] = ['not a timestamp']
+    state.write_text(json.dumps(contents))
+    [item], error = ops_digest.classify_findings(NOW + timedelta(hours=1), [_finding()], state)
+    assert item['alert'] and item['category'] == 'new' and error
+
+
+def test_version_one_history_migrates_without_inventing_observations(tmp_path):
+    state = tmp_path / 'state.json'
+    start = ops_digest.floor_hour(NOW)
+    stamp = ops_digest._iso(start)
+    state.write_text(json.dumps({'version': 1, 'items': {'fixed-condition': {
+        'first_seen': stamp, 'last_seen': stamp, 'stable_since': stamp,
+        'count': 1, 'severity': 1, 'reminded_day': stamp[:10]}}}))
+    [item], error = ops_digest.classify_findings(start + timedelta(hours=24), [_finding()], state)
+    assert error is None and item['category'] == 'chronic' and item['reminder']
+    saved = json.loads(state.read_text())
+    assert saved['version'] == 2
+    assert saved['items']['fixed-condition']['seen_hours'] == [stamp, ops_digest._iso(start + timedelta(hours=24))]
+
+
+def test_known_chronic_daily_reminder_is_batched_without_refreshing_observation(tmp_path):
+    state = tmp_path / 'state.json'
+    start = datetime(2026, 10, 24, tzinfo=UTC)
+    for h in (0, 4, 8):
+        ops_digest.classify_findings(start + timedelta(hours=h), [_finding()], state)
+    observed = json.loads(state.read_text())['items']['fixed-condition']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=24), [], state)
+    assert item['category'] == 'chronic' and item['reminder'] and item['alert']
+    saved = json.loads(state.read_text())['items']['fixed-condition']
+    assert saved['last_seen'] == observed['last_seen']
+    assert saved['seen_hours'] == observed['seen_hours']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=30), [_finding()], state)
+    assert not item['alert']  # the batched reminder already covered this UTC day
+    # Silence does not undo chronic classification or extend retention.
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=72), [], state)
+    assert item['reminder']
+    ops_digest.classify_findings(start + timedelta(hours=103), [], state)
+    assert json.loads(state.read_text())['items'] == {}
+
+
+def test_remembered_fail_does_not_invent_a_failure_in_a_silent_hour(tmp_path):
+    state = tmp_path / 'state.json'
+    start = datetime(2026, 10, 24, tzinfo=UTC)
+    for h in (0, 4, 8):
+        [item], _ = ops_digest.classify_findings(start + timedelta(hours=h), [_finding(1, 3)], state)
+        assert item['alert']
+    items, _ = ops_digest.classify_findings(start + timedelta(hours=24), [], state)
+    assert items == []

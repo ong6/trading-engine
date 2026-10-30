@@ -40,13 +40,18 @@ unless the journal records it. It never opens the primary DuckDB store, but its 
 probe holds an API read connection that refuses writers, so it runs clear of every other
 timer's start minute. Digests are kept 30 days and metrics 180 days. A missing source shows as a collection gap, never a failure.
 
-WARN means a new or worsening finding. A finding becomes chronic after six consecutive
-hourly observations with an unchanged or falling count and severity; it appears under
+WARN means a new or worsening finding. A stable finding becomes chronic after six consecutive
+hourly observations, after three distinct hours within 24 hours, or when it recurs on the
+next UTC day. Counts and severity are compared with the last actual observation, including
+across silent hours. Once established, chronic status persists until history expires; it appears under
 “Chronic findings” with its first-seen time, and the headline becomes `OK (k chronic)`.
-The first chronic observation on a new UTC day raises one reminder. Any increase raises
+Known chronic warnings get one reminder together on the first digest of a new UTC day,
+including their last actual observation. Reminders do not count as observations. Any increase raises
 WARN immediately. Six hours span multiple poller cycles while exposing a new condition
 for a quarter of a day. History lives in `logs/ops/finding-state.json`, written atomically
 under the collector lock; missing, corrupt or unwritable history leaves findings unsuppressed.
+Keys unseen for more than 72 hours expire; at most 512 recent keys and 256 KiB are retained.
+Evicted keys start unsuppressed next time. The previous history schema upgrades in place.
 FAIL findings always raise FAIL. Digest-unit output and its own slow runs are excluded;
 its failed process lifecycle remains visible. Structured progress is classified by levels,
 statuses and current-run failure counts, including zero counters and completed repairs.

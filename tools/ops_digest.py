@@ -80,6 +80,10 @@ from tools.stage_timings import FLOW_FIELDS, load_timings
 OPS_DIR = LOGS_DIR / "ops"
 FINDING_STATE = "finding-state.json"
 CHRONIC_HOURS = 6
+RECURRENCE_HOURS = 3
+FINDING_RETENTION_HOURS = 72
+MAX_FINDING_STATE_BYTES = 256 * 1024
+MAX_FINDING_STATE_KEYS = 512
 DIGEST_UNIT = "trading-engine-ops-digest.service"
 DIGEST_RETENTION_DAYS = 30
 METRIC_RETENTION_DAYS = 180
@@ -318,16 +322,24 @@ def findings(data: dict) -> list[dict]:
 
 
 def classify_findings(hour: datetime, items: list[dict], state_path: Path) -> tuple[list[dict], str | None]:
-    """Six consecutive observations establish chronic; any increase resets the streak.
+    """Stable consecutive or recurring observations establish chronic.
 
-    History covers only adjacent UTC hours. A UTC-day reminder counts any new or
-    worsening warning already raised that day. State loss starts a fresh history.
+    Compare increases with the last observation, even across silent hours. A UTC-day
+    reminder counts any new or worsening warning already raised that day. Retained
+    observations cover 72 h; state loss or eviction leaves findings unsuppressed.
     """
+    hour = floor_hour(hour)
+    cutoff = hour - timedelta(hours=FINDING_RETENTION_HOURS)
     try:
-        state = json.loads(state_path.read_text())
-        if state["version"] != 1 or not isinstance(state["items"], dict):
+        with state_path.open("rb") as stream:
+            raw = stream.read(MAX_FINDING_STATE_BYTES + 1)
+        if len(raw) > MAX_FINDING_STATE_BYTES:
+            raise ValueError("oversized state")
+        state = json.loads(raw)
+        if (state["version"] not in {1, 2} or not isinstance(state["items"], dict)
+                or len(state["items"]) > MAX_FINDING_STATE_KEYS):
             raise ValueError("invalid schema")
-        for row in state["items"].values():
+        for key, row in state["items"].items():
             if not isinstance(row, dict):
                 raise ValueError("invalid finding")
             for name in ("first_seen", "last_seen", "stable_since"):
@@ -337,36 +349,92 @@ def classify_findings(hour: datetime, items: list[dict], state_path: Path) -> tu
                     or not isinstance(row["reminded_day"], str)
                     or not _utc(row["first_seen"]) <= _utc(row["stable_since"]) <= _utc(row["last_seen"])):
                 raise ValueError("invalid finding")
-        old = state["items"]
+            if state["version"] == 1:
+                row["seen_hours"] = [row["last_seen"]]
+                try:
+                    source, message = json.loads(key)
+                except (ValueError, TypeError):
+                    source, message = "history", key
+                row.update(source=source, message=message, chronic=(
+                    _utc(row["last_seen"]) - _utc(row["stable_since"])).total_seconds()
+                           >= (CHRONIC_HOURS - 1) * 3600)
+            seen = row["seen_hours"]
+            if (not isinstance(seen, list) or not seen or len(seen) > FINDING_RETENTION_HOURS + 1
+                    or seen != sorted(set(seen)) or seen[-1] != row["last_seen"]
+                    or any(not _utc(row["first_seen"]) <= _utc(h) <= _utc(row["last_seen"])
+                           for h in seen)):
+                raise ValueError("invalid observations")
+            if (not isinstance(row["source"], str) or not isinstance(row["message"], str)
+                    or type(row["chronic"]) is not bool):
+                raise ValueError("invalid finding description")
+        old = {key: {**row, "seen_hours": [h for h in row["seen_hours"] if _utc(h) >= cutoff]}
+               for key, row in state["items"].items()
+               if cutoff <= _utc(row["last_seen"]) <= hour}
         state_error = None
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
         old = {}
         state_error = "warning history missing or unreadable; using unsuppressed findings"
-    current = {}
+    current = dict(old)
     classified = []
     stamp, day = _iso(hour), f"{hour:%Y-%m-%d}"
     for item in items:
         previous = old.get(item["key"])
         adjacent = previous and _utc(previous["last_seen"]) == hour - timedelta(hours=1)
-        rising = bool(adjacent and (item["count"] > previous["count"]
+        rising = bool(previous and (item["count"] > previous["count"]
                                    or item["severity"] > previous["severity"]))
-        first = previous["first_seen"] if adjacent else stamp
+        first = previous["first_seen"] if previous else stamp
         stable = previous["stable_since"] if adjacent and not rising else stamp
-        chronic = (hour - _utc(stable)).total_seconds() >= (CHRONIC_HOURS - 1) * 3600
+        seen = sorted({h for h in (previous or {}).get("seen_hours", []) if _utc(h) >= cutoff}
+                      | {stamp})
+        previous_day = f"{hour - timedelta(days=1):%Y-%m-%d}"
+        recurring = (any(h[:10] == previous_day for h in seen)
+                     or sum(_utc(h) > hour - timedelta(hours=24) for h in seen) >= RECURRENCE_HOURS)
+        chronic = (bool(previous and previous["chronic"]) or recurring
+                   or (hour - _utc(stable)).total_seconds() >= (CHRONIC_HOURS - 1) * 3600)
         category = "worsening" if rising else "chronic" if chronic else "new"
-        reminded = previous["reminded_day"] if adjacent else ""
+        reminded = previous["reminded_day"] if previous else ""
         reminder = category == "chronic" and reminded != day
         alert = item["severity"] == 3 or category != "chronic" or reminder
         if alert:
             reminded = day
         current[item["key"]] = {"first_seen": first, "last_seen": stamp,
                                 "stable_since": stable, "count": item["count"],
-                                "severity": item["severity"], "reminded_day": reminded}
+                                "severity": item["severity"], "reminded_day": reminded,
+                                "seen_hours": seen, "chronic": chronic,
+                                "source": item["source"], "message": item["message"]}
         classified.append({**item, "category": category, "first_seen": first,
-                           "reminder": reminder, "alert": alert})
+                           "last_seen": stamp, "reminder": reminder, "alert": alert})
+    # Remind known chronic warnings together on the first digest of a UTC day,
+    # even if this hour was silent. A reminder is not another observation, and
+    # remembered FAILs cannot invent a new current failure.
+    active_keys = {item["key"] for item in items}
+    for key, row in current.items():
+        if (key not in active_keys and row["chronic"] and row["severity"] < 3
+                and row["reminded_day"] != day):
+            row["reminded_day"] = day
+            classified.append({"key": key, "source": row["source"], "message": row["message"],
+                               "count": row["count"], "severity": row["severity"],
+                               "category": "chronic", "first_seen": row["first_seen"],
+                               "last_seen": row["last_seen"], "reminder": True, "alert": True})
+    # Keep the most recent keys within both limits. Eviction forgets history; it
+    # cannot hide an alert now or at that key's next observation.
+    retained = {}
+    size = len('{"version":2,"items":{}}\n'.encode())
+    for key, row in sorted(current.items(), key=lambda item: (item[1]["last_seen"], item[0]),
+                           reverse=True):
+        entry_size = len(json.dumps({key: row}, separators=(",", ":"))[1:-1].encode())
+        if (len(retained) < MAX_FINDING_STATE_KEYS
+                and size + entry_size + bool(retained) <= MAX_FINDING_STATE_BYTES):
+            size += entry_size + bool(retained)
+            retained[key] = row
+    if len(retained) != len(current):
+        state_error = "warning history capacity exceeded; evicted findings are unsuppressed"
+        for item in classified:
+            if item["key"] not in retained:
+                item["alert"] = True
     try:
-        write_text_atomic(state_path, json.dumps({"version": 1, "items": current},
-                                                sort_keys=True) + "\n")
+        write_text_atomic(state_path, json.dumps({"version": 2, "items": retained},
+                                                separators=(",", ":"), sort_keys=True) + "\n")
     except OSError:
         state_error = "warning history could not be saved; using unsuppressed findings"
         for item in classified:
@@ -1065,7 +1133,8 @@ def render(hour: datetime, data: dict) -> str:
             lines += ["", "## " + title, ""]
             lines += [f"- {i['source']}: {i['message']} ×{i['count']} "
                       f"({i['category']}; first seen {i['first_seen']}"
-                      + ("; daily reminder" if i["reminder"] else "") + ")" for i in items]
+                      + (f"; daily reminder, last seen {i['last_seen']}" if i["reminder"] else "")
+                      + ")" for i in items]
     if data["runs"]:
         lines += ["", "## Unit runs", "", "| unit | start | end | duration | typical | result |",
                   "|---|---|---|---|---|---|"]
