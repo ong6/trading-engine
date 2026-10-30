@@ -672,18 +672,145 @@ def test_reviewed_session_counts_toward_preopen_coverage(con):
 
 
 def test_run_database_retries_the_store_until_the_deadline_reserve(tmp_path, monkeypatch):
-    waits = []
+    waits, deadlines = [], []
     real_connect = p15_preopen.db.connect
+    real_lock = p15_preopen.advisory_file_lock
 
     def connect(path, **kwargs):
         waits.append(kwargs.get("wait_s"))
+        deadlines.append(kwargs["deadline"])
         return real_connect(path, **kwargs)
+
+    def lock(path, **kwargs):
+        deadlines.append(kwargs["deadline"])
+        return real_lock(path, **kwargs)
 
     store = tmp_path / "market.duckdb"
     duckdb.connect(str(store)).close()
     monkeypatch.setattr(p15_preopen, "LOCK_PATH", tmp_path / "preopen.lock")
     monkeypatch.setattr(p15_preopen, "NIGHTLY_LOCK", tmp_path / "nightly.lock")
     monkeypatch.setattr(p15_preopen.db, "connect", connect)
+    monkeypatch.setattr(p15_preopen, "advisory_file_lock", lock)
     p15_preopen.run_database(store, now=datetime(2024, 7, 17, 13, 5, tzinfo=timezone.utc))
+    assert len(deadlines) == 3 and len(set(deadlines)) == 1
     assert waits == [20 * 60 - p15_preopen.STORE_WAIT_RESERVE_S]
     assert waits[0] > 10 * settings.LOCK_WAIT_DEFAULT_S
+
+
+@pytest.mark.parametrize("held", ["preopen", "nightly", "writer"])
+def test_run_database_exits_retry_at_acquisition_deadline(tmp_path, monkeypatch, held, caplog):
+    from tests.test_lock_deadlines import held_lock
+
+    store = tmp_path / "market.duckdb"
+    p15_preopen.db.connect(store).close()
+    preopen, nightly = tmp_path / "preopen.lock", tmp_path / "nightly.lock"
+    monkeypatch.setattr(p15_preopen, "LOCK_PATH", preopen)
+    monkeypatch.setattr(p15_preopen, "NIGHTLY_LOCK", nightly)
+    monkeypatch.setattr(p15_preopen, "store_wait_s", lambda _now: 0.2)
+    monkeypatch.setenv(settings.LOCK_WAIT_ENV, "3600")
+    path = {"preopen": preopen, "nightly": nightly, "writer": store}[held]
+    with held_lock(path, "writer" if held == "writer" else "advisory") as holder:
+        started = p15_preopen.monotonic_time.monotonic()
+        result = p15_preopen.run_database(
+            store, now=datetime(2024, 7, 17, 13, 5, tzinfo=timezone.utc),
+        )
+        elapsed = p15_preopen.monotonic_time.monotonic() - started
+        assert holder.poll() is None
+    assert result["status"] == "retry" and result["cancelled"] == 0
+    assert p15_preopen.LOCK_DEADLINE_REASON in result["reason"]
+    assert "store unavailable" in result["reason"]
+    assert result["reason"] in caplog.text
+    assert 0.18 <= elapsed < 0.7
+    # A failure at the second advisory lock or DuckDB must release the first.
+    with p15_preopen.advisory_file_lock(preopen, deadline=started + elapsed + 1):
+        pass
+    con = p15_preopen.db.connect(store)
+    assert not p15_books.table_exists(con, "p15_preopen_runs")
+    con.close()
+
+
+def test_advisory_wait_consumes_the_same_budget_as_duckdb(tmp_path, monkeypatch):
+    from tests.test_lock_deadlines import held_lock
+
+    store, preopen = tmp_path / "market.duckdb", tmp_path / "preopen.lock"
+    monkeypatch.setattr(p15_preopen, "LOCK_PATH", preopen)
+    monkeypatch.setattr(p15_preopen, "NIGHTLY_LOCK", tmp_path / "nightly.lock")
+    monkeypatch.setattr(p15_preopen, "store_wait_s", lambda _now: 0.25)
+    monkeypatch.setattr(p15_preopen.db, "_LOCK_RETRY_S", 0.02)
+    with held_lock(store, "writer"), held_lock(preopen, "advisory", release_after=0.1):
+        started = p15_preopen.monotonic_time.monotonic()
+        result = p15_preopen.run_database(
+            store, now=datetime(2024, 7, 17, 13, 5, tzinfo=timezone.utc),
+        )
+        elapsed = p15_preopen.monotonic_time.monotonic() - started
+    assert result["status"] == "retry"
+    assert 0.23 <= elapsed < 0.7  # scheduler tolerance; deadline identity is checked above
+
+
+def test_acquisition_at_deadline_records_late_and_keeps_without_news_or_model(
+    tmp_path, monkeypatch,
+):
+    store = tmp_path / "market.duckdb"
+    con = p15_preopen.db.connect(store)
+    p15_preopen.db.init_schema(con)
+    _, session_date = _setup(con)
+    con.close()
+    monkeypatch.setattr(p15_preopen, "LOCK_PATH", tmp_path / "preopen.lock")
+    monkeypatch.setattr(p15_preopen, "NIGHTLY_LOCK", tmp_path / "nightly.lock")
+    monkeypatch.setattr(p15_preopen, "store_wait_s", lambda _now: 0.1)
+    ticks = iter([100.0, 100.1, 100.1, 100.1])
+    monkeypatch.setattr(p15_preopen.monotonic_time, "monotonic", lambda: next(ticks, 100.1))
+    now = datetime(2024, 7, 17, 13, 5, tzinfo=timezone.utc)
+
+    def unexpected_call(*_args, **_kwargs):
+        pytest.fail("lock budget expiry must skip news and model")
+
+    result = p15_preopen.run_database(
+        store, now=now, fetch_news=unexpected_call, generate=unexpected_call, clock=lambda: now,
+    )
+    assert result["status"] == "late" and result["cancelled"] == 0
+    con = p15_preopen.db.connect(store)
+    assert con.execute(
+        "SELECT status,reason FROM p15_preopen_runs WHERE session_date=?", [session_date],
+    ).fetchone() == ("late", p15_preopen.LOCK_DEADLINE_REASON)
+    assert con.execute(
+        "SELECT DISTINCT decision FROM p15_preopen_decisions"
+    ).fetchall() == [("keep",)]
+    assert con.execute(
+        "SELECT DISTINCT reason FROM p15_preopen_decisions WHERE portfolio_id IN (?,?)",
+        list(p15_preopen.BOOK_IDS),
+    ).fetchall() == [(p15_preopen.LOCK_DEADLINE_REASON,)]
+    replay = p15_preopen.run(con, session_date=session_date, now=now)
+    assert replay["status"] == "late" and replay["replayed"] is True
+    con.close()
+
+
+def test_preopen_cli_reports_retry_as_exit_75(monkeypatch, capsys):
+    monkeypatch.setattr(p15_preopen, "run_database", lambda _path: {"status": "retry"})
+    assert p15_preopen.main(["--run"]) == 75
+    assert json.loads(capsys.readouterr().out)["status"] == "retry"
+
+
+def test_free_store_with_no_reserve_wait_preserves_decisions(tmp_path, monkeypatch):
+    store = tmp_path / "market.duckdb"
+    con = p15_preopen.db.connect(store)
+    p15_preopen.db.init_schema(con)
+    _setup(con)
+    con.close()
+    monkeypatch.setattr(p15_preopen, "LOCK_PATH", tmp_path / "preopen.lock")
+    monkeypatch.setattr(p15_preopen, "NIGHTLY_LOCK", tmp_path / "nightly.lock")
+    now = datetime(2024, 7, 17, 13, 24, tzinfo=timezone.utc)
+    assert p15_preopen.store_wait_s(now) == 0
+
+    def generate(payload):
+        return _result({"schema_version": 1, "decisions": [
+            {"intent_id": item["intent_id"], "decision": "cancel", "reason": "new evidence",
+             "evidence_ids": [item["allowed_evidence_ids"][0]]}
+            for item in payload["intents"]
+        ]}, payload)
+
+    result = p15_preopen.run_database(
+        store, now=now, fetch_news=_news, generate=generate,
+        clock=lambda: now + timedelta(seconds=2),
+    )
+    assert result["status"] == "completed" and result["cancelled"] == 2
