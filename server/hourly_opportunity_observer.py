@@ -32,6 +32,29 @@ MAX_QUOTES = 5
 LOCK_PATH = REPO_ROOT / ".hourly-opportunity.lock"
 
 
+class _DatabaseLease:
+    """Writer owned by _observe, released while news/model generation is in flight."""
+
+    def __init__(self, database: Path):
+        self.database = database
+        self.connection = db.connect(database, wait_s=60)
+
+    def __getattr__(self, name):
+        if self.connection is None:
+            raise RuntimeError("observer database lease is not acquired")
+        return getattr(self.connection, name)
+
+    def close(self) -> None:
+        if self.connection is not None:
+            self.connection.close()
+            self.connection = None
+
+    def reacquire(self) -> None:
+        if self.connection is not None:
+            raise RuntimeError("observer database lease is already acquired")
+        self.connection = db.connect(self.database, wait_s=60)
+
+
 def _tradingview_symbol(ticker: str, exchange: str | None) -> str:
     from engine.tradingview_history_archive import EXCHANGE_PREFIX
     return f"{EXCHANGE_PREFIX.get(exchange, 'NASDAQ')}:{ticker}"
@@ -165,7 +188,7 @@ def _unavailable_assessment(candidate: dict, failures: list[dict], market_date: 
 
 
 def _observe_connected(
-    variant_id: str, *, connection: duckdb.DuckDBPyConnection,
+    variant_id: str, *, connection: _DatabaseLease,
     database: Path = DEFAULT_DB, now: datetime | None = None,
     generate=agent_model_client.generate_intraday_opportunity_json,
     fetch_news=daily_opportunity_news._fetch,
@@ -243,6 +266,9 @@ def _observe_connected(
             if candidate["ticker"] in fresh_tickers
         ],
     }
+    # Detection and append-only quote/cross-check receipts are retained before release.
+    # The observer file lock still protects this window's artifact throughout generation.
+    connection.close()
     news = daily_opportunity_news.capture(["SPY", *tickers], now=observed, fetch=fetch_news)
     for candidate in scoring_bundle["candidates"]:
         quote = next((item for item in quotes if item["ticker"] == candidate["ticker"]), None)
@@ -323,8 +349,13 @@ def _observe_connected(
     artifact["observation_sha256"] = canonical_sha256(artifact)
     with target.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(artifact, sort_keys=True, separators=(",", ":")) + "\n")
+    connection.reacquire()
     with db.transaction(connection):
         agent_evaluation.init_schema(connection)
+        # record_trace checks the current window's identity and allocates IDs live;
+        # label_mature rereads sessions, prices, decisions and existing label keys.
+        # No mutable persistence inputs survive the disconnected phase. The prompt
+        # stays bound to its retained evidence and original cutoff, even if prices advance.
         agent_evaluation.record_trace(
             connection,
             agent_evaluation.artifact_trace(
@@ -352,7 +383,7 @@ def _observe(
     fetch_quote=intraday_source._fetch, capture_cross_checks=_capture_cross_checks,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
-    connection = db.connect(database, wait_s=60)
+    connection = _DatabaseLease(database)
     try:
         return _observe_connected(
             variant_id,
