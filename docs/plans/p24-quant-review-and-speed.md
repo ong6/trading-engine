@@ -84,7 +84,7 @@ both timezone suites pass, and does the single re-pin. Lanes never push `main`.
   books the live books' dollar fees from the 2026-10-19 cost break; the CI hygiene gate stops
   refusing data pushes; `engine.repair_integrity --names` restated MNST's missed 2:1 split on the
   live store (10,243 rows, originals kept in `price_observation_rejects`).
-- Checkpoint, storage revision (now numbered 20): held, not deployed. Migration 0000 now applies
+- Checkpoint, storage revision (now numbered 21): held, not deployed. Migration 0000 now applies
   to the deployed catalog on a real store copy, but a fresh review rejected the branch: producer
   read-only opens were redirected to published generations (the nightly would stop advancing
   books), reads refused between publications, the deploy checklist's lock order and rollback were

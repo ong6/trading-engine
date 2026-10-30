@@ -184,98 +184,42 @@ def test_run_fails_closed_when_runtime_contract_changes(con, monkeypatch):
         experiment_runner.run(con, _config())
 
 
-def test_runtime_contract_migration_preserves_legacy_prefix(con, tmp_path, monkeypatch):
+def _deployed_checkpoint(cfg: dict, phash: str, rows: list[dict]) -> dict:
+    """The checkpoint the deployed revision wrote: current except the deployed digest."""
+    deployed = experiment_runner._checkpoint_payload(cfg, phash, rows)
+    deployed["runtime_contract_sha256"] = experiment_runner.AMENDED_RUNTIME_CONTRACT_SHA256
+    return deployed
+
+
+def test_runtime_contract_migration_refuses_every_older_checkpoint_form(
+    con, tmp_path, monkeypatch,
+):
     cfg = _config()
-    trade = _trade(con)
-    phash = _append(con, cfg, trade)
+    phash = _append(con, cfg, _trade(con))
     monkeypatch.setattr(experiment_runner, "REPORTS_DIR", tmp_path)
     rows = experiment_runner.load_oos_series(con, cfg, phash)
-    legacy = experiment_runner._checkpoint_payload(cfg, phash, rows)
+    deployed = _deployed_checkpoint(cfg, phash, rows)
     legacy = {
-        key: value
-        for key, value in legacy.items()
+        key: value for key, value in deployed.items()
         if not key.startswith("runtime_contract")
         and key != "superseded_runtime_contract_sha256"
     }
-    legacy["schema_version"] = experiment_runner.LEGACY_CHECKPOINT_SCHEMA_VERSION
-    monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_OBSERVATIONS", 1)
-    monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_THROUGH", trade["date"].isoformat())
-    monkeypatch.setattr(
-        experiment_runner,
-        "EXPECTED_LEGACY_PREFIX_SHA256",
-        legacy["prefix_sha256"],
-    )
-    experiment_runner.checkpoint_path(cfg).write_text(
-        json.dumps(legacy, indent=2, sort_keys=True) + "\n"
-    )
-
-    before = experiment_runner.canonical_sha256(experiment_runner._oos_payload(rows))
-    migrated = experiment_runner.migrate_runtime_contract(con, cfg)
-    after_rows = experiment_runner.load_oos_series(con, cfg, phash)
-
-    assert migrated["schema_version"] == 2
-    assert (
-        migrated["runtime_contract_version"]
-        == experiment_runner.RUNTIME_CONTRACT_VERSION
-    )
-    assert migrated["runtime_contract_sha256"] == (
-        experiment_runner.EXPECTED_RUNTIME_CONTRACT_SHA256
-    )
-    assert migrated["superseded_runtime_contract_sha256"] == (
-        experiment_runner.PRIOR_RUNTIME_CONTRACT_SHA256
-    )
-    assert migrated["prefix_sha256"] == before
-    assert experiment_runner.canonical_sha256(
-        experiment_runner._oos_payload(after_rows)
-    ) == before
-
-
-@pytest.mark.parametrize("config_hash", ["predecessor", "current"])
-def test_runtime_contract_migration_preserves_prior_v3_prefix(
-    con, tmp_path, monkeypatch, config_hash,
-):
-    cfg = _config()
-    trade = _trade(con)
-    phash = _append(con, cfg, trade)
-    monkeypatch.setattr(experiment_runner, "REPORTS_DIR", tmp_path)
-    rows = experiment_runner.load_oos_series(con, cfg, phash)
-    prior = experiment_runner._checkpoint_payload(cfg, phash, rows)
-    prior.update(
-        runtime_contract_version=experiment_runner.PRIOR_RUNTIME_CONTRACT_VERSION,
-        runtime_contract_sha256=experiment_runner.PRIOR_RUNTIME_CONTRACT_SHA256,
-        runtime_contract_files=list(experiment_runner.PRIOR_RUNTIME_CONTRACT_FILES),
-        superseded_runtime_contract_sha256=(
-            experiment_runner.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
-        ),
-        runtime_contract_migration=experiment_runner.PRIOR_RUNTIME_CONTRACT_MIGRATION,
-    )
-    prior["forward_config_sha256"] = (
-        experiment_runner.PRIOR_FORWARD_CONFIG_SHA256
-        if config_hash == "predecessor"
-        else experiment_runner.forward_config_hash(cfg)
-    )
-    monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_OBSERVATIONS", 1)
-    monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_THROUGH", trade["date"].isoformat())
-    monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_PREFIX_SHA256", prior["prefix_sha256"])
-    experiment_runner.checkpoint_path(cfg).write_text(json.dumps(prior))
-
-    migrated = experiment_runner.migrate_runtime_contract(con, cfg)
-
-    assert (
-        migrated["runtime_contract_version"]
-        == experiment_runner.RUNTIME_CONTRACT_VERSION
-    )
-    assert migrated["superseded_runtime_contract_sha256"] == (
-        experiment_runner.PRIOR_RUNTIME_CONTRACT_SHA256
-    )
-    assert migrated["prefix_sha256"] == prior["prefix_sha256"]
-    assert migrated["forward_config_sha256"] == experiment_runner.forward_config_hash(cfg)
+    legacy["schema_version"] = 1
+    older_version = {**deployed,
+                     "runtime_contract_version": experiment_runner.RUNTIME_CONTRACT_VERSION - 1}
+    older_config = {**deployed, "forward_config_sha256": (
+        experiment_runner.PRIOR_FORWARD_CONFIG_SHA256)}
+    path = experiment_runner.checkpoint_path(cfg)
+    for older in (legacy, older_version, older_config):
+        path.write_text(json.dumps(older))
+        with pytest.raises(ValueError, match="prior E1 checkpoint is invalid"):
+            experiment_runner.migrate_runtime_contract(con, cfg)
+        assert json.loads(path.read_text()) == older
 
 
 def test_runtime_contract_migration_carries_the_deployed_record(con, tmp_path, monkeypatch):
-    # The deployed record (2026-10-15: twelve Mondays under runtime v6) was written under the
-    # predecessor forward config. The v7 migration demanded the seven-row legacy prefix and the
-    # current forward-config hash on every row, so it refused the live checkpoint.
+    # The deployed record's early rows were written under the predecessor forward config;
+    # the migration keeps them loadable and appends later rows under the current config.
     cfg = _config()
     prior_cfg = {key: value for key, value in cfg.items() if key != "runtime_revision"}
     prior_hash = experiment_runner.PRIOR_FORWARD_CONFIG_SHA256
@@ -291,17 +235,9 @@ def test_runtime_contract_migration_carries_the_deployed_record(con, tmp_path, m
               for d in (date(2026, 7, 20), date(2026, 7, 27))]
     experiment_runner.append_oos_rows(
         con, prior_cfg, phash, trades, datetime(2026, 7, 28, 22, tzinfo=timezone.utc))
-    deployed = experiment_runner._checkpoint_payload(
-        prior_cfg, phash, experiment_runner.load_oos_series(con, prior_cfg, phash))
-    deployed.update(
-        runtime_contract_version=experiment_runner.PRIOR_RUNTIME_CONTRACT_VERSION,
-        runtime_contract_sha256=experiment_runner.PRIOR_RUNTIME_CONTRACT_SHA256,
-        runtime_contract_files=list(experiment_runner.PRIOR_RUNTIME_CONTRACT_FILES),
-        superseded_runtime_contract_sha256=(
-            experiment_runner.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
-        ),
-        runtime_contract_migration=experiment_runner.PRIOR_RUNTIME_CONTRACT_MIGRATION,
-    )
+    # The deployed migration re-anchored them under the current forward config.
+    deployed = _deployed_checkpoint(
+        cfg, phash, experiment_runner.load_oos_series(con, cfg, phash))
     experiment_runner.checkpoint_path(cfg).write_text(json.dumps(deployed))
 
     migrated = experiment_runner.migrate_runtime_contract(con, cfg)
@@ -346,31 +282,16 @@ def test_runtime_contract_migration_replaces_only_the_amended_digest(
         experiment_runner.migrate_runtime_contract(con, cfg)
 
 
-def test_runtime_contract_migration_rejects_changed_legacy_prefix(
+def test_runtime_contract_migration_rejects_a_changed_published_prefix(
     con, tmp_path, monkeypatch
 ):
     cfg = _config()
-    trade = _trade(con)
-    phash = _append(con, cfg, trade)
+    phash = _append(con, cfg, _trade(con))
     monkeypatch.setattr(experiment_runner, "REPORTS_DIR", tmp_path)
     rows = experiment_runner.load_oos_series(con, cfg, phash)
-    legacy = experiment_runner._checkpoint_payload(cfg, phash, rows)
-    legacy = {
-        key: value
-        for key, value in legacy.items()
-        if not key.startswith("runtime_contract")
-        and key != "superseded_runtime_contract_sha256"
-    }
-    legacy["schema_version"] = experiment_runner.LEGACY_CHECKPOINT_SCHEMA_VERSION
-    monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_OBSERVATIONS", 1)
-    monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_THROUGH", trade["date"].isoformat())
-    monkeypatch.setattr(
-        experiment_runner,
-        "EXPECTED_LEGACY_PREFIX_SHA256",
-        legacy["prefix_sha256"],
-    )
-    legacy["prefix_sha256"] = "changed"
-    experiment_runner.checkpoint_path(cfg).write_text(json.dumps(legacy))
+    deployed = _deployed_checkpoint(cfg, phash, rows)
+    deployed["prefix_sha256"] = "changed"
+    experiment_runner.checkpoint_path(cfg).write_text(json.dumps(deployed))
 
     with pytest.raises(ValueError, match="previously published E1 forward prefix changed"):
         experiment_runner.migrate_runtime_contract(con, cfg)

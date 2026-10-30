@@ -12,8 +12,12 @@ import duckdb
 import pytest
 import requests
 
-from engine import free_sec_bulk, free_sources
+from engine import free_sec_bulk, free_sources, raw_payload
 from tools import free_sec_bulk as capture
+
+# These writers are tested on a converted store; tests/test_raw_payload_legacy.py covers
+# the legacy plain encoding they use until the conversion flag is set.
+pytestmark = pytest.mark.usefixtures("zstd_raw_payloads")
 
 CIK = 1000
 CIK_NAME = "CIK0000001000.json"
@@ -119,7 +123,10 @@ def test_recorded_zips_keep_restatements_and_enforce_point_in_time(tmp_path: Pat
         CIK_NAME: _companyfacts(), "CIK0000003000.json": b"{}",
         "CIK0000004000.json": b'{"entityName":"No redundant CIK","facts":{}}',
     }))
-    page = _write(tmp_path / "old.json", _old_submissions())
+    page_body = _old_submissions()
+    page = _write(tmp_path / "old.json", page_body)
+    raw_payload.seal(page, page_body)
+    page.unlink()
     con = duckdb.connect()
     try:
         loaded = free_sec_bulk.load_submissions_zip(con, submissions)
@@ -288,6 +295,30 @@ def test_bulk_client_paces_head_and_resumes_partial_with_one_session(tmp_path: P
     assert resumed.source_sha256 == hashlib.sha256(b"abcdef").hexdigest()
     assert resumed.resumed is True
     assert second_session.started[0][2]["Range"] == "bytes=3-"
+
+
+def test_bulk_json_page_is_sealed_and_resumes_from_zstd(tmp_path: Path):
+    body = b'{"fixture":true}'
+    session = _Session(gets=[_Response(body, headers={"Content-Length": str(len(body))})])
+    clock = _Clock()
+    session.clock = clock
+    client = capture.BulkClient(
+        "Fixture Contact fixture@example.com", tmp_path, session=session,
+        now=lambda: ALLOWED, monotonic=clock.monotonic, sleep=clock.sleep,
+    )
+    url = "https://data.sec.gov/submissions/CIK0000001000-submissions-001.json"
+    downloaded = client.download(url, suffix=".json")
+    assert not downloaded.path.exists()
+    assert raw_payload.read(downloaded.path, expected_sha256=downloaded.source_sha256) == body
+
+    resumed_session = _Session()
+    resumed_session.clock = clock
+    resumed = capture.BulkClient(
+        "Fixture Contact fixture@example.com", tmp_path, session=resumed_session,
+        now=lambda: ALLOWED, monotonic=clock.monotonic, sleep=clock.sleep,
+    ).download(url, suffix=".json")
+    assert resumed.resumed is True
+    assert resumed.path == downloaded.path
 
 
 def test_missing_contact_refuses_before_network_or_database(tmp_path: Path, monkeypatch, capsys):

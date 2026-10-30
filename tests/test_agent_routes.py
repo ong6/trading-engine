@@ -521,7 +521,7 @@ def test_agent_evaluation_status_delegates_and_closes_connection(monkeypatch):
 
     con = Connection()
     main._reset_evaluation_cache()
-    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con: ("generation",))
+    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con, _at: ("generation",))
     base = {"schema_version": 1, "status": "capturing"}
     validation = {
         "labels_source_unverifiable": 1,
@@ -549,6 +549,7 @@ def test_agent_evaluation_status_delegates_and_closes_connection(monkeypatch):
 
     assert main.agent_evaluation_status() == {
         **base, **validation, "schema_version": 3, **extra,
+        "generation": None,  # no request context: no served generation recorded
     }
     assert con.closed is True
 
@@ -562,7 +563,7 @@ def test_agent_evaluation_status_fails_closed_and_closes_connection(monkeypatch)
 
     con = Connection()
     main._reset_evaluation_cache()
-    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con: ("generation",))
+    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con, _at: ("generation",))
     monkeypatch.setattr(main, "read_con", lambda: con)
     monkeypatch.setattr(
         main.agent_evaluation, "validate_p15_evidence",
@@ -582,7 +583,7 @@ def test_agent_evaluation_status_contains_p16_projection_failure(monkeypatch):
             pass
 
     main._reset_evaluation_cache()
-    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con: ("generation",))
+    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con, _at: ("generation",))
     monkeypatch.setattr(main, "read_con", Connection)
     monkeypatch.setattr(main.agent_evaluation, "validate_p15_evidence", lambda *_args: None)
     monkeypatch.setattr(main.agent_evaluation, "status", lambda *_args: {"status": "capturing"})
@@ -608,7 +609,7 @@ def test_agent_evaluation_validation_and_projection_cache_by_generation(monkeypa
     calls = []
     main._reset_evaluation_cache()
     monkeypatch.setattr(
-        main, "_evaluation_generation_key", lambda _con: ("registration", generation[0])
+        main, "_evaluation_generation_key", lambda _con, _at: ("registration", generation[0])
     )
     monkeypatch.setattr(
         main.agent_evaluation,
@@ -622,16 +623,31 @@ def test_agent_evaluation_validation_and_projection_cache_by_generation(monkeypa
     )
     monkeypatch.setattr(main.p16_status_adapter, "with_primary_kill", lambda value: value)
 
+    requested = []
+    monkeypatch.setattr(main._evaluation_warmer, "request", lambda: requested.append(1))
+
+    class Connection:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(main, "read_con", lambda: Connection())
+
     first = main._cached_p15_projection(object(), datetime.now(timezone.utc))
     second = main._cached_p15_projection(object(), datetime.now(timezone.utc))
     generation[0] = 2
+    # Changed inputs: the request is served the previous projection at once ...
     third = main._cached_p15_projection(object(), datetime.now(timezone.utc))
+    assert calls == ["validate", "project"] and requested == [1]
+    # ... and the warmer recomputes it off the request path.
+    assert main._evaluation_warmer.warm_once() is True
+    fourth = main._cached_p15_projection(object(), datetime.now(timezone.utc))
 
-    assert first == second == third
+    assert first == second == third == fourth
     assert calls == ["validate", "project", "validate", "project"]
+    assert main._PROJECTION_STATE.get() is True
 
 
-def test_agent_evaluation_generation_key_covers_count_and_max_id(con, monkeypatch):
+def test_agent_evaluation_generation_key_covers_table_content(con, monkeypatch):
     con.execute("CREATE TABLE audit_with_id (id INTEGER, value VARCHAR)")
     con.execute("INSERT INTO audit_with_id VALUES (2, 'a'), (7, 'b')")
     con.execute("CREATE TABLE audit_without_id (value VARCHAR)")
@@ -642,12 +658,151 @@ def test_agent_evaluation_generation_key_covers_count_and_max_id(con, monkeypatc
         ("audit_with_id", "audit_without_id", "audit_missing"),
     )
     monkeypatch.setattr(main.p15_evaluation, "registration_sha256", lambda: "a" * 64)
+    at = datetime(2026, 10, 22, 15, tzinfo=timezone.utc)
 
-    assert main._evaluation_generation_key(con) == (
-        "a" * 64,
-        (
-            ("audit_with_id", 2, 7),
-            ("audit_without_id", 1, None),
-            ("audit_missing", 0, None),
-        ),
-    )
+    key = main._evaluation_generation_key(con, at)
+    assert key[:3] == ("a" * 64, main.evaluation_code_sha256(), ("2026-10-22", "2026-10-22"))
+    assert [(table, signature is not None) for table, signature in key[3]] == [
+        ("audit_with_id", True), ("audit_without_id", True), ("audit_missing", False)]
+    assert main._evaluation_generation_key(con, at) == key
+    # An in-place correction keeps every count and id but changes the content signature.
+    con.execute("UPDATE audit_without_id SET value='b'")
+    corrected = main._evaluation_generation_key(con, at)
+    assert corrected[3][1] != key[3][1] and corrected[3][0] == key[3][0]
+    assert corrected[3][1][1].startswith("1:")
+
+
+def test_evaluation_key_tracks_in_place_content_through_the_served_generation(
+    tmp_path, monkeypatch,
+):
+    from datetime import timedelta
+
+    import duckdb
+
+    from server import db as server_db
+    from tests.test_publish_snapshot import NOW, _repo
+    from tools import publish_snapshot
+
+    root, source = _repo(tmp_path)
+    monkeypatch.setattr(server_db, "DEFAULT_DB", source)
+    monkeypatch.setattr(main.p15_evaluation, "registration_sha256", lambda: "a" * 64)
+    at = datetime(2026, 10, 22, 15, tzinfo=timezone.utc)
+
+    def served_key():
+        with server_db.read_con() as con:
+            assert con.generation_info.source_snapshot["table_sha256"]
+            return main._evaluation_generation_key(con, at)
+
+    publish_snapshot.publish_snapshot(root, source, now=NOW)
+    first = served_key()
+    publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=1))
+    assert served_key() == first                       # republished, same inputs
+    writer = duckdb.connect(str(source))
+    writer.execute("UPDATE prices SET close = close * 2")
+    writer.close()
+    publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=2))
+    corrected = served_key()
+
+    changed = [table for (table, before), (_, after) in zip(first[3], corrected[3], strict=True)
+               if before != after]
+    assert changed == ["prices"]
+
+
+def test_evaluation_key_changes_with_the_utc_and_new_york_evaluation_dates(con, monkeypatch):
+    monkeypatch.setattr(main, "P15_AUDITED_TABLES", ())
+    monkeypatch.setattr(main.p15_evaluation, "registration_sha256", lambda: "a" * 64)
+
+    def key(hour, day=22):
+        return main._evaluation_generation_key(
+            con, datetime(2026, 10, day, hour, tzinfo=timezone.utc))
+
+    # 05:00 and 23:00 UTC share both dates (New York is UTC-4 in October).
+    assert key(5) == key(23)
+    # 02:00 UTC is still the previous day in New York: event maturity counts that date.
+    assert key(2) != key(5)
+    # The next UTC date: P15 maturity and the label grace count sessions through it.
+    assert key(5, day=23) != key(5)
+
+
+def test_evaluation_code_identity_covers_the_projection_modules_transitive_imports():
+    files = set(main.evaluation_code_files())
+    assert set(main.EVALUATION_CODE_ROOTS) <= files
+    # Repo-local modules the projection imports, directly or through others.
+    assert {"engine/lib/db.py", "engine/lib/provenance.py", "sim/nyse.py",
+            "server/p16_status_adapter.py"} <= files
+    assert all(path.endswith(".py") and not path.startswith(("tests/", ".venv/"))
+               for path in files)
+
+
+def test_evaluation_code_identity_is_fixed_when_the_api_imports():
+    # Computed at import, so a checkout that changes before the first request cannot
+    # relabel the projection key.
+    assert main.evaluation_code_sha256.cache_info().currsize == 1
+
+
+def test_evaluation_key_changes_with_the_projection_code(con, monkeypatch, tmp_path):
+    monkeypatch.setattr(main, "P15_AUDITED_TABLES", ())
+    monkeypatch.setattr(main.p15_evaluation, "registration_sha256", lambda: "a" * 64)
+    at = datetime(2026, 10, 22, 15, tzinfo=timezone.utc)
+    before = main._evaluation_generation_key(con, at)
+    repo = main.pathlib.Path(main.__file__).resolve().parents[1]
+    files = main.evaluation_code_files()
+    for relative in files:
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((repo / relative).read_bytes())
+    assert main._evaluation_code_sha256(tmp_path) == main.evaluation_code_sha256()
+    # A root and a module only reached transitively (a library the projection imports)
+    # each change the identity.
+    for relative in ("server/main.py", "sim/nyse.py"):
+        target = tmp_path / relative
+        original = target.read_bytes()
+        target.write_bytes(original + b"\n# changed\n")
+        assert main._evaluation_code_sha256(tmp_path) != main.evaluation_code_sha256()
+        target.write_bytes(original)
+
+    monkeypatch.setattr(main, "evaluation_code_sha256", lambda: "0" * 64)
+    assert main._evaluation_generation_key(con, at) != before
+
+
+def test_evaluation_projection_survives_a_republication_with_unchanged_inputs(
+    monkeypatch, tmp_path,
+):
+    cache = tmp_path / "evaluation-projection-cache.json"
+    monkeypatch.setenv("TRADING_ENGINE_EVALUATION_CACHE", str(cache))
+    main._reset_evaluation_cache()
+    keys = iter([("inputs", 1), ("inputs", 1), ("inputs", 2)])
+    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con, _at: next(keys))
+    computed = []
+    monkeypatch.setattr(main, "_compute_p15_projection", lambda _con, _at: computed.append(1)
+                        or ({"validated": len(computed)}, {"p15": {"n": len(computed)}}))
+    requested = []
+    monkeypatch.setattr(main._evaluation_warmer, "request", lambda: requested.append(1))
+    now = datetime(2026, 10, 22, tzinfo=timezone.utc)
+
+    first = main._cached_p15_projection(object(), now)   # cold: computed once, persisted
+    main._reset_evaluation_cache()                         # a new API process / generation
+    second = main._cached_p15_projection(object(), now)  # same inputs: read from disk
+    third = main._cached_p15_projection(object(), now)   # inputs changed: previous, warmer asked
+
+    assert computed == [1] and first == second == third
+    assert main._PROJECTION_STATE.get() is False and requested == [1]
+    assert cache.is_file()
+
+
+def test_evaluation_warmer_recomputes_only_when_inputs_change(monkeypatch):
+    main._reset_evaluation_cache()
+
+    class Connection:
+        def close(self):
+            pass
+
+    keys = iter([("inputs", 1), ("inputs", 1), ("inputs", 2)])
+    monkeypatch.setattr(main, "read_con", lambda: Connection())
+    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con, _at: next(keys))
+    computed = []
+    monkeypatch.setattr(main, "_compute_p15_projection",
+                        lambda _con, _at: computed.append(1) or ({}, {}))
+
+    assert [main._evaluation_warmer.warm_once() for _ in range(3)] == [True, False, True]
+    assert computed == [1, 1]

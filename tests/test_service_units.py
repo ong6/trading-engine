@@ -174,6 +174,8 @@ def test_tradingview_archive_timer_is_bounded_and_queue_owned():
     assert f"StandardError={log}" in service
     assert "--enqueue tradingview_history" in runner
     assert "--run --run-kind tradingview_history" in runner
+    assert "--collection-state" in runner and "--publish-paused" in runner
+    assert "export PYTHONPATH=" in runner
     # Each archive slice must not republish the full-database snapshot, and a
     # publication failure is not swallowed.
     assert "tools.publish_snapshot --min-age-minutes 1440" in runner
@@ -214,8 +216,11 @@ def test_p15_preopen_unit_is_registered_and_autostarted():
     timer = _unit("server/trading-engine-p15-preopen.timer")
     _assert_common_service_hardening(service)
     assert "server.p15_preopen --run" in service
-    assert "ExecStartPost=" not in service
-    assert "TimeoutStartSec=20min" in service
+    # It publishes after itself; the 40 minutes cover the run and one publication.
+    assert (
+        "ExecStartPost=-%h/trading-engine/.venv/bin/python -m tools.publish_snapshot\n"
+    ) in service
+    assert "TimeoutStartSec=40min" in service
     assert "09:05:00 America/New_York" in timer and "Persistent=false" in timer
     assert "trading-engine-p15-preopen.timer" in install_automation.AUTOSTART_UNITS
 
@@ -225,10 +230,9 @@ def test_p15_event_unit_is_intraday_shadow_and_autostarted():
     timer = _unit("server/trading-engine-p15-events.timer")
     _assert_common_service_hardening(service)
     assert "farm.p15_event_runner --run" in service
-    assert (
-        "ExecStartPost=-%h/trading-engine/.venv/bin/python -m tools.publish_snapshot "
-        "--min-age-minutes 120"
-    ) in service
+    # No publication inside a 14-minute, every-15-minutes run: publish-on-change publishes
+    # the events' evidence at most every three hours in market hours.
+    assert "ExecStartPost=" not in service
     assert "TimeoutStartSec=14min" in service
     assert "09:35,50:00 America/New_York" in timer
     assert "10..15:05,20,35,50 America/New_York" in timer

@@ -56,12 +56,6 @@ BOOTSTRAP_SEED = 20260907
 EXPECTED_INITIAL_CASH = 39_000.0
 EXPECTED_EXECUTION_PROFILE = "baseline_v1"
 EXPECTED_FILL_MODEL_VERSION = "v5"
-# The predecessor runtime's published fill model, and the observation fields P22 added for
-# the cost-break clock (they hold no-break values until a break is recorded).
-PRIOR_FILL_MODEL_VERSION = "v4"
-PRE_BREAK_OBSERVATION_FIELDS = (
-    "evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions",
-)
 EXPECTED_PROFILE_SHA256 = "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db"
 EXPECTED_CONFIG_SHA256 = {
     CANDIDATE_ID: "fb5a0f0e3472f14ed9b0a5d5bac05a081ec0284f200db91663b11d5d47ab9214",
@@ -71,43 +65,6 @@ EXPECTED_STRATEGY_TYPES = {
     CANDIDATE_ID: XsMomentum121,
     CONTROL_ID: EwBenchmark,
 }
-PRIOR_RUNTIME_CONTRACT_FILES = (
-    'engine/xs_forward_review.py',
-    'engine/actions.py',
-    'engine/collect.py',
-    'engine/lib/data_quality.py',
-    'engine/lib/db.py',
-    'engine/lib/resources.py',
-    'engine/lib/util.py',
-    'engine/screen.py',
-    'engine/universe.py',
-    'farm/walkforward/monthly.py',
-    'sim/calendar.py',
-    'sim/execution.py',
-    'sim/fills.py',
-    'sim/league.py',
-    'sim/nyse.py',
-    'sim/portfolio.py',
-    'sim/schema.py',
-    'sim/settle.py',
-    'sim/strategies/base.py',
-    'sim/strategies/ew_benchmark.py',
-    'sim/strategies/xs_common.py',
-    'sim/strategies/xs_momentum_12_1.py',
-    'engine/accounts/__init__.py',
-    'engine/accounts/settle.py',
-    'engine/money/alerts.py',
-    'engine/money/halts.py',
-    'sim/bar_sources.py',
-    'sim/book_breaks.py',
-    'sim/costs/__init__.py',
-    'sim/costs/baseline_v1.py',
-    'sim/costs/ibkr_pro_tiered_v1.py',
-    'sim/costs/profiles.py',
-    'sim/ledger.py',
-    'sim/margin.py',
-    'sim/shorts.py',
-)
 RUNTIME_CONTRACT_FILES = (
     'engine/p15_calendar.py',
     'sim/p15_books.py',
@@ -156,17 +113,13 @@ SUPERSEDED_RUNTIME_CONTRACT_SHA256 = 'c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd3
 RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. XS strategy, signal boundary, paired control and statistical verdict rules are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, collection audits a split-like re-fetch and triggers back-adjustment, and this migration compares the deployed report's fill model, signal-boundary runtime pin and clock fields as published; undeployed pre-deploy amendment 2026-10-17 separates retained prefix continuity from restarted evaluation sessions and validates their partition without changing equity, signal, baseline, ledger or verdict rules; revision 15 after v2: r15-data preserves rejected observations and gates scalar/calendar/basis admission; r15-money refuses malformed arithmetic and shares trusted fill/mark bars; r15-flow reduces repeated fetches, offline reports and history copies; r15-ops reports recorded outcomes and moves the Sunday history slot; board-2 shows dated quality and prospective gates; r15-tests reuses private fixtures and caps native threads. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged; binding orchestrator October 18 cleanup rulings: P15 session identity is captured SPY price dates union hard-invalid rejected dates, with XNYS membership for basis holds; stored labels and hashes remain immutable; missing trusted P15 bars and sleeve sizing wait with audited untrusted_bar and no substitute price; cold UI readiness uses a bounded five-minute wait; undeployed revision 15 amended 2026-10-20 by the reviewed fixes landed after v2: liquid split coverage, first-stored split provenance and a quarantining break scan; same-night provisional bars shown flagged; scratch replays never attach live stores and grids keep one reader; finite walk-forward results; snapshot disk cap and once-daily history publication; pre-open reliability, nightly evidence order and scoring report commits; two reviewed model runtimes by hash; same-night bars whose only fault is the open admitted provisionally for their close, never filled, labeled or scored on that open. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged"
 # Filled after the file list was frozen; tests verify this against current bytes.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "d00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6"
+    "2edb8b29eb446ade5da30d3c0227505e4908fdfd689f6fb814bed8844948f479"
 )
 
-# The deployed code identity of this same contract version (revision 16, installed
-# 2026-10-21). Revision 17 changed pinned bytes but not what the XS pair computes, so
+# The deployed code identity of this same contract version (revision 19, installed
+# 2026-10-22). Revision 21 changed pinned bytes but not what the XS pair computes, so
 # the version stays and an explicit migration replaces only this digest.
-AMENDED_RUNTIME_CONTRACT_SHA256 = '8640edca20744de9f2b6de4db7a82c48a44ee1b9027be87a30e1df5a5c0c4a06'
-PRIOR_RUNTIME_CONTRACT_VERSION = 22
-PRIOR_RUNTIME_CONTRACT_SHA256 = 'c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70'
-PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = 'f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac'
-PRIOR_RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. XS strategy, signal boundary, paired control and statistical verdict rules are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, collection audits a split-like re-fetch and triggers back-adjustment, and this migration compares the deployed report's fill model, signal-boundary runtime pin and clock fields as published; undeployed pre-deploy amendment 2026-10-17 separates retained prefix continuity from restarted evaluation sessions and validates their partition without changing equity, signal, baseline, ledger or verdict rules"
+AMENDED_RUNTIME_CONTRACT_SHA256 = 'd00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6'
 
 
 @dataclass(frozen=True)
@@ -811,38 +764,34 @@ def _validate_published_runtime(prior_result: dict | None) -> None:
         raise ValueError("published XS runtime contract requires explicit migration")
 
 
-def _predecessor_runtime(prior_result: dict) -> dict:
-    """The predecessor contract metadata a migration accepts for this published report:
-    the current version under its deployed digest when the report carries it, otherwise
-    the prior version."""
-    published = prior_result.get("frozen_runtime") or {}
-    if (
-        published.get("runtime_contract_version") == RUNTIME_CONTRACT_VERSION
-        and published.get("runtime_contract_sha256") == AMENDED_RUNTIME_CONTRACT_SHA256
-    ):
-        return {
-            "runtime_contract_version": RUNTIME_CONTRACT_VERSION,
-            "runtime_contract_sha256": AMENDED_RUNTIME_CONTRACT_SHA256,
-            "superseded_runtime_contract_sha256": SUPERSEDED_RUNTIME_CONTRACT_SHA256,
-            "runtime_contract_migration": RUNTIME_CONTRACT_MIGRATION,
-            "runtime_contract_files": list(RUNTIME_CONTRACT_FILES),
-        }
+def _deployed_runtime() -> dict:
+    """The contract metadata the deployed revision published: this version under its
+    deployed digest (``AMENDED_RUNTIME_CONTRACT_SHA256``)."""
     return {
-        "runtime_contract_version": PRIOR_RUNTIME_CONTRACT_VERSION,
-        "runtime_contract_sha256": PRIOR_RUNTIME_CONTRACT_SHA256,
-        "superseded_runtime_contract_sha256": PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256,
-        "runtime_contract_migration": PRIOR_RUNTIME_CONTRACT_MIGRATION,
-        "runtime_contract_files": list(PRIOR_RUNTIME_CONTRACT_FILES),
+        "runtime_contract_version": RUNTIME_CONTRACT_VERSION,
+        "runtime_contract_sha256": AMENDED_RUNTIME_CONTRACT_SHA256,
+        "superseded_runtime_contract_sha256": SUPERSEDED_RUNTIME_CONTRACT_SHA256,
+        "runtime_contract_migration": RUNTIME_CONTRACT_MIGRATION,
+        "runtime_contract_files": list(RUNTIME_CONTRACT_FILES),
     }
 
 
 def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
-    """Replace only predecessor metadata on an otherwise exact XS checkpoint."""
-    prior_result = _last_valid_result(prior_result)
-    if prior_result is None:
+    """Replace only the deployed digest on the exact published XS report.
+
+    The only accepted predecessor is the valid report the deployed revision published,
+    whose signal boundary pins the same deployed digest. An INVALID report is refused,
+    never migrated from the last valid result it preserves.
+    """
+    if not isinstance(prior_result, dict):
         raise ValueError("published XS forward report is required for migration")
-    boundary = (prior_result.get("frozen_runtime") or {}).get("signal_boundary")
-    if boundary is None:
+    if prior_result.get("status") == "INVALID":
+        raise ValueError("published XS forward report is INVALID; migration refused")
+    published = prior_result.get("frozen_runtime") or {}
+    if {key: published.get(key) for key in _deployed_runtime()} != _deployed_runtime():
+        raise ValueError("published XS predecessor report is not the exact migration checkpoint")
+    if published.get("signal_boundary") is None:
+        # A report without a boundary is only exact while nothing has run past the signal.
         latest = con.execute(
             "SELECT MAX(date) FROM sim_equity WHERE portfolio_id IN (?, ?)",
             [CANDIDATE_ID, CONTROL_ID],
@@ -862,20 +811,12 @@ def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
                 "published XS predecessor report is not the exact migration checkpoint"
             )
     current_prior = copy.deepcopy(prior_result)
-    current_prior["frozen_runtime"].update(
-        {
-            "runtime_contract_version": RUNTIME_CONTRACT_VERSION,
-            "runtime_contract_sha256": EXPECTED_RUNTIME_CONTRACT_SHA256,
-            "superseded_runtime_contract_sha256": SUPERSEDED_RUNTIME_CONTRACT_SHA256,
-            "runtime_contract_migration": RUNTIME_CONTRACT_MIGRATION,
-            "runtime_contract_files": list(RUNTIME_CONTRACT_FILES),
-        }
-    )
-    _p22_published_forms(current_prior, prior_result, current=True)
+    current_prior["frozen_runtime"].update(_runtime_metadata_current())
+    _move_boundary_digest(current_prior, prior_result, current=True)
     current = evaluate(con, prior_result=current_prior)
     expected_prior = copy.deepcopy(current)
-    expected_prior["frozen_runtime"].update(_predecessor_runtime(prior_result))
-    _p22_published_forms(expected_prior, prior_result, current=False)
+    expected_prior["frozen_runtime"].update(_deployed_runtime())
+    _move_boundary_digest(expected_prior, prior_result, current=False)
     prior_json = json.loads(json.dumps(prior_result, default=str))
     expected_json = json.loads(json.dumps(expected_prior, default=str))
     if prior_json != expected_json:
@@ -883,46 +824,23 @@ def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
     return current
 
 
-def _p22_published_forms(result: dict, prior: dict, *, current: bool) -> None:
-    """Restate P22's changed published fields in the current or the predecessor form.
+def _runtime_metadata_current() -> dict:
+    return {**_deployed_runtime(), "runtime_contract_sha256": EXPECTED_RUNTIME_CONTRACT_SHA256}
 
-    The deployed v21 report predates P22: it publishes fill model v4, its signal boundary
-    pins v4 and the predecessor runtime, and its observation has no cost-break clock. Each
-    such field moves to the current form for evaluation and back for the exact comparison;
-    the boundary's state, inputs and ledgers are compared unchanged. A boundary pinned to
-    this version's deployed digest (``AMENDED_RUNTIME_CONTRACT_SHA256``) moves the same way.
-    """
-    published = prior.get("frozen_runtime") or {}
-    if published.get("fill_model") == PRIOR_FILL_MODEL_VERSION:
-        result["frozen_runtime"]["fill_model"] = (
-            EXPECTED_FILL_MODEL_VERSION if current else PRIOR_FILL_MODEL_VERSION
-        )
+
+def _move_boundary_digest(result: dict, prior: dict, *, current: bool) -> None:
+    """A signal boundary pinned to the deployed digest moves to the current digest for
+    evaluation and back for the exact comparison; its state, inputs and ledgers are
+    compared unchanged."""
     boundary = result["frozen_runtime"].get("signal_boundary")
-    pinned = ((published.get("signal_boundary") or {}).get("protocol_contract") or {})
-    predecessor = pinned.get("runtime_contract_sha256")
-    if boundary is not None and predecessor in {
-        PRIOR_RUNTIME_CONTRACT_SHA256, AMENDED_RUNTIME_CONTRACT_SHA256,
-    }:
-        boundary["protocol_contract"].update(
-            fill_model=(EXPECTED_FILL_MODEL_VERSION if current else pinned.get("fill_model")),
-            runtime_contract_sha256=(
-                EXPECTED_RUNTIME_CONTRACT_SHA256 if current else predecessor
-            ),
-        )
-    if current:
-        return
-    observation, published_observation = result["observation"], prior.get("observation") or {}
-    added = [field for field in PRE_BREAK_OBSERVATION_FIELDS
-             if field in observation and field not in published_observation]
-    if added and (
-        observation.get("cost_break_session") is not None
-        or observation.get("pre_break_shared_sessions", 0) != 0
-        or observation.get("evaluation_clock_start", OBSERVATION_START.isoformat())
-        != OBSERVATION_START.isoformat()
+    pinned = (((prior.get("frozen_runtime") or {}).get("signal_boundary") or {})
+              .get("protocol_contract") or {})
+    if boundary is not None and pinned.get("runtime_contract_sha256") == (
+        AMENDED_RUNTIME_CONTRACT_SHA256
     ):
-        raise ValueError("XS runtime migration must run before the cost-profile break")
-    for field in added:
-        del observation[field]
+        boundary["protocol_contract"]["runtime_contract_sha256"] = (
+            EXPECTED_RUNTIME_CONTRACT_SHA256 if current else AMENDED_RUNTIME_CONTRACT_SHA256
+        )
 
 
 def _validate_prior(
@@ -1313,7 +1231,7 @@ def main() -> int:
     parser.add_argument(
         "--migrate-runtime-contract",
         action="store_true",
-        help="explicitly migrate the exact pre-signal v19 checkpoint to runtime contract v20",
+        help="explicitly replace the deployed digest on the exact published XS report",
     )
     args = parser.parse_args()
     prior = None

@@ -25,6 +25,7 @@ def test_late_recovery_keeps_cash_delisting(h):
     before = h.scalar("SELECT cash FROM portfolios WHERE id='acct-a'")
     assert cli.main(['settle', '--late']) == 0
     assert h.scalar("SELECT cash FROM portfolios WHERE id='acct-a'") == before
+    h.publish()
     assert routes.get_positions('acct-a', h.auth) == []
     assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == 0
 
@@ -124,6 +125,7 @@ def test_stale_holding_does_not_block_unrelated_affordable_open(h):
     with h.con(h.daily) as con:
         con.execute("DELETE FROM free_daily_bars WHERE ticker='SHORT' AND date>DATE '2026-09-30'")
     assert h.order('open', 'LONG', 'buy', 100)['state'] == 'queued'
+    h.publish()
     position = routes.get_positions('acct-a', h.auth)[0]
     assert position['stale'] is True
     assert position['mark'] == 100
@@ -131,8 +133,10 @@ def test_stale_holding_does_not_block_unrelated_affordable_open(h):
 
 def test_migration_cli_preserves_existing_routes_and_uses_deployed_revision(h):
     with h.con() as con:
-        con.execute("INSERT INTO portfolios (id,name,strategy,config,created,active,cash,initial_cash) "
-                    "VALUES ('p15_ai_ranked','Example','none','{}',?,TRUE,10000,10000)", [PRIOR])
+        # Every producer stamps execution_profile; a versioned store refuses runtime backfills.
+        con.execute("INSERT INTO portfolios (id,name,strategy,config,created,active,cash,initial_cash,"
+                    "execution_profile) VALUES ('p15_ai_ranked','Example','none','{}',?,TRUE,10000,"
+                    "10000,'baseline_v1')", [PRIOR])
     assert migrate_cost_profiles.main(['--db', str(h.market), '--d0', '2026-10-19', '--apply']) == 0
     assert h.scalar("SELECT pa_engine FROM portfolio_accounts_v WHERE portfolio_id='p15_ai_ranked'") == 'league'
     assert h.scalar('SELECT registration_revision FROM sim_book_breaks') == 20

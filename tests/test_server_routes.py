@@ -12,6 +12,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
+from engine import schema_migrations
 from engine.lib.db import DBBusyError
 from server import (
     db as server_db,
@@ -110,21 +111,36 @@ async def _request_messages(path: str) -> list[dict]:
 
 def _snapshot_source(path: FilePath) -> None:
     con = duckdb.connect(str(path))
-    con.execute("CREATE TABLE prices (date DATE, ticker VARCHAR, volume BIGINT)")
-    con.execute("INSERT INTO prices VALUES ('2026-10-01', 'SPY', 1)")
-    con.execute("CREATE TABLE jobs (id INTEGER, state VARCHAR)")
+    migration = schema_migrations.migrations()[0]
+    migration.module.bootstrap(con)
     con.execute(
-        "CREATE TABLE portfolios (id VARCHAR, name VARCHAR, strategy VARCHAR, "
-        "config VARCHAR, created DATE, active BOOLEAN, cash DOUBLE, initial_cash DOUBLE, "
-        "execution_profile VARCHAR)"
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume,first_fetched_at) "
+        "VALUES ('SPY','2026-10-01',1,1,1,1,1,'2026-10-01')"
     )
-    con.execute("CREATE TABLE sim_orders (id INTEGER)")
-    con.execute("CREATE TABLE sim_fills (id INTEGER)")
+    catalog_hash = schema_migrations.catalog_sha256(con)
+    assert catalog_hash == migration.module.EXPECTED_CATALOG_SHA256
     con.execute(
-        "CREATE TABLE sim_equity (portfolio_id VARCHAR, date DATE, equity DOUBLE, "
-        "cash DOUBLE, n_positions INTEGER)"
+        "CREATE TABLE schema_migrations (migration_id INTEGER PRIMARY KEY, "
+        "migration_sha256 VARCHAR, source_commit VARCHAR, applied_at TIMESTAMPTZ, "
+        "pre_catalog_sha256 VARCHAR, post_catalog_sha256 VARCHAR, "
+        "recovery_manifest_sha256 VARCHAR)"
+    )
+    con.execute(
+        "INSERT INTO schema_migrations VALUES (0, ?, ?, now(), ?, ?, ?)",
+        [migration.sha256, "a" * 40, catalog_hash, catalog_hash, "b" * 64],
     )
     con.close()
+
+
+def _snapshot_cohort(root: FilePath) -> None:
+    from tools import backup_database
+
+    relatives = set(backup_database.EVIDENCE_FILES)
+    relatives.update(backup_database._operational_files("2026-10-01"))
+    for relative in relatives:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"path": relative}) + "\n")
 
 
 @pytest.mark.parametrize(
@@ -558,13 +574,14 @@ def test_health_503_when_database_is_unreadable(monkeypatch):
     }
 
 
-def test_locked_get_uses_snapshot_header_but_stale_evidence_get_stays_503(
+def test_locked_get_uses_snapshot_header_and_evidence_after_a_write_reports_pending(
     monkeypatch, tmp_path
 ):
     root = tmp_path / "repo"
     source = root / "store" / "market.duckdb"
     source.parent.mkdir(parents=True)
     _snapshot_source(source)
+    _snapshot_cohort(root)
     publish_snapshot.publish_snapshot(root, source)
     monkeypatch.setattr(server_db, "DEFAULT_DB", source)
     writer = duckdb.connect(str(source))
@@ -577,8 +594,23 @@ def test_locked_get_uses_snapshot_header_but_stale_evidence_get_stays_503(
         assert health_start["status"] == 200
         assert headers[b"x-data-source"] == b"snapshot"
         assert b"x-snapshot-as-of" in headers
+        assert headers[b"x-generation-id"].startswith(b"market-")
+        board_messages = asyncio.run(_request_messages("/league"))
+        board_start = next(
+            message for message in board_messages if message["type"] == "http.response.start"
+        )
+        assert board_start["status"] == 200
+        assert dict(board_start["headers"])[b"x-generation-id"] == headers[b"x-generation-id"]
 
-        writer.execute("INSERT INTO jobs VALUES (1, 'running')")
+        # The evidence projections themselves are covered elsewhere; this test is about
+        # which generation the route serves after an unpublished write.
+        monkeypatch.setattr(main.agent_evaluation, "status", lambda _con: {})
+        monkeypatch.setattr(main, "_cached_p15_projection", lambda _con, _at: ({}, {}))
+        monkeypatch.setattr(main.agent_trial_register, "project", lambda _con, _at: {})
+        monkeypatch.setattr(
+            main.p16_status_adapter, "project", lambda _con, generated_at: {},
+        )
+        writer.execute("INSERT INTO jobs (id,state) VALUES (1, 'running')")
         stale_at = datetime.fromisoformat(headers[b"x-snapshot-as-of"].decode()) + timedelta(
             seconds=1
         )
@@ -589,10 +621,48 @@ def test_locked_get_uses_snapshot_header_but_stale_evidence_get_stays_503(
             for message in evaluation_messages
             if message["type"] == "http.response.start"
         )
-        assert evaluation_start["status"] == 503
-        assert b"x-data-source" not in dict(evaluation_start["headers"])
+        evaluation_headers = dict(evaluation_start["headers"])
+        assert evaluation_start["status"] == 200, evaluation_messages
+        assert evaluation_headers[b"x-generation-id"] == headers[b"x-generation-id"]
+        assert evaluation_headers[b"x-pending-publication"] == b"true"
+        body = json.loads(b"".join(
+            message.get("body", b"") for message in evaluation_messages
+            if message["type"] == "http.response.body"
+        ))
+        assert body["generation"]["pending_publication"] is True
+        assert body["generation"]["generation_id"] == headers[b"x-generation-id"].decode()
     finally:
         writer.close()
+
+
+def test_board_past_its_budget_is_served_stale_and_health_degrades(monkeypatch, tmp_path):
+    root = tmp_path / "repo"
+    source = root / "store" / "market.duckdb"
+    source.parent.mkdir(parents=True)
+    _snapshot_source(source)
+    _snapshot_cohort(root)
+    publish_snapshot.publish_snapshot(root, source)
+    monkeypatch.setattr(server_db, "DEFAULT_DB", source)
+    # A weekend clock past the board budget, with a write the publisher has not caught up with.
+    monkeypatch.setitem(server_db.DATASET_GENERATION_MAX_AGE, "board", timedelta(0))
+    writer = duckdb.connect(str(source))
+    writer.execute("INSERT INTO jobs (id,state) VALUES (7, 'done')")
+    writer.close()
+
+    board = asyncio.run(_request_messages("/league"))
+    health = asyncio.run(_request_messages("/health"))
+
+    board_start, health_start = (
+        next(message for message in messages if message["type"] == "http.response.start")
+        for messages in (board, health)
+    )
+    assert board_start["status"] == 200
+    assert dict(board_start["headers"])[b"x-generation-stale"] == b"true"
+    assert health_start["status"] == 200
+    health_body = json.loads(b"".join(
+        message.get("body", b"") for message in health if message["type"] == "http.response.body"
+    ))
+    assert health_body["status"] == "degraded" and health_body["ok"] is True
 
 
 @pytest.mark.parametrize("run_date", ["not-a-date", "20260909", "2026-W37-3"])

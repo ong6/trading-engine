@@ -10,10 +10,14 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from engine import free_sources
+from engine import free_sources, raw_payload
 from sim import nyse
 from tools import free_source_audit
 from tools import free_sources as capture
+
+# These writers are tested on a converted store; tests/test_raw_payload_legacy.py covers
+# the legacy plain encoding they use until the conversion flag is set.
+pytestmark = pytest.mark.usefixtures("zstd_raw_payloads")
 
 # Fixed entry time: writestr(name, ...) stamps the current time, so two fixtures
 # built across a 2-second tick hash differently.
@@ -224,6 +228,11 @@ def test_massive_resumes_from_date_cache_without_network(tmp_path: Path):
     assert count == 2
     receipts = list((data_dir / "massive" / MASSIVE_DATE.isoformat()).glob("receipt.json"))
     assert len(receipts) == 1
+    receipt = json.loads(receipts[0].read_text())
+    assert receipt["raw_file"].endswith(".json.zst")
+    logical = receipts[0].parent / f"{receipt['source_sha256']}.json"
+    assert not logical.exists()
+    assert raw_payload.read(logical, expected_sha256=receipt["source_sha256"]) == MASSIVE_FIXTURE
 
 
 def test_massive_refuses_dates_before_rolling_window(tmp_path: Path):

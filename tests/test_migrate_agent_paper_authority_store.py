@@ -15,6 +15,15 @@ from server import (
 from tools import backup_database, migrate_agent_paper_authority_store
 
 
+@pytest.fixture(autouse=True)
+def _legacy_store_writes_allowed(monkeypatch):
+    # This one-off tool ran on pre-revision-20 stores; the fixtures here hand-build such a
+    # store. Revision-20 code refuses to write one (tests/test_schema_migrations.py), so the
+    # tool's own behaviour is exercised with that refusal lifted.
+    from engine.lib import db as _db
+    monkeypatch.setattr(_db, "_is_unmigrated_operational_store", lambda _connection: False)
+
+
 def _database(path: Path) -> None:
     con = duckdb.connect(str(path))
     con.execute("CREATE TABLE prices (date DATE, ticker VARCHAR, volume BIGINT)")

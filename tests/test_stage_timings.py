@@ -138,6 +138,10 @@ def test_history_shell_reuses_publisher_age_budget_and_propagates_failure(tmp_pa
     py=fake/'.venv/bin/python'
     py.write_text('''#!/bin/bash
 printf '%s\\n' "$*" >> "$ARGV_LOG"
+if [[ "$*" == *--collection-state* ]]; then
+  printf '%s\\n' "${COLLECTION_STATE:-enabled}"
+  exit "${STATE_EXIT:-0}"
+fi
 if [[ "$*" == *tools.publish_snapshot* ]]; then exit "${PUBLISH_EXIT:-0}"; fi
 ''')
     py.chmod(0o755)
@@ -146,3 +150,54 @@ if [[ "$*" == *tools.publish_snapshot* ]]; then exit "${PUBLISH_EXIT:-0}"; fi
     run=subprocess.run(['bash',str(fake/'server/run_tradingview_history_archive.sh')],env=env)
     assert run.returncode==7
     assert log.read_text().splitlines()[-1]=='-m tools.publish_snapshot --min-age-minutes 1440'
+
+
+def test_history_shell_publishes_pause_without_queue_or_snapshot(tmp_path):
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]
+    fake=tmp_path/'repo'
+    (fake/'server').mkdir(parents=True)
+    (fake/'.venv/bin').mkdir(parents=True)
+    shutil.copy(root/'server/run_tradingview_history_archive.sh',fake/'server/run_tradingview_history_archive.sh')
+    py=fake/'.venv/bin/python'
+    py.write_text('''#!/bin/bash
+printf '%s\\n' "$*" >> "$ARGV_LOG"
+if [[ "$*" == *--collection-state* ]]; then printf 'paused\\n'; fi
+''')
+    py.chmod(0o755)
+    log=fake/'argv'
+    run=subprocess.run(
+        ['bash',str(fake/'server/run_tradingview_history_archive.sh')], cwd=fake,
+        env={**os.environ,'ARGV_LOG':str(log)},
+    )
+    assert run.returncode==0
+    assert log.read_text().splitlines()==[
+        '-m engine.tradingview_history_archive --collection-state',
+        '-m engine.tradingview_history_archive --publish-paused',
+    ]
+
+
+def test_history_shell_propagates_collection_probe_failure(tmp_path):
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]
+    fake=tmp_path/'repo'
+    (fake/'server').mkdir(parents=True)
+    (fake/'.venv/bin').mkdir(parents=True)
+    shutil.copy(root/'server/run_tradingview_history_archive.sh',fake/'server/run_tradingview_history_archive.sh')
+    py=fake/'.venv/bin/python'
+    py.write_text('''#!/bin/bash
+if [[ "$*" == *--collection-state* ]]; then exit 3; fi
+exit 0
+''')
+    py.chmod(0o755)
+    run=subprocess.run(
+        ['bash',str(fake/'server/run_tradingview_history_archive.sh')], cwd=fake,
+        env={**os.environ,'PYTHONPATH':str(fake)},
+    )
+    assert run.returncode==3

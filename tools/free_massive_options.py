@@ -14,7 +14,7 @@ from urllib.parse import quote, urlencode, urlparse
 import requests
 
 from engine import free_massive_options as options
-from engine import free_sources
+from engine import free_sources, raw_payload
 from engine.lib import db
 from engine.lib.settings import REPO_ROOT
 from tools import free_sources as daily_capture
@@ -23,6 +23,8 @@ CONTRACTS_ENDPOINT = "https://api.massive.com/v3/reference/options/contracts"
 DAILY_ENDPOINT = "https://api.massive.com/v2/aggs/ticker/O:{occ}/range/1/day/{start}/{end}"
 MANIFEST_PATH = REPO_ROOT / "server/options-capture-manifest.json"
 HTTP_TIMEOUT_SECONDS = 60
+# One-line re-enable: set True only after a registered study reads the archive.
+COLLECTION_ENABLED = False
 
 
 def _manifest_identity(payload: dict) -> str:
@@ -101,13 +103,17 @@ def _cached_body(database: Path, data_dir: Path, url: str) -> tuple[bytes, datet
         return None
     source_sha, fetched_at = receipt
     try:
-        raw = (data_dir / f"{source_sha}.json").read_bytes()
-    except OSError as exc:
+        raw = raw_payload.read(
+            data_dir / f"{source_sha}.json", expected_sha256=source_sha,
+        )
+    except free_sources.FreeSourceError as exc:
+        if "missing" in str(exc):
+            raise free_sources.FreeSourceError(
+                "Massive option cached response file is missing or unreadable"
+            ) from exc
         raise free_sources.FreeSourceError(
-            "Massive option cached response file is missing or unreadable"
+            "Massive option cached response hash or encoding is invalid"
         ) from exc
-    if hashlib.sha256(raw).hexdigest() != source_sha:
-        raise free_sources.FreeSourceError("Massive option cached response hash is invalid")
     return raw, fetched_at.replace(tzinfo=timezone.utc)
 
 
@@ -143,7 +149,9 @@ def _fetch(
     body = daily_capture._response_body(response, "Massive options")
     fetched_at = now()
     source_sha = hashlib.sha256(body).hexdigest()
-    daily_capture._write_private_atomic(data_dir / f"{source_sha}.json", body)
+    raw_payload.seal(
+        data_dir / f"{source_sha}.json", body, expected_sha256=source_sha,
+    )
     return body, fetched_at, source_sha, False
 
 
@@ -290,6 +298,9 @@ def capture(
     rate_limit: Callable[[], object] | None = None,
     close_overrides: Mapping[str, float] | None = None,
 ) -> dict:
+    if not COLLECTION_ENABLED:
+        return {"status": "paused", "reason": "no_registered_reader",
+                "collection_enabled": False}
     manifest = load_manifest(manifest_path)
     capture_date = now().astimezone(timezone.utc).date() if as_of is None else as_of
     underlyings = list(selected_underlyings or manifest["underlyings"])
@@ -412,7 +423,8 @@ def main(argv: list[str] | None = None) -> int:
     except free_sources.FreeSourceError as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))
         return 2
-    print(json.dumps({"status": "complete", "result": result}, sort_keys=True))
+    status = "paused" if result.get("status") == "paused" else "complete"
+    print(json.dumps({"status": status, "result": result}, sort_keys=True))
     return 0
 
 

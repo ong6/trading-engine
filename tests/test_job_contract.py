@@ -50,9 +50,9 @@ def _load(tmp_path: Path, text: str):
 def test_public_registry_has_every_current_schedule_and_disabled_p16():
     registry = job_contract.load_registry(ROOT)
 
-    assert len(registry.jobs) == 21
-    assert sum(bool(job.schedules) for job in registry.jobs) == 19
-    assert sum(job.timer_unit is not None for job in registry.jobs) == 13
+    assert len(registry.jobs) == 22
+    assert sum(bool(job.schedules) for job in registry.jobs) == 20
+    assert sum(job.timer_unit is not None for job in registry.jobs) == 14
     assert sum(isinstance(job.legacy.get("cron"), dict) for job in registry.jobs) == 6
     assert registry.get("trading-engine-p16-challengers").enabled is False
     assert all(not job.runner_enabled for job in registry.jobs if job.schedules)

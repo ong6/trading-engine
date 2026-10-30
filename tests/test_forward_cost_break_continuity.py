@@ -7,7 +7,7 @@ import pytest
 from engine import forward_review as sector
 from engine import xs_forward_review as xs
 from tests.test_sector_forward_status import _setup_live_sector_forward
-from tests.test_xs_forward_review import _deployed_v21_result, _freeze, _setup, _transition
+from tests.test_xs_forward_review import _deployed_amended_result, _freeze, _setup, _transition
 from tools.migrate_cost_profiles import migrate
 
 
@@ -18,16 +18,11 @@ def test_both_forward_families_retain_prefix_across_repeated_cost_break_reviews(
     _transition(con)
     priors = {sector: sector.evaluate(con), xs: xs.evaluate(con, prior_result=waiting)}
     predecessor = deepcopy(priors[sector])
-    predecessor["frozen_runtime"].update(
-        runtime_contract_version=sector.PRIOR_RUNTIME_CONTRACT_VERSION,
-        runtime_contract_sha256=sector.PRIOR_RUNTIME_CONTRACT_SHA256,
-        superseded_runtime_contract_sha256=sector.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256,
-        runtime_contract_migration=sector.PRIOR_RUNTIME_CONTRACT_MIGRATION,
-        runtime_contract_files=list(sector.PRIOR_RUNTIME_CONTRACT_FILES), fill_model="v4")
-    for field in ("evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions"):
-        del predecessor["observation"][field]
+    predecessor["frozen_runtime"]["runtime_contract_sha256"] = (
+        sector.AMENDED_RUNTIME_CONTRACT_SHA256)
     priors[sector] = sector.migrate_runtime_contract(con, predecessor)
-    priors[xs] = xs.migrate_runtime_contract(con, _deployed_v21_result(priors[xs]))
+    priors[xs] = xs.migrate_runtime_contract(
+        con, _deployed_amended_result(priors[xs], xs.AMENDED_RUNTIME_CONTRACT_SHA256))
     retained_hashes = {monitor: prior["observation"]["equity_sha256"]
                        for monitor, prior in priors.items()}
     retained_counts = {sector: 1, xs: 1}

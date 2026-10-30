@@ -356,66 +356,65 @@ def test_forward_fill_ledger_is_validated_and_hashed(con):
     assert len(result["observation"]["forward_ledger_sha256"]) == 64
 
 
-def _prior_v6_result(con) -> dict:
-    """The deployed report's shape: the predecessor runtime publishes fill model v4 and
-    none of P22's cost-break observation fields (2026-10-15 snapshot, contract v10)."""
+def _deployed_result(con) -> dict:
+    """The deployed report's shape: this contract version under its deployed digest."""
     _setup(con)
     _equity(con, forward_review.OBSERVATION_START, 2, 101, 100)
     prior = forward_review.evaluate(con)
-    prior["frozen_runtime"].update(
-        runtime_contract_version=forward_review.PRIOR_RUNTIME_CONTRACT_VERSION,
-        runtime_contract_sha256=forward_review.PRIOR_RUNTIME_CONTRACT_SHA256,
-        superseded_runtime_contract_sha256=(
-            forward_review.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
-        ),
-        runtime_contract_migration=forward_review.PRIOR_RUNTIME_CONTRACT_MIGRATION,
-        runtime_contract_files=list(forward_review.PRIOR_RUNTIME_CONTRACT_FILES),
-        fill_model="v4",
-    )
-    for field in ("evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions"):
-        del prior["observation"][field]
+    prior["frozen_runtime"]["runtime_contract_sha256"] = (
+        forward_review.AMENDED_RUNTIME_CONTRACT_SHA256)
     return prior
 
 
 def test_normal_run_refuses_silent_runtime_contract_migration(con):
-    prior = _prior_v6_result(con)
+    prior = _deployed_result(con)
 
     with pytest.raises(ValueError, match="requires explicit migration"):
         forward_review.evaluate(con, prior_result=prior)
 
 
 def test_runtime_contract_migration_preserves_complete_prior_result(con):
-    prior = _prior_v6_result(con)
+    prior = _deployed_result(con)
 
     migrated = forward_review.migrate_runtime_contract(con, prior)
 
     assert migrated == forward_review.evaluate(con)
-    for section in ("status", "candidate", "control", "criterion", "execution", "metrics"):
+    for section in ("status", "candidate", "control", "criterion", "execution", "metrics",
+                    "observation"):
         assert migrated[section] == prior[section]
-    assert migrated["observation"] == {
-        **prior["observation"], "evaluation_clock_start": "2026-09-04",
-        "cost_break_session": None, "pre_break_shared_sessions": 0,
+    assert migrated["frozen_runtime"] == {
+        **prior["frozen_runtime"],
+        "runtime_contract_sha256": forward_review.EXPECTED_RUNTIME_CONTRACT_SHA256,
     }
-    assert migrated["frozen_runtime"]["fill_model"] == "v5"
-    assert (
-        migrated["frozen_runtime"]["runtime_contract_version"]
-        == forward_review.RUNTIME_CONTRACT_VERSION
-    )
 
 
-def test_runtime_contract_migration_runs_before_the_cost_break(con):
-    prior = _prior_v6_result(con)
-    for portfolio_id in (forward_review.CANDIDATE_ID, forward_review.CONTROL_ID):
-        con.execute(
-            "INSERT INTO sim_book_breaks VALUES (?, DATE '2026-10-19', 'cost_profile', "
-            "'baseline_v1', 'ibkr_pro_tiered_v1', 14, 'D0', TIMESTAMP '2026-10-18 20:00')",
-            [portfolio_id])
-    with pytest.raises(ValueError, match="before the cost-profile break"):
-        forward_review.migrate_runtime_contract(con, prior)
+def test_runtime_contract_migration_refuses_every_older_predecessor_form(con):
+    # Only the deployed digest migrates: the pre-P22 shape (fill model v4, no cost-break
+    # clock) and the prior contract version are refused.
+    prior = _deployed_result(con)
+    older = copy.deepcopy(prior)
+    older["frozen_runtime"]["fill_model"] = "v4"
+    for field in ("evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions"):
+        del older["observation"][field]
+    with pytest.raises(ValueError, match="not the exact migration checkpoint"):
+        forward_review.migrate_runtime_contract(con, older)
+    older = copy.deepcopy(prior)
+    older["frozen_runtime"]["runtime_contract_version"] -= 1
+    with pytest.raises(ValueError, match="not the exact migration checkpoint"):
+        forward_review.migrate_runtime_contract(con, older)
+
+
+def test_runtime_contract_migration_refuses_an_invalid_published_report(con):
+    prior = _deployed_result(con)
+    invalid = forward_review._invalid_result(ValueError("x"))
+    invalid["last_valid_result"] = prior
+
+    with pytest.raises(ValueError, match="INVALID; migration refused"):
+        forward_review.migrate_runtime_contract(con, invalid)
 
 
 def test_runtime_contract_migration_rejects_changed_prior_evidence(con):
-    prior = _prior_v6_result(con)
+    prior = _deployed_result(con)
     prior["observation"]["equity_sha256"] = "changed"
 
     with pytest.raises(ValueError, match="not the exact migration checkpoint"):
@@ -631,7 +630,7 @@ def test_main_preserves_last_valid_checkpoint_through_invalid_report(
 
 
 def test_cost_break_retains_complete_prefix_across_repeated_reviews(con):
-    prior = _prior_v6_result(con)
+    prior = _deployed_result(con)
     migrated = forward_review.migrate_runtime_contract(con, prior)
     for book in (forward_review.CANDIDATE_ID, forward_review.CONTROL_ID):
         con.execute(

@@ -54,6 +54,7 @@ REGISTERED_PATHS = {
     "engine/lib/resources.py",
     "engine/lib/settings.py",
     "engine/lib/snapshots.py",
+    "engine/lib/store_limits.py",
     "engine/lib/util.py",
     "engine/market_date.py",
     "engine/money/alerts.py",
@@ -280,8 +281,8 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 20
-    assert registration["revision_reason"] == "Revision 20 after deployed revision 19, an owner-directed model amendment decided 2026-10-29: P15 scoring, pre-open and events, and the daily, hourly and four-hour opportunity calls, move from GPT-5.6-Sol:max (effort high) to GPT-6.1-Sol:max, at reasoning effort high for the once-a-day decisions (scoring, pre-open, daily opportunity) and medium for the 15-minute event scorer and the hourly and four-hour observers. The connector identity becomes schema 5 and records the effort; evidence made before the switch keeps its schema-4 GPT-5.6-Sol:max identity, is validated against it and is never relabelled. The evaluation report adds a diagnostic post-switch stratum beside the unchanged pooled tests. Frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged. The storage work previously numbered revision 20 becomes revision 21."
+    assert registration["registration_revision"] == 21
+    assert registration["revision_reason"] == "Revision 21 after deployed revision 20 (owner-directed GPT-6.1-Sol model amendment, 2026-10-29), from the P24 storage revision. Collection changes: TradingView daily history collection is paused (server/collection-policy.json; its timer and service become disabled), Massive option collection is paused (tools/free_massive_options.py), and five macro series without a reader are no longer fetched (gex, pc_total, aaii_bull, free_credit and cot_es_lev_net; engine/signals.py); their stored history is kept and each pause is one flag. Schedule changes: a new publish-on-change timer (:12 and :42 UTC) republishes the read-only store generation at most once every three hours during US market hours, P15 pre-open now publishes after its run while P15 events no longer publish, and the TradingView history timer no longer runs; no other unit's schedule changes. Reader and storage paths: the operational store is versioned by explicit schema migrations whose baseline is frozen as data (the deployed catalog is an exact pre-image; drifted tables are rebuilt with every row kept and proven equal); API reads serve immutable hot/cold generations, flagged stale or pending publication instead of refused, while every producer keeps reading the primary; publication copies the primary under the producer locks and builds from the copy; backups copy the quiesced file bytes and record the DuckDB version and WAL identity; new raw payloads keep the legacy encoding until a later conversion one-off; producers refuse to write a store that has not been migrated. Storage limits: a free-space reserve and per-role DuckDB thread and memory limits bound store connections. Unchanged: for every source and series still collected, what is fetched, admitted, stored, priced, filled, scored and labeled. Runtime contracts E1 v8, sector v12 and XS v23 keep their versions and what they compute; each explicit migration replaces only the deployed revision-20 digest and refuses any other predecessor. Frozen verdict rules, scores, labels, gates and valid-data outcomes remain unchanged."
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
     assert recorded == canonical_sha256(registration)

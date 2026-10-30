@@ -11,6 +11,11 @@ from pathlib import Path
 # Match CI: xdist supplies process parallelism for native numerical libraries.
 for _thread_env in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_thread_env, "1")
+# API writes wait for a short publication lock in production; tests expect an immediate 503.
+os.environ.setdefault("TRADING_ENGINE_API_WRITE_WAIT_S", "0")
+# The evaluation projection's disk cache and background warmer are off unless a test asks.
+os.environ.setdefault("TRADING_ENGINE_EVALUATION_CACHE", "")
+os.environ.setdefault("TRADING_ENGINE_EVALUATION_WARMER", "0")
 
 import duckdb  # noqa: E402
 import pytest  # noqa: E402
@@ -28,6 +33,7 @@ CREATE TABLE IF NOT EXISTS prices (
     ticker VARCHAR NOT NULL, date DATE NOT NULL,
     open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume BIGINT,
     source VARCHAR DEFAULT 'yfinance', fetched_at TIMESTAMP,
+    first_fetched_at TIMESTAMP,
     PRIMARY KEY (ticker, date)
 )
 """
@@ -36,6 +42,23 @@ CREATE TABLE IF NOT EXISTS prices (
 # 2024-06-19 (Juneteenth) and 2024-07-04 (Independence Day) removed.
 HOLIDAYS = {date(2024, 6, 19), date(2024, 7, 4)}
 _P16_CALIBRATION_PAYLOADS = {}
+
+
+@pytest.fixture(autouse=True)
+def raw_payload_encoding_flag(monkeypatch, tmp_path_factory):
+    """Isolate the store's raw-payload encoding flag; absent means the legacy encoding."""
+    from engine import raw_payload
+
+    flag = tmp_path_factory.mktemp("raw-encoding") / raw_payload.ENCODING_MARKER_NAME
+    monkeypatch.setattr(raw_payload, "encoding_marker_path", lambda: flag)
+    return flag
+
+
+@pytest.fixture
+def zstd_raw_payloads(raw_payload_encoding_flag):
+    """A store whose raw payloads were converted: new payloads are sealed as zstd."""
+    raw_payload_encoding_flag.write_text('{"encoding": "zstd", "schema_version": 1}\n')
+    return raw_payload_encoding_flag
 
 
 @pytest.fixture(autouse=True)
@@ -82,19 +105,24 @@ def insert_bars(con, ticker, dates, *, open_=100.0, close=100.0, volume=1_000_00
         strict=True,
     ))
     columns = "ticker, date, open, high, low, close, volume"
+    stamped = f"{columns}, first_fetched_at"
     # Vectorized inserts avoid one prepared-statement execution per bar. Keep
     # DuckDB's parameter conversion for tiny inputs and NaN (frames map it to NULL).
     if n <= 16 or any(
         isinstance(value, float) and math.isnan(value)
         for row in rows for value in row[2:]
     ):
-        con.executemany(f"INSERT INTO prices ({columns}) VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+        con.executemany(
+            f"INSERT INTO prices ({stamped}) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, TIMESTAMP '2000-01-01')", rows)
         return
     import pandas as pd
 
     con.register("test_bar_rows", pd.DataFrame(rows, columns=columns.split(", ")))
     try:
-        con.execute(f"INSERT INTO prices ({columns}) SELECT * FROM test_bar_rows")
+        con.execute(
+            f"INSERT INTO prices ({stamped}) "
+            "SELECT *, TIMESTAMP '2000-01-01' FROM test_bar_rows")
     finally:
         con.unregister("test_bar_rows")
 

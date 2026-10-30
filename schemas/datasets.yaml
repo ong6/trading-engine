@@ -529,6 +529,7 @@ policy_templates:
 datasets:
   # Operational daily prices, universe, actions, fundamentals, queue, and bitemporal data.
   - {<<: *prices_projection, id: market.prices, kind: duckdb_table, location: "store/market.duckdb#main.prices", semantics: mutable_projection}
+  - {<<: *market_authoritative, id: market.schema_migrations, kind: duckdb_table, location: "store/market.duckdb#main.schema_migrations", schema_owner: [engine/schema_migrations.py, engine/migrations], producer: [engine.schema_migrations apply], readers: [engine.lib.db.connect schema check, snapshot publisher, backup], clock_and_key: Migration ID plus applied time and pre/post catalog hashes., retention: Retain every applied migration row permanently., registration: [revision 16 storage contract]}
   - {<<: *prices_evidence, id: market.intraday_prices, kind: duckdb_table, location: "store/market.duckdb#main.intraday_prices"}
   - {<<: *prices_evidence, id: market.price_observation_rejects, kind: duckdb_table, location: "store/market.duckdb#main.price_observation_rejects"}
   - {<<: *price_quarantine_state, id: market.price_quarantine, kind: duckdb_table, location: "store/market.duckdb#main.price_quarantine"}
@@ -751,6 +752,9 @@ datasets:
   - {<<: *primary_database_file, id: files.primary_database, kind: file_set, location: "store/market.duckdb", semantics: authoritative}
   - {<<: *snapshot_file, id: files.published_snapshots, kind: generation, location: "store/snapshots/market-*.duckdb"}
   - {<<: *snapshot_file, id: files.snapshot_manifests, kind: generation, location: "store/snapshots/market-*.json", semantics: append_only_evidence}
+  - {<<: *snapshot_file, id: files.generation_cold_parts, kind: generation, location: "store/snapshots/parts/**"}
+  - {<<: *snapshot_file, id: files.generation_cohort_blobs, kind: generation, location: "store/snapshots/blobs/**"}
+  - {<<: *snapshot_file, id: files.generation_reader_pins, kind: file_set, location: "store/snapshots/pins/**", semantics: current_state, backup: Excluded; pins are process lifetime locks., rebuild: "recompute: readers re-create their pin when they open a generation."}
   - {<<: *nasdaq_file, id: files.nasdaq_universe_source, kind: file_set, location: "store/nasdaqtraded-*.txt"}
   - {<<: *shadow_control_file, id: files.agent_shadow_control, kind: file_set, location: "store/agent-shadow-control.json"}
   - {<<: *free_database_file, id: files.free_sources_database, kind: file_set, location: "store/pit/free-sources.duckdb", semantics: authoritative}
