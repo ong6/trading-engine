@@ -5319,4 +5319,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** final integration snapshot records the deltas.
 - **Next:** freeze source pins, rehearse the copy and run both timezone suites.
 
+## 2026-10-30 — Pin the integrated P15 revision 21 and frozen runtime contracts
+
+- **Why:** coordinated revision-21 integration re-pin after the accepted source changes; the pre-open lane reported 104 source-pin failures.
+- **What:** hash the complete registration import closure and cite the last pinned-source commit; recompute its canonical document hash. E1 v8, sector v12 and XS v23 replace only runtime digests and retain the deployed predecessors and every frozen trial value.
+- **Evidence:** python -m tools.registration_identity --base origin/main → PASS; computed E1, sector and XS digests equal their literals.
+- **Metrics:** final integration snapshot records the deltas.
+- **Next:** disposable-store rehearsal and both timezone acceptance suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
