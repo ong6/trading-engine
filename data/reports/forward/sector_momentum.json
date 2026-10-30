@@ -75,7 +75,7 @@
     "sector_momentum": {
       "cancelled": 0,
       "filled": 3,
-      "pending": 0,
+      "pending": 4,
       "rejected": 0
     },
     "spy_benchmark": {
@@ -178,35 +178,35 @@
     "superseded_runtime_contract_sha256": "c7c868a9176172eafab99427723ce7edf5bdb7326693cb9f351ff29ab52d9168"
   },
   "metrics": {
-    "drawdown_improvement": 0.008186460889993863,
-    "excess_return": 0.021721299426994856,
+    "drawdown_improvement": 0.01365500603558334,
+    "excess_return": 0.03266405186014154,
     "sector_momentum": {
-      "end_equity": 44147.48691283552,
+      "end_equity": 43856.51792307627,
       "max_drawdown": -0.008695331905714587,
       "start_equity": 43051.44709703297,
-      "total_return": 0.025458837965009584
+      "total_return": 0.018700203601258014
     },
     "spy_benchmark": {
-      "end_equity": 40218.98024536134,
-      "max_drawdown": -0.01688179279570845,
+      "end_equity": 39509.69948364259,
+      "max_drawdown": -0.022350337941297926,
       "start_equity": 40069.21999145509,
-      "total_return": 0.0037375385380147286
+      "total_return": -0.013963848258883527
     }
   },
   "observation": {
-    "as_of": "2026-10-29",
-    "calendar_days_available": 10,
+    "as_of": "2026-10-30",
+    "calendar_days_available": 11,
     "cost_break_session": "2026-10-19",
     "eligible_after": "2027-10-19",
-    "equity_sha256": "87ef571172249c6e77270cb9e27014021316b0d07e4b4ff91db715f2a5f89856",
+    "equity_sha256": "aba52dc6b23773d306a36e66b927cb92fcc32674e28e0a028007d27e65263e8f",
     "evaluation_clock_start": "2026-10-19",
     "first_shared_date": "2026-09-04",
-    "forward_ledger_sha256": "b27c225b0b919f20e2ee8d4365e192c9484d9488bfad7a33d1028d68f3f1ab34",
+    "forward_ledger_sha256": "5292b8421a650f8e45a1cbc3b371f397fa26abfa73caebe2cd04347047a6a33f",
     "mature": false,
     "minimum_shared_sessions": 200,
     "pre_break_shared_sessions": 30,
-    "shared_sessions_available": 9,
-    "shared_sessions_in_window": 9,
+    "shared_sessions_available": 10,
+    "shared_sessions_in_window": 10,
     "window_start": "2026-10-19"
   },
   "paper_only": true,
