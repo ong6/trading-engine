@@ -15,14 +15,12 @@
 | 11 | Dual Momentum (GEM) | 2026-07-17 | $38,271 | −1.87% | −5.63% | −5.72% | 1 | 4 | +0.71% |
 | 12 | Dual Momentum (regime-gated) | 2026-07-17 | $38,271 | −1.87% | −5.63% | −5.72% | 1 | 4 | +0.71% |
 | 13 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $36,536 | −6.32% | −6.81% | −16.71% | 50 | 119 | +8.97% |
-| 14 | p15_ai_ranked | 2026-09-26 | $9,338 ‡ | −6.62% | −6.36% | −9.58% | 7 | 90 | +1.23% |
+| 14 | p15_ai_ranked | 2026-09-26 | $9,298 | −7.02% | −6.76% | −9.58% | 7 | 90 | +1.35% |
 | 15 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $36,006 | −7.68% | −8.47% | −17.31% | 50 | 50 | +7.38% |
-| 16 | p15_rule_control | 2026-09-26 | $9,212 ‡ | −7.88% | −7.62% | −13.03% | 9 | 50 | +0.46% |
-| 17 | p15_hybrid_veto | 2026-09-26 | $9,208 ‡ | −7.92% | −7.66% | −12.46% | 9 | 52 | −0.16% |
+| 16 | p15_rule_control | 2026-09-26 | $9,180 | −8.20% | −7.94% | −13.03% | 7 | 52 | +3.60% |
+| 17 | p15_hybrid_veto | 2026-09-26 | $9,179 | −8.21% | −7.96% | −12.46% | 8 | 53 | +3.26% |
 
 _Regime: **risk-on** · each return uses its book's persisted starting capital · as of 2026-10-29._
-
-_‡ marked through 2026-10-28: p15_ai_ranked, p15_rule_control, p15_hybrid_veto. A P15 book is marked by its own window after that session's P15 fills, never provisionally by the league._
 
 ## Commission break
 
@@ -41,10 +39,10 @@ _‡ marked through 2026-10-28: p15_ai_ranked, p15_rule_control, p15_hybrid_veto
 | Dual Momentum (GEM) | +0.80% | $0.00 |
 | Dual Momentum (regime-gated) | +0.80% | $0.00 |
 | EW Screen — Inverse-Vol Weighted | +8.42% | $0.00 |
-| p15_ai_ranked | +0.86% | $13.99 |
+| p15_ai_ranked | +0.43% | $13.99 |
 | XS Momentum 12-1 (unscreened control) | +10.92% | $0.00 |
-| p15_rule_control | +3.59% | $4.85 |
-| p15_hybrid_veto | +2.37% | $6.02 |
+| p15_rule_control | +3.23% | $5.59 |
+| p15_hybrid_veto | +2.05% | $6.39 |
 
 _† commissions from the recorded cost-profile break (2026-10-19); evaluation clocks restart at each break._
 
@@ -57,9 +55,9 @@ These names have not TRADED since the date shown, so they are valued at a close 
 | ew_benchmark | IOVA | 56.4740 | 2026-10-28 | 1 | $836.38 | 2.16% |
 | ew_voltarget | IOVA | 34.0379 | 2026-10-28 | 1 | $504.10 | 1.38% |
 | momo_stopped | IOVA | 274.5308 | 2026-10-28 | 1 | $4,065.80 | 10.15% |
-| p15_ai_ranked | IOVA | 41.1981 | 2026-10-28 | 1 | $610.14 | 6.53% |
-| p15_hybrid_veto | IOVA | 43.1404 | 2026-10-28 | 1 | $638.91 | 6.94% |
-| p15_rule_control | IOVA | 42.6614 | 2026-10-28 | 1 | $631.82 | 6.86% |
+| p15_ai_ranked | IOVA | 41.1981 | 2026-10-28 | 1 | $610.14 | 6.56% |
+| p15_hybrid_veto | IOVA | 43.1404 | 2026-10-28 | 1 | $638.91 | 6.96% |
+| p15_rule_control | IOVA | 42.6614 | 2026-10-28 | 1 | $631.82 | 6.88% |
 | template_top5 | IOVA | 555.4829 | 2026-10-28 | 1 | $8,226.70 | 20.14% |
 | template_top5_gated | IOVA | 555.4829 | 2026-10-28 | 1 | $8,226.70 | 20.14% |
 | xs_momentum_12_1 | IOVA | 52.6316 | 2026-10-28 | 1 | $779.47 | 2.16% |
