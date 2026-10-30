@@ -78,6 +78,9 @@ from tools import log_retention, model_gateway_check
 from tools.stage_timings import FLOW_FIELDS, load_timings
 
 OPS_DIR = LOGS_DIR / "ops"
+FINDING_STATE = "finding-state.json"
+CHRONIC_HOURS = 6
+DIGEST_UNIT = "trading-engine-ops-digest.service"
 DIGEST_RETENTION_DAYS = 30
 METRIC_RETENTION_DAYS = 180
 MAX_BACKFILL_HOURS = 48
@@ -111,8 +114,6 @@ HOST_FAILURE_RE = re.compile(
     r"|\[queue[^]]*\].*\bfailed\b", re.IGNORECASE)
 DRAIN_OUTCOME_RE = re.compile(
     r"\[queue\] drain outcome: \d+ done, (\d+) timed out, (\d+) failed, (\d+) left pending")
-FAILED_COUNT_RE = re.compile(
-    r'\b(failed(?:_this_run)?|unavailable_count)["\s]*[:=]\s*([1-9]\d*)\b')
 HOST_LOG_GLOBS = (
     "~/.local/state/te-autopush.log", "~/.local/state/store-sync.log",
     "~/news-scraper/logs/ensure_scraper.log", "~/news-scraper/logs/*.log",
@@ -193,6 +194,8 @@ def floor_hour(moment: datetime) -> datetime:
 
 def classify(line: str) -> str | None:
     head = line[:CLASSIFY_CHARS]
+    if "[ops-digest]" in head:
+        return None
     # These producers print a structured, justified skip for a fresh snapshot, same-day
     # successful backup or a non-session tick. They are completed no-ops.
     try:
@@ -204,22 +207,185 @@ def classify(line: str) -> str | None:
                 "latest snapshot is", "already successfully", "already successful",
                 "not a trading session", "no session")):
         return None
+    if isinstance(payload, dict):
+        return structured_level(payload)
     # The queue's drain summary names every outcome, so classify it by its counts:
     # "0 timed out, 0 failed" is a clean drain, not a failure.
     if outcome := DRAIN_OUTCOME_RE.search(head):
         timed_out, failed, pending = (int(value) for value in outcome.groups())
         return "error" if timed_out or failed else ("warn" if pending else None)
+    # Completed repair and numeric progress fields are not prose warnings.
+    if repair := re.search(r"stale provisional bars=(\d+) refetched=(\d+) retired=(\d+)", head):
+        bars, refetched, retired = map(int, repair.groups())
+        return "warn" if bars > refetched + retired else None
+    head = re.sub(r'"retry":\s*(true|false),?', "", head)
+    positive = re.search(
+        r'\b(?:\w*failed|refused|stale|unavailable_count)["\s]*[:=]\s*([1-9]\d*)\b', head)
+    head = re.sub(r'\b(?:\w*failed|refused|stale|retry)["\s]*[:=]\s*0\b', "", head)
     if ERROR_RE.search(head) or HOST_FAILURE_RE.search(head):
         return "error"
-    if WARN_RE.search(head) or FAILED_COUNT_RE.search(head):
+    if WARN_RE.search(head) or positive:
         return "warn"
     return None
+
+
+def structured_level(payload: object) -> str | None:
+    """Progress JSON carries statuses, levels and counters, not keyword alerts."""
+    levels = []
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            # Archive progress includes a historical attempt census beside this
+            # invocation's outcomes. Only the invocation can raise a new warning.
+            if key == "attempts" and "failed_this_run" in payload:
+                continue
+            if key in {"failed", "refused"} and key + "_this_run" in payload:
+                continue
+            label = str(value).lower()
+            if key in {"level", "severity", "status"}:
+                if label in {"error", "critical", "failed", "fail"}:
+                    levels.append("error")
+                elif label in {"warn", "warning", "degraded", "skipped", "partial",
+                               "invalid", "unavailable", "late", "not_ready", "withheld", "stale"}:
+                    levels.append("warn")
+            if (key in {"failed", "failed_this_run", "refused", "refused_this_run",
+                        "unavailable_count"}
+                    or key.endswith("_failed")) and isinstance(value, int | float) and value > 0:
+                levels.append("warn")
+            if level := structured_level(value):
+                levels.append(level)
+    elif isinstance(payload, list):
+        levels = [level for item in payload if (level := structured_level(item))]
+    return "error" if "error" in levels else "warn" if levels else None
 
 
 def signature(line: str) -> str:
     text = re.sub(r"\b[0-9a-f]{8,}\b", "<hex>", line[:CLASSIFY_CHARS].strip())
     text = re.sub(r"\d+", "#", text)
     return re.sub(r"\s+", " ", text)[:160]
+
+
+def findings(data: dict) -> list[dict]:
+    """Use the same warning/failure inputs as the digest's original status decision."""
+    result: dict[str, dict] = {}
+
+    def add(source: str, message: str, count: int = 1, severity: int = 1) -> None:
+        key = json.dumps([source, signature(message)])
+        if key not in result:
+            result[key] = {"key": key, "source": source, "message": message,
+                           "count": 0, "severity": severity}
+        result[key]["count"] += count
+        result[key]["severity"] = max(result[key]["severity"], severity)
+
+    for source, signals in data["signals"].items():
+        for (level, message), count in signals.signatures.items():
+            add(source, message, count, 2 if level == "error" else 1)
+    for row in data["runs"]:
+        if row["unit"] != DIGEST_UNIT and row.get("slow"):
+            add("unit:" + row["unit"], "run over 3 times typical duration")
+        if row["result"] == SKIPPED_RESULT:
+            add("unit:" + row["unit"], "run skipped")
+    for job, receipt in data.get("work", []):
+        add("work:" + job, receipt.label)
+    for receipt in data.get("warned_job_receipts", []):
+        add("job:" + receipt["job_id"], receipt["reason"])
+    for gap in data.get("receipt_projection_gaps", []):
+        add("receipt", gap)
+    for probe in data["probes"]:
+        if probe["ms"] > SLOW_PROBE_MS:
+            add("probe:" + probe["target"], "response over 10 seconds")
+        if probe["target"] == "/health" and probe["http_status"] != 200:
+            add("probe:/health", "health unavailable", severity=3)
+    contract = data.get("contract")
+    if contract and contract["status"] != "ok":
+        for item in contract["violations"]:
+            add("contract:" + item["subject"], item["rule"])
+        for error in contract["errors"]:
+            add("contract:probe", error)
+        if not contract["violations"] and not contract["errors"]:
+            add("contract", contract["status"])
+    for check in (data.get("gateway") or {}).get("checks", []):
+        if not check["ok"]:
+            # The check name identifies the condition; an observed build change must
+            # start a new condition rather than inherit a previous build's history.
+            message = check["name"]
+            source = "gateway"
+            if message == "restart_runtime":
+                source += ":" + str(check["observed"])
+            add(source, message, severity=3 if check["severity"] == "fail" else 1)
+    if data["failed_runs"]:
+        add("runs", "failed run", data["failed_runs"], severity=3)
+    return list(result.values())
+
+
+def classify_findings(hour: datetime, items: list[dict], state_path: Path) -> tuple[list[dict], str | None]:
+    """Six consecutive observations establish chronic; any increase resets the streak.
+
+    History covers only adjacent UTC hours. A UTC-day reminder counts any new or
+    worsening warning already raised that day. State loss starts a fresh history.
+    """
+    try:
+        state = json.loads(state_path.read_text())
+        if state["version"] != 1 or not isinstance(state["items"], dict):
+            raise ValueError("invalid schema")
+        for row in state["items"].values():
+            if not isinstance(row, dict):
+                raise ValueError("invalid finding")
+            for name in ("first_seen", "last_seen", "stable_since"):
+                _utc(row[name])
+            if (type(row["count"]) is not int or row["count"] < 1
+                    or row["severity"] not in {1, 2, 3}
+                    or not isinstance(row["reminded_day"], str)
+                    or not _utc(row["first_seen"]) <= _utc(row["stable_since"]) <= _utc(row["last_seen"])):
+                raise ValueError("invalid finding")
+        old = state["items"]
+        state_error = None
+    except (OSError, ValueError, KeyError, TypeError):
+        old = {}
+        state_error = "warning history missing or unreadable; using unsuppressed findings"
+    current = {}
+    classified = []
+    stamp, day = _iso(hour), f"{hour:%Y-%m-%d}"
+    for item in items:
+        previous = old.get(item["key"])
+        adjacent = previous and _utc(previous["last_seen"]) == hour - timedelta(hours=1)
+        rising = bool(adjacent and (item["count"] > previous["count"]
+                                   or item["severity"] > previous["severity"]))
+        first = previous["first_seen"] if adjacent else stamp
+        stable = previous["stable_since"] if adjacent and not rising else stamp
+        chronic = (hour - _utc(stable)).total_seconds() >= (CHRONIC_HOURS - 1) * 3600
+        category = "worsening" if rising else "chronic" if chronic else "new"
+        reminded = previous["reminded_day"] if adjacent else ""
+        reminder = category == "chronic" and reminded != day
+        alert = item["severity"] == 3 or category != "chronic" or reminder
+        if alert:
+            reminded = day
+        current[item["key"]] = {"first_seen": first, "last_seen": stamp,
+                                "stable_since": stable, "count": item["count"],
+                                "severity": item["severity"], "reminded_day": reminded}
+        classified.append({**item, "category": category, "first_seen": first,
+                           "reminder": reminder, "alert": alert})
+    try:
+        write_text_atomic(state_path, json.dumps({"version": 1, "items": current},
+                                                sort_keys=True) + "\n")
+    except OSError:
+        state_error = "warning history could not be saved; using unsuppressed findings"
+        for item in classified:
+            item["alert"] = True
+    return classified, state_error
+
+
+def apply_finding_history(hour: datetime, data: dict, state_path: Path) -> None:
+    items, error = classify_findings(hour, findings(data), state_path)
+    data["findings"] = items
+    if error:
+        data["gaps"].append(error)
+    # Keep the original FAIL decision, including any unrepresented failure input.
+    if data["status"] == "FAIL" or any(i["severity"] == 3 for i in items):
+        data["status"] = "FAIL"
+    elif any(i["alert"] for i in items) or (error and data["status"] == "WARN"):
+        data["status"] = "WARN"
+    else:
+        data["status"] = "OK"
 
 
 @dataclass
@@ -312,7 +478,8 @@ def parse_journal(
             continue
         stamp = _iso(datetime.fromtimestamp(int(entry["__REALTIME_TIMESTAMP"]) / 1e6, UTC))
         if entry.get("SYSLOG_IDENTIFIER") != "systemd":
-            signals.add(message)
+            if unit != DIGEST_UNIT:
+                signals.add(message)
             skipped = skipped or bool(skipped_re and skipped_re.search(message))
             continue
         if SYSTEMD_START_RE.match(message):
@@ -878,14 +1045,27 @@ def _invariants_lines(probe: dict | None) -> list[str]:
 
 def render(hour: datetime, data: dict) -> str:
     end = hour + timedelta(hours=1)
+    chronic = [i for i in data.get("findings", []) if i["category"] == "chronic"]
+    label = data["status"]
+    if label == "OK" and chronic:
+        label += f" ({len(chronic)} chronic)"
     lines = [
-        f"# Ops digest {hour:%Y-%m-%d %H:00}–{end:%H:00} UTC — {data['status']}",
+        f"# Ops digest {hour:%Y-%m-%d %H:00}–{end:%H:00} UTC — {label}",
         "",
         f"Collected {data['collected_at']}. {data['failed_runs']} failed run(s), "
         f"{data['error_lines']} error line(s), {data['warn_lines']} warning line(s).",
     ]
     if data["gaps"]:
         lines += ["", "**Collection gaps:** " + "; ".join(data["gaps"])]
+    for title, items in (
+        ("New or worsening findings", [i for i in data.get("findings", []) if i["alert"]]),
+        ("Chronic findings", chronic),
+    ):
+        if items:
+            lines += ["", "## " + title, ""]
+            lines += [f"- {i['source']}: {i['message']} ×{i['count']} "
+                      f"({i['category']}; first seen {i['first_seen']}"
+                      + ("; daily reminder" if i["reminder"] else "") + ")" for i in items]
     if data["runs"]:
         lines += ["", "## Unit runs", "", "| unit | start | end | duration | typical | result |",
                   "|---|---|---|---|---|---|"]
@@ -1070,7 +1250,8 @@ def collect_hour(
         status = "FAIL"
     elif errors or warns or degraded or warned_job_receipts or receipt_projection_gaps or (
             gateway_status == "warn") or any(
-            r.get("slow") or r["result"] == SKIPPED_RESULT for r in runs) or any(
+            (r["unit"] != DIGEST_UNIT and r.get("slow")) or r["result"] == SKIPPED_RESULT
+            for r in runs) or any(
             p["ms"] > SLOW_PROBE_MS for p in probes) or (
             contract is not None and contract["status"] != "ok"):
         status = "WARN"
@@ -1084,7 +1265,11 @@ def collect_hour(
         "section_changes": changes, "signals": signals, "footprint": fp, "work": degraded,
         "contract": contract, "invariants": invariants, "gateway": gateway_report,
         "job_receipts": job_receipts,
+        "warned_job_receipts": warned_job_receipts,
+        "receipt_projection_gaps": receipt_projection_gaps,
     }
+    apply_finding_history(hour, data, ops_dir / FINDING_STATE)
+    status = data["status"]
     digest = ops_dir / "hourly" / f"{hour:%Y-%m-%d}" / f"{hour:%H}.md"
     text = render(hour, data)
     write_text_atomic(digest, text)

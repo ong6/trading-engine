@@ -50,7 +50,7 @@ def test_current_pins_pass_and_report_semantic_versions_only():
     ({"proxy_source_sha256": "0" * 64}, "proxy_source_sha256", "fail"),
     ({"traex": "traecli 0.299.9"}, "startup_runtime", "fail"),
     ({"traex": None}, "startup_runtime", "fail"),
-    ({"token": {"present": True, "hours_left": 47.9}}, "token_hours_left", "warn"),
+    ({"token": {"present": True, "hours_left": 1.9}}, "token_hours_left", "warn"),
     ({"token": {"present": True, "hours_left": None}}, "token_hours_left", "warn"),
     ({"relogin": {"last_ok": False}}, "relogin_last_ok", "warn"),
     ({"catalog": {"age_s": 48 * 3600 + 1}}, "catalog_age", "warn"),
@@ -142,3 +142,67 @@ def test_main_exits_non_zero_on_mismatch(monkeypatch, capsys):
     monkeypatch.setattr(model_gateway_check, "check", lambda **_: model_gateway_check.evaluate(
         health(), catalog(), CURRENT))
     assert model_gateway_check.main([]) == 0
+
+
+@pytest.mark.parametrize('remaining', [48.0, 47.9, 36.0, 12.0, 2.0])
+def test_token_renewal_window_does_not_warn_before_routine_relogin(remaining):
+    report = model_gateway_check.evaluate(
+        health(token={'present': True, 'hours_left': remaining}), catalog(), CURRENT)
+    assert report['status'] == 'ok'
+
+
+@pytest.mark.parametrize('last_ok', [True, None, False])
+def test_imminent_expiry_warns_even_if_an_older_relogin_succeeded(last_ok):
+    report = model_gateway_check.evaluate(
+        health(token={'present': True, 'hours_left': 1.9}, relogin={'last_ok': last_ok}),
+        catalog(), CURRENT)
+    assert 'token_hours_left' in report['failed']
+    assert report['status'] == 'warn'
+
+
+def test_failed_relogin_warns_with_plenty_of_token_lifetime():
+    report = model_gateway_check.evaluate(health(relogin={'last_ok': False}), catalog(), CURRENT)
+    assert failed(report) == {'relogin_last_ok'}
+
+
+def test_runtime_resolution_prefers_effective_unit_pin_with_safe_quoting(tmp_path, monkeypatch):
+    pinned = tmp_path / 'pinned cli'
+    pinned.write_text('')
+    pinned.chmod(0o755)
+    monkeypatch.setenv('TRAEX_BIN', '/different/cli')
+    commands = []
+
+    def run(args, timeout):
+        commands.append(args)
+        if args[0] == 'systemctl':
+            return f'Environment="TRAEX_BIN={pinned}" IRRELEVANT="$(touch never)"\n'
+        assert args == [str(pinned), '--version']
+        return CURRENT + '\nbuild details\n'
+
+    report = model_gateway_check.check(fetch=lambda path: health() if path == '/healthz'
+                                       else catalog(), run=run)
+    assert report['runtime']['installed'] == '0.210.1'
+    assert report['restart_simulation']['status'] == 'ok'
+    assert commands[0] == ['systemctl', '--user', 'show', 'trae-proxy.service', '-p', 'Environment']
+
+
+@pytest.mark.parametrize('environment', [None, '', 'Environment=PATH=/usr/bin',
+                                         'Environment="TRAEX_BIN=broken',
+                                         'Environment=TRAEX_BIN=/absent/cli'])
+def test_runtime_resolution_falls_back_when_unit_pin_is_absent_or_unreadable(
+        environment, tmp_path, monkeypatch):
+    fallback = tmp_path / 'local-cli'
+    fallback.write_text('')
+    fallback.chmod(0o755)
+    monkeypatch.setenv('TRAEX_BIN', str(fallback))
+    assert model_gateway_check.runtime_binary(lambda *_: environment) == str(fallback)
+
+
+def test_runtime_resolution_handles_a_runner_error(tmp_path, monkeypatch):
+    monkeypatch.delenv('TRAEX_BIN', raising=False)
+    monkeypatch.setattr(model_gateway_check.shutil, 'which', lambda _: '/opt/local-cli')
+
+    def unreadable(*_):
+        raise OSError('manager unavailable')
+
+    assert model_gateway_check.runtime_binary(unreadable) == '/opt/local-cli'

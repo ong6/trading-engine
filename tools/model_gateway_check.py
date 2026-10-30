@@ -7,7 +7,7 @@ POST) and the installed CLI's ``--version`` line, then checks:
 - the proxy is healthy and reports the pinned proxy version and source hash;
 - the runtime the proxy cached at its start is a reviewed build;
 - the configured model's catalog entry matches the pinned entry;
-- the token has at least 48 hours left, the last relogin did not fail, and the model
+- the token has at least two hours left, the last relogin did not fail, and the model
   catalog was refreshed within 48 hours;
 - the installed runtime, which a proxy restart would report, is also a reviewed build
   (``restart_runtime``), so drift between the startup and installed builds is visible
@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -31,7 +32,9 @@ from pathlib import Path
 from engine.lib.provenance import canonical_sha256
 from server import agent_model_client as client
 
-MIN_TOKEN_HOURS = 48.0
+# The proxy renews below 36 h every 30 min. Two hours leave several maintenance
+# attempts and time to intervene; a failed renewal warns immediately at any age.
+MIN_TOKEN_HOURS = 2.0
 MAX_CATALOG_AGE_S = 48 * 3600
 VERSION_TIMEOUT_S = 20.0
 RUNTIME_BINARIES = ("traex", "traecli", "trae-cli")
@@ -61,8 +64,20 @@ def _run(args: list[str], timeout: float) -> str | None:
     return done.stdout if done.returncode == 0 else None
 
 
-def runtime_binary() -> str | None:
-    """Resolve the CLI the way the proxy does: ``TRAEX_BIN``, ``PATH``, then ``~/.local/bin``."""
+def runtime_binary(run: Runner = _run) -> str | None:
+    """Prefer the proxy unit's effective pin, then use the local proxy-style resolution."""
+    try:
+        environment = run(
+            ["systemctl", "--user", "show", "trae-proxy.service", "-p", "Environment"],
+            VERSION_TIMEOUT_S,
+        )
+        values = dict(item.split("=", 1) for item in shlex.split(
+            (environment or "").removeprefix("Environment=").strip()) if "=" in item)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        values = {}
+    pinned = values.get("TRAEX_BIN")
+    if pinned and os.access(pinned, os.X_OK):
+        return pinned
     configured = os.environ.get("TRAEX_BIN")
     if configured and os.access(configured, os.X_OK):
         return configured
@@ -76,7 +91,7 @@ def runtime_binary() -> str | None:
 
 def installed_runtime(run: Runner = _run, binary: str | None = None) -> str | None:
     """The first ``--version`` line, exactly as a restarted proxy would cache it."""
-    binary = binary or runtime_binary()
+    binary = binary or runtime_binary(run)
     if binary is None:
         return None
     output = run([binary, "--version"], VERSION_TIMEOUT_S)

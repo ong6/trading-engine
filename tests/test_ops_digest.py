@@ -40,7 +40,7 @@ def _no_host_units(tmp_path, monkeypatch):
     monkeypatch.setattr(ops_digest, "invariants_probe", lambda _ops_dir: INVARIANTS_IDLE)
     # The gateway preflight reads the installed CLI's version through the fake runner.
     # Resolve a fixed path so a host without the CLI on PATH (CI) builds the same report.
-    monkeypatch.setattr(ops_digest.model_gateway_check, "runtime_binary", lambda: "/opt/cli")
+    monkeypatch.setattr(ops_digest.model_gateway_check, "runtime_binary", lambda _run: "/opt/cli")
 
 
 def _entry(stamp: str, message: str, ident: str = "python") -> str:
@@ -1168,8 +1168,8 @@ def test_invariants_probe_retries_errors_and_reports_a_timeout(tmp_path, monkeyp
 
 @pytest.mark.parametrize(("health", "status", "detail"), [
     (_gateway_health(), "OK", "Gateway OK: startup runtime 0.210.1, installed 0.210.1"),
-    (_gateway_health(token={"present": True, "hours_left": 12.0}), "WARN",
-     "- [warn] token_hours_left: observed `12.0`"),
+    (_gateway_health(token={"present": True, "hours_left": 1.0}), "WARN",
+     "- [warn] token_hours_left: observed `1.0`"),
     (_gateway_health(traex="traecli 0.299.9"), "FAIL", "- [fail] startup_runtime"),
 ])
 def test_hourly_digest_embeds_the_model_gateway_preflight(tmp_path, health, status, detail):
@@ -1205,3 +1205,124 @@ def test_timer_slot_inside_a_run_in_progress_is_not_missing():
 
     cron = ops_digest.Schedule("run_daily", "cron 30 22 * * 1-5", None)
     assert ops_digest._unmatched(cron, [at(23, 0)], runs) == [at(23, 0)]
+
+
+@pytest.mark.parametrize(('line', 'expected'), [
+    ('[ops-digest] 2026-10-24T01 WARN -> hourly/01.md', None),
+    ('[ops-digest] log retention failed: unavailable', None),
+    ('{"attempts": {"failed": 0, "refused": 0}, "retry": true}', None),
+    ('{"attempts": {"failed": 19, "refused": 2}, "failed_this_run": 0, '
+     '"refused_this_run": 0, "status": "active"}', None),
+    ('{"failed_this_run": 1, "status": "active"}', 'warn'),
+    ('{"refused_this_run": 1, "status": "active"}', 'warn'),
+    ('{"failed": 0, "open_label_failed": 0, "status": "complete"}', None),
+    ('{"failed": 0, "open_label_failed": 2}', 'warn'),
+    ('{"level": "error", "message": "failed=0"}', 'error'),
+    ('{"status": "failed", "failed": 0}', 'error'),
+    ('"retry": true,', None),
+    ('[incremental] active_liquid=4000 failed=0', None),
+    ('[incremental] active_liquid=4000 failed=2', 'warn'),
+    ('[meta] updated data/_meta.json (stale=0)', None),
+    ('[meta] updated data/_meta.json (stale=8)', 'warn'),
+    ('[incremental] stale provisional bars=4 refetched=4 retired=0', None),
+    ('[incremental] stale provisional bars=4 refetched=3 retired=0', 'warn'),
+])
+def test_digest_noise_uses_outcomes_and_levels(line, expected):
+    assert ops_digest.classify(line) == expected
+
+
+def test_digest_unit_output_is_excluded_but_its_failed_lifecycle_is_visible():
+    signals = ops_digest.SourceSignals()
+    runs = ops_digest.parse_journal(ops_digest.DIGEST_UNIT,
+                                   _journal(ops_digest.DIGEST_UNIT, exit_code=1), signals)
+    assert signals.counts == {'error': 0, 'warn': 0}
+    assert runs[0].result == 'exit-code'
+
+
+def _finding(count=1, severity=1):
+    return {'key': 'fixed-condition', 'source': 'test', 'message': 'condition',
+            'count': count, 'severity': severity}
+
+
+def test_chronic_history_worsening_severity_reminders_and_resolution(tmp_path):
+    state = tmp_path / 'state.json'
+    start = datetime(2026, 10, 24, 12, tzinfo=UTC)
+    for h in range(ops_digest.CHRONIC_HOURS):
+        [item], _ = ops_digest.classify_findings(start + timedelta(hours=h), [_finding(3)], state)
+    assert item['category'] == 'chronic' and not item['alert']
+    assert item['first_seen'] == '2026-10-24T12:00:00Z'
+    for h in range(6, 12):
+        [item], _ = ops_digest.classify_findings(start + timedelta(hours=h), [_finding(2)], state)
+        assert not item['alert']  # falling count keeps chronic history
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=12), [_finding(2)], state)
+    assert item['reminder'] and item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=13), [_finding(2)], state)
+    assert not item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=14), [_finding(3)], state)
+    assert item['category'] == 'worsening' and item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=15), [_finding(3, 2)], state)
+    assert item['category'] == 'worsening' and item['alert']
+    ops_digest.classify_findings(start + timedelta(hours=16), [], state)
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=17), [_finding()], state)
+    assert item['category'] == 'new' and item['alert']
+
+
+@pytest.mark.parametrize('contents', [None, '{broken', '[]', '{"version": 99, "items": {}}',
+                                      '{"version": 1, "items": {"bad": []}}'])
+def test_state_loss_or_corruption_never_suppresses_warn_or_fail(tmp_path, contents):
+    state = tmp_path / 'state.json'
+    for h in range(6):
+        ops_digest.classify_findings(NOW + timedelta(hours=h), [_finding()], state)
+    if contents is None:
+        state.unlink()
+    else:
+        state.write_text(contents)
+    [item], error = ops_digest.classify_findings(NOW + timedelta(hours=6), [_finding()], state)
+    assert item['category'] == 'new' and item['alert'] and error
+    for h in range(7, 14):
+        [item], _ = ops_digest.classify_findings(NOW + timedelta(hours=h), [_finding(1, 3)], state)
+        assert item['alert']
+
+
+def test_state_write_failure_uses_unsuppressed_findings(tmp_path, monkeypatch):
+    state = tmp_path / 'state.json'
+    for h in range(6):
+        ops_digest.classify_findings(NOW + timedelta(hours=h), [_finding()], state)
+
+    def unwritable(*_):
+        raise OSError('read only')
+
+    monkeypatch.setattr(ops_digest, 'write_text_atomic', unwritable)
+    [item], error = ops_digest.classify_findings(NOW + timedelta(hours=6), [_finding()], state)
+    assert item['category'] == 'chronic' and item['alert'] and error
+
+
+def test_collection_reports_chronic_contract_and_preserves_failures(tmp_path, monkeypatch):
+    monkeypatch.setattr(ops_digest, 'contract_probe', lambda _: {
+        **CONTRACT_OK, 'status': 'violations', 'violations': [
+            {'rule': 'not-enabled', 'subject': 'example.timer', 'detail': {}}]})
+    for h in range(6):
+        [hour] = _collect(tmp_path, {}, NOW + timedelta(hours=h))
+    assert hour['status'] == 'OK'
+    assert 'OK (1 chronic)' in hour['text'] and '## Chronic findings' in hour['text']
+    assert 'first seen 2026-10-10T02:00:00Z' in hour['text']
+    (tmp_path / 'logs/ops' / ops_digest.FINDING_STATE).unlink()
+    [hour] = _collect(tmp_path, {}, NOW + timedelta(hours=6))
+    assert hour['status'] == 'WARN'
+    [hour] = _collect(tmp_path, {'failed.service': _journal('failed.service', exit_code=1)},
+                     NOW + timedelta(hours=7))
+    assert hour['status'] == 'FAIL'
+
+
+def test_archived_week_replay_preserves_every_fail_and_makes_warnings_exceptional(tmp_path):
+    from tests.ops_digest_replay import FIXTURE, replay
+
+    results = replay(FIXTURE, tmp_path / 'state.json')
+    assert len(results) == 205
+    failures = [row for row in results if row['before'] == 'FAIL']
+    assert len(failures) == 27
+    assert all(row['after'] == 'FAIL' and row['failed_runs'] > 0 for row in failures)
+    quiet_days = [row for row in results if '2026-10-24' <= row['hour'] < '2026-10-28']
+    assert len(quiet_days) == 96
+    assert sum(row['after'] == 'WARN' for row in quiet_days) < len(quiet_days) / 2
+    assert not any(row['after'] == 'FAIL' for row in quiet_days)

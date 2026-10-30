@@ -40,6 +40,20 @@ unless the journal records it. It never opens the primary DuckDB store, but its 
 probe holds an API read connection that refuses writers, so it runs clear of every other
 timer's start minute. Digests are kept 30 days and metrics 180 days. A missing source shows as a collection gap, never a failure.
 
+WARN means a new or worsening finding. A finding becomes chronic after six consecutive
+hourly observations with an unchanged or falling count and severity; it appears under
+“Chronic findings” with its first-seen time, and the headline becomes `OK (k chronic)`.
+The first chronic observation on a new UTC day raises one reminder. Any increase raises
+WARN immediately. Six hours span multiple poller cycles while exposing a new condition
+for a quarter of a day. History lives in `logs/ops/finding-state.json`, written atomically
+under the collector lock; missing, corrupt or unwritable history leaves findings unsuppressed.
+FAIL findings always raise FAIL. Digest-unit output and its own slow runs are excluded;
+its failed process lifecycle remains visible. Structured progress is classified by levels,
+statuses and current-run failure counts, including zero counters and completed repairs.
+The gateway check reads the proxy unit's effective `TRAEX_BIN` before local resolution.
+Token warnings cover failed re-login, unknown expiry, or less than two hours remaining;
+routine renewal starts at 36 hours and is checked every 30 minutes by the proxy.
+
 The report counts due slots only between matching installed timer/crontab observations saved by
 the collector. Earlier schedules and intervals spanning a schedule change are unknown. A missing
 run additionally requires readable journal or stage coverage over its whole allowed start window;

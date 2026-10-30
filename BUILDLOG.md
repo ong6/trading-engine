@@ -4796,4 +4796,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** manifest only; product, server and tools code unchanged.
 - **Next:** install the units from trading-alpha and confirm the live check.
 
+## 2026-10-30 — Give hourly operations warnings a history
+
+- **Why:** P24 ops, digest signal lane. Reproduction: `classify('{"attempts": {"failed": 0, "refused": 0}}')` and the previous `[ops-digest] ... WARN` summary both return `warn`; the archived October 24–27 reports are WARN in all 96 hours.
+- **What:** Ignore digest output and classify structured progress by current outcomes. Track findings atomically beside the digests: six stable hourly observations become chronic, increases alert immediately, and chronic warnings return once per UTC day. State loss leaves findings unsuppressed; FAIL always alerts.
+  Resolve the gateway binary from the proxy unit's effective pin. Warn on failed re-login or a token below two hours, after the proxy's routine 36-hour renewal window.
+- **Evidence:** `pytest tests/test_ops_digest.py tests/test_model_gateway_check.py` passes, including the 205-hour archived replay: October 24–27 WARN falls from 96 to 46 hours; all 27 archived FAIL hours remain FAIL.
+- **Metrics:** server/product unchanged; tools +200 LOC (session snapshot).
+- **Next:** orchestrator acceptance and deployment of the digest lane.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
