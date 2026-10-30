@@ -4796,4 +4796,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** manifest only; product, server and tools code unchanged.
 - **Next:** install the units from trading-alpha and confirm the live check.
 
+## 2026-10-30 — Bound every pre-open lock acquisition by one deadline
+
+- **Why:** P24 lane L1(d) item 3; a separate process holding a temporary advisory lock leaves acquisition blocked beyond a 0.2 s observation, before the DuckDB wait starts. Positive DuckDB waits also inherit an environment-controlled floor.
+- **What:** pre-open shares one monotonic deadline across both advisory locks and DuckDB retries. Other callers retain their existing waits; the environment cannot extend an opted-in deadline.
+  Expiry with store access records late/keep evidence without news or model work; continued contention logs an unavailable reason and exits retry (75). Free-lock decisions and table definitions stay unchanged.
+- **Evidence:** `pytest tests/test_lock_deadlines.py tests/test_p15_preopen.py tests/test_resources.py -W error` passes the temporary-file contention, near-deadline release, legacy waits and late/keep checks. Full suite: 6,165 passed; 104 source-pin failures left unchanged for the orchestrator.
+- **Metrics:** server +27 LOC, tools unchanged, product +33 LOC (session snapshot).
+- **Next:** orchestrator acceptance and the single registration re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

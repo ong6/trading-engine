@@ -180,7 +180,8 @@ _is_lock_error = is_lock_error  # back-compat alias
 
 def connect(path: str | Path | None = None, *,
             read_only: bool = False,
-            wait_s: float | None = None) -> duckdb.DuckDBPyConnection:
+            wait_s: float | None = None,
+            deadline: float | None = None) -> duckdb.DuckDBPyConnection:
     """Open the store. The ONLY sanctioned `duckdb.connect` on a store path.
 
     path       None -> settings.DEFAULT_DB (honours TRADING_ENGINE_DB).
@@ -194,6 +195,9 @@ def connect(path: str | Path | None = None, *,
                           floor for callers that KNOW they may race a long writer
                           (the queue drain reacquiring the store after a parallel
                           batch can land inside a nightly's ~4-minute collect).
+    deadline   Optional absolute monotonic ceiling on lock retries. Neither
+               wait_s nor the environment can extend it. At expiry only one
+               immediate attempt is allowed, so a free store can record evidence.
     After the window the original DuckDB exception is re-raised unchanged.
     """
     path = Path(path) if path is not None else settings.DEFAULT_DB
@@ -206,6 +210,9 @@ def connect(path: str | Path | None = None, *,
         wait_s = max(settings.lock_wait_s(), float(wait_s))
     # ceil so the window is at least covered: 60s/5s -> 12 tries, 6s/5s -> 2.
     tries = max(1, math.ceil(wait_s / _LOCK_RETRY_S)) if wait_s > 0 else 1
+    if deadline is not None and wait_s > 0:
+        deadline = min(deadline, time.monotonic() + wait_s)
+        tries = max(1, math.ceil(max(0.0, deadline - time.monotonic()) / _LOCK_RETRY_S) + 1)
     for attempt in range(1, tries + 1):
         try:
             con = duckdb.connect(str(path), read_only=read_only)
@@ -216,9 +223,15 @@ def connect(path: str | Path | None = None, *,
         except Exception as exc:  # duckdb.IOException et al.
             if not is_lock_error(exc) or attempt >= tries:
                 raise
+            delay = _LOCK_RETRY_S
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                delay = min(delay, remaining)
             log.info(f"[db] store locked (attempt {attempt}/{tries}) — "
-                  f"retrying in {_LOCK_RETRY_S:.0f}s")
-            time.sleep(_LOCK_RETRY_S)
+                  f"retrying in {delay:g}s")
+            time.sleep(delay)
     raise AssertionError("unreachable")  # pragma: no cover
 
 

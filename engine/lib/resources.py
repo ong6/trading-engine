@@ -15,6 +15,7 @@ import os
 import stat
 import subprocess
 import tempfile
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,21 +26,40 @@ log = get_logger("queue")
 
 
 @contextmanager
-def advisory_file_lock(path: str | Path):
+def advisory_file_lock(path: str | Path, *, deadline: float | None = None):
     """Serialize cooperating processes around a shared filesystem artifact.
 
     The lock file is intentionally persistent: unlinking it after release can
     let a new process lock a different inode while an existing waiter still
     holds the old one.
+
+    With a monotonic deadline, use non-blocking attempts and stop waiting at
+    that deadline. Omission preserves the blocking acquisition. An expired
+    deadline permits only an immediate attempt, never another sleep.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        if deadline is None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        else:
+            while True:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise AdvisoryLockTimeout(f"advisory lock deadline reached: {path.name}") from None
+                    time.sleep(min(0.05, remaining))
         try:
             yield
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+class AdvisoryLockTimeout(TimeoutError):
+    """An advisory lock remained held at the caller's acquisition deadline."""
 
 
 # --------------------------------------------------------------------------- #
