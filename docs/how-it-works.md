@@ -40,6 +40,25 @@ unless the journal records it. It never opens the primary DuckDB store, but its 
 probe holds an API read connection that refuses writers, so it runs clear of every other
 timer's start minute. Digests are kept 30 days and metrics 180 days. A missing source shows as a collection gap, never a failure.
 
+WARN means a new or worsening finding. A stable finding becomes chronic after six consecutive
+hourly observations, after three distinct hours within 24 hours, or when it recurs on the
+next UTC day. Counts and severity are compared with the last actual observation, including
+across silent hours. Once established, chronic status persists until history expires; it appears under
+“Chronic findings” with its first-seen time, and the headline becomes `OK (k chronic)`.
+Known chronic warnings get one reminder together on the first digest of a new UTC day,
+including their last actual observation. Reminders do not count as observations. Any increase raises
+WARN immediately. Six hours span multiple poller cycles while exposing a new condition
+for a quarter of a day. History lives in `logs/ops/finding-state.json`, written atomically
+under the collector lock; missing, corrupt or unwritable history leaves findings unsuppressed.
+Keys unseen for more than 72 hours expire; at most 512 recent keys and 256 KiB are retained.
+Evicted keys start unsuppressed next time. The previous history schema upgrades in place.
+FAIL findings always raise FAIL. Digest-unit output and its own slow runs are excluded;
+its failed process lifecycle remains visible. Structured progress is classified by levels,
+statuses and current-run failure counts, including zero counters and completed repairs.
+The gateway check reads the proxy unit's effective `TRAEX_BIN` before local resolution.
+Token warnings cover failed re-login, unknown expiry, or less than two hours remaining;
+routine renewal starts at 36 hours and is checked every 30 minutes by the proxy.
+
 The report counts due slots only between matching installed timer/crontab observations saved by
 the collector. Earlier schedules and intervals spanning a schedule change are unknown. A missing
 run additionally requires readable journal or stage coverage over its whole allowed start window;
@@ -337,6 +356,22 @@ systemctl --user status trading-engine-api.service trading-engine-ui.service --n
 Exit 0 means installed units and the managed cron block match their versioned sources. A
 `changes-required` result is a dry-run plan, not permission to mutate. Apply only during an
 admitted deployment step with `.venv/bin/python -m tools.install_automation --apply`.
+
+The dry run also reports `changes.restart_services`, with the reason and commit range for
+each API or UI restart. Apply compares the recorded running commit with HEAD over all Python
+sources in `server`, `engine`, `sim`, `farm`, and `tools`, plus Python dependency declarations;
+the UI comparison covers `ui` except generated output and installed dependencies. Unrelated
+docs and tests do not trigger a source restart. Each service's record lives under
+`~/.local/state/trading-engine/<service>.json` and belongs to its systemd invocation. With no
+matching record, apply compares the service start timestamp with its last source commit and
+restarts when that comparison is uncertain.
+
+Apply restarts each affected application service once, waits up to 90 seconds for API
+`/health` and `/meta` HTTP 200, and up to 10 minutes for the rebuilt UI's port 3000 HTTP 200.
+The new systemd invocation must be active before readiness can pass. The result appears in
+`changes.restarted_services`; a failure returns `status: error` and preserves the prior record.
+Read that evidence and the service log before retrying a deployment; apply never retries a
+failed restart within the same run.
 
 If a page returns 503, check `/health`, `/meta`, and the current DuckDB writer before restarting a
 service. Restarting cannot repair an unreadable store and can obscure the producer that owns a

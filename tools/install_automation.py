@@ -17,6 +17,7 @@ from pathlib import Path
 from engine import raw_payload
 from engine.lib.settings import REPO_ROOT
 from server import schedule_contract, scheduler_monitor
+from tools import service_deploy
 
 BEGIN_MARKER = "# BEGIN trading-engine managed automation"
 END_MARKER = "# END trading-engine managed automation"
@@ -675,6 +676,11 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
         current_crontab = ""
         desired_crontab = ""
     units = _installed_units(repo_root, home, source_errors=errors)
+    try:
+        deployments = service_deploy.plan(repo_root, home)
+    except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+        errors.append(str(exc))
+        deployments = {}
     linger = _linger_state()
     changes = {
         "crontab": bool(desired_crontab) and desired_crontab != current_crontab,
@@ -698,6 +704,14 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
             if unit in paused_units and state["active"] != "inactive"
         ),
         "enable_linger": linger != "yes",
+        "restart_services": {
+            unit: {**decision, "restart": True, "reason": (
+                "unit-file-changed" if not units[unit]["matches"] and not decision["restart"]
+                else decision["reason"]
+            )} for unit, decision in deployments.items()
+            if decision["restart"] or not units[unit]["matches"]
+        },
+        "restarted_services": {},
     }
     summary = {
         "status": "invalid" if errors else ("changes-required" if any(changes.values()) else "ok"),
@@ -706,6 +720,7 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
         "errors": errors,
         "changes": changes,
         "service_units": units,
+        "service_deployments": deployments,
         "held_units": sorted(HELD_UNITS),
         "launch_sources": launch_sources,
         "linger": linger,
@@ -942,11 +957,58 @@ def apply(summary: dict, _desired_crontab: str, repo_root: Path, home: Path) -> 
     if disable_units:
         _checked(["systemctl", "--user", "disable", *disable_units])
     changed = set(changed_units) & autostart_units
-    if changed:
-        _checked(["systemctl", "--user", "restart", *sorted(changed)])
-    inactive_unchanged = sorted(set(start_units) - changed)
+    # Source deployments apply exclusively to the API and UI. Keep the existing
+    # unit-file behavior for timers and other units separate from this path.
+    deployments = summary["service_deployments"]
+    application_restarts = {
+        unit for unit, decision in deployments.items() if decision["restart"]
+    } | (changed & deployments.keys())
+    other_changed = changed - deployments.keys()
+    if other_changed:
+        _checked(["systemctl", "--user", "restart", *sorted(other_changed)])
+    summary["changes"]["restarted_services"] = {}
+    for unit in sorted(application_restarts):
+        decision = deployments[unit]
+        result = {**decision, "reason": (
+            "unit-file-changed" if unit in changed and not decision["restart"]
+            else decision["reason"]
+        )}
+        summary["changes"]["restarted_services"][unit] = result
+        try:
+            _checked(["systemctl", "--user", "--no-block", "restart", unit])
+            result["health"] = service_deploy.verify_health(
+                unit, decision["invocation_id"], restarted=True
+            )
+            if result["health"]["status"] != "ok":
+                raise RuntimeError(f"service readiness failed: {unit}")
+            service_deploy.record_running(
+                repo_root, home, unit, decision,
+                invocation=result["health"]["invocation_id"],
+            )
+        except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+            result["status"] = "error"
+            return {**summary, "status": "error", "applied": True,
+                    "errors": [*summary["errors"], str(exc)]}
+        result["status"] = "ok"
+    inactive_unchanged = sorted(set(start_units) - changed - application_restarts)
     if inactive_unchanged:
-        _checked(["systemctl", "--user", "start", *inactive_unchanged])
+        _checked(["systemctl", "--user", "--no-block", "start", *inactive_unchanged]
+                 if deployments.keys() & set(inactive_unchanged)
+                 else ["systemctl", "--user", "start", *inactive_unchanged])
+    for unit, decision in deployments.items():
+        if unit in application_restarts:
+            continue
+        try:
+            invocation = decision["invocation_id"]
+            if unit in inactive_unchanged:
+                decision["health"] = service_deploy.verify_health(unit, invocation, restarted=False)
+                if decision["health"]["status"] != "ok":
+                    raise RuntimeError(f"service readiness failed: {unit}")
+                invocation = decision["health"]["invocation_id"]
+            service_deploy.record_running(repo_root, home, unit, decision, invocation=invocation)
+        except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+            return {**summary, "status": "error", "applied": True,
+                    "errors": [*summary["errors"], str(exc)]}
     scheduler, installed, linger = _verify_applied(repo_root, home, units, paused_units)
     return {
         **summary,

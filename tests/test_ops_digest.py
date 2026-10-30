@@ -40,7 +40,7 @@ def _no_host_units(tmp_path, monkeypatch):
     monkeypatch.setattr(ops_digest, "invariants_probe", lambda _ops_dir: INVARIANTS_IDLE)
     # The gateway preflight reads the installed CLI's version through the fake runner.
     # Resolve a fixed path so a host without the CLI on PATH (CI) builds the same report.
-    monkeypatch.setattr(ops_digest.model_gateway_check, "runtime_binary", lambda: "/opt/cli")
+    monkeypatch.setattr(ops_digest.model_gateway_check, "runtime_binary", lambda _run: "/opt/cli")
 
 
 def _entry(stamp: str, message: str, ident: str = "python") -> str:
@@ -1168,8 +1168,8 @@ def test_invariants_probe_retries_errors_and_reports_a_timeout(tmp_path, monkeyp
 
 @pytest.mark.parametrize(("health", "status", "detail"), [
     (_gateway_health(), "OK", "Gateway OK: startup runtime 0.210.1, installed 0.210.1"),
-    (_gateway_health(token={"present": True, "hours_left": 12.0}), "WARN",
-     "- [warn] token_hours_left: observed `12.0`"),
+    (_gateway_health(token={"present": True, "hours_left": 1.0}), "WARN",
+     "- [warn] token_hours_left: observed `1.0`"),
     (_gateway_health(traex="traecli 0.299.9"), "FAIL", "- [fail] startup_runtime"),
 ])
 def test_hourly_digest_embeds_the_model_gateway_preflight(tmp_path, health, status, detail):
@@ -1205,3 +1205,267 @@ def test_timer_slot_inside_a_run_in_progress_is_not_missing():
 
     cron = ops_digest.Schedule("run_daily", "cron 30 22 * * 1-5", None)
     assert ops_digest._unmatched(cron, [at(23, 0)], runs) == [at(23, 0)]
+
+
+@pytest.mark.parametrize(('line', 'expected'), [
+    ('[ops-digest] 2026-10-24T01 WARN -> hourly/01.md', None),
+    ('[ops-digest] log retention failed: unavailable', None),
+    ('{"attempts": {"failed": 0, "refused": 0}, "retry": true}', None),
+    ('{"attempts": {"failed": 19, "refused": 2}, "failed_this_run": 0, '
+     '"refused_this_run": 0, "status": "active"}', None),
+    ('{"failed_this_run": 1, "status": "active"}', 'warn'),
+    ('{"refused_this_run": 1, "status": "active"}', 'warn'),
+    ('{"failed": 0, "open_label_failed": 0, "status": "complete"}', None),
+    ('{"failed": 0, "open_label_failed": 2}', 'warn'),
+    ('{"level": "error", "message": "failed=0"}', 'error'),
+    ('{"status": "failed", "failed": 0}', 'error'),
+    ('"retry": true,', None),
+    ('[incremental] active_liquid=4000 failed=0', None),
+    ('[incremental] active_liquid=4000 failed=2', 'warn'),
+    ('[meta] updated data/_meta.json (stale=0)', None),
+    ('[meta] updated data/_meta.json (stale=8)', 'warn'),
+    ('[incremental] stale provisional bars=4 refetched=4 retired=0', None),
+    ('[incremental] stale provisional bars=4 refetched=3 retired=0', 'warn'),
+])
+def test_digest_noise_uses_outcomes_and_levels(line, expected):
+    assert ops_digest.classify(line) == expected
+
+
+def test_digest_unit_output_is_excluded_but_its_failed_lifecycle_is_visible():
+    signals = ops_digest.SourceSignals()
+    runs = ops_digest.parse_journal(ops_digest.DIGEST_UNIT,
+                                   _journal(ops_digest.DIGEST_UNIT, exit_code=1), signals)
+    assert signals.counts == {'error': 0, 'warn': 0}
+    assert runs[0].result == 'exit-code'
+
+
+def _finding(count=1, severity=1):
+    return {'key': 'fixed-condition', 'source': 'test', 'message': 'condition',
+            'count': count, 'severity': severity}
+
+
+def test_chronic_history_worsening_severity_reminders_and_silent_hours(tmp_path):
+    state = tmp_path / 'state.json'
+    start = datetime(2026, 10, 24, 12, tzinfo=UTC)
+    for h in range(ops_digest.CHRONIC_HOURS):
+        [item], _ = ops_digest.classify_findings(start + timedelta(hours=h), [_finding(3)], state)
+    assert item['category'] == 'chronic' and not item['alert']
+    assert item['first_seen'] == '2026-10-24T12:00:00Z'
+    for h in range(6, 12):
+        [item], _ = ops_digest.classify_findings(start + timedelta(hours=h), [_finding(2)], state)
+        assert not item['alert']  # falling count keeps chronic history
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=12), [_finding(2)], state)
+    assert item['reminder'] and item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=13), [_finding(2)], state)
+    assert not item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=14), [_finding(3)], state)
+    assert item['category'] == 'worsening' and item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=15), [_finding(3, 2)], state)
+    assert item['category'] == 'worsening' and item['alert']
+    ops_digest.classify_findings(start + timedelta(hours=16), [], state)
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=17), [_finding()], state)
+    assert item['category'] == 'chronic' and not item['alert']
+    assert item['first_seen'] == '2026-10-24T12:00:00Z'
+
+
+@pytest.mark.parametrize('contents', [None, '{broken', '[]', '{"version": 99, "items": {}}',
+                                      '{"version": 1, "items": {"bad": []}}'])
+def test_state_loss_or_corruption_never_suppresses_warn_or_fail(tmp_path, contents):
+    state = tmp_path / 'state.json'
+    for h in range(6):
+        ops_digest.classify_findings(NOW + timedelta(hours=h), [_finding()], state)
+    if contents is None:
+        state.unlink()
+    else:
+        state.write_text(contents)
+    [item], error = ops_digest.classify_findings(NOW + timedelta(hours=6), [_finding()], state)
+    assert item['category'] == 'new' and item['alert'] and error
+    for h in range(7, 14):
+        [item], _ = ops_digest.classify_findings(NOW + timedelta(hours=h), [_finding(1, 3)], state)
+        assert item['alert']
+
+
+def test_state_write_failure_uses_unsuppressed_findings(tmp_path, monkeypatch):
+    state = tmp_path / 'state.json'
+    for h in range(6):
+        ops_digest.classify_findings(NOW + timedelta(hours=h), [_finding()], state)
+
+    def unwritable(*_):
+        raise OSError('read only')
+
+    monkeypatch.setattr(ops_digest, 'write_text_atomic', unwritable)
+    [item], error = ops_digest.classify_findings(NOW + timedelta(hours=6), [_finding()], state)
+    assert item['category'] == 'chronic' and item['alert'] and error
+
+
+def test_collection_reports_chronic_contract_and_preserves_failures(tmp_path, monkeypatch):
+    monkeypatch.setattr(ops_digest, 'contract_probe', lambda _: {
+        **CONTRACT_OK, 'status': 'violations', 'violations': [
+            {'rule': 'not-enabled', 'subject': 'example.timer', 'detail': {}}]})
+    for h in range(6):
+        [hour] = _collect(tmp_path, {}, NOW + timedelta(hours=h))
+    assert hour['status'] == 'OK'
+    assert 'OK (1 chronic)' in hour['text'] and '## Chronic findings' in hour['text']
+    assert 'first seen 2026-10-10T02:00:00Z' in hour['text']
+    (tmp_path / 'logs/ops' / ops_digest.FINDING_STATE).unlink()
+    [hour] = _collect(tmp_path, {}, NOW + timedelta(hours=6))
+    assert hour['status'] == 'WARN'
+    [hour] = _collect(tmp_path, {'failed.service': _journal('failed.service', exit_code=1)},
+                     NOW + timedelta(hours=7))
+    assert hour['status'] == 'FAIL'
+
+
+def test_archived_week_replay_preserves_every_fail_and_makes_warnings_exceptional(tmp_path):
+    from tests.ops_digest_replay import FIXTURE, replay
+
+    results = replay(FIXTURE, tmp_path / 'state.json')
+    assert len(results) == 205
+    failures = [row for row in results if row['before'] == 'FAIL']
+    assert len(failures) == 27
+    assert all(row['after'] == 'FAIL' and row['failed_runs'] > 0 for row in failures)
+    quiet_days = [row for row in results if '2026-10-24' <= row['hour'] < '2026-10-28']
+    assert len(quiet_days) == 96
+    assert sum(row['after'] == 'WARN' for row in quiet_days) <= len(quiet_days) / 4
+    assert not any(row['after'] == 'FAIL' for row in quiet_days)
+    seen = set()
+    for row in results:
+        alerts = {item['key'] for item in row['alerts']}
+        for item in row['alerts'] + row['chronic']:
+            if item['key'] not in seen:
+                assert item['key'] in alerts  # every first sighting remains visible
+            seen.add(item['key'])
+
+
+def test_sparse_recurrence_uses_three_distinct_hours_and_keeps_first_alerts(tmp_path):
+    state = tmp_path / 'state.json'
+    start = ops_digest.floor_hour(NOW)
+    for h in (0, 0, 4, 4):
+        [item], _ = ops_digest.classify_findings(start + timedelta(hours=h), [_finding()], state)
+        assert item['category'] == 'new' and item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=8), [_finding()], state)
+    assert item['category'] == 'chronic' and not item['alert']
+    assert item['first_seen'] == ops_digest._iso(start)
+    # A key first introduced today still gets its own first alert.
+    fresh = {**_finding(), 'key': 'new-key'}
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=9), [fresh], state)
+    assert item['category'] == 'new' and item['alert']
+
+
+def test_previous_utc_day_recurrence_can_be_more_than_24_hours_old(tmp_path):
+    state = tmp_path / 'state.json'
+    start = datetime(2026, 10, 24, tzinfo=UTC)
+    ops_digest.classify_findings(start, [_finding(3)], state)
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=47), [_finding(2)], state)
+    assert item['category'] == 'chronic' and item['reminder'] and item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=47), [_finding(2)], state)
+    assert not item['alert']  # at most one reminder on this UTC day
+
+
+def test_sparse_count_or_severity_increase_always_alerts_after_reminder(tmp_path):
+    state = tmp_path / 'state.json'
+    start = datetime(2026, 10, 24, 12, tzinfo=UTC)
+    ops_digest.classify_findings(start, [_finding()], state)
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=24), [_finding()], state)
+    assert item['category'] == 'chronic' and item['reminder']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=26), [_finding(2)], state)
+    assert item['category'] == 'worsening' and item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=28), [_finding(2, 2)], state)
+    assert item['category'] == 'worsening' and item['alert']
+    for h in (30, 32, 34):
+        [item], _ = ops_digest.classify_findings(start + timedelta(hours=h), [_finding(2, 3)], state)
+        assert item['alert']  # FAIL never suppressed, including a sparse chronic FAIL
+
+
+def test_three_distinct_hours_must_be_inside_the_last_24_hours(tmp_path):
+    state = tmp_path / 'state.json'
+    start = datetime(2026, 10, 24, tzinfo=UTC)
+    for h in (0, 4, 48, 52):
+        [item], _ = ops_digest.classify_findings(start + timedelta(hours=h), [_finding()], state)
+        assert item['category'] == 'new' and item['alert']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=56), [_finding()], state)
+    assert item['category'] == 'chronic' and not item['alert']
+
+
+def test_history_retains_silent_keys_for_72_hours_and_then_prunes(tmp_path):
+    state = tmp_path / 'state.json'
+    start = ops_digest.floor_hour(NOW)
+    ops_digest.classify_findings(start, [_finding()], state)
+    ops_digest.classify_findings(start + timedelta(hours=72), [], state)
+    assert 'fixed-condition' in json.loads(state.read_text())['items']
+    ops_digest.classify_findings(start + timedelta(hours=73), [], state)
+    assert json.loads(state.read_text())['items'] == {}
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=74), [_finding()], state)
+    assert item['category'] == 'new' and item['alert']
+    assert item['first_seen'] == ops_digest._iso(start + timedelta(hours=74))
+
+
+def test_state_key_and_byte_caps_eviction_never_hides_a_finding(tmp_path, monkeypatch):
+    state = tmp_path / 'state.json'
+    monkeypatch.setattr(ops_digest, 'MAX_FINDING_STATE_KEYS', 2)
+    monkeypatch.setattr(ops_digest, 'MAX_FINDING_STATE_BYTES', 1024)
+    items = [{**_finding(), 'key': k} for k in ['a', 'b', 'c', 'x' * 2048]]
+    results, error = ops_digest.classify_findings(NOW, items, state)
+    kept = json.loads(state.read_text())['items']
+    assert error and len(kept) == 2 and state.stat().st_size <= 1024
+    assert all(item['alert'] for item in results if item['key'] not in kept)
+    forgotten = next(item for item in items if item['key'] not in kept)
+    [item], _ = ops_digest.classify_findings(NOW + timedelta(hours=1), [forgotten], state)
+    assert item['category'] == 'new' and item['alert']
+
+
+def test_oversized_or_invalid_recurrence_state_is_unsuppressed(tmp_path, monkeypatch):
+    state = tmp_path / 'state.json'
+    monkeypatch.setattr(ops_digest, 'MAX_FINDING_STATE_BYTES', 1024)
+    state.write_text(' ' * 1025)
+    [item], error = ops_digest.classify_findings(NOW, [_finding()], state)
+    assert item['alert'] and item['category'] == 'new' and error
+    assert state.stat().st_size <= 1024
+    contents = json.loads(state.read_text())
+    contents['items']['fixed-condition']['seen_hours'] = ['not a timestamp']
+    state.write_text(json.dumps(contents))
+    [item], error = ops_digest.classify_findings(NOW + timedelta(hours=1), [_finding()], state)
+    assert item['alert'] and item['category'] == 'new' and error
+
+
+def test_version_one_history_migrates_without_inventing_observations(tmp_path):
+    state = tmp_path / 'state.json'
+    start = ops_digest.floor_hour(NOW)
+    stamp = ops_digest._iso(start)
+    state.write_text(json.dumps({'version': 1, 'items': {'fixed-condition': {
+        'first_seen': stamp, 'last_seen': stamp, 'stable_since': stamp,
+        'count': 1, 'severity': 1, 'reminded_day': stamp[:10]}}}))
+    [item], error = ops_digest.classify_findings(start + timedelta(hours=24), [_finding()], state)
+    assert error is None and item['category'] == 'chronic' and item['reminder']
+    saved = json.loads(state.read_text())
+    assert saved['version'] == 2
+    assert saved['items']['fixed-condition']['seen_hours'] == [stamp, ops_digest._iso(start + timedelta(hours=24))]
+
+
+def test_known_chronic_daily_reminder_is_batched_without_refreshing_observation(tmp_path):
+    state = tmp_path / 'state.json'
+    start = datetime(2026, 10, 24, tzinfo=UTC)
+    for h in (0, 4, 8):
+        ops_digest.classify_findings(start + timedelta(hours=h), [_finding()], state)
+    observed = json.loads(state.read_text())['items']['fixed-condition']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=24), [], state)
+    assert item['category'] == 'chronic' and item['reminder'] and item['alert']
+    saved = json.loads(state.read_text())['items']['fixed-condition']
+    assert saved['last_seen'] == observed['last_seen']
+    assert saved['seen_hours'] == observed['seen_hours']
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=30), [_finding()], state)
+    assert not item['alert']  # the batched reminder already covered this UTC day
+    # Silence does not undo chronic classification or extend retention.
+    [item], _ = ops_digest.classify_findings(start + timedelta(hours=72), [], state)
+    assert item['reminder']
+    ops_digest.classify_findings(start + timedelta(hours=103), [], state)
+    assert json.loads(state.read_text())['items'] == {}
+
+
+def test_remembered_fail_does_not_invent_a_failure_in_a_silent_hour(tmp_path):
+    state = tmp_path / 'state.json'
+    start = datetime(2026, 10, 24, tzinfo=UTC)
+    for h in (0, 4, 8):
+        [item], _ = ops_digest.classify_findings(start + timedelta(hours=h), [_finding(1, 3)], state)
+        assert item['alert']
+    items, _ = ops_digest.classify_findings(start + timedelta(hours=24), [], state)
+    assert items == []

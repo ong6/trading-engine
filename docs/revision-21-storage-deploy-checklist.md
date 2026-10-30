@@ -172,9 +172,10 @@ nice -n 10 bash "$HOME/r21-deploy.sh"
 
 ## Verify after release (stop at the first failure and roll back)
 
-Run from the deployed checkout; each command must exit zero. Restart trading-engine-api and trading-engine-ui after the code changes, then verify /health and
-/agent/model/status. Stage starts no service; the deploy's reader phase explicitly restarts both before checking
-them. The installer will also restart them when their source changed once the separate v2-restart lane lands. This prevents the stale-source failure observed after
+Run from the deployed checkout; each command must exit zero. The deploy's reader phase (step 7) restarts
+trading-engine-api and trading-engine-ui explicitly, and step 9's `install_automation --apply` restarts and
+health-checks them again because their source changed in the deployed range (`changes.restarted_services` in its
+output; each entry must show `status: ok`). Do not restart them again here: wait for readiness instead. This prevents the stale-source failure observed after
 October 22, when the API ran old code for eight days.
 
 ```bash
@@ -185,7 +186,7 @@ cd "$P21_ROOT"
 .venv/bin/python -m tools.registration_identity --base "$P21_APPROVED_SHA^1"
 .venv/bin/python -m tools.schedule_contract_check --static
 systemctl --user is-enabled --quiet trading-engine-publish-on-change.timer
-systemctl --user restart trading-engine-api.service trading-engine-ui.service
+for _ in $(seq 90); do curl --silent --fail --output /dev/null http://127.0.0.1:8000/health && break; sleep 1; done
 systemctl --user is-active --quiet trading-engine-publish-on-change.timer trading-engine-api.service trading-engine-ui.service
 systemctl --user show trading-engine-api.service -p MainPID -p ExecMainStartTimestamp
 curl --silent --fail --dump-header "$P21_STATE/post-health.headers" --output "$P21_STATE/post-health.json" http://127.0.0.1:8000/health

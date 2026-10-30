@@ -5361,4 +5361,40 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** versus initial main snapshot: server +427, tools +2,390, product +2,864 LOC; budget passes.
 - **Next:** orchestrator acceptance, merge and deployment after the closing epoch; no lane deployment.
 
+## 2026-10-30 — Give hourly operations warnings a history
+
+- **Why:** P24 ops, digest signal lane. Reproduction: `classify('{"attempts": {"failed": 0, "refused": 0}}')` and the previous `[ops-digest] ... WARN` summary both return `warn`; the archived October 24–27 reports are WARN in all 96 hours.
+- **What:** Ignore digest output and classify structured progress by current outcomes. Track findings atomically beside the digests: six stable hourly observations become chronic, increases alert immediately, and chronic warnings return once per UTC day. State loss leaves findings unsuppressed; FAIL always alerts.
+  Resolve the gateway binary from the proxy unit's effective pin. Warn on failed re-login or a token below two hours, after the proxy's routine 36-hour renewal window.
+- **Evidence:** `pytest tests/test_ops_digest.py tests/test_model_gateway_check.py` passes, including the 205-hour archived replay: October 24–27 WARN falls from 96 to 46 hours; all 27 archived FAIL hours remain FAIL.
+- **Metrics:** server/product unchanged; tools +200 LOC (session snapshot).
+- **Next:** orchestrator acceptance and deployment of the digest lane.
+
+## 2026-10-30 — Recognize sparse recurring operations warnings
+
+- **Why:** P24 digest lane, round-2 orchestrator ruling: recurring findings separated by silent hours still made 46 of 96 quiet-day digests WARN.
+- **What:** Establish chronic warnings after a previous-day recurrence or three distinct observations in 24 hours, retaining the consecutive rule. Compare increases across gaps and retain first sightings; FAIL always alerts.
+  Batch each known chronic key's daily reminder in the first UTC-day digest without inventing observations. Expire unseen keys after 72 hours and retain at most 512 keys in 256 KiB; history loss or eviction leaves findings unsuppressed.
+- **Evidence:** `pytest tests/test_ops_digest.py tests/test_model_gateway_check.py` passes: October 24–27 WARN falls from 46 to 14 of 96 hours; all 27 archived FAIL hours and every first sighting still alert. Retention, byte/key limits and reminder observations have regression coverage.
+- **Metrics:** server/product unchanged; tools +69 LOC (session snapshot).
+- **Next:** orchestrator acceptance of the recurrence rule and source-defect triage.
+
+## 2026-10-30 — Preview retirement of duplicate paper books
+
+- **Why:** P24 lane L6(c), under the owner's 2026-10-21 no-edge retirement decision; the published snapshot reproduces two exact gated twins.
+- **What:** add a dry-run retirement tool with batch validation, one writer transaction and one audit row per book; retain holdings and history and refuse protected books or open orders.
+  Publish the full twin comparisons, current-cost and inception MDE tables for all 17 active books, and recommend only dual_momentum_gated and template_top5_gated. No real-store retirement was applied.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_retire_books.py` → 35 pass, including second-book write rollback, idempotent refusal and the post-close nightly report with a retained stale holding.
+- **Metrics:** server/product unchanged; tools +171 LOC (session snapshot, published in the lane status folder).
+- **Next:** orchestrator review and apply the proposed two-book batch after the marked session's close.
+
+## 2026-10-30 — Restart deployed services when their sources change
+
+- **Why:** owner-requested stale-service defect; reproduction: `pytest tests/test_install_automation.py::test_apply_restarts_api_after_source_only_commit` fails because apply issues no restart after an API-only commit with unchanged units.
+- **What:** compare each API/UI invocation's recorded commit with its deployed source set; use the service start timestamp when no matching record exists.
+  Restart affected services once and verify the new invocation and HTTP readiness before recording the commit. Dry runs report reasons and commit ranges.
+- **Evidence:** `TZ=UTC pytest -q -W error -n 8` and `TZ=Asia/Singapore pytest -q -W error -n 8` each pass all 6,370 tests; the live read-only dry run reports no source restart for either service.
+- **Metrics:** tools +250 LOC; server/product unchanged (session snapshot).
+- **Next:** orchestrator acceptance and deployment.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
