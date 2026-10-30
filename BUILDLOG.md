@@ -4796,4 +4796,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** manifest only; product, server and tools code unchanged.
 - **Next:** install the units from trading-alpha and confirm the live check.
 
+## 2026-10-30 — Release opportunity observer writers during generation
+
+- **Why:** P24 lane L1(c), fix 3: hourly and four-hour observers held the store writer across news and model calls.
+- **What:** preparation retains detection and quote/cross-check receipts; a reopenable lease closes before news and reopens after the artifact is saved. The owner closes every acquired connection on success or failure.
+  Persistence checks live window identity and allocates IDs in its transaction; labels reread current sessions, prices, decisions and label keys. Fixed-clock fixtures preserve exact request bytes, artifacts and stored rows, including late quotes and unavailable news.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 tests/test_intraday_source.py tests/test_daily_opportunities.py tests/test_market_data_sources.py tests/test_live_store_paths.py tests/test_no_bare_connect.py` passes, including second-process writers during news/model calls and exception/replay recovery. Journal-matched model medians are 12.10/18.06 seconds per hourly/four-hour run, now writer-free, plus news waits whose full duration is unlogged.
+- **Metrics:** server +31 LOC; tools/product unchanged (session snapshot).
+- **Next:** orchestrator re-pin and acceptance; quote-loop narrowing deferred.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

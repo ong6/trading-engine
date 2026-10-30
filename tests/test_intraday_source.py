@@ -2,11 +2,17 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+import textwrap
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+import duckdb
 import pytest
 
 from engine.lib import db
+from engine.lib.provenance import canonical_sha256
 from server import agent_evaluation, hourly_opportunity_observer, intraday_source
 from tests.test_daily_opportunities import _connector, _database, _news_response
 
@@ -280,7 +286,7 @@ def test_hourly_observer_retains_and_replays_exact_quote_evidence(monkeypatch, t
     "variant_id",
     ["hourly_market_watch_v5", "four_hour_opportunity_review_v5"],
 )
-def test_observer_uses_one_waiting_database_connection_per_run(
+def test_observer_uses_two_waiting_database_leases_per_run(
     monkeypatch, tmp_path, variant_id
 ):
     database = tmp_path / "market.duckdb"
@@ -309,10 +315,12 @@ def test_observer_uses_one_waiting_database_connection_per_run(
     )
 
     assert result["status"] == "completed"
-    assert len(calls) == 1 and calls[0][1]["wait_s"] == 60
+    assert len(calls) == 2 and all(call[1]["wait_s"] == 60 for call in calls)
 
 
 def test_admitted_cross_check_reaches_prompt_artifact_and_trace(monkeypatch, tmp_path):
+    from engine import bitemporal_facts
+
     database = tmp_path / "market.duckdb"
     _database(database)
     monkeypatch.setattr(hourly_opportunity_observer, "REPO_ROOT", tmp_path)
@@ -328,16 +336,43 @@ def test_admitted_cross_check_reaches_prompt_artifact_and_trace(monkeypatch, tmp
     }
     seen = {}
 
+    def capture(*_args, connection, **_kwargs):
+        bitemporal_facts.init_schema(connection)
+        retained = bitemporal_facts.record_receipt(
+            connection, source="alpaca", dataset="realtime_snapshot",
+            endpoint="https://example.test/quote", request={"ticker": "FAST"},
+            requested_at=NOW, received_at=NOW, http_status=200,
+            content_type="application/json", body=b'{"price":160.1}',
+            license_class="provider-terms-research",
+        )
+        cross_check["receipt_sha256"] = retained["receipt_sha256"]
+        return [cross_check], [], {"status": "admitted", "source_id": "alpaca_iex"}
+
+    def news(ticker, now):
+        _writer_process(database, '''
+            import sys
+            from pathlib import Path
+            from engine.lib import db
+            con = db.connect(Path(sys.argv[1]), wait_s=0)
+            try:
+                assert con.execute(
+                    "SELECT response_body FROM source_response_receipts WHERE receipt_sha256=?",
+                    [sys.argv[2]],
+                ).fetchone() == (b'{"price":160.1}',)
+            finally:
+                con.close()
+        ''', cross_check["receipt_sha256"])
+        return _news_response(ticker, now)
+
     def generate(payload):
         seen.update(payload)
         return _connector(payload)
 
     result = hourly_opportunity_observer.observe(
         "hourly_market_watch_v5", database=database, now=NOW, generate=generate,
-        fetch_news=_news_response,
+        fetch_news=news,
         fetch_quote=lambda provider_ticker, _now: _response(_body(symbol=provider_ticker)),
-        capture_cross_checks=lambda *_args, **_kwargs: (
-            [cross_check], [], {"status": "admitted", "source_id": "alpaca_iex"}),
+        capture_cross_checks=capture,
         clock=lambda: NOW + timedelta(seconds=1),
     )
 
@@ -351,7 +386,7 @@ def test_admitted_cross_check_reaches_prompt_artifact_and_trace(monkeypatch, tmp
         refs = json.loads(con.execute(
             "SELECT source_refs FROM agent_evaluation_traces"
         ).fetchone()[0])
-        assert any(item.get("sha256") == receipt for item in refs)
+        assert any(item.get("sha256") == cross_check["receipt_sha256"] for item in refs)
     finally:
         con.close()
 
@@ -446,5 +481,203 @@ def test_one_stale_quote_records_unavailable_without_skipping_window(
             "JOIN agent_evaluation_decisions d ON d.id=l.decision_id "
             "WHERE d.ticker='QUIET'"
         ).fetchone() == (0,)
+    finally:
+        con.close()
+
+
+def _writer_process(database, code, *args):
+    result = subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(code), str(database), *map(str, args)],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("variant_id", [
+    "hourly_market_watch_v5", "four_hour_opportunity_review_v5",
+])
+@pytest.mark.parametrize("conflicting_window", [False, True])
+def test_external_process_writes_during_news_and_model(
+    monkeypatch, tmp_path, variant_id, conflicting_window,
+):
+    database = tmp_path / "market.duckdb"
+    _database(database)
+    monkeypatch.setattr(hourly_opportunity_observer, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(hourly_opportunity_observer, "LOCK_PATH", tmp_path / "observer.lock")
+    monkeypatch.setattr(intraday_source, "source_version", lambda: "test-v1")
+    fixture = Path(__file__).parent / "fixtures" / "observer_release" / f"{variant_id}-True.json"
+    stages = []
+
+    def writer(stage):
+        _writer_process(database, '''
+            import json
+            import sys
+            from pathlib import Path
+            from engine.lib import db
+            from engine.lib.provenance import canonical_sha256
+            from server import agent_evaluation
+            con = db.connect(Path(sys.argv[1]), wait_s=0)
+            try:
+                assert con.execute("SELECT COUNT(*) FROM bitemporal_facts").fetchone() == (2,)
+                assert con.execute(
+                    "SELECT COUNT(*) FROM source_response_receipts WHERE response_body=?",
+                    [bytes.fromhex(sys.argv[4])],
+                ).fetchone() == (1,)
+                artifact = json.loads(json.loads(Path(sys.argv[2]).read_text())["artifact"])
+                if sys.argv[5] != "True" or sys.argv[3] != "model":
+                    artifact["window"] = "parallel-" + sys.argv[3]
+                    artifact["variant_id"] = "nightly_opportunity_tool_v1"
+                    artifact["cadence"] = "nightly"
+                artifact["observation_sha256"] = canonical_sha256({
+                    k: v for k, v in artifact.items() if k != "observation_sha256"
+                })
+                with db.transaction(con):
+                    agent_evaluation.init_schema(con)
+                    agent_evaluation.record_trace(con, agent_evaluation.replay_artifact_trace(
+                        artifact, source_identifier="parallel:" + sys.argv[3],
+                    ))
+                    con.execute("UPDATE screen_results SET close=999 WHERE ticker='FAST'")
+                    if sys.argv[3] == "model":
+                        con.executemany(
+                            "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+                            "VALUES (?, '2026-09-22', 120, 122, 119, 121, 1000000)",
+                            [("FAST",), ("SPY",)],
+                        )
+            finally:
+                con.close()
+        ''', fixture, stage, _body(symbol="FAST").hex(), conflicting_window)
+        stages.append(stage)
+
+    def news(ticker, now):
+        if not stages:
+            writer("news")
+        return _news_response(ticker, now)
+
+    def generate(payload):
+        writer("model")
+        assert payload["candidates"][0]["intraday_observation"]["last"] == 101.0
+        assert "999" not in json.dumps(payload["candidates"])
+        return _connector(payload)
+
+    kwargs = {
+        "database": database, "now": NOW, "generate": generate, "fetch_news": news,
+        "fetch_quote": lambda ticker, _now: _response(_body(symbol=ticker)),
+        "capture_cross_checks": lambda *_args, **_kwargs: ([], [], {"status": "unavailable"}),
+        "clock": lambda: NOW + timedelta(seconds=1),
+    }
+    if conflicting_window:
+        with pytest.raises(agent_evaluation.EvaluationError, match="replay differs"):
+            hourly_opportunity_observer.observe(variant_id, **kwargs)
+    else:
+        result = hourly_opportunity_observer.observe(variant_id, **kwargs)
+        assert result["status"] == "completed"
+    assert stages == ["news", "model"]
+    con = db.connect(database, read_only=True)
+    try:
+        expected_ids = [(1,), (2,)] if conflicting_window else [(1,), (2,), (3,)]
+        assert con.execute("SELECT id FROM agent_evaluation_traces ORDER BY id").fetchall() == expected_ids
+        assert con.execute(
+            "SELECT id FROM agent_evaluation_traces WHERE window_id=?",
+            [f"{variant_id}:2026-09-23T{'15' if variant_id.startswith('hourly') else '12'}"],
+        ).fetchone() == ((2,) if conflicting_window else (3,))
+        # New sessions/prices written while disconnected mature the other traces.
+        assert con.execute("SELECT COUNT(*) FROM agent_evaluation_labels").fetchone() == (
+            0 if conflicting_window else 2,
+        )
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("stage", ["news", "model", "validation", "index", "reacquire"])
+def test_observer_closes_every_connection_after_exception(monkeypatch, tmp_path, stage):
+    database = tmp_path / "market.duckdb"
+    _database(database)
+    monkeypatch.setattr(hourly_opportunity_observer, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(hourly_opportunity_observer, "LOCK_PATH", tmp_path / "observer.lock")
+    monkeypatch.setattr(intraday_source, "source_version", lambda: "test-v1")
+    original_connect = db.connect
+    connections = []
+
+    def connect(*args, **kwargs):
+        if stage == "reacquire" and connections:
+            raise RuntimeError("injected generation failure")
+        con = original_connect(*args, **kwargs)
+        connections.append(con)
+        return con
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("injected generation failure")
+
+    monkeypatch.setattr(db, "connect", connect)
+    if stage == "validation":
+        monkeypatch.setattr(hourly_opportunity_observer, "_validate_output", fail)
+    if stage == "index":
+        monkeypatch.setattr(agent_evaluation, "record_trace", fail)
+    with pytest.raises(RuntimeError, match="injected generation failure"):
+        hourly_opportunity_observer.observe(
+            "hourly_market_watch_v5", database=database, now=NOW,
+            generate=fail if stage == "model" else _connector,
+            fetch_news=fail if stage == "news" else _news_response,
+            fetch_quote=lambda ticker, _now: _response(_body(symbol=ticker)),
+            capture_cross_checks=lambda *_args, **_kwargs: ([], [], {"status": "unavailable"}),
+            clock=lambda: NOW + timedelta(seconds=1),
+        )
+    assert len(connections) == (2 if stage == "index" else 1)
+    for con in connections:
+        with pytest.raises(duckdb.ConnectionException, match="closed"):
+            con.execute("SELECT 1")
+    _writer_process(database, '''
+        import sys
+        from pathlib import Path
+        from engine.lib import db
+        con = db.connect(Path(sys.argv[1]), wait_s=0)
+        con.execute("UPDATE screen_results SET close=999 WHERE ticker='FAST'")
+        con.close()
+    ''')
+    assert (tmp_path / "logs/hourly_market_watch_v5.jsonl").exists() == (
+        stage in {"index", "reacquire"}
+    )
+
+
+def test_saved_artifact_recovers_failed_index_without_external_calls(monkeypatch, tmp_path):
+    database = tmp_path / "market.duckdb"
+    _database(database)
+    monkeypatch.setattr(hourly_opportunity_observer, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(hourly_opportunity_observer, "LOCK_PATH", tmp_path / "observer.lock")
+    monkeypatch.setattr(intraday_source, "source_version", lambda: "test-v1")
+    original_record = agent_evaluation.record_trace
+
+    def failed_index(*_args, **_kwargs):
+        raise RuntimeError("injected index failure")
+
+    monkeypatch.setattr(agent_evaluation, "record_trace", failed_index)
+    with pytest.raises(RuntimeError, match="index failure"):
+        hourly_opportunity_observer.observe(
+            "hourly_market_watch_v5", database=database, now=NOW, generate=_connector,
+            fetch_news=_news_response,
+            fetch_quote=lambda ticker, _now: _response(_body(symbol=ticker)),
+            capture_cross_checks=lambda *_args, **_kwargs: ([], [], {"status": "unavailable"}),
+            clock=lambda: NOW + timedelta(seconds=1),
+        )
+    target = tmp_path / "logs/hourly_market_watch_v5.jsonl"
+    before = target.read_bytes()
+    monkeypatch.setattr(agent_evaluation, "record_trace", original_record)
+
+    def no_call(*_args, **_kwargs):
+        pytest.fail("artifact replay must not recapture or regenerate")
+
+    replay = hourly_opportunity_observer.observe(
+        "hourly_market_watch_v5", database=database, now=NOW, generate=no_call,
+        fetch_news=no_call, fetch_quote=no_call, capture_cross_checks=no_call,
+        clock=lambda: NOW + timedelta(seconds=1),
+    )
+    assert replay["replayed"] is True and target.read_bytes() == before
+    artifact = json.loads(before)
+    con = db.connect(database, read_only=True)
+    try:
+        assert con.execute("SELECT COUNT(*) FROM agent_evaluation_traces").fetchone() == (1,)
+        assert con.execute("SELECT input_sha256 FROM agent_evaluation_traces").fetchone() == (
+            canonical_sha256(artifact["model_input"]),
+        )
     finally:
         con.close()
