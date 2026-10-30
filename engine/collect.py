@@ -40,6 +40,7 @@ import pandas as pd
 import yfinance as yf
 from yfinance.exceptions import YFPricesMissingError
 
+from engine import liquid_history
 from engine.lib import db
 from engine.lib import resources as rsc
 from engine.lib.log import get_logger
@@ -86,6 +87,10 @@ def _frame_from_sub(sub: pd.DataFrame, canon: str) -> pd.DataFrame | None:
     sub = sub.reset_index()
     sub = sub.rename(columns={sub.columns[0]: "date"})
     out = sub.reindex(columns=["date", "Open", "High", "Low", "Close", "Volume"]).rename(columns=_YF_FIELDS)
+    # yf.download aligns every ticker to the batch's union of dates. An all-null
+    # OHLCV tuple is padding, not a source observation (including pre-listing dates).
+    # Partially missing or otherwise invalid bars still reach the admission gate.
+    out = out.dropna(subset=list(_YF_FIELDS.values()), how="all")
     out["ticker"] = canon
     out["date"] = pd.to_datetime(out["date"]).dt.date
     if out.empty:
@@ -310,6 +315,9 @@ def mode_backfill(db_path: str | Path, limit: int | None) -> tuple[int, int]:
     WHERE backfill_done = FALSE query IS the resume mechanism. Each completed
     batch checkpoints prices, ticker state, and job progress transactionally."""
     yf_to_canon = _universe_map(db_path, "liquid = TRUE AND backfill_done = FALSE", limit)
+    yf_to_canon, suppressed = liquid_history.exclude_absences(db_path, yf_to_canon, mode="backfill")
+    if suppressed:
+        log.info(f"[backfill] no-history cooldown: {' '.join(suppressed)}")
     all_yf = list(yf_to_canon)
     total = len(all_yf)
     if total == 0:
@@ -323,17 +331,27 @@ def mode_backfill(db_path: str | Path, limit: int | None) -> tuple[int, int]:
         con.close()
     n_done = 0
     got_all: set[str] = set()
+    no_data: dict[str, str] = {}
+    failures: dict[str, str] = {}
+    probes_left = MAX_ABSENT_PROBES
 
     for batch in _batches(all_yf, 50):
         sub_map = {y: yf_to_canon[y] for y in batch}
         raw = _download(batch, period="max", start=None)
         df, got = _extract_long(raw, sub_map)
+        df, got, absent, errors, probes_left = _weekly_absent(
+            df, got, sub_map, probes_left,
+        )
+        no_data.update(absent)
+        failures.update(errors)
         n_done += len(batch)
         con = db.connect(db_path)
         try:
             with db.transaction(con):
                 n = db.upsert_prices(con, df)
                 got -= {y for y, canon in sub_map.items() if canon in df.attrs.get("rejected_tickers", set())}
+                failures.update({sub_map[y]: "price_admission" for y in sub_map
+                                 if sub_map[y] in df.attrs.get("rejected_tickers", set())})
                 if got:
                     done_canon = [sub_map[y] for y in got]
                     con.executemany(
@@ -342,6 +360,8 @@ def mode_backfill(db_path: str | Path, limit: int | None) -> tuple[int, int]:
                     )
                 state = "done" if n_done == total else "running"
                 _update_job(con, jid, f"{n_done}/{total}", state=state)
+                liquid_history.record(con, jid, with_data={yf_to_canon[y] for y in got_all | got},
+                                      no_data=no_data, failed=failures)
         finally:
             con.close()
         got_all |= got
@@ -350,9 +370,52 @@ def mode_backfill(db_path: str | Path, limit: int | None) -> tuple[int, int]:
         )
         time.sleep(2)
 
-    failed = total - len(got_all)
-    log.info(f"[backfill] processed={total} with_data={len(got_all)} failed={failed}")
+    failed = total - len(got_all) - len(no_data)
+    log.info(f"[backfill] processed={total} with_data={len(got_all)} failed={failed} no_data={len(no_data)}")
+    _log_weekly_outcomes("backfill", no_data, failures)
     return total, failed
+
+
+def _weekly_absent(df, got, mapping, probes_left, *, start=None):
+    """Resolve only missing batch names, with paced, bounded max-history re-asks."""
+    absent, errors, found = {}, {}, []
+    for yft, canon in mapping.items():
+        if yft in got:
+            continue
+        if probes_left <= 0:
+            errors[canon] = "probe_limit"
+            continue
+        probes_left -= 1
+        time.sleep(1)
+        reason, response = liquid_history.probe(yft)
+        if reason == "no_data":
+            absent[canon] = "no_fetchable_history"
+        elif reason == "data":
+            frame = _frame_from_sub(response, canon)
+            if frame is not None and start is not None:
+                frame = frame[frame.date >= date.fromisoformat(start)]
+                if frame.empty:
+                    absent[canon] = "no_recent_history"
+                    continue
+            if frame is not None and not frame.empty:
+                got.add(yft)
+                found.append(frame)
+            else:
+                errors[canon] = "empty_response"
+        else:
+            errors[canon] = reason
+    if found:
+        df = pd.concat([f for f in (df, *found) if not f.empty], ignore_index=True)
+    return df, got, absent, errors, probes_left
+
+
+def _log_weekly_outcomes(mode, no_data, failures):
+    if no_data:
+        for reason in sorted(set(no_data.values())):
+            log.info(f"[{mode}] {reason}: {' '.join(sorted(t for t, r in no_data.items() if r == reason))}")
+    for reason in sorted(set(failures.values())):
+        names = sorted(t for t, r in failures.items() if r == reason)
+        log.info(f"[{mode}] failed ({reason}): {' '.join(names)}")
 
 
 # --------------------------------------------------------------------------- #
@@ -485,21 +548,48 @@ def mode_refresh_liquid(
        Skipped under --dry-run.
     """
     yf_to_canon = _universe_map(db_path, "active = TRUE AND liquid = FALSE", limit)
+    yf_to_canon, suppressed = liquid_history.exclude_absences(db_path, yf_to_canon)
     all_yf = list(yf_to_canon)
     start = (datetime.now(timezone.utc).date() - timedelta(days=90)).isoformat()
     got_all: set[str] = set()
+    no_data: dict[str, str] = {}
+    failures: dict[str, str] = {}
+    probes_left = MAX_ABSENT_PROBES
+    if not dry_run:
+        con = db.connect(db_path)
+        try:
+            jid = _start_job(con, "refresh-liquid", "{}", len(all_yf))
+        finally:
+            con.close()
     for i, batch in enumerate(_batches(all_yf, 200), 1):
         sub_map = {y: yf_to_canon[y] for y in batch}
         raw = _download(batch, period=None, start=start)
         df, got = _extract_long(raw, sub_map)
+        df, got, absent, errors, probes_left = _weekly_absent(
+            df, got, sub_map, probes_left, start=start,
+        )
+        no_data.update(absent)
+        failures.update(errors)
         n = _upsert_batch(db_path, df)
         got -= {y for y, canon in sub_map.items() if canon in df.attrs.get("rejected_tickers", set())}
+        failures.update({sub_map[y]: "price_admission" for y in sub_map
+                         if sub_map[y] in df.attrs.get("rejected_tickers", set())})
         got_all |= got
         log.info(
             f"[refresh-liquid] candidates batch {i} ({len(batch)} tickers) -> {n} rows ({len(got)} with data)"
         )
         time.sleep(2)
-    failed = len(all_yf) - len(got_all)
+    failed = len(all_yf) - len(got_all) - len(no_data)
+    _log_weekly_outcomes("refresh-liquid", no_data, failures)
+    if not dry_run:
+        con = db.connect(db_path)
+        try:
+            with db.transaction(con):
+                liquid_history.record(con, jid, with_data={yf_to_canon[y] for y in got_all},
+                                      no_data=no_data, failed=failures)
+                _update_job(con, jid, f"{len(all_yf)}/{len(all_yf)}", state="done")
+        finally:
+            con.close()
 
     con = db.connect(db_path, read_only=dry_run)
     try:
@@ -515,6 +605,8 @@ def mode_refresh_liquid(
                 "as_of": str(con.execute("SELECT MAX(date) FROM prices").fetchone()[0]),
                 "candidates_pulled": len(all_yf),
                 "candidates_failed": failed,
+                "candidates_no_data": len(no_data),
+                "candidates_suppressed": len(suppressed),
                 "rule": f"last_close >= {LIQ_MIN_CLOSE:g} AND median(close*volume) >= "
                 f"{LIQ_MIN_MDV:g} over trailing {LIQ_BARS} sessions",
             }

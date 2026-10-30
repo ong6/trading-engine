@@ -1,0 +1,76 @@
+{
+  "source": "Yahoo responses retained in the published market-20261030T025723842464Z snapshot; backfill batch 2026-10-25T02:11:41.454698Z. OHLCV tuples are verbatim. Null tuple is batch index padding.",
+  "columns": [
+    "ticker",
+    "date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume"
+  ],
+  "rows": [
+    [
+      "BGIG",
+      "2026-10-23",
+      36.650001525878906,
+      36.875,
+      36.63999938964844,
+      36.7400016784668,
+      268500
+    ],
+    [
+      "MHD",
+      "2026-10-23",
+      10.600000381469727,
+      10.600000381469727,
+      10.40999984741211,
+      10.520000457763672,
+      1241000
+    ],
+    [
+      "SVA",
+      "2026-10-22",
+      0.0,
+      6.46999979019165,
+      6.46999979019165,
+      6.46999979019165,
+      0
+    ],
+    [
+      "BGIG",
+      "1997-05-06",
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  ],
+  "absences": {
+    "MSGR-V": {
+      "status": 404,
+      "body": {
+        "chart": {
+          "result": null,
+          "error": {
+            "code": "Not Found",
+            "description": "No data found, symbol may be delisted"
+          }
+        }
+      }
+    },
+    "MSGK-V": {
+      "status": 404,
+      "body": {
+        "chart": {
+          "result": null,
+          "error": {
+            "code": "Not Found",
+            "description": "No data found, symbol may be delisted"
+          }
+        }
+      }
+    }
+  }
+}

@@ -5266,5 +5266,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** git diff origin/main -- sim/execution.py sim/nyse.py engine/verify_prices.py → empty; model client is identical to main.
 - **Metrics:** pending final integration snapshot.
 - **Next:** merge the four accepted defect fixes, then the reserve floor and rehearsal.
+## 2026-10-30 — Classify weekly liquid history outcomes
+
+- **Why:** reproduced defect: the recorded Yahoo fixture in `tests/test_liquid_history.py` rejects BGIG and MHD because batch index padding is treated as market observations; the live weekly log reported 24 backfill failures and 516 candidate failures.
+- **What:** discard only all-null batch index padding before price admission; real invalid bars and unverified price bases remain rejected. Missing names get a paced max-history re-ask, with explicit source absences separated from fetch failures.
+  Existing job metadata retains named outcomes and a 90-day absence cooldown, invalidated by directory identity changes. Weekly candidate evidence separates absences and suppressed retries from failures.
+- **Evidence:** `pytest tests/test_liquid_history.py tests/test_collect.py -q -W error` passes (35 tests). The recorded 25-name batch replay changes 24 failures to 3 (CHPT, GTE, IVA), preserving all 57,467 accepted rows; the 516 candidate failures split into 425 padding errors, 88 basis holds, SVA's invalid open and two confirmed source absences.
+- **Metrics:** server/tools unchanged; product +191 LOC.
+- **Next:** orchestrator re-pins the changed collection source and XS runtime identity before the green-suite acceptance and deployment; this lane preserves those gates.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
