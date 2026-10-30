@@ -199,6 +199,8 @@ All hypotheses, expectations, controls, and kill criteria are under [`charters/`
 
 ## Historical audits and snapshots
 
+- 2026-10-30: [paper league thinning](history/league-thin-2026-10-30.md), exact gated-twin comparisons and power estimates for the proposed retirements.
+
 Dated snapshots live in [`history/`](history/README.md), whose index says what each one is and
 why it is kept. They remain valuable evidence about what was known on their dates; their old
 strategy counts, fold counts, process state, and recommendations are not current configuration.
