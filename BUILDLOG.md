@@ -4796,4 +4796,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** manifest only; product, server and tools code unchanged.
 - **Next:** install the units from trading-alpha and confirm the live check.
 
+## 2026-10-30 — Skip terminal evaluation labels before computing outcomes
+
+- **Why:** P24 output-identical speed work, lane L1(c) fix 1. The unmodified `label_mature()` took 77.62 s on a disposable store copied from published snapshot tables, with zero inserts. The partial-pair and rerun tests reproduce unnecessary outcome calculation.
+- **What:** preload existing legacy and v2 label keys; select missing horizons before calendar and price work, preserving the missing-entry terminal basis and paired decisions.
+  Keep inserts and label bodies unchanged; add partial-pair, maturity, grace and exact old-code row-identity regression cases.
+- **Evidence:** `python benchmark.py after` (retained lane benchmark): terminal rerun median 85.36 s → 16.20 s (5.27×); all ten copied table hashes match. Old-code fixtures match all 36 newly inserted label rows; full suite 6,266 passed, with only the two expected source-pin failures.
+- **Metrics:** server +33 LOC; tools and product unchanged; budget passes (snapshot retained with lane evidence).
+- **Next:** orchestrator acceptance and the coordinated registration re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
