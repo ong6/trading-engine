@@ -5302,4 +5302,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +27 LOC, tools unchanged, product +33 LOC (session snapshot).
 - **Next:** orchestrator acceptance and the single registration re-pin.
 
+## 2026-10-30 — Enforce the 70 GiB store reserve for revision 21
+
+- **Why:** post-epoch release instruction: every store operation must leave at least 70 GiB free and environment overrides may only raise that floor.
+- **What:** raise the default reserve to 70 GiB; refuse smaller and nonfinite environment values with a clear error. Backup and publication retain their existing copy-size accounting inside the exclusive window.
+- **Evidence:** pytest tests/test_store_limits.py -q -W error → default, raised/lowered overrides and publication copy-space refusal pass.
+- **Metrics:** final integration snapshot records the deltas.
+- **Next:** finish the runnable deployment order and rehearse on a published-snapshot copy.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

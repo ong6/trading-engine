@@ -22,28 +22,32 @@ def test_refuses_before_the_reserve_with_a_clear_error(tmp_path, monkeypatch):
     target = tmp_path / "store" / "snapshots" / "market-new.duckdb"
 
     report = store_limits.require_free_space(target, purpose="publish a snapshot",
-                                           need_bytes=12 * GIB, disk_usage=_usage(22.5))
+                                           need_bytes=12 * GIB, disk_usage=_usage(82.5))
     assert report["path"] == str(tmp_path)
-    assert report["reserve_bytes"] == 10 * GIB
+    assert report["reserve_bytes"] == 70 * GIB
 
     with pytest.raises(store_limits.DiskSpaceError) as refused:
         store_limits.require_free_space(target, purpose="publish a snapshot",
-                                      need_bytes=12 * GIB, disk_usage=_usage(21.9))
+                                      need_bytes=12 * GIB, disk_usage=_usage(81.9))
     message = str(refused.value)
-    assert message.startswith("refusing publish a snapshot: 21.9 GiB free")
-    assert "needs 12.0 GiB plus the 10.0 GiB reserve" in message
+    assert message.startswith("refusing publish a snapshot: 81.9 GiB free")
+    assert "needs 12.0 GiB plus the 70.0 GiB reserve" in message
 
 
-def test_reserve_is_configurable_and_validated(tmp_path, monkeypatch):
-    monkeypatch.setenv(store_limits.MIN_FREE_ENV, "0")
-    store_limits.require_free_space(tmp_path, purpose="x", disk_usage=_usage(0.1))
-    monkeypatch.setenv(store_limits.MIN_FREE_ENV, "50")
-    with pytest.raises(store_limits.DiskSpaceError, match="50.0 GiB reserve"):
-        store_limits.require_free_space(tmp_path, purpose="x", disk_usage=_usage(49))
-    for bad in ("-1", "lots"):
-        monkeypatch.setenv(store_limits.MIN_FREE_ENV, bad)
-        with pytest.raises(store_limits.DiskSpaceError, match=store_limits.MIN_FREE_ENV):
-            store_limits.reserve_bytes()
+def test_reserve_default_and_environment_can_raise_it(monkeypatch):
+    monkeypatch.delenv(store_limits.MIN_FREE_ENV, raising=False)
+    assert store_limits.reserve_bytes() == 70 * GIB
+    monkeypatch.setenv(store_limits.MIN_FREE_ENV, "80")
+    assert store_limits.reserve_bytes() == 80 * GIB
+
+
+@pytest.mark.parametrize("bad", ["0", "10", "69.999", "-1", "nan", "inf", "lots"])
+def test_environment_cannot_lower_or_invalidate_the_reserve(monkeypatch, bad):
+    monkeypatch.setenv(store_limits.MIN_FREE_ENV, bad)
+    with pytest.raises(store_limits.DiskSpaceError, match=store_limits.MIN_FREE_ENV) as error:
+        store_limits.reserve_bytes()
+    if bad != "lots":
+        assert "at least 70 GiB" in str(error.value)
 
 
 def test_only_the_checkout_store_tree_is_guarded_for_writers(tmp_path):
@@ -106,7 +110,7 @@ def test_store_writer_refuses_before_opening_and_readers_and_scratch_are_unaffec
     assert not (store / "market.duckdb").exists()
     db.connect(tmp_path / "scratch.duckdb", wait_s=0).close()
 
-    monkeypatch.setenv(store_limits.MIN_FREE_ENV, "0")
+    monkeypatch.delenv(store_limits.MIN_FREE_ENV, raising=False)
     db.connect(store / "market.duckdb", wait_s=0).close()
     monkeypatch.setenv(store_limits.MIN_FREE_ENV, "1000000000")
     db.connect(store / "market.duckdb", read_only=True, wait_s=0).close()
@@ -182,3 +186,29 @@ def test_backup_and_snapshot_check_free_space_inside_the_exclusive_window(tmp_pa
     with pytest.raises(backup_database.BackupError, match="refusing create"):
         backup_database.create_backup(root, source, tmp_path / "outside" / "bundle")
     assert checked == [("publish a store snapshot", True), ("create a store backup", True)]
+
+
+def test_publication_refuses_when_its_copies_would_spend_the_floor(tmp_path, monkeypatch):
+    import duckdb
+
+    from tools import publish_snapshot
+
+    root = tmp_path / "repo"
+    source = root / "store" / "market.duckdb"
+    source.parent.mkdir(parents=True)
+    duckdb.connect(str(source)).close()
+    monkeypatch.delenv(store_limits.MIN_FREE_ENV, raising=False)
+    required_copy_bytes = 2 * source.stat().st_size
+    checked = []
+    require = store_limits.require_free_space
+
+    def remaining_space(path, *, purpose, need_bytes=0):
+        checked.append(need_bytes)
+        return require(path, purpose=purpose, need_bytes=need_bytes,
+                       disk_usage=lambda _: Usage(500 * GIB, 0, 70 * GIB + required_copy_bytes - 1))
+
+    monkeypatch.setattr(store_limits, "require_free_space", remaining_space)
+    with pytest.raises(publish_snapshot.SnapshotError, match="70.0 GiB reserve"):
+        publish_snapshot.publish_snapshot(root, source)
+    assert checked == [required_copy_bytes]
+    assert not any((source.parent / "snapshots").glob("market-*"))

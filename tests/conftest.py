@@ -62,6 +62,28 @@ def zstd_raw_payloads(raw_payload_encoding_flag):
 
 
 @pytest.fixture(autouse=True)
+def scratch_disk_space(monkeypatch, tmp_path_factory):
+    """Model ample disk for scratch stores; explicit low-space fixtures keep their values.
+
+    CI uses tmpfs smaller than the host's 70 GiB reserve. Store operations still run the
+    guard, using a deterministic volume size for test paths instead of CI host capacity.
+    """
+    import shutil
+
+    from engine.lib import store_limits
+
+    original = shutil.disk_usage
+    base = tmp_path_factory.getbasetemp()
+
+    def usage(path):
+        if Path(path).is_relative_to(base):
+            return shutil._ntuple_diskusage(1024**4, 0, 1024**4)
+        return original(path)
+
+    monkeypatch.setitem(store_limits.require_free_space.__kwdefaults__, "disk_usage", usage)
+
+
+@pytest.fixture(autouse=True)
 def utc_duckdb_connections(monkeypatch):
     """Mirror the host's explicit UTC storage contract under any test process TZ."""
     original = duckdb.connect

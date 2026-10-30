@@ -6,7 +6,7 @@ filesystem.
 Every writer of the live store, the backup bundle and the snapshot publisher calls
 ``require_free_space`` before it starts. The check is one ``statvfs``: free bytes on the
 filesystem holding the path must cover the bytes the operation is about to add plus a
-reserve that is never spent (``TRADING_ENGINE_MIN_FREE_GIB``, default 10 GiB, so the other
+reserve that is never spent (``TRADING_ENGINE_MIN_FREE_GIB``, default and minimum 70 GiB, so the other
 producers, DuckDB's write-ahead log and the logs keep room). A refusal raises
 ``DiskSpaceError`` naming the operation, the path, the free bytes and what it needed, before
 any byte is written; nothing here deletes or prunes.
@@ -23,6 +23,7 @@ own values on their connection keep them.
 
 from __future__ import annotations
 
+import math
 import os
 import shutil
 from collections.abc import Callable
@@ -32,7 +33,7 @@ from typing import Any
 from engine.lib.settings import REPO_ROOT
 
 MIN_FREE_ENV = "TRADING_ENGINE_MIN_FREE_GIB"
-DEFAULT_MIN_FREE_GIB = 10.0
+DEFAULT_MIN_FREE_GIB = 70.0
 GIB = 1024**3
 STORE_ROOT = REPO_ROOT / "store"
 
@@ -50,8 +51,11 @@ def reserve_bytes() -> int:
         gib = DEFAULT_MIN_FREE_GIB if raw in (None, "") else float(raw)
     except ValueError as exc:
         raise DiskSpaceError(f"{MIN_FREE_ENV}={raw!r} is not a number of GiB") from exc
-    if gib < 0:
-        raise DiskSpaceError(f"{MIN_FREE_ENV}={raw!r} is negative")
+    if not math.isfinite(gib) or gib < DEFAULT_MIN_FREE_GIB:
+        raise DiskSpaceError(
+            f"{MIN_FREE_ENV}={raw!r} must be finite and at least {DEFAULT_MIN_FREE_GIB:g} GiB; "
+            "the store reserve cannot be lowered"
+        )
     return int(gib * GIB)
 
 
