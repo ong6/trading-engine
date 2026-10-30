@@ -53,13 +53,14 @@ MAX_ANCESTORS = 32
 STATIC_RULES = frozenset({
     "manifest-invalid", "unit-not-in-manifest", "manifest-source-missing", "unbounded",
     "max-runtime-drift", "lane-path", "stops-live-unit", "held-autostart", "autostart-drift",
-    "timer-drift", "state-drift", "cron-drift",
+    "timer-drift", "state-drift", "cron-drift", "restart-loop-unbounded",
 })
 LIVE_RULES = frozenset({
     "not-installed", "not-enabled", "not-active", "held-enabled", "held-active", "failed",
     "off-manifest-unit", "off-manifest-cron", "missing-cron", "duplicate-cron", "held-cron",
     "lane-path", "unbounded", "max-runtime-drift", "stops-live-unit", "foreign-holder",
     "held-holder", "undeclared-holder", "undeclared-writer", "holder-outside-window",
+    "restart-loop-unbounded",
 })
 PUBLIC_STATUSES = frozenset({"ok", "violations", "error", "stale", "absent", "invalid"})
 UNIT_SUFFIXES = (".service", ".timer", ".slice", ".socket", ".path", ".target")
@@ -69,7 +70,9 @@ STOP_VERBS = frozenset({"stop", "kill", "disable", "mask", "isolate", "restart",
                         "reload-or-restart", "freeze"})
 SHOW_PROPERTIES = ("Id", "LoadState", "ActiveState", "SubState", "UnitFileState", "Type",
                    "ConditionResult", "Result",
-                   "TimeoutStartUSec", "RuntimeMaxUSec", "Conflicts", "Triggers", *EXEC_KEYS)
+                   "TimeoutStartUSec", "RuntimeMaxUSec", "Restart", "RestartUSec",
+                   "StartLimitBurst", "StartLimitIntervalUSec", "Conflicts", "Triggers",
+                   *EXEC_KEYS)
 _SPAN_UNITS = {"": 1.0, "us": 1e-6, "usec": 1e-6, "ms": 1e-3, "msec": 1e-3, "s": 1.0,
                "sec": 1.0, "m": 60.0, "min": 60.0, "h": 3600.0, "hr": 3600.0, "d": 86400.0,
                "w": 604800.0}
@@ -433,6 +436,41 @@ def unit_bound_seconds(directives: dict[str, list[str]]) -> float | None:
     return None if value is None else span_seconds(value)
 
 
+def _restart_loop_violations(name: str, entry: dict | None,
+                             directives: dict[str, list[str]], *, live: bool = False) -> list[dict]:
+    """Bound retries of manifest timer services; boot daemons may restart indefinitely."""
+    restart = _last(directives, "Restart")
+    if not entry or entry.get("activation") != "timer" or restart in {None, "", "no"}:
+        return []
+    bound = _live_bound(directives) if live else unit_bound_seconds(directives)
+    if bound is None or not math.isfinite(bound):
+        return [_violation("restart-loop-unbounded", name, restart=restart,
+                           problem="no finite per-attempt bound")]
+    if restart not in {"on-failure", "on-abnormal", "always"}:
+        return []
+    # Live properties include manager defaults; omitted static directives use those defaults.
+    interval_text = _last(directives, "StartLimitIntervalUSec" if live
+                          else "StartLimitIntervalSec")
+    burst_text = _last(directives, "StartLimitBurst")
+    if not live:
+        interval_text = interval_text or "10s"
+        burst_text = burst_text or "5"
+    if interval_text is None or burst_text is None:
+        return []
+    interval = span_seconds(interval_text)
+    burst = int(burst_text)
+    delay = span_seconds(_last(directives, "RestartUSec" if live else "RestartSec")
+                         or "100ms") or 0.0
+    retry_seconds = burst * (bound + delay)
+    margin = max(300.0, 0.1 * retry_seconds)
+    if interval is None or burst <= 0 or retry_seconds + margin >= interval:
+        return [_violation("restart-loop-unbounded", name, restart=restart,
+                           attempt_seconds=bound, restart_seconds=delay,
+                           margin_seconds=margin,
+                           start_limit_burst=burst, start_limit_interval_seconds=interval)]
+    return []
+
+
 def _lane_paths(values: list[str], markers: list[str]) -> list[str]:
     return [value[:300] for value in values if any(marker in value for marker in markers)]
 
@@ -511,6 +549,7 @@ def static_check(
             triggered[_last(parsed[name], "Unit") or name.removesuffix(".timer") + ".service"] = name
     for name, directives in sorted(parsed.items()):
         entry = units.get(name)
+        violations += _restart_loop_violations(name, entry, directives)
         lane = _lane_paths([v for key in EXEC_KEYS for v in directives.get(key, [])], markers)
         if lane:
             violations.append(_violation("lane-path", name, paths=lane))
@@ -693,6 +732,7 @@ def _unit_violations(manifest: dict, blocks: dict[str, dict[str, list[str]]],
                                          unit_file_state=_prop(block, "UnitFileState")))
         if _prop(block, "LoadState") == "not-found":
             continue
+        violations += _restart_loop_violations(name, entry, block, live=True)
         lane = _lane_paths([v for key in EXEC_KEYS for v in block.get(key, [])], markers)
         if lane:
             violations.append(_violation("lane-path", name, paths=lane))

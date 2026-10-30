@@ -49,7 +49,8 @@ def test_checkout_satisfies_the_static_contract():
     result = sc.static_check(REPO_ROOT, MANIFEST, autostart=install_automation.AUTOSTART_UNITS,
                              expected_cron=_installer_cron())
     assert result["violations"] == []
-    assert result["exceptions"] == []
+    assert {(item["rule"], item["subject"]) for item in result["exceptions"]} == {
+        ("restart-loop-unbounded", "trading-engine-p15-scoring.service")}
 
 
 def test_installer_sets_are_derived_from_the_manifest():
@@ -110,6 +111,7 @@ def test_unit_bounds_and_declarations_must_agree(tmp_path):
 
     assert _pairs(sc.static_check(root, MANIFEST)) == {
         ("unbounded", "trading-engine-agent-shadow.service"),
+        ("restart-loop-unbounded", "trading-engine-agent-shadow.service"),
         ("timer-drift", "trading-engine-ops-digest.timer"),
         ("max-runtime-drift", "trading-engine-accounts-settle.service"),
         ("manifest-source-missing", "trading-engine-p15-preopen.timer"),
@@ -123,12 +125,15 @@ def test_pinned_exception_moves_a_violation_aside_with_its_reason(tmp_path):
     manifest = json.loads(json.dumps(MANIFEST))
     entry = next(item for item in manifest["units"]
                  if item["unit"] == "trading-engine-p15-scoring.service")
-    entry["pinned_exception"] = [{"rule": "unbounded", "reason": "registered file"}]
+    entry["pinned_exception"].append({"rule": "unbounded", "reason": "registered file"})
 
     result = sc.static_check(root, manifest)
 
     assert result["violations"] == []
-    assert [(item["rule"], item["exception"]) for item in result["exceptions"]] == [
+    assert {item["rule"] for item in result["exceptions"]} == {
+        "unbounded", "restart-loop-unbounded"}
+    assert [(item["rule"], item["exception"]) for item in result["exceptions"]
+            if item["rule"] == "unbounded"] == [
         ("unbounded", "registered file")]
 
 
@@ -213,6 +218,80 @@ def test_healthy_host_matches_the_manifest(tmp_path):
     result = _live(tmp_path, _healthy_blocks(MANIFEST), _crontab(home / "trading-engine", home))
     assert result["errors"] == []
     assert result["violations"] == []
+
+
+@pytest.mark.parametrize("mode", ["static", "live"])
+@pytest.mark.parametrize("restart, runtime, interval, activation, fires", [
+    # 2026-10-28/29: three 15-minute attempts escape the 30-minute start limit.
+    ("on-failure", "10min", "30min", "timer", True),
+    ("on-failure", "10min", "1h", "timer", False),
+    ("no", "10min", "30min", "timer", False),
+    ("on-abnormal", "10min", "30min", "timer", True),
+    ("always", "10min", "30min", "timer", True),
+    ("on-failure", "10min", "45min", "timer", True),
+    ("on-failure", "5min", "1801s", "timer", True),
+    ("on-failure", "5min", "2100s", "timer", True),
+    ("on-failure", "5min", "2101s", "timer", False),
+    ("on-failure", "9h", "107910s", "timer", True),
+    ("on-failure", "9h", "107911s", "timer", False),
+    ("on-failure", "infinity", "1h", "timer", True),
+    ("always", "infinity", "1h", "boot", False),
+    ("always", "10min", "30min", "boot", False),
+])
+def test_restart_loop_contract(tmp_path, mode, restart, runtime, interval, activation, fires):
+    name = "trading-engine-daily-opportunity.service"
+    manifest = json.loads(json.dumps(MANIFEST))
+    entry = next(item for item in manifest["units"] if item["unit"] == name)
+    entry["activation"] = activation
+    if mode == "static":
+        root = _copy_units(tmp_path)
+        service = root / entry["source"]
+        text = service.read_text().replace("Restart=on-failure", f"Restart={restart}")
+        text = text.replace("RuntimeMaxSec=10min", f"RuntimeMaxSec={runtime}")
+        text = text.replace("StartLimitIntervalSec=1h", f"StartLimitIntervalSec={interval}")
+        service.write_text(text)
+        result = sc.static_check(root, manifest)
+    else:
+        home = tmp_path / "home"
+        proc = tmp_path / "proc"
+        proc.mkdir()
+        blocks = _healthy_blocks(manifest)
+        blocks[name].update(Type="exec", RuntimeMaxUSec=runtime, Restart=restart,
+                            RestartUSec="5min", StartLimitBurst="3",
+                            StartLimitIntervalUSec=interval)
+        runner = _runner(blocks, _crontab(home / "trading-engine", home))
+
+        def checked_runner(args):
+            if args[:3] == ["systemctl", "--user", "show"]:
+                assert set(("Restart", "RestartUSec", "StartLimitBurst",
+                            "StartLimitIntervalUSec")) <= set(args)
+            return runner(args)
+
+        result = sc.live_check(manifest, run=checked_runner, proc_root=proc,
+                               engine_root=home / "trading-engine", home=home)
+    assert (("restart-loop-unbounded", name) in _pairs(result)) is fires
+
+
+@pytest.mark.parametrize("omitted, expected_interval, expected_burst", [
+    (("StartLimitIntervalSec",), 10, 3),
+    (("StartLimitBurst",), 3600, 5),
+    (("StartLimitIntervalSec", "StartLimitBurst"), 10, 5),
+])
+def test_static_restart_limits_use_manager_defaults(tmp_path, omitted,
+                                                    expected_interval, expected_burst):
+    root = _copy_units(tmp_path)
+    name = "trading-engine-daily-opportunity.service"
+    service = root / "server" / name
+    service.write_text("\n".join(line for line in service.read_text().splitlines()
+                                 if not any(line.startswith(f"{key}=") for key in omitted))
+                       + "\n")
+
+    result = sc.static_check(root, MANIFEST)
+
+    violation = next(item for item in result["violations"]
+                     if item["rule"] == "restart-loop-unbounded" and item["subject"] == name)
+    assert violation["detail"]["start_limit_interval_seconds"] == expected_interval
+    assert violation["detail"]["start_limit_burst"] == expected_burst
 
 
 def test_live_unit_state_drift_failures_and_lane_units_are_violations(tmp_path):

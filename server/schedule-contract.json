@@ -93,6 +93,7 @@
     {"unit": "trading-engine-p15-scoring.service", "origin": "repo",
      "source": "server/trading-engine-p15-scoring.service", "state": "enabled",
      "activation": "timer", "timer": "trading-engine-p15-scoring.timer", "max_runtime": "9h",
+     "pinned_exception": [{"rule": "restart-loop-unbounded", "reason": "P15-pinned unit: its registered 12:00 UTC deadline refusal persists a failed run without model calls, so a loop after the deadline makes no calls; the unit fix belongs in the next registration revision."}],
      "store": {"access": "writer", "writes": ["store/market.duckdb"], "reads": [], "windows": "schedule"}},
 
     {"unit": "trading-engine-p15-preopen.timer", "origin": "repo",

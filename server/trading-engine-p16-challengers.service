@@ -2,8 +2,8 @@
 Description=Trading engine P16 pre-entry challenger family
 After=network-online.target trae-proxy.service trading-engine-p15-scoring.service
 Wants=network-online.target trae-proxy.service
-StartLimitIntervalSec=30min
-StartLimitBurst=3
+StartLimitIntervalSec=20h
+StartLimitBurst=2
 
 [Service]
 Type=exec

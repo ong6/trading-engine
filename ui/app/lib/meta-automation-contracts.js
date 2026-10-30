@@ -176,6 +176,7 @@ const SCHEDULE_CONTRACT_RULES = new Set([
   "not-installed",
   "off-manifest-cron",
   "off-manifest-unit",
+  "restart-loop-unbounded",
   "state-drift",
   "stops-live-unit",
   "timer-drift",

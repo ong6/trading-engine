@@ -4778,4 +4778,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/engine/farm small deltas (client eras, validators, strata).
 - **Next:** confirm the 2026-10-30 02:00 and 02:30 UTC runs record GPT-6.1-Sol:max.
 
+## 2026-10-30 — Detect unbounded timer-service restart loops
+
+- **Why:** demonstrated defect: `pytest tests/test_schedule_contract.py -k restart_loop_contract --maxfail=1` failed because the 2026-10-28/29 configuration (10min runtime, 5min delay, burst 3, 30min interval) produced no violation.
+- **What:** static and live checks detect restart loops for manifest timer services, allowing overhead of max(5min, 10% of the retry budget); static checks apply manager defaults when start limits are omitted. The browser accepts the new rule; boot services remain outside its scope.
+  Generated shadow units use three attempts in 1h; challengers use two in 20h, separating normal daily starts from the preceding retry budget.
+  P15 scoring stays pinned, with a disclosed exception pending its next registration revision.
+- **Evidence:** `python -m tools.affected_tests --run` passes, including the static/live restart-loop regression and browser/server rule-set check.
+- **Metrics:** server +40 LOC; tools/product unchanged (session snapshot).
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

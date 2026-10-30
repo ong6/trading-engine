@@ -2,7 +2,7 @@
 Description=Trading engine agent-only shadow decision
 After=network-online.target trae-proxy.service
 Wants=network-online.target trae-proxy.service
-StartLimitIntervalSec=30min
+StartLimitIntervalSec=1h
 StartLimitBurst=3
 
 [Service]

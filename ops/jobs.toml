@@ -305,7 +305,7 @@ unit = "trading-engine-agent-shadow.service"
 description = "Trading engine agent-only shadow decision"
 after = ["network-online.target", "trae-proxy.service"]
 wants = ["network-online.target", "trae-proxy.service"]
-start_limit_interval = "30min"
+start_limit_interval = "1h"
 start_limit_burst = 3
 type = "exec"
 exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "server.agent_shadow_schedule", "run"] }]
@@ -740,8 +740,8 @@ unit = "trading-engine-p16-challengers.service"
 description = "Trading engine P16 pre-entry challenger family"
 after = ["network-online.target", "trae-proxy.service", "trading-engine-p15-scoring.service"]
 wants = ["network-online.target", "trae-proxy.service"]
-start_limit_interval = "30min"
-start_limit_burst = 3
+start_limit_interval = "20h"
+start_limit_burst = 2
 type = "exec"
 exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "server.p16_challenger_runner", "--run"] }]
 environment = ["PYTHONUNBUFFERED=1"]

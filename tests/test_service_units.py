@@ -236,6 +236,11 @@ def test_p15_event_unit_is_intraday_shadow_and_autostarted():
     assert "trading-engine-p15-events.timer" in install_automation.AUTOSTART_UNITS
 
 
+def test_agent_shadow_unit_has_a_bounded_restart_budget():
+    service = _unit("server/trading-engine-agent-shadow.service")
+    assert "StartLimitIntervalSec=1h" in service and "StartLimitBurst=3" in service
+
+
 def test_p16_challenger_unit_is_registered_but_not_autostarted():
     service = _unit("server/trading-engine-p16-challengers.service")
     timer = _unit("server/trading-engine-p16-challengers.timer")
@@ -246,7 +251,7 @@ def test_p16_challenger_unit_is_registered_but_not_autostarted():
            "trading-engine-p15-scoring.service" in service
     assert "TimeoutStartSec=9h" in service
     assert "Restart=on-failure" in service and "RestartSec=5min" in service
-    assert "StartLimitIntervalSec=30min" in service and "StartLimitBurst=3" in service
+    assert "StartLimitIntervalSec=20h" in service and "StartLimitBurst=2" in service
     assert "Tue..Sat *-*-* 03:00:00 UTC" in timer and "Persistent=true" in timer
     assert "trading-engine-p16-challengers.timer" \
         not in install_automation.AUTOSTART_UNITS
