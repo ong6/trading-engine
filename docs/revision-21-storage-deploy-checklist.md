@@ -1,13 +1,18 @@
-# Storage revision (r16-gen + r16-raw, now numbered revision 21 after main took registration revisions 18 and 19) — deploy checklist
+# P15 registration revision 21 — storage deploy checklist
 
-Branch `p24/storage-r18` (storage revision on top of main at 53a86579). Status: **review findings fixed, awaiting
-re-review**; not deployed. Rehearsed on store copies only (see "Rehearsal result"). Nothing here was run against the
+Branch `r21/integrate` integrates `p24/storage-r18` (`f0282839`, based on `53a86579`) into
+main `36d91bb1`, retaining the revision-20 GPT-6.1-Sol model amendment. Status: **awaiting integration acceptance**; not deployed. Rehearsed on store copies only (see "Rehearsal result"). Nothing here was run against the
 live store.
 
-**Deploy plan (fixed).** Hold until trial 287's 2026-11-03 06:30 UTC epoch has run. Then, in one sitting outside
-22:15-23:59 UTC and the provider windows: the orchestrator merges this branch into `origin/main` and runs the deploy
-together with the alpha-side switch of `confirm_287.py` to `pin_latest_generation` (pre-flight 6), so trial 287 reads
-generations well before its 2026-12-03 epoch.
+**Deploy plan.** Trial 287 closes at its owner-precommitted 2026-11-03 06:30 UTC epoch. Hold until that epoch
+has finished, then the orchestrator merges `r21/integrate` into `origin/main` and deploys in one sitting. Never
+deploy in 22:15–23:59 or 02:00–04:00 UTC; also avoid the producer/provider windows below. The earlier pre-flight
+switch of private `confirm_287.py` to `pin_latest_generation` is dropped: trial 287 closes on November 3 and has
+no December epoch. Check any other remaining snapshot consumers before deployment.
+
+**Rename.** The storage work formerly numbered revision 20 is revision 21 after main's model amendment.
+`ops/storage-r20/` is now `ops/storage-r21/`; `P20_*`, `R20_*` and `p20_*` become `P21_*`, `R21_*` and `p21_*`.
+Use a new `r21-deploy` state directory. Historical rehearsal entries keep their original commit references.
 
 ## What the revision changes, and the review findings it answers
 
@@ -69,18 +74,15 @@ generations well before its 2026-12-03 epoch.
   repo); orchestrator sign-off on pausing TradingView history; incremental capture (copy only changed
   table data instead of the whole 12.8 GB primary) as a follow-up to cut publication I/O.
 
-## Re-pin (done on the branch: registration revision 21)
+## Revision-21 pins
 
-`server/p15-registration.json` is revision 21 over the storage revision and the reliability-ops limits
-(`engine/lib/store_limits.py` joins the registered closure); `registration_sha256` `9f14aac3…`, `source_commit` the
-newest commit touching a registered file. Its `revision_reason` names what changes in collection (TradingView daily
-history, Massive options and five unread macro series paused) and schedules (the new publish-on-change timer; the
-TradingView timer no longer runs), the reader and storage paths and the storage limits, and what does not (frozen
-verdict rules, scores, labels, gates and valid-data outcomes). E1 v8, sector v12 and XS v23 keep their versions
-(re-pinned digests E1 `291fd25c…`, sector `8c2998fa…`, XS `2edb8b29…`); each runner's `--migrate-runtime-contract`
-accepts only the deployed revision-19 digest (E1 `2c8ec5b0…`, sector `bad25764…`, XS `d00ee812…`) and refuses an
-INVALID published report, and the deploy script runs the three migrations after the schema migration. A later change
-to a registered file needs another revision.
+The final integration pins are recorded below after all source changes. Registration revision 21 keeps the
+revision-20 model amendment, efforts and prior GPT-5.6 identities intact. Its reason discloses the accepted liquid
+backfill, terminal-label, observer-writer and pre-open deadline fixes and the enforced 70 GiB minimum reserve.
+`source_commit` is the last commit touching a registered file; `code_identity.files` covers the complete imported
+closure; `registration_sha256` uses `canonical_sha256` over the document with that key removed. E1 v8, sector v12
+and XS v23 retain every frozen value and migrate only their deployed digests. Any later pinned-source edit requires
+all affected hashes, source commit and the registration self-hash to be recomputed before acceptance.
 
 ## Pre-flight (all must hold)
 
@@ -88,11 +90,12 @@ to a registered file needs another revision.
 2. `.venv/bin/python -m engine.job_contract audit` → `status: ok`; `python -m tools.schedule_contract_check --static` clean.
 3. Free space ≥ 70 GiB on the store filesystem (restore reserve) plus 3× store size: the backup, the first generation,
    and publication's transient copy of the primary.
-4. Window outside 13:00-21:00, 02:20-02:50, 07:30-07:50 UTC weekdays; no queue drain running. Allow about 45 minutes
+4. Window outside 22:15–23:59 and 02:00–04:00 UTC every day, and outside
+   13:00–21:00 and 07:30–07:50 UTC weekdays; no queue drain running. Allow about 45 minutes
    with producers quiesced (backup create plus verify, migration, first publication; see the rehearsal timings).
 5. A fresh verified off-host copy exists (trading-data backup current).
-6. Private consumers of `store/snapshots/market-latest.duckdb` that check the schema-1 manifest must be switched to
-   `pin_latest_generation` before deploy; they fail closed on a generation layout.
+6. Trial 287 has closed at its November 3 epoch; no `confirm_287.py` consumer switch is required. Confirm any
+   other active schema-1 consumer supports generations before deploy.
 7. Inside the window, after quiescence, the deploy script runs `engine.schema_migrations plan` read-only on the live
    primary and stops unless the pre-image is `865f64aa…`.
 8. In the same window it counts NULLs, read-only, in the five deployed columns the baseline makes NOT NULL
@@ -104,7 +107,7 @@ to a registered file needs another revision.
 ## Deploy
 
 The orchestrator merges the approved branch into `origin/main` (a merge commit, `--no-ff`) and starts the deploy in
-the same sitting, outside 22:15-23:59 UTC; `P21_APPROVED_SHA` is that merge commit. The live checkout stays on branch
+the same sitting, outside 22:15–23:59 and 02:00–04:00 UTC; `P21_APPROVED_SHA` is that merge commit. The live checkout stays on branch
 `main`. Anything that moves the live checkout onto `origin/main` before quiescence would put revision-21 code on the
 unmigrated store: the nightly's pull (22:30 UTC weekdays) and a `te-autopush` rebase. The deploy's first step pauses
 both (the crontab and `te-autopush.timer`; it refuses while a nightly runs). If revision-21 code reaches the
@@ -113,10 +116,14 @@ operational store … nothing was written") before writing.
 
 ```bash
 set -euo pipefail
+.venv/bin/python -c 'from datetime import datetime, timezone; n=datetime.now(timezone.utc); m=n.hour*60+n.minute; assert n >= datetime(2026,11,3,6,30,tzinfo=timezone.utc), "epoch not reached"; assert not (m>=1335 or 120<=m<240), "excluded deploy window"; assert not (n.weekday()<5 and (780<=m<1260 or 450<=m<470)), "producer/provider window"'
+export OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
+export TRADING_ENGINE_DUCKDB_THREADS=4 TRADING_ENGINE_DUCKDB_MEMORY=4GB
+export TRADING_ENGINE_MIN_FREE_GIB=70
 export P21_ROOT="$HOME/trading-engine" P21_STATE="$HOME/.local/state/r21-deploy" P21_APPROVED_SHA=<full merge sha>
 git -C "$P21_ROOT" fetch --quiet origin
 git -C "$P21_ROOT" show "$P21_APPROVED_SHA:ops/storage-r21/deploy.sh" > "$HOME/r21-deploy.sh"
-bash "$HOME/r21-deploy.sh"
+nice -n 10 bash "$HOME/r21-deploy.sh"
 ```
 
 `ops/storage-r21/deploy.sh`, in order (any failure stops it with producers quiesced):
@@ -140,25 +147,52 @@ bash "$HOME/r21-deploy.sh"
    `--migrate-runtime-contract` migrations (each accepts only the deployed revision-19 digest and refuses an INVALID
    published report) and one ordinary refresh; then asserts that E1's checkpoint and the sector and XS reports carry
    the re-pinned digests and that neither report is INVALID.
-7. Publishes the first generation; stages units with `install_automation --stage` (nothing starts); starts the
-   readers and checks the generation headers, the evidence route (`pending_publication: false`), `/meta`'s
+7. Publishes the first generation; stages units with `install_automation --stage` (nothing starts); explicitly restarts the API after the source change (even when its unit file matches), starts the UI
+   and checks the generation headers, the evidence route (`pending_publication: false`), `/meta`'s
    `e1_forward`, `forward_review` and `xs_forward_review` (none INVALID), the invariants and retention.
 8. Runs `schedule_contract_check --live` and refuses any violation except the ones quiescence explains (`not-active`
    timers, `missing-cron`).
-9. Releases producers with the full `install_automation --apply`, restarts the host timers that ran before (never the
+9. Releases producers with the full `install_automation --apply` (installs and enables
+   `trading-engine-publish-on-change.timer`), restarts the host timers that ran before (never the
    paused TradingView timer), and runs the live schedule-contract check again. A failure from here on says producers
    may be running.
 
 ## Verify after release (stop at the first failure and roll back)
 
-1. `python -m engine.schema_migrations plan` → `status: current`, schema id 1.
-2. `curl -sI localhost:8000/health` shows `x-data-source: snapshot`, `x-generation-id`, `x-generation-stale: false`.
-3. During US market hours, within 3.5 hours of any write, `/agent/evaluation/status` reports
-   `generation.pending_publication: false` (publish-on-change ran) and never 503.
-4. `python -m tools.check_invariants --snapshot latest` exits 0 (shadow).
-5. First nightly after deploy: books advance, E1, sector and XS records are written, no `SchemaMigrationRequired`;
-   P15 scoring and pre-open green; ops digest shows no `held-active` or `held-enabled`.
-6. Run `remote_restore_drill` against the private backup repo commit of the first generation-backed bundle.
+Run from the deployed checkout; each command must exit zero. The installer restarts the API when its last successful
+apply used a different source revision, even if the unit file is identical. Stage starts no service; the deploy's
+reader phase explicitly restarts the API before checking it. This prevents the stale-source failure observed after
+October 22, when the API ran old code for eight days.
+
+```bash
+set -euo pipefail
+cd "$P21_ROOT"
+.venv/bin/python -m engine.schema_migrations plan > "$P21_STATE/post-schema.json"
+.venv/bin/python -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["status"] == "current" and d["database_schema_id"] == 1, d' "$P21_STATE/post-schema.json"
+.venv/bin/python -m tools.registration_identity --base "$P21_APPROVED_SHA^1"
+.venv/bin/python -m tools.schedule_contract_check --static
+systemctl --user is-enabled --quiet trading-engine-publish-on-change.timer
+systemctl --user is-active --quiet trading-engine-publish-on-change.timer trading-engine-api.service
+systemctl --user show trading-engine-api.service -p MainPID -p ExecMainStartTimestamp
+curl --silent --fail --dump-header "$P21_STATE/post-health.headers" --output "$P21_STATE/post-health.json" http://127.0.0.1:8000/health
+grep -qi '^x-data-source: snapshot' "$P21_STATE/post-health.headers"
+grep -qi '^x-generation-id: market-' "$P21_STATE/post-health.headers"
+grep -qi '^x-generation-stale: false' "$P21_STATE/post-health.headers"
+curl --silent --fail http://127.0.0.1:8000/agent/evaluation/status > "$P21_STATE/post-evaluation.json"
+.venv/bin/python -c 'import json,sys; g=json.load(open(sys.argv[1]))["generation"]; assert g["pending_publication"] is False, g' "$P21_STATE/post-evaluation.json"
+curl --silent --fail http://127.0.0.1:8000/meta > "$P21_STATE/post-meta.json"
+.venv/bin/python -c 'import json,sys; d=json.load(open(sys.argv[1])); assert all(d[k]["status"] != "INVALID" for k in ("e1_forward","forward_review","xs_forward_review"))' "$P21_STATE/post-meta.json"
+.venv/bin/python -m tools.check_invariants --snapshot latest
+.venv/bin/python -m tools.schedule_contract_check --live
+.venv/bin/python -m tools.publish_snapshot --retention-dry-run
+```
+
+During US market hours, repeat the evidence check within 3.5 hours of a write; inspect
+`journalctl --user -u trading-engine-publish-on-change.service --since today` for a successful publication or a
+valid unchanged/age skip. The first nightly must advance books and all three forward records without
+`SchemaMigrationRequired`; P15 scoring and pre-open must complete, with no held unit enabled or active in the ops
+digest. After the first generation-backed backup reaches the private backup repo, run its off-host restore drill
+using `tools.backup_database remote-restore-drill --help` and the pinned backup commit/manifest; record the result.
 
 ## Rollback
 

@@ -647,6 +647,28 @@ def _installed_units(
     return result
 
 
+# The last successful apply's source revision, separate from unit-file identities.
+# Stage deliberately leaves it untouched: it starts no services.
+API_SOURCE_MARKER = Path(".local/state/trading-engine/automation-source-revision")
+API_UNIT = "trading-engine-api.service"
+
+
+def _source_revision(repo_root: Path) -> str | None:
+    result = _run(["git", "-C", str(repo_root), "log", "-1", "--format=%H", "--",
+                   "engine", "farm", "server", "sim", "tools", "schemas", "uv.lock"])
+    revision = result.stdout.strip()
+    return revision if result.returncode == 0 and len(revision) == 40 else None
+
+
+def _api_source_changed(repo_root: Path, home: Path) -> tuple[str | None, bool]:
+    revision = _source_revision(repo_root)
+    try:
+        installed = (home / API_SOURCE_MARKER).read_text().strip()
+    except FileNotFoundError:
+        installed = None
+    return revision, revision is not None and revision != installed
+
+
 def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, str]:
     repo_root = repo_root.resolve()
     home = (home or Path.home()).resolve()
@@ -676,7 +698,9 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
         desired_crontab = ""
     units = _installed_units(repo_root, home, source_errors=errors)
     linger = _linger_state()
+    source_revision, restart_api = _api_source_changed(repo_root, home)
     changes = {
+        "restart_api": restart_api,
         "crontab": bool(desired_crontab) and desired_crontab != current_crontab,
         "service_units": sorted(unit for unit, state in units.items() if not state["matches"]),
         "enable_units": sorted(
@@ -708,6 +732,7 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
         "service_units": units,
         "held_units": sorted(HELD_UNITS),
         "launch_sources": launch_sources,
+        "source_revision": source_revision,
         "linger": linger,
         "host": host,
         "job_registry": registry,
@@ -942,12 +967,18 @@ def apply(summary: dict, _desired_crontab: str, repo_root: Path, home: Path) -> 
     if disable_units:
         _checked(["systemctl", "--user", "disable", *disable_units])
     changed = set(changed_units) & autostart_units
+    if summary["changes"]["restart_api"]:
+        changed.add(API_UNIT)
     if changed:
         _checked(["systemctl", "--user", "restart", *sorted(changed)])
     inactive_unchanged = sorted(set(start_units) - changed)
     if inactive_unchanged:
         _checked(["systemctl", "--user", "start", *inactive_unchanged])
     scheduler, installed, linger = _verify_applied(repo_root, home, units, paused_units)
+    if summary["source_revision"] is not None:
+        marker = home / API_SOURCE_MARKER
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(summary["source_revision"] + "\n")
     return {
         **summary,
         "status": "ok",

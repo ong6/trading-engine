@@ -98,10 +98,10 @@ both timezone suites pass, and does the single re-pin. Lanes never push `main`.
   duration budget on main); main CI is green again (first since 2026-10-20) after the ci-green
   rounds fixed dependency advisories, two lint steps, the research sandbox on shared-library
   interpreters and a shared-setup charge in the duration budget.
-- Checkpoint, storage revision 20: reviewed in four rounds and ready on `p24/storage-r18`
+- Checkpoint, storage revision 21: reviewed in four rounds and ready on `p24/storage-r18`
   (`f0282839`); deploy and rollback scripts rehearsed on mirrored-live sandboxes, including one real
   nightly and byte-identical restores. Deploy is scheduled after the private trial's first epoch
-  (2026-11-03 06:30 UTC), in one sitting with that consumer's switch to generations, outside
+  (2026-11-03 06:30 UTC), after trial 287 closes, without changing its consumer, outside
   22:15-23:59 UTC, after fresh suites on the merge commit and a fresh re-pin check.
 - Open: the deploy above; incremental capture (copy only changed table data) as a follow-up to cut
   publication I/O. The alpha study lanes report in the private repository.

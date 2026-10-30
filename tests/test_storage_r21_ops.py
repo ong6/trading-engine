@@ -146,7 +146,7 @@ def sandbox(tmp_path, monkeypatch):
         "forward/xs_momentum_12_1.json")})
     files.update({"code.txt": "previous code\n", "data/report.json": "{}\n",
                   ".gitignore": "store/\n",
-                  "server/p15-registration.json": '{"registration_revision": 19}\n'})
+                  "server/p15-registration.json": '{"registration_revision": 20}\n'})
     _commit(author, files, "base")
     _git(author, "push", "-q", "-u", "origin", "main")
     live = tmp_path / "live"
@@ -157,7 +157,7 @@ def sandbox(tmp_path, monkeypatch):
     # The approved branch, merged into origin/main before the window.
     _git(author, "checkout", "-q", "-b", "storage-r21")
     _commit(author, {"code.txt": "revision 21 code\n",
-                     "server/p15-registration.json": '{"registration_revision": 20}\n'},
+                     "server/p15-registration.json": '{"registration_revision": 21}\n'},
             "revision 21")
     _git(author, "checkout", "-q", "main")
     _git(author, "merge", "-q", "--no-ff", "-m", "Merge revision 21", "storage-r21")

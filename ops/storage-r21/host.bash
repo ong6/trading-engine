@@ -88,7 +88,8 @@ p21_autopush() {
 
 p21_readers_ready() {
   # Start only the readers (API and UI) and wait for them to answer.
-  systemctl --user start --no-block trading-engine-api.service trading-engine-ui.service
+  systemctl --user restart --no-block trading-engine-api.service
+  systemctl --user start --no-block trading-engine-ui.service
   local url code attempt
   for url in http://127.0.0.1:8000/health http://127.0.0.1:3000/api/health; do
     code=000

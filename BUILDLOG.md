@@ -5310,4 +5310,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** final integration snapshot records the deltas.
 - **Next:** finish the runnable deployment order and rehearse on a published-snapshot copy.
 
+## 2026-10-30 — Prepare the revision-21 deployment order and API source restart
+
+- **Why:** integration instruction: install publish-on-change and restart an API whose source changed, after trial 287's closing epoch and outside excluded windows.
+- **What:** the installer restarts the API when the deployed source revision differs from its last successful apply, including the first apply; stage starts no service and does not record a source revision.
+  The reader phase explicitly restarts the API; the checklist supplies window, installation and post-deploy commands and drops the closed trial-287 consumer switch. Update current storage revision references and the renamed script fixtures.
+- **Evidence:** pytest tests/test_install_automation.py tests/test_storage_r21_ops.py tests/test_store_limits.py -q -W error → 87 passed.
+- **Metrics:** final integration snapshot records the deltas.
+- **Next:** freeze source pins, rehearse the copy and run both timezone suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
