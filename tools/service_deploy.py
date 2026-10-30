@@ -1,6 +1,6 @@
 """Source-aware deployment of the two long-running application services.
 
-API sources are conservatively all Python in the five importable packages (main
+API sources are conservatively everything under server/ and ops/ plus all Python in the other importable packages (main
 imports farm and tools too), plus dependency declarations. UI sources are its
 whole tree apart from generated output and installed dependencies. Unit-file
 reconciliation remains the installer's responsibility.
@@ -22,7 +22,11 @@ from engine.lib.resources import write_text_atomic
 API = "trading-engine-api.service"
 UI = "trading-engine-ui.service"
 SOURCE_SETS = {
-    API: tuple(f":(glob){package}/**/*.py" for package in ("server", "engine", "sim", "farm", "tools"))
+    # server/ and ops/ include their JSON/TOML configuration, which the API may read at import.
+    API: (":(glob)server/**", ":(glob)ops/**", ":(exclude,glob)server/**/__pycache__/**",
+         # Unit files are reconciled by the installer, not loaded by the API.
+         ":(exclude,glob)**/*.service", ":(exclude,glob)**/*.timer")
+    + tuple(f":(glob){package}/**/*.py" for package in ("engine", "sim", "farm", "tools"))
     + ("pyproject.toml", "uv.lock", "engine/requirements.txt"),
     UI: (":(glob)ui/**",)
     + tuple(f":(exclude,glob)ui/**/{directory}/**" for directory in
