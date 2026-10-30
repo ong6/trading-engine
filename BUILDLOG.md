@@ -4788,4 +4788,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +40 LOC; tools/product unchanged (session snapshot).
 - **Next:** nothing admitted.
 
+## 2026-10-30 — Declare the private trial-375 paper-book units
+
+- **Why:** the owner added trial 375 (a forward-only private paper book) on 2026-10-30. Its two weekly units are installed by the alpha programme, and the live schedule contract reports any installed unit missing from the manifest as `off-manifest-unit`.
+- **What:** `server/schedule-contract.json` declares `t4-forward-signal` (Sunday 07:05 UTC, 30 min bound) and `t4-forward-settle` (Tuesday 06:30 UTC, 10 min bound) as external timer units managed by trading-alpha. Neither opens a live store: both read only the published snapshot, so their store access is `none`. No `Restart=`, so the restart-loop rule passes.
+- **Evidence:** `python -m tools.schedule_contract_check --static` → ok; affected tests and both timezone suites pass.
+- **Metrics:** manifest only; product, server and tools code unchanged.
+- **Next:** install the units from trading-alpha and confirm the live check.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
