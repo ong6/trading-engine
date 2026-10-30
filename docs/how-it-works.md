@@ -357,6 +357,22 @@ Exit 0 means installed units and the managed cron block match their versioned so
 `changes-required` result is a dry-run plan, not permission to mutate. Apply only during an
 admitted deployment step with `.venv/bin/python -m tools.install_automation --apply`.
 
+The dry run also reports `changes.restart_services`, with the reason and commit range for
+each API or UI restart. Apply compares the recorded running commit with HEAD over all Python
+sources in `server`, `engine`, `sim`, `farm`, and `tools`, plus Python dependency declarations;
+the UI comparison covers `ui` except generated output and installed dependencies. Unrelated
+docs and tests do not trigger a source restart. Each service's record lives under
+`~/.local/state/trading-engine/<service>.json` and belongs to its systemd invocation. With no
+matching record, apply compares the service start timestamp with its last source commit and
+restarts when that comparison is uncertain.
+
+Apply restarts each affected application service once, waits up to 90 seconds for API
+`/health` and `/meta` HTTP 200, and up to 10 minutes for the rebuilt UI's port 3000 HTTP 200.
+The new systemd invocation must be active before readiness can pass. The result appears in
+`changes.restarted_services`; a failure returns `status: error` and preserves the prior record.
+Read that evidence and the service log before retrying a deployment; apply never retries a
+failed restart within the same run.
+
 If a page returns 503, check `/health`, `/meta`, and the current DuckDB writer before restarting a
 service. Restarting cannot repair an unreadable store and can obscure the producer that owns a
 legitimate lock.

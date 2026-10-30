@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -13,10 +15,15 @@ from tools import install_automation
 REAL_SERVICE_STATE = install_automation._service_state
 REAL_LINGER_STATE = install_automation._linger_state
 REAL_HOST_CONTINUITY = install_automation._host_continuity
+REAL_DEPLOY_PLAN = install_automation.service_deploy.plan
+REAL_VERIFY_HEALTH = install_automation.service_deploy.verify_health
 
 
 @pytest.fixture(autouse=True)
 def healthy_service_states(monkeypatch):
+    # Legacy installer tests use filesystem fixtures, not git checkouts. Exercise
+    # source deployment separately with an injected systemd runner below.
+    monkeypatch.setattr(install_automation.service_deploy, "plan", lambda *args: {})
     monkeypatch.setattr(
         install_automation,
         "_service_state",
@@ -58,6 +65,280 @@ def _repo(tmp_path: Path) -> tuple[Path, Path]:
     verifier.parent.mkdir()
     verifier.write_text("")
     return root, home
+
+
+@pytest.fixture
+def deployment(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    deploy = install_automation.service_deploy
+    root, home = _repo(tmp_path)
+    unit_dir = home / ".config/systemd/user"
+    unit_dir.mkdir(parents=True)
+    for unit, relative in install_automation.UNIT_SOURCES.items():
+        (unit_dir / unit).write_bytes((root / relative).read_bytes())
+    (root / "server/main.py").write_text("MODEL = 'old'\n")
+    current = install_automation.render_crontab("", root)
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: current)
+    monkeypatch.setattr(install_automation.scheduler_monitor, "status", lambda **kw: {"status": "ok"})
+    source_time = 1_700_000_000
+    now = 1_800_000_000
+    started = datetime.fromtimestamp(source_time + 100, UTC).strftime("%a %Y-%m-%d %H:%M:%S UTC")
+    fixture = SimpleNamespace(root=root, home=home, calls=[], queries=[], probes=[], elapsed=0,
+                              source_time=source_time, http_code=200, replace_process=True)
+    fixture.states = {unit: {"ActiveState": "active", "InvocationID": unit + "-old",
+                             "ActiveEnterTimestamp": started} for unit in deploy.SOURCE_SETS}
+
+    def git(*args):
+        return subprocess.check_output(["git", "-C", str(root), *args], text=True,
+                                       env={**os.environ, "GIT_AUTHOR_DATE": f"@{fixture.source_time} +0000",
+                                            "GIT_COMMITTER_DATE": f"@{fixture.source_time} +0000"}).strip()
+
+    def commit(path, text="changed\n"):
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+        git("add", ".")
+        git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "change")
+        return git("rev-parse", "HEAD")
+
+    git("init", "-q")
+    fixture.git, fixture.commit = git, commit
+    fixture.old = commit("ui/app/page.tsx", "export default function Page() {}\n")
+    for unit, state in fixture.states.items():
+        path = deploy.state_path(home, unit)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"commit": fixture.old, "invocation_id": state["InvocationID"],
+                                    "repo_root": str(root)}))
+
+    def runner(args, **kwargs):
+        if args[0] == "git":
+            return subprocess.run(args, capture_output=True, text=True, check=False)
+        assert args[:3] == ["systemctl", "--user", "show"]
+        fixture.queries.append(args)
+        state = fixture.states[args[3]]
+        return subprocess.CompletedProcess(args, 0, "\n".join(f"{k}={v}" for k, v in state.items()), "")
+
+    def checked(args, **kwargs):
+        fixture.calls.append(args)
+        if "restart" in args and fixture.replace_process:
+            unit = args[-1]
+            fixture.states[unit]["InvocationID"] = unit + "-new"
+        if "start" in args:
+            for unit in set(args) & fixture.states.keys():
+                fixture.states[unit].update(ActiveState="active", InvocationID=unit + "-new")
+
+    def sleep(seconds):
+        fixture.elapsed += seconds
+
+    def probe(url, **kwargs):
+        fixture.probes.append(url)
+        return fixture.http_code
+
+    verify = deploy.verify_health
+    monkeypatch.setattr(deploy, "run", runner)
+    monkeypatch.setattr(deploy, "plan", lambda root, home: REAL_DEPLOY_PLAN(root, home, clock=lambda: now))
+    monkeypatch.setattr(deploy, "verify_health", lambda *args, **kwargs: verify(
+        *args, **kwargs, probe=probe, clock=lambda: fixture.elapsed, sleep=sleep, wait=6))
+    monkeypatch.setattr(install_automation, "_checked", checked)
+
+    def apply():
+        summary, desired = install_automation.plan(root, home)
+        return install_automation.apply(summary, desired, root, home)
+
+    fixture.apply = apply
+    return fixture
+
+
+def test_apply_restarts_api_after_source_only_commit(deployment):
+    deploy = install_automation.service_deploy
+    new = deployment.commit("server/main.py", "MODEL = 'new'\n")
+    result = deployment.apply()
+
+    restarts = [args for args in deployment.calls if "restart" in args]
+    assert restarts == [["systemctl", "--user", "--no-block", "restart", deploy.API]]
+    assert deployment.probes == list(deploy.HEALTH_URLS[deploy.API])
+    assert result["status"] == "ok"
+    restarted = result["changes"]["restarted_services"][deploy.API]
+    assert restarted["from_commit"] == deployment.old
+    assert restarted["to_commit"] == new
+    assert restarted["reason"] == "source-changed"
+    assert restarted["health"]["status"] == "ok"
+    assert json.loads(deploy.state_path(deployment.home, deploy.API).read_text())["commit"] == new
+    deployment.calls.clear()
+    deployment.probes.clear()
+    assert deployment.apply()["changes"]["restarted_services"] == {}
+    assert not any("restart" in args for args in deployment.calls)
+    assert deployment.probes == []
+
+
+@pytest.mark.parametrize("path,affected", [
+    ("ui/app/page.tsx", "trading-engine-ui.service"),
+    ("ui/package-lock.json", "trading-engine-ui.service"),
+    ("engine/lib/new.py", "trading-engine-api.service"),
+    ("farm/new.py", "trading-engine-api.service"),
+    ("sim/new.py", "trading-engine-api.service"),
+    ("tools/new.py", "trading-engine-api.service"),
+    ("uv.lock", "trading-engine-api.service"),
+    ("pyproject.toml", "trading-engine-api.service"),
+    ("docs/deploy.md", None),
+    ("tests/test_new.py", None),
+    ("BUILDLOG.md", None),
+    ("server/trading-alpha-new.service", None),
+    ("ui/.next/server/page.js", None),
+    ("ui/node_modules/library/index.js", None),
+    ("ui/out/index.html", None),
+    ("ui/next-env.d.ts", None),
+    ("ui/tsconfig.tsbuildinfo", None),
+])
+def test_apply_restarts_only_the_service_whose_sources_changed(deployment, path, affected):
+    deploy = install_automation.service_deploy
+    new = deployment.commit(path)
+    result = deployment.apply()
+
+    assert result["status"] == "ok"
+    assert set(result["changes"]["restarted_services"]) == ({affected} if affected else set())
+    assert deployment.probes == list(deploy.HEALTH_URLS[affected]) if affected else deployment.probes == []
+    assert [args[-1] for args in deployment.calls if "restart" in args] == ([affected] if affected else [])
+    # A docs-only apply advances the comparison baseline without a restart.
+    for unit in deploy.SOURCE_SETS:
+        assert json.loads(deploy.state_path(deployment.home, unit).read_text())["commit"] == new
+
+
+@pytest.mark.parametrize("newer,expected", [(False, False), (True, True)])
+def test_no_record_uses_service_start_timestamp(deployment, newer, expected):
+    deploy = install_automation.service_deploy
+    deploy.state_path(deployment.home, deploy.API).unlink()
+    if newer:
+        deployment.source_time += 200
+        deployment.commit("server/main.py")
+    summary, _ = install_automation.plan(deployment.root, deployment.home)
+    decision = summary["service_deployments"][deploy.API]
+    assert decision["restart"] is expected
+    assert decision["from_commit"] is None
+    assert decision["reason"] == ("timestamp-source-changed-or-unknown" if newer else "timestamp-source-unchanged")
+    result = deployment.apply()
+    assert result["status"] == "ok"
+    assert set(result["changes"]["restarted_services"]) == ({deploy.API} if expected else set())
+
+
+@pytest.mark.parametrize("fallback", ["missing-timestamp", "external-restart", "bad-json", "missing-commit"])
+def test_uncertain_runtime_record_restarts_conservatively(deployment, fallback):
+    deploy = install_automation.service_deploy
+    path = deploy.state_path(deployment.home, deploy.API)
+    if fallback == "missing-commit":
+        record = json.loads(path.read_text())
+        record["commit"] = "f" * 40
+        path.write_text(json.dumps(record))
+    else:
+        if fallback == "bad-json":
+            path.write_text("{")
+        elif fallback == "external-restart":
+            deployment.states[deploy.API]["InvocationID"] = "external"
+        else:
+            path.unlink()
+        deployment.states[deploy.API]["ActiveEnterTimestamp"] = "unknown"
+    result = deployment.apply()
+    assert result["status"] == "ok"
+    assert set(result["changes"]["restarted_services"]) == {deploy.API}
+
+
+@pytest.mark.parametrize("failure", ["http", "old-process", "restart-command"])
+def test_service_restart_failure_reports_error_without_retry_or_state_advance(deployment, failure, monkeypatch):
+    deploy = install_automation.service_deploy
+    deployment.commit("server/main.py")
+    path = deploy.state_path(deployment.home, deploy.API)
+    old_state = path.read_bytes()
+    if failure == "http":
+        deployment.http_code = 503
+    elif failure == "old-process":
+        deployment.replace_process = False
+    else:
+        def checked(args, **kwargs):
+            deployment.calls.append(args)
+            if "restart" in args:
+                raise RuntimeError("systemctl failed: permission denied")
+        monkeypatch.setattr(install_automation, "_checked", checked)
+    result = deployment.apply()
+    assert result["status"] == "error"
+    assert result["applied"] is True
+    assert path.read_bytes() == old_state
+    assert len([args for args in deployment.calls if "restart" in args]) == 1
+    restarted = result["changes"]["restarted_services"][deploy.API]
+    assert restarted["status"] == "error"
+    if failure != "restart-command":
+        assert restarted["health"]["status"] == "error"
+        assert deployment.elapsed == 6
+    if failure == "http":
+        assert set(restarted["health"]["http"].values()) == {503}
+    if failure == "old-process":
+        assert deployment.probes == []
+    assert result["errors"]
+
+
+def test_source_dry_run_reads_state_but_never_mutates_or_probes(deployment, capsys):
+    deploy = install_automation.service_deploy
+    deployment.commit("ui/app/page.tsx")
+    before = {unit: deploy.state_path(deployment.home, unit).read_bytes() for unit in deploy.SOURCE_SETS}
+    install_automation.main(["--repo-root", str(deployment.root), "--home", str(deployment.home)])
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["applied"] is False
+    assert set(summary["changes"]["restart_services"]) == {deploy.UI}
+    assert summary["changes"]["restart_services"][deploy.UI]["reason"] == "source-changed"
+    assert summary["changes"]["restarted_services"] == {}
+    assert deployment.calls == []
+    assert deployment.probes == []
+    assert deployment.queries
+    assert before == {unit: deploy.state_path(deployment.home, unit).read_bytes() for unit in deploy.SOURCE_SETS}
+
+
+def test_source_and_unit_change_restart_the_application_once(deployment):
+    deploy = install_automation.service_deploy
+    deployment.commit("server/main.py")
+    unit = deployment.home / ".config/systemd/user" / deploy.API
+    unit.write_text("old unit\n")
+    result = deployment.apply()
+    assert result["status"] == "ok"
+    assert [args[-1] for args in deployment.calls if "restart" in args] == [deploy.API]
+
+
+def test_ui_health_wait_allows_a_several_minute_build(deployment):
+    deploy = install_automation.service_deploy
+    elapsed = 0
+    probes = []
+
+    def runner(args, **kwargs):
+        assert args[:3] == ["systemctl", "--user", "show"]
+        active = "active" if elapsed >= 210 else "activating"
+        return subprocess.CompletedProcess(args, 0,
+                                           f"ActiveState={active}\nInvocationID=new\n", "")
+
+    def sleep(seconds):
+        nonlocal elapsed
+        elapsed += seconds
+
+    def probe(url, **kwargs):
+        probes.append(url)
+        return 200
+
+    result = REAL_VERIFY_HEALTH(deploy.UI, "old", restarted=True, runner=runner,
+                                probe=probe, clock=lambda: elapsed, sleep=sleep)
+    assert result["status"] == "ok"
+    assert elapsed == 210
+    assert probes == list(deploy.HEALTH_URLS[deploy.UI])
+
+
+def test_apply_health_failure_is_preserved_in_cli_json(deployment, capsys):
+    deployment.commit("server/main.py")
+    deployment.http_code = 503
+    code = install_automation.main(["--apply", "--repo-root", str(deployment.root),
+                                    "--home", str(deployment.home)])
+    result = json.loads(capsys.readouterr().out)
+    assert code == 1
+    assert result["status"] == "error"
+    health = result["changes"]["restarted_services"][install_automation.service_deploy.API]["health"]
+    assert set(health["http"].values()) == {503}
 
 
 def test_render_crontab_preserves_unrelated_entries_and_is_idempotent(tmp_path):
@@ -193,6 +474,8 @@ def test_plan_is_ok_when_units_and_managed_cron_match(tmp_path, monkeypatch):
         "enable_units": [],
         "start_units": [],
         "enable_linger": False,
+        "restart_services": {},
+        "restarted_services": {},
     }
     assert summary["linger"] == "yes"
     assert all(

@@ -4823,4 +4823,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/product unchanged; tools +171 LOC (session snapshot, published in the lane status folder).
 - **Next:** orchestrator review and apply the proposed two-book batch after the marked session's close.
 
+## 2026-10-30 — Restart deployed services when their sources change
+
+- **Why:** owner-requested stale-service defect; reproduction: `pytest tests/test_install_automation.py::test_apply_restarts_api_after_source_only_commit` fails because apply issues no restart after an API-only commit with unchanged units.
+- **What:** compare each API/UI invocation's recorded commit with its deployed source set; use the service start timestamp when no matching record exists.
+  Restart affected services once and verify the new invocation and HTTP readiness before recording the commit. Dry runs report reasons and commit ranges.
+- **Evidence:** `TZ=UTC pytest -q -W error -n 8` and `TZ=Asia/Singapore pytest -q -W error -n 8` each pass all 6,370 tests; the live read-only dry run reports no source restart for either service.
+- **Metrics:** tools +250 LOC; server/product unchanged (session snapshot).
+- **Next:** orchestrator acceptance and deployment.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
