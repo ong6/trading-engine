@@ -5336,4 +5336,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product unchanged; tools unchanged in LOC (atomic call replaces the direct call).
 - **Next:** run the required timezone suites and finish the disposable rehearsal.
 
+## 2026-10-30 — Leave source-based installer restarts to the separate restart lane
+
+- **Why:** orchestrator scope ruling: revision 21 must not edit tools/install_automation.py; the separate restart lane ships the installer change before the epoch.
+- **What:** revert this lane's installer change and its dedicated test. Keep an explicit API and UI restart in the deploy's reader phase and runnable checklist, followed by health and model-status checks; note the forthcoming installer behavior.
+- **Evidence:** git diff 726775d5 -- tools/install_automation.py → empty.
+- **Metrics:** the final integration snapshot records the installer LOC reversal.
+- **Next:** complete the disposable rehearsal under the 75 GB copy reserve and rerun both timezone suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

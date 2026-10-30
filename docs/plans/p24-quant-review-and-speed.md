@@ -105,3 +105,9 @@ both timezone suites pass, and does the single re-pin. Lanes never push `main`.
   22:15-23:59 UTC, after fresh suites on the merge commit and a fresh re-pin check.
 - Open: the deploy above; incremental capture (copy only changed table data) as a follow-up to cut
   publication I/O. The alpha study lanes report in the private repository.
+
+- 2026-10-30: the storage branch formerly numbered revision 20 is integrated as revision 21
+  on `r21/integrate`, after main's revision-20 GPT-6.1-Sol model amendment. It also includes the
+  accepted liquid-backfill, terminal-label, observer-writer and pre-open deadline fixes and a
+  70 GiB minimum reserve. Trial 287 closes at its November 3 epoch; its consumer switch is no
+  longer a prerequisite. The revision-21 checklist carries the runnable deploy and rollback order.

@@ -84,11 +84,20 @@ closure; `registration_sha256` uses `canonical_sha256` over the document with th
 and XS v23 retain every frozen value and migrate only their deployed digests. Any later pinned-source edit requires
 all affected hashes, source commit and the registration self-hash to be recomputed before acceptance.
 
+Final pins: 169 source files; `source_commit` `7e84006905e60ec7d3bce482ec35f190795e08c0`;
+`registration_sha256` `0c42af77d52d2e8cffa0853e82cd28804d9cc64edb087d7f8432ff80b0356097`.
+
+| Contract | Version | New digest | Accepted deployed predecessor (unchanged by the revision-20 model amendment) |
+|---|---|---|---|
+| E1 | 8 | `f8f31db9ffdf0d6b793706912d5655d31cb71ca915a71b3000e569697cf75465` | `2c8ec5b06a93edbca6104569c1bb5c66514cd6476f209169ca1f6041cd470538` |
+| Sector | 12 | `de4e60ec4700130ac1bcac59bc17fca639e98595aa649e851f3340395b5c5d72` | `bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea` |
+| XS | 23 | `3f7fec7a8c9bb22a3fa857c2ea04ce4e62593f8aa6fcf85c363cf3d97bc4f48d` | `d00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6` |
+
 ## Pre-flight (all must hold)
 
 1. `main` contains the merged branch at registration revision 21; both timezone suites green; `ruff check .` clean.
 2. `.venv/bin/python -m engine.job_contract audit` → `status: ok`; `python -m tools.schedule_contract_check --static` clean.
-3. Free space ≥ 70 GiB on the store filesystem (restore reserve) plus 3× store size: the backup, the first generation,
+3. Free space ≥ 70 GiB (stricter than the host's 70 GB rule) on the store filesystem (restore reserve) plus 3× store size: the backup, the first generation,
    and publication's transient copy of the primary.
 4. Window outside 22:15–23:59 and 02:00–04:00 UTC every day, and outside
    13:00–21:00 and 07:30–07:50 UTC weekdays; no queue drain running. Allow about 45 minutes
@@ -116,11 +125,15 @@ operational store … nothing was written") before writing.
 
 ```bash
 set -euo pipefail
+: "${P21_APPROVED_SHA:?set the full approved merge SHA on origin/main}"
+export P21_ROOT="$HOME/trading-engine" P21_STATE="$HOME/.local/state/r21-deploy" P21_APPROVED_SHA
+cd "$P21_ROOT"
 .venv/bin/python -c 'from datetime import datetime, timezone; n=datetime.now(timezone.utc); m=n.hour*60+n.minute; assert n >= datetime(2026,11,3,6,30,tzinfo=timezone.utc), "epoch not reached"; assert not (m>=1335 or 120<=m<240), "excluded deploy window"; assert not (n.weekday()<5 and (780<=m<1260 or 450<=m<470)), "producer/provider window"'
 export OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
 export TRADING_ENGINE_DUCKDB_THREADS=4 TRADING_ENGINE_DUCKDB_MEMORY=4GB
 export TRADING_ENGINE_MIN_FREE_GIB=70
-export P21_ROOT="$HOME/trading-engine" P21_STATE="$HOME/.local/state/r21-deploy" P21_APPROVED_SHA=<full merge sha>
+# Refuse before deploy unless backup, generation and transient copy retain the reserve.
+.venv/bin/python -c 'from engine.lib import store_limits; from pathlib import Path; p=Path("store/market.duckdb"); print(store_limits.require_free_space(p.parent,purpose="revision-21 deploy",need_bytes=3*store_limits.file_bytes(p)))'
 git -C "$P21_ROOT" fetch --quiet origin
 git -C "$P21_ROOT" show "$P21_APPROVED_SHA:ops/storage-r21/deploy.sh" > "$HOME/r21-deploy.sh"
 nice -n 10 bash "$HOME/r21-deploy.sh"
@@ -147,7 +160,7 @@ nice -n 10 bash "$HOME/r21-deploy.sh"
    `--migrate-runtime-contract` migrations (each accepts only the deployed revision-19 digest and refuses an INVALID
    published report) and one ordinary refresh; then asserts that E1's checkpoint and the sector and XS reports carry
    the re-pinned digests and that neither report is INVALID.
-7. Publishes the first generation; stages units with `install_automation --stage` (nothing starts); explicitly restarts the API after the source change (even when its unit file matches), starts the UI
+7. Publishes the first generation; stages units with `install_automation --stage` (nothing starts); explicitly restarts the API and UI after the source change (even when their unit files match)
    and checks the generation headers, the evidence route (`pending_publication: false`), `/meta`'s
    `e1_forward`, `forward_review` and `xs_forward_review` (none INVALID), the invariants and retention.
 8. Runs `schedule_contract_check --live` and refuses any violation except the ones quiescence explains (`not-active`
@@ -159,9 +172,9 @@ nice -n 10 bash "$HOME/r21-deploy.sh"
 
 ## Verify after release (stop at the first failure and roll back)
 
-Run from the deployed checkout; each command must exit zero. The installer restarts the API when its last successful
-apply used a different source revision, even if the unit file is identical. Stage starts no service; the deploy's
-reader phase explicitly restarts the API before checking it. This prevents the stale-source failure observed after
+Run from the deployed checkout; each command must exit zero. Restart trading-engine-api and trading-engine-ui after the code changes, then verify /health and
+/agent/model/status. Stage starts no service; the deploy's reader phase explicitly restarts both before checking
+them. The installer will also restart them when their source changed once the separate v2-restart lane lands. This prevents the stale-source failure observed after
 October 22, when the API ran old code for eight days.
 
 ```bash
@@ -172,12 +185,15 @@ cd "$P21_ROOT"
 .venv/bin/python -m tools.registration_identity --base "$P21_APPROVED_SHA^1"
 .venv/bin/python -m tools.schedule_contract_check --static
 systemctl --user is-enabled --quiet trading-engine-publish-on-change.timer
-systemctl --user is-active --quiet trading-engine-publish-on-change.timer trading-engine-api.service
+systemctl --user restart trading-engine-api.service trading-engine-ui.service
+systemctl --user is-active --quiet trading-engine-publish-on-change.timer trading-engine-api.service trading-engine-ui.service
 systemctl --user show trading-engine-api.service -p MainPID -p ExecMainStartTimestamp
 curl --silent --fail --dump-header "$P21_STATE/post-health.headers" --output "$P21_STATE/post-health.json" http://127.0.0.1:8000/health
 grep -qi '^x-data-source: snapshot' "$P21_STATE/post-health.headers"
 grep -qi '^x-generation-id: market-' "$P21_STATE/post-health.headers"
 grep -qi '^x-generation-stale: false' "$P21_STATE/post-health.headers"
+curl --silent --fail http://127.0.0.1:8000/agent/model/status > "$P21_STATE/post-model-status.json"
+.venv/bin/python -c 'import json,sys; d=json.load(open(sys.argv[1])); assert "GPT-6.1-Sol:max" in json.dumps(d), d' "$P21_STATE/post-model-status.json"
 curl --silent --fail http://127.0.0.1:8000/agent/evaluation/status > "$P21_STATE/post-evaluation.json"
 .venv/bin/python -c 'import json,sys; g=json.load(open(sys.argv[1]))["generation"]; assert g["pending_publication"] is False, g' "$P21_STATE/post-evaluation.json"
 curl --silent --fail http://127.0.0.1:8000/meta > "$P21_STATE/post-meta.json"
@@ -192,7 +208,17 @@ During US market hours, repeat the evidence check within 3.5 hours of a write; i
 valid unchanged/age skip. The first nightly must advance books and all three forward records without
 `SchemaMigrationRequired`; P15 scoring and pre-open must complete, with no held unit enabled or active in the ops
 digest. After the first generation-backed backup reaches the private backup repo, run its off-host restore drill
-using `tools.backup_database remote-restore-drill --help` and the pinned backup commit/manifest; record the result.
+with the exact remote and commit below; the tool verifies the pinned bundle manifest from that commit and checks
+its own reserve. Use a disposable scratch directory on a volume with enough reserve and record the receipt.
+
+```bash
+: "${P21_BACKUP_REMOTE:?set the private backup repository remote}"
+: "${P21_BACKUP_COMMIT:?set the exact backup commit}"
+: "${P21_RESTORE_SCRATCH:?set a disposable restore scratch parent}"
+nice -n 10 .venv/bin/python -m tools.backup_database remote-restore-drill \
+  "$P21_BACKUP_REMOTE" "$P21_BACKUP_COMMIT" "$P21_STATE/remote-restore.json" \
+  --scratch-parent "$P21_RESTORE_SCRATCH"
+```
 
 ## Rollback
 
@@ -232,7 +258,7 @@ git fetch origin
 git checkout -B r21-redeploy origin/main
 source "$P21_STATE/rollback.env"          # P21_REVERT_SHA, the rollback's revert commit
 git revert --no-edit "$P21_REVERT_SHA"    # restores the revision-21 code on the redeploy branch
-git merge --no-edit <fixed branch>        # only if fixes were made
+if test -n "${P21_FIXED_BRANCH:-}"; then git merge --no-edit "$P21_FIXED_BRANCH"; fi
 git checkout main && git pull --ff-only
 git merge --no-ff -m "Merge r21-redeploy: storage revision 21 again" r21-redeploy
 git push origin main                      # P21_APPROVED_SHA=$(git rev-parse HEAD); deploy at once
@@ -255,6 +281,25 @@ Raw zstd conversion (`tools/convert_raw_payloads.py --apply`) is a separate, lat
 restore drill passes, with the producer lock held and TradingView jobs drained. It records the store flag that switches
 writers to zstd, after which a code rollback can no longer read new raw payloads; its rollback is the off-host raw
 archive.
+
+## Revision-21 acceptance checks
+
+At the integrated source, both full suites passed with 6,526 tests, zero failures and zero skips:
+UTC 264.44 s; Asia/Singapore 253.86 s. Run the release checks from `r21/integrate`:
+
+```bash
+set -euo pipefail
+TZ=UTC REGISTRATION_BASE_REF=origin/main nice -n 10 .venv/bin/python -m pytest -q -W error -n 8 -p no:cacheprovider
+TZ=Asia/Singapore REGISTRATION_BASE_REF=origin/main nice -n 10 .venv/bin/python -m pytest -q -W error -n 8 -p no:cacheprovider
+.venv/bin/python -m tools.registration_identity --base origin/main
+.venv/bin/python -m tools.deploy_gate --check . --base origin/main
+.venv/bin/python -m tools.schedule_contract_check --static
+git diff --exit-code origin/main -- sim/execution.py sim/nyse.py engine/verify_prices.py
+```
+
+Registration identity passes for its one registration that pins code. The static schedule check passes with the
+existing disclosed P15-scoring restart-loop exception. The final diff leaves both trial-375 simulator files and
+`engine/verify_prices.py` byte-identical to main; the model client also remains identical to the revision-20 client.
 
 ## Publication I/O (measured 2026-10-23)
 

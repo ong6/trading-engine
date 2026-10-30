@@ -209,7 +209,6 @@ def test_plan_is_ok_when_units_and_managed_cron_match(tmp_path, monkeypatch):
 
     assert summary["status"] == "ok"
     assert summary["changes"] == {
-        "restart_api": False,
         "crontab": False,
         "service_units": [],
         "enable_units": [],
@@ -1653,39 +1652,3 @@ def test_stage_installs_and_enables_but_starts_nothing_and_keeps_the_crontab(
     assert not any(args[:1] == ["crontab"] for args in calls)
     unit_dir = home / ".config" / "systemd" / "user"
     assert (unit_dir / "trading-engine-publish-on-change.timer").is_file()
-
-
-def test_apply_restarts_api_after_source_change_even_with_matching_units(tmp_path, monkeypatch):
-    root, home = _repo(tmp_path)
-    unit_dir = home / ".config/systemd/user"
-    unit_dir.mkdir(parents=True)
-    for unit, relative in install_automation.UNIT_SOURCES.items():
-        (unit_dir / unit).write_bytes((root / relative).read_bytes())
-    current = install_automation.render_crontab("", root)
-    monkeypatch.setattr(install_automation, "_read_crontab", lambda: current)
-    monkeypatch.setattr(install_automation, "_source_revision", lambda _: "a" * 40)
-    calls = []
-    monkeypatch.setattr(install_automation, "_checked",
-                        lambda args, **_: calls.append(args))
-    monkeypatch.setattr(install_automation.scheduler_monitor, "status",
-                        lambda **_: {"status": "ok"})
-    # First install, then a repeated install, then a code-only change with the same units.
-    summary, desired = install_automation.plan(root, home)
-    assert summary["changes"]["restart_api"] is True
-    assert summary["changes"]["service_units"] == []
-    install_automation.apply(summary, desired, root, home)
-    restart = ["systemctl", "--user", "restart", install_automation.API_UNIT]
-    assert restart in calls
-    assert (home / install_automation.API_SOURCE_MARKER).read_text().strip() == "a" * 40
-    calls.clear()
-    install_automation.apply(summary, desired, root, home)
-    assert restart not in calls
-    monkeypatch.setattr(install_automation, "_source_revision", lambda _: "b" * 40)
-    with monkeypatch.context() as quiesced:
-        quiesced.setattr(install_automation, "_service_state",
-                         lambda action, _: "inactive" if action == "is-active" else "disabled")
-        install_automation.stage(root, home)
-    assert (home / install_automation.API_SOURCE_MARKER).read_text().strip() == "a" * 40
-    assert restart not in calls
-    install_automation.apply(summary, desired, root, home)
-    assert restart in calls
