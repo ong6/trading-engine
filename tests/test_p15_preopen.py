@@ -752,6 +752,8 @@ def test_acquisition_at_deadline_records_late_and_keeps_without_news_or_model(
 ):
     store = tmp_path / "market.duckdb"
     con = p15_preopen.db.connect(store)
+    # The minimal trace tables are stand-ins, so allow this temporary legacy fixture.
+    monkeypatch.setattr(p15_preopen.db, "_is_unmigrated_operational_store", lambda _: False)
     p15_preopen.db.init_schema(con)
     _, session_date = _setup(con)
     con.close()
@@ -794,6 +796,8 @@ def test_preopen_cli_reports_retry_as_exit_75(monkeypatch, capsys):
 def test_free_store_with_no_reserve_wait_preserves_decisions(tmp_path, monkeypatch):
     store = tmp_path / "market.duckdb"
     con = p15_preopen.db.connect(store)
+    # The minimal trace tables are stand-ins, so allow this temporary legacy fixture.
+    monkeypatch.setattr(p15_preopen.db, "_is_unmigrated_operational_store", lambda _: False)
     p15_preopen.db.init_schema(con)
     _setup(con)
     con.close()

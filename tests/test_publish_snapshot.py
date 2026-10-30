@@ -1188,8 +1188,15 @@ def _publication_killed_mid_capture(root, source, signum):
 
     directory = source.parent / "snapshots"
     child = subprocess.Popen(
-        [sys.executable, "-m", "tools.publish_snapshot", "--repo-root", str(root),
-         "--source", str(source)],
+        [sys.executable, "-c",
+         # An exec child does not inherit pytest's scratch-volume fixture. Give its
+         # temporary store the same deterministic capacity; reserve tests use low values.
+         "import shutil; from engine.lib import store_limits; "
+         "from tools import publish_snapshot; "
+         "store_limits.require_free_space.__kwdefaults__['disk_usage'] = "
+         "lambda _: shutil._ntuple_diskusage(1024**4, 0, 1024**4); "
+         "raise SystemExit(publish_snapshot.main())",
+         "--repo-root", str(root), "--source", str(source)],
         cwd=Path(__file__).resolve().parents[1],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,   # no pipes left open
     )

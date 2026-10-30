@@ -5327,4 +5327,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** final integration snapshot records the deltas.
 - **Next:** disposable-store rehearsal and both timezone acceptance suites.
 
+## 2026-10-30 — Align integration fixtures with revision-21 storage
+
+- **Why:** the affected tier reproduced eight integration failures: a direct installer state write, three revision-20 assertions, two legacy pre-open fixtures, and two exec-child publications refused by the 70 GiB floor on test tmpfs.
+- **What:** publish the installer's source marker through the existing atomic helper. Cost-break fixtures expect revision 21; deadline scenarios explicitly admit their temporary legacy stand-ins; publication-kill children inherit the same deterministic scratch-volume capacity as pytest.
+  Production reserve checks and schema refusal remain intact; no pinned source file changed after the final re-pin.
+- **Evidence:** pytest tests/test_no_bare_connect.py tests/test_migrate_cost_profiles.py tests/test_p15_preopen.py tests/test_publish_snapshot.py tests/test_p22_round3.py -q -W error → passes after these fixture corrections.
+- **Metrics:** product unchanged; tools unchanged in LOC (atomic call replaces the direct call).
+- **Next:** run the required timezone suites and finish the disposable rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

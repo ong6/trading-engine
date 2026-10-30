@@ -15,6 +15,7 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from engine import raw_payload
+from engine.lib.resources import write_text_atomic
 from engine.lib.settings import REPO_ROOT
 from server import schedule_contract, scheduler_monitor
 
@@ -978,7 +979,7 @@ def apply(summary: dict, _desired_crontab: str, repo_root: Path, home: Path) -> 
     if summary["source_revision"] is not None:
         marker = home / API_SOURCE_MARKER
         marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(summary["source_revision"] + "\n")
+        write_text_atomic(marker, summary["source_revision"] + "\n")
     return {
         **summary,
         "status": "ok",
