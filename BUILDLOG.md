@@ -5344,4 +5344,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** the final integration snapshot records the installer LOC reversal.
 - **Next:** complete the disposable rehearsal under the 75 GB copy reserve and rerun both timezone suites.
 
+## 2026-10-30 — Record final revision-21 suite evidence and disk rehearsal rules
+
+- **Why:** integration acceptance checks and the orchestrator's copy-space ruling.
+- **What:** record both final timezone suites, the manual API/UI restart and model-status verification, and the disposable-copy method: canonical paths, owner-only recovery bytes, 75 GB remaining before every copy, immediate verified-copy deletion and at most two store-sized files.
+- **Evidence:** final UTC and Asia/Singapore pytest receipts → 6,525 passed each, zero failures and skips (259.22 s and 267.05 s).
+- **Metrics:** versus initial main snapshot: server +427, tools +2,390, product +2,864 LOC; budget passes.
+- **Next:** finish the storage rehearsal and record the deploy-gate receipt.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

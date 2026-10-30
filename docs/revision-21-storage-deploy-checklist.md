@@ -284,8 +284,8 @@ archive.
 
 ## Revision-21 acceptance checks
 
-At the integrated source, both full suites passed with 6,526 tests, zero failures and zero skips:
-UTC 264.44 s; Asia/Singapore 253.86 s. Run the release checks from `r21/integrate`:
+At the integrated source, both full suites passed with 6,525 tests, zero failures and zero skips:
+UTC 259.22 s; Asia/Singapore 267.05 s. Run the release checks from `r21/integrate`:
 
 ```bash
 set -euo pipefail
@@ -320,6 +320,24 @@ Expected volume, from the writers' schedules and the publishers' own runs:
 
 Follow-up (open, not built): incremental capture, copying only changed table data instead of the whole 12.8 GB file,
 would cut the capture copy and most of each publication's writes.
+
+## Revision-21 rehearsal method
+
+Use one disposable checkout with the exact integration code and the published snapshot's matching metadata cohort.
+The Friday-postflight log is required even though it is untracked; validate all prospective and operational cohort
+files before the expensive backup. Resolve the checkout, data directory and bundle paths to their canonical paths:
+the verifier refuses symlinked directory components. Recovery database files must be owner-only (`chmod 600`).
+
+Before creating any store copy, generation or backup bundle, measure free space on the store volume and refuse
+unless free space minus the full expected size remains at least 75 GB (the code's 70 GiB reserve is stricter).
+Keep at most two store-sized files, and delete each full copy as soon as its step is verified. Open the original
+published snapshot read-only and pin its immutable bytes for the entire drill. Delete the full backup after the
+create/verify step; recreate its mandatory recovery bytes from that same pinned pre-image only for migration,
+verify them through the migration tool, and delete them immediately after migration. Verify original-table row
+counts and logical hashes, migrate and refresh the three frozen runtime records, then publish from the working
+copy. Delete the verified generation and working store before restoring the original pre-image for the rollback
+check. Validate the restored bytes, catalog and frozen records under the previous main code, then delete the copy.
+Run at niceness 10, with at most four DuckDB threads and at most 8 GB memory; this rehearsal uses 4 GB.
 
 ## Rehearsal result (2026-10-23, mirrored-live sandboxes)
 
