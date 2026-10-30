@@ -4796,4 +4796,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** manifest only; product, server and tools code unchanged.
 - **Next:** install the units from trading-alpha and confirm the live check.
 
+## 2026-10-30 — Preview retirement of duplicate paper books
+
+- **Why:** P24 lane L6(c), under the owner's 2026-10-21 no-edge retirement decision; the published snapshot reproduces two exact gated twins.
+- **What:** add a dry-run retirement tool with batch validation, one writer transaction and one audit row per book; retain holdings and history and refuse protected books or open orders.
+  Publish the full twin comparisons, current-cost and inception MDE tables for all 17 active books, and recommend only dual_momentum_gated and template_top5_gated. No real-store retirement was applied.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_retire_books.py` → 35 pass, including second-book write rollback, idempotent refusal and the post-close nightly report with a retained stale holding.
+- **Metrics:** server/product unchanged; tools +171 LOC (session snapshot, published in the lane status folder).
+- **Next:** orchestrator review and apply the proposed two-book batch after the marked session's close.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
