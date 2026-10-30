@@ -4,8 +4,8 @@
     "violations": []
   },
   "code_size": {
-    "buildlog": 5347,
-    "docs_md": 30459,
+    "buildlog": 5364,
+    "docs_md": 30484,
     "engine": 29943,
     "farm": 32656,
     "product": 75355,
@@ -19,20 +19,20 @@
     "largest_insertions": 1475,
     "largest_sha": "0f37d1cd",
     "largest_subject": "Make release recovery crash-resumable",
-    "non_screen_commits": 783,
+    "non_screen_commits": 784,
     "product_touching": 283,
     "research_touching": 169,
-    "support_only": 500,
+    "support_only": 501,
     "window_days": 30
   },
   "date": "2026-10-30",
   "ledger": {
-    "entries_total": 518,
+    "entries_total": 520,
     "recent_entries": 10,
     "recent_max_lines": 8,
-    "recent_mean_lines": 7.7,
+    "recent_mean_lines": 7.6,
     "recent_sha256_mentions": 0,
-    "v2_entries": 518,
+    "v2_entries": 520,
     "v2_max_lines": 19,
     "v2_max_sha256": 0
   },

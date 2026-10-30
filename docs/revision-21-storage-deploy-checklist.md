@@ -334,10 +334,35 @@ Keep at most two store-sized files, and delete each full copy as soon as its ste
 published snapshot read-only and pin its immutable bytes for the entire drill. Delete the full backup after the
 create/verify step; recreate its mandatory recovery bytes from that same pinned pre-image only for migration,
 verify them through the migration tool, and delete them immediately after migration. Verify original-table row
-counts and logical hashes, migrate and refresh the three frozen runtime records, then publish from the working
+counts and logical hashes, using identical explicit column order for rebuilt tables (`SELECT *` changes its hash
+when baseline column order is restored), migrate and refresh the three frozen runtime records, then publish from the working
 copy. Delete the verified generation and working store before restoring the original pre-image for the rollback
 check. Validate the restored bytes, catalog and frozen records under the previous main code, then delete the copy.
 Run at niceness 10, with at most four DuckDB threads and at most 8 GB memory; this rehearsal uses 4 GB.
+
+## Revision-21 rehearsal results (2026-10-30)
+
+Published pre-image: `market-20261030T133829129357Z.duckdb`, 16,529,502,208 bytes, matched its published
+manifest. All work ran on disposable copies at niceness 10, four DuckDB threads and 4 GB memory.
+
+| Step | Result |
+|---|---|
+| Backup create / explicit verify | 1,049.69 s / 278.97 s; both `ok`; full backup deleted immediately after verify |
+| Migration | 538.53 s including mandatory recovery verification; schema id 1; recovery copy deleted immediately |
+| Catalog before / after | `865f64aad4529c6f2cde3d0fb72d7b70dd968b85f49905681db1aef825d59a65` → `7286ea9b55c05d1bb16af2f2faeeb6aa69b1d5f711e1219efb2d5c27709a2e5d` |
+| Original rows | 107/107 original table row counts and logical contents equal; three reordered tables compared in the same explicit column order; full comparison 260.25 s |
+| Frozen contracts | E1, sector and XS migration plus normal refresh 2.95 s; all valid under revision-21 digests, unchanged versions |
+| Publication | 1,068.73 s; capture/writer-lock window 136.11 s; verified 52,556,137 cold rows; hot database 4,296,552,448 bytes and cold parts 2,001,894,492 bytes |
+| Rollback | 583.86 s including 234.33 s copy and full backup verification; byte-identical pre-image; original catalog; previous-main E1, sector and XS valid under deployed digests; restored copy deleted |
+| Resources | Peak RSS 5,273,744 KiB; peak owned files 48,974,019,955 bytes; at most two store-sized files; minimum sampled free space 83,029,819,392 bytes |
+
+The temporary generation and working store were deleted as soon as publication returned its verified manifest.
+Current free space after deleting every disposable database and generation: 126,165,762,048 bytes.
+
+Harness corrections were isolated to disposable-copy setup: supply the required Friday-postflight metadata, use
+canonical paths and owner-only recovery files, compare rebuilt rows by explicit column order, and inspect the
+library publication manifest rather than the CLI's `status` field. No source change or weakened gate was needed.
+The create/verify, migration/equality/publication and rollback receipts use the same immutable published pre-image.
 
 ## Rehearsal result (2026-10-23, mirrored-live sandboxes)
 

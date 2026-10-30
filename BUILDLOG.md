@@ -5352,4 +5352,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** versus initial main snapshot: server +427, tools +2,390, product +2,864 LOC; budget passes.
 - **Next:** finish the storage rehearsal and record the deploy-gate receipt.
 
+## 2026-10-30 — Complete the revision-21 published-copy storage rehearsal
+
+- **Why:** revision-21 acceptance requires a disposable published-snapshot rehearsal and rollback, under the orchestrator's 75 GB copy reserve and two-store-file bound.
+- **What:** backup create/verify 1,049.69/278.97 s; migration 538.53 s; all 107 original tables equal by name; frozen-record migrations and refresh valid; publication 1,068.73 s with a 136.11 s capture window.
+  Rollback 583.86 s proved byte-identical original bytes, original catalog and valid previous-main E1/sector/XS records; all copies and generations deleted. Peak RSS 5,273,744 KiB; peak owned disk 48.97 GB; minimum free 83.03 GB, current free 126.17 GB.
+- **Evidence:** retained rehearsal receipts → 107 tables equal, publication verified 52,556,137 cold rows, rollback byte_equal true; both timezone suites 6,525 passed and all blocking deploy gates pass.
+- **Metrics:** versus initial main snapshot: server +427, tools +2,390, product +2,864 LOC; budget passes.
+- **Next:** orchestrator acceptance, merge and deployment after the closing epoch; no lane deployment.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
