@@ -77,7 +77,8 @@ is a dated summary of them.
 - The live store repair ran on 2026-10-22: 18,798 rows corrected (split restatements, the WLFC
   bar on a third price basis, never-settled same-night bars). The snapshot invariant monitor runs
   in shadow mode.
-- 17 active paper books after the 2026-10-21 retirement of eight books with no after-cost edge,
+- 15 active paper books after the 2026-10-21 retirement of eight books with no after-cost edge
+  and the 2026-10-30 retirement of two gated exact copies ([evidence](history/league-thin-2026-10-30.md)),
   including the three [P15](plans/p15-profitability-evidence-loop.md) books (live since
   2026-09-29; collecting, no performance claim before its registered looks). P15's SEC 8-K event
   source works again since revision 17; it had been rejecting almost every response.
@@ -244,7 +245,8 @@ Updated 2026-10-22 for engine v2 live and P24 active.
    observation, then the tri-arm orchestrator and its status panel. It tests whether the AI
    allocates better than the rule at low turnover, which the research verdicts favour.
 9. **League collapse (P2).** Retire books that answer no open question to cut nightly noise. The
-   first batch of eight no-edge books was retired on 2026-10-21 (17 books remain active).
+   first batch of eight no-edge books was retired on 2026-10-21; two gated exact copies followed on
+   2026-10-30 (15 books remain active).
 10. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
     exit path using the P8 FSLY position.
 
