@@ -11,16 +11,14 @@
 | 7 | Momentum Top 10 (stop-managed) | 2026-07-28 | $38,893 | −0.27% | −2.53% | −21.84% | 10 | 188 | +0.55% |
 | 8 | Macro Composite (all-signals) | 2026-08-03 | $38,602 | −1.02% | −1.01% | −1.54% | 1 | 1 | −0.28% |
 | 9 | Dual Momentum (GEM) | 2026-07-17 | $37,592 | −3.61% | −5.54% | −6.25% | 1 | 4 | −0.56% |
-| 10 | p15_ai_ranked | 2026-09-26 | $9,298 ‡ | −7.02% | −4.99% | −9.58% | 7 | 90 | +1.35% |
-| 11 | Equal-Weight Benchmark | 2026-07-17 | $36,114 | −7.40% | −9.33% | −18.82% | 50 | 184 | +0.89% |
-| 12 | p15_rule_control | 2026-09-26 | $9,180 ‡ | −8.20% | −6.17% | −13.03% | 7 | 52 | +3.60% |
-| 13 | p15_hybrid_veto | 2026-09-26 | $9,179 ‡ | −8.21% | −6.19% | −12.46% | 8 | 53 | +3.26% |
-| 14 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $34,496 | −11.55% | −10.56% | −17.31% | 50 | 50 | +3.70% |
-| 15 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $34,386 | −11.83% | −10.55% | −16.71% | 50 | 119 | +0.73% |
+| 10 | Equal-Weight Benchmark | 2026-07-17 | $36,114 | −7.40% | −9.33% | −18.82% | 50 | 184 | +0.89% |
+| 11 | p15_ai_ranked | 2026-09-26 | $8,846 | −11.54% | −9.51% | −12.56% | 6 | 96 | −3.40% |
+| 12 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $34,496 | −11.55% | −10.56% | −17.31% | 50 | 50 | +3.70% |
+| 13 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $34,386 | −11.83% | −10.55% | −16.71% | 50 | 119 | +0.73% |
+| 14 | p15_hybrid_veto | 2026-09-26 | $8,715 | −12.85% | −10.82% | −14.18% | 9 | 57 | −2.12% |
+| 15 | p15_rule_control | 2026-09-26 | $8,713 | −12.87% | −10.84% | −14.31% | 8 | 55 | −1.47% |
 
 _Regime: **risk-on** · each return uses its book's persisted starting capital · as of 2026-10-30._
-
-_‡ marked through 2026-10-29: p15_ai_ranked, p15_rule_control, p15_hybrid_veto. A P15 book is marked by its own window after that session's P15 fills, never provisionally by the league._
 
 ## Commission break
 
@@ -35,12 +33,12 @@ _‡ marked through 2026-10-29: p15_ai_ranked, p15_rule_control, p15_hybrid_veto
 | Momentum Top 10 (stop-managed) | −0.30% | $17.25 |
 | Macro Composite (all-signals) | −0.49% | $0.00 |
 | Dual Momentum (GEM) | −0.99% | $0.00 |
-| p15_ai_ranked | +0.43% | $13.99 |
 | Equal-Weight Benchmark | +1.88% | $0.00 |
-| p15_rule_control | +3.23% | $5.59 |
-| p15_hybrid_veto | +2.05% | $6.39 |
+| p15_ai_ranked | −4.46% | $16.30 |
 | XS Momentum 12-1 (unscreened control) | +6.26% | $0.00 |
 | EW Screen — Inverse-Vol Weighted | +2.05% | $0.00 |
+| p15_hybrid_veto | −3.10% | $7.99 |
+| p15_rule_control | −2.02% | $6.80 |
 
 _† commissions from the recorded cost-profile break (2026-10-19); evaluation clocks restart at each break._
 
