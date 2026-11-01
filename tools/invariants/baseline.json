@@ -44,6 +44,14 @@
    "ref": "p24/integrity source comparison 2026-10-21"
   },
   {
+   "invariant": "split_recorded_vs_restated",
+   "subjects": ["GRML 2026-08-26"],
+   "owner": "orchestrator",
+   "reason": "Real offering-day fall, not a 2:1 split: SEC 8-K accession 0001213900-26-094429 reports an August 26 offering at $5.00; stored closes fall from $9.71 to $5.04 and equal Yahoo's current close and adjusted-close fields on both sides. Five-session median volume rises from 237600 to 595700 (2.507x), explaining the heuristic flag despite flat break-day volume. Yahoo and Nasdaq separately report a 1:50 reverse split on August 24; that does not explain the August 26 price fall or authorize its restatement.",
+   "expires": "2027-01-20",
+   "ref": "2026-11-01 split-data SEC offering and provider-history comparison"
+  },
+  {
    "invariant": "preopen_not_voided",
    "class": "voided",
    "through": "2026-10-20",

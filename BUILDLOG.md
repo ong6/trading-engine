@@ -4832,4 +4832,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +250 LOC; server/product unchanged (session snapshot).
 - **Next:** orchestrator acceptance and deployment.
 
+## 2026-11-01 — Distinguish a spin-off and an offering from share splits
+
+- **Why:** split-data lane; `tools.check_invariants --snapshot latest --only one_split_basis_per_ticker --only split_recorded_vs_restated` reproduces CTVA 2026-10-01 `skipped_already_adjusted` and GRML 2026-08-26 `unrecorded`, one regression each. SEC filings describe a Vylor share distribution and GRML's $5 offering.
+- **What:** accept only GRML's offering-day false positive, with an owner and expiry; its break-day bars equal the provider and the five-session volume medians explain the flag.
+  CTVA's 1,848 older closes are 6.665 times the provider's current history, but a spin-off is not a 6.665-for-one share split. The repair rehearsal and technical disposition are reported separately; no live store or registered source is changed.
+- **Evidence:** `tools.check_invariants --snapshot <repaired-copy> --only one_split_basis_per_ticker --only split_recorded_vs_restated --gate` → both pass, zero regressions; copy apply changed 1,848 CTVA rows and preserved every original. Fast tier and full suite pass; the three pre-existing October 28 publication-order regressions remain in the handoff.
+- **Metrics:** server/tools/product unchanged.
+- **Next:** orchestrator decides CTVA's distribution treatment before any live repair.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
