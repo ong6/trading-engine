@@ -89,6 +89,8 @@ solely for an admitted provider whose automated non-display terms were explicitl
 Agents append one line here instead of building. The owner promotes a line to a plan or
 deletes it.
 
+- 2026-11-01 · **Pinned split adjudication:** `actions._adjudicate` rule 3 misjudges spin-off breaks when legacy refetch timestamps stand in for first acquisition (CTVA 2026-10-01, skipped with 1,848 closes still at 6.665 times the provider); classifier and spin-off semantics await the post-r21 registered revision.
+- 2026-11-01 · **GRML older split basis:** 40 closes before 2026-06-15 remain at 0.02 times the provider's current 1:50-adjusted history, with later history already adjusted; separate repair admission, not the real 2026-08-26 offering-day fall.
 
 - 2026-10-20 · **Snapshot-invariant defects with no fix branch** (shadow monitor, first run):
   same-night bars whose next-night re-fetch was skipped stay provisional with impossible opens

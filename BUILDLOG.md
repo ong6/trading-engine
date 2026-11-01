@@ -4836,9 +4836,10 @@ the 42-entry 2026-09-19 C90 complexity series is in
 
 - **Why:** split-data lane; `tools.check_invariants --snapshot latest --only one_split_basis_per_ticker --only split_recorded_vs_restated` reproduces CTVA 2026-10-01 `skipped_already_adjusted` and GRML 2026-08-26 `unrecorded`, one regression each. SEC filings describe a Vylor share distribution and GRML's $5 offering.
 - **What:** accept only GRML's offering-day false positive, with an owner and expiry; its break-day bars equal the provider and the five-session volume medians explain the flag.
-  CTVA's 1,848 older closes are 6.665 times the provider's current history, but a spin-off is not a 6.665-for-one share split. The repair rehearsal and technical disposition are reported separately; no live store or registered source is changed.
+  The orchestrator accepts the existing split repair for CTVA: `outcome='applied'`, ratio 6.665 is a provider history factor for a spin-off, not a share split; no spin-off action kind exists, and Vylor shares are not modelled. There are no CTVA fills, orders or positions; share effects act on nothing. No live store or registered source is changed.
 - **Evidence:** `tools.check_invariants --snapshot <repaired-copy> --only one_split_basis_per_ticker --only split_recorded_vs_restated --gate` → both pass, zero regressions; copy apply changed 1,848 CTVA rows and preserved every original. Fast tier and full suite pass; the three pre-existing October 28 publication-order regressions remain in the handoff.
+  Fresh-copy E1, sector and XS read paths and published-prior continuity results are identical; all stay ACCUMULATING. CTVA's current XS rank improves from 2,620 to 730, outside the top 50; no active book newly selects it. Walk-forward evidence stays current, although the database checksum changes.
 - **Metrics:** server/tools/product unchanged.
-- **Next:** orchestrator decides CTVA's distribution treatment before any live repair.
+- **Next:** orchestrator applies the reviewed repair after the live dry run confirms 1,848 CTVA rows.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
