@@ -4832,4 +4832,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +250 LOC; server/product unchanged (session snapshot).
 - **Next:** orchestrator acceptance and deployment.
 
+## 2026-11-01 — Isolate operations digest tests from checkout receipts
+
+- **Why:** demonstrated defect: `TRADING_ENGINE_DB=<temporary store>/market.duckdb .venv/bin/python -m pytest -q -W error tests/test_ops_digest.py::test_report_lists_every_run_and_stage_against_the_schedules` passes without a snapshot, but with the published October 15 pre-open receipt fails `assert '- trading-engine-p15-preopen: due 10-15 13:05Z' in missing`. Reproduced before the fix.
+- **What:** all report tests pass their temporary database path instead of reading a checkout's published snapshot.
+  The direct snapshot-receipt test also passes its temporary log directory.
+  The completed October 15 receipt correctly satisfies the due window; the digest needs no change.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -o addopts=--dist=worksteal tests/test_ops_digest.py::test_report_lists_every_run_and_stage_against_the_schedules` → `1 passed` with and without the temporary published snapshot after the fix.
+- **Metrics:** server/tools/product unchanged for this session.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -219,7 +219,8 @@ def test_collect_writes_digest_and_metrics(tmp_path):
     assert "dbus" not in text
     with closing(sqlite3.connect(logs / "ops" / "ops.sqlite")) as db:
         _check_metrics(db)
-    report = ops_digest.report(24, logs / "ops", now=NOW, run=_fake_run({}))
+    report = ops_digest.report(24, logs / "ops", now=NOW, run=_fake_run({}),
+                               db_path=tmp_path / "store.duckdb")
     assert "## Stage flow" in report
     assert "| run_daily | input_rows | 1 | 10 | 10 |" in report
     assert "| run_daily | output_rows | 1 | 0 | 0 |" in report
@@ -333,7 +334,8 @@ def test_registered_job_receipts_project_and_fail_the_digest_visibly(tmp_path):
     (receipt_dir / "2.json").write_text("not json")
 
     [hour] = _collect(tmp_path, {})
-    report = ops_digest.report(24, logs / "ops", now=NOW, run=_fake_run({}))
+    report = ops_digest.report(24, logs / "ops", now=NOW, run=_fake_run({}),
+                               db_path=tmp_path / "store.duckdb")
 
     assert hour["status"] == "FAIL"
     assert "terminal_failure" in hour["text"] and "terminal-exit-2" in hour["text"]
@@ -475,7 +477,8 @@ def test_failed_run_marks_hour_and_report_lists_it(tmp_path):
     unit = "trading-engine-p15-scoring"
     _collect(tmp_path, {f"{unit}.service": _journal(f"{unit}.service", exit_code=75)})
 
-    report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW, run=_fake_run({}))
+    report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW, run=_fake_run({}),
+                               db_path=tmp_path / "store.duckdb")
 
     assert "1 FAIL" in report
     assert f"{unit}.service at 2026-10-10T02:30:00Z (10m00s): exit-code, exit 75" in report
@@ -492,7 +495,8 @@ def test_clean_stop_that_systemd_reports_as_success_is_not_a_failed_run(tmp_path
     journal = {unit: "\n".join(_entry("2026-10-10T02:46:54+00:00", *line) for line in stop)}
 
     [hour] = _collect(tmp_path, journal)
-    report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW, run=_fake_run(journal))
+    report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW, run=_fake_run(journal),
+                               db_path=tmp_path / "store.duckdb")
 
     assert hour["status"] == "OK" and "0 failed run(s)" in hour["text"]
     assert "| trading-engine-api | — | 02:46:54 | — | — | success (exit 15) [killed] |" in (
@@ -561,7 +565,8 @@ def test_failure_whose_result_lands_in_the_next_hour_keeps_its_exit_code(tmp_pat
     paths = {"logs_dir": logs, "ops_dir": logs / "ops", "db_path": tmp_path / "store.duckdb"}
     [first] = ops_digest.collect(now=NOW, run=run, fetch=_fetch, **paths)
     [second] = ops_digest.collect(now=later, run=run, fetch=_fetch, **paths)
-    report = ops_digest.report(24, logs / "ops", now=later, run=_fake_run({}))
+    report = ops_digest.report(24, logs / "ops", now=later, run=_fake_run({}),
+                               db_path=tmp_path / "store.duckdb")
 
     assert first["status"] == "OK" and second["status"] == "FAIL"
     assert "| exit-code (exit 75) [exited] |" in second["text"]
@@ -661,7 +666,7 @@ def test_report_lists_every_run_and_stage_against_the_schedules(tmp_path):
     os.utime(postflight, (stamp, stamp))
 
     report = ops_digest.report(72, ops, now=datetime(2026, 10, 17, 12, 30, tzinfo=UTC),
-                               run=_schedule_run(tmp_path))
+                               run=_schedule_run(tmp_path), db_path=tmp_path / "store.duckdb")
 
     missing = report[report.index("## Missing runs"):report.index("## Runs")]
     assert "- trading-engine-p15-preopen: due 10-15 13:05Z" in missing
@@ -822,7 +827,7 @@ def test_work_receipts_read_only_from_resolved_snapshot(tmp_path, monkeypatch):
     monkeypatch.setattr(ops_digest, "latest_snapshot", lambda database:
                         SimpleNamespace(path=published))
     receipts, gaps = ops_digest.work_receipts(tmp_path / "absent-primary.duckdb",
-                                             datetime(2026, 10, 3, tzinfo=UTC), NOW)
+                                             datetime(2026, 10, 3, tzinfo=UTC), NOW, tmp_path)
     [row] = receipts["trading-engine-p15-events"]
     assert row.start == datetime(2026, 10, 5, 13, 35, 59, tzinfo=UTC)
     assert row.ok is None and row.seconds is None and row.label.endswith("exit unknown")
@@ -940,7 +945,7 @@ def test_unavailable_preopen_receipt_degrades_successful_exit(tmp_path, monkeypa
     unit = "trading-engine-p15-preopen.service"
     [hour] = _collect(tmp_path, {unit: _journal(unit)})
     report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW,
-                               run=_fake_run({unit: ""}))
+                               run=_fake_run({unit: ""}), db_path=tmp_path / "store.duckdb")
     assert hour["status"] == "WARN" and "0 failed run(s)" in hour["text"]
     assert "Degraded work receipts" in hour["text"]
     assert "[WARN] trading-engine-p15-preopen" in report
