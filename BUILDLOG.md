@@ -5397,4 +5397,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +250 LOC; server/product unchanged (session snapshot).
 - **Next:** orchestrator acceptance and deployment.
 
+## 2026-11-01 — Wait for scoring store locks through the registered deadline
+
+- **Why:** P15 lock lane; reproduction: `.venv/bin/python -m pytest -q -W error tests/test_p15_scoring_locks.py -k waits_past_sixty` fails all four phases with a real writer held for 65 fake-clock seconds; a valid response becomes unavailable after the 60-second write wait expires.
+  The same test's `finalization-65` case also reproduces a completed run after a final store wait reaches noon.
+- **What:** Apply one monotonic budget ending at the unchanged 12:00 UTC deadline to scoring's advisory locks and store opens, including response retention and finalization.
+  Keep the registered 60-second retry floor, completed-sample replay and interrupted-sample refusal unchanged; no registration re-pin or unit change.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 8` has 6,653 passes; only the expected `test_p15_registered_file_hashes_match_checkout` and `test_registration_identity_holds_in_this_checkout` fail on the un-re-pinned scoring source. All eight lock cases pass, including no late finalization trace.
+- **Metrics:** server +19 LOC; tools/product unchanged; tests +159 LOC (session snapshot).
+- **Next:** orchestrator acceptance and the post-r21 registration revision.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

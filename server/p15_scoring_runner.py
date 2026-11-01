@@ -7,6 +7,7 @@ import json
 import math
 import random
 import tempfile
+import time as monotonic_time
 from collections import Counter
 from dataclasses import asdict
 from datetime import date, datetime, timezone
@@ -53,6 +54,20 @@ ET = ZoneInfo("America/New_York")
 
 class ScoringError(RuntimeError):
     """A P15 scoring run cannot safely produce evidence."""
+
+
+def _lock_deadline(started: datetime) -> float:
+    started = started.astimezone(timezone.utc)
+    remaining = (datetime.combine(started.date(), DEADLINE_UTC) - started).total_seconds()
+    return monotonic_time.monotonic() + max(0.0, remaining)
+
+
+def _connect(database: Path, lock_deadline: float, *, read_only: bool = False):
+    return db.connect(
+        database, read_only=read_only,
+        wait_s=max(DB_WAIT_S, lock_deadline - monotonic_time.monotonic()),
+        deadline=lock_deadline,
+    )
 
 
 def _held(con: duckdb.DuckDBPyConnection) -> set[str]:
@@ -369,9 +384,10 @@ def _in_admissible_window(market_date: date, started: datetime) -> bool:
 def _fail_outside_window(
     database: Path, *, market_date: date, bundle: dict | None,
     existing: dict | None, started: datetime,
+    lock_deadline: float,
     reason: str = "outside_admissible_window",
 ) -> dict:
-    con = db.connect(database, wait_s=DB_WAIT_S)
+    con = _connect(database, lock_deadline)
     try:
         with db.transaction(con):
             store.init_schema(con)
@@ -409,7 +425,9 @@ def _fail_outside_window(
 
 
 
-def _prepare_scoring_context(database, existing, bundle, started, market_date, now, clock, fetch_news):
+def _prepare_scoring_context(
+    database, existing, bundle, started, market_date, now, clock, fetch_news, lock_deadline,
+):
     if existing is not None:
         if existing["status"] != "running":
             raise ScoringError("P15 scoring run status is invalid")
@@ -428,7 +446,7 @@ def _prepare_scoring_context(database, existing, bundle, started, market_date, n
             now=started, fetch=fetch_news,
         )
         cutoff = now or clock()
-        con = db.connect(database, read_only=True, wait_s=DB_WAIT_S)
+        con = _connect(database, lock_deadline, read_only=True)
         try:
             event_facts = p15_event_sources.admitted_event_facts_as_known(
                 con,
@@ -454,7 +472,7 @@ def _prepare_scoring_context(database, existing, bundle, started, market_date, n
                 ),
             } for item in news["receipts"]],
         )
-        con = db.connect(database, wait_s=DB_WAIT_S)
+        con = _connect(database, lock_deadline)
         try:
             with db.transaction(con):
                 store.init_schema(con)
@@ -491,7 +509,9 @@ def _replay_scoring_sample(con, started_sample, chunk, allowed, validated, failu
         failure = f"sample replay is terminal: {started_sample['status']}"
     return failure
 
-def _score_chunks(database, bundle, context, allowed, cutoff, run_id, deadline, generate, clock):
+def _score_chunks(
+    database, bundle, context, allowed, cutoff, run_id, deadline, generate, clock, lock_deadline,
+):
     chunks = [context["candidates"][index:index + CHUNK_SIZE]
               for index in range(0, len(context["candidates"]), CHUNK_SIZE)]
     aggregates, calls, deadline_exceeded = [], 0, False
@@ -511,9 +531,13 @@ def _score_chunks(database, bundle, context, allowed, cutoff, run_id, deadline, 
             )
             request = agent_model_client.p15_scoring_request_payload(payload)
             order = [item["ticker"] for item in payload["candidates"]]
-            con = db.connect(database, wait_s=DB_WAIT_S)
+            con = _connect(database, lock_deadline)
             result = None
             try:
+                if clock().astimezone(timezone.utc) >= deadline:
+                    deadline_exceeded = True
+                    failure = "P15 scoring exceeded the 12:00 UTC deadline"
+                    break
                 with db.transaction(con):
                     started_sample = store.start_sample(
                         con, run_id=run_id, chunk_index=chunk_index,
@@ -537,7 +561,7 @@ def _score_chunks(database, bundle, context, allowed, cutoff, run_id, deadline, 
                     raise ScoringError("P15 scoring request identity differs")
                 _validate_identity(result)
                 parsed = _validate_output(result.output, chunk, allowed)
-                con = db.connect(database, wait_s=DB_WAIT_S)
+                con = _connect(database, lock_deadline)
                 try:
                     with db.transaction(con):
                         store.complete_sample(
@@ -558,7 +582,7 @@ def _score_chunks(database, bundle, context, allowed, cutoff, run_id, deadline, 
                     key: getattr(exc, key, None)
                     for key in ("response_id", "request_sha256", "response_sha256", "usage")
                 }
-                con = db.connect(database, wait_s=DB_WAIT_S)
+                con = _connect(database, lock_deadline)
                 try:
                     with db.transaction(con):
                         store.fail_sample(
@@ -584,11 +608,14 @@ def _run(
     = agent_model_client.generate_p15_scoring_json,
     fetch_news=daily_opportunity_news._fetch,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    lock_deadline: float | None = None,
 ) -> dict:
     started = (now or clock()).astimezone(timezone.utc)
     deadline = datetime.combine(started.date(), DEADLINE_UTC)
+    if lock_deadline is None:
+        lock_deadline = _lock_deadline(started)
     bundle = None
-    con = db.connect(database, read_only=True, wait_s=DB_WAIT_S)
+    con = _connect(database, lock_deadline, read_only=True)
     try:
         market_date = db.latest_operational_market_date(con)
         if market_date is None:
@@ -606,20 +633,22 @@ def _run(
         return {"status": "failed", "market_date": market_date.isoformat(),
                 "reason": existing["reason"], "replayed": True,
                 "model_call_count": 0}
-    if started >= deadline:
+    if started >= deadline or clock().astimezone(timezone.utc) >= deadline:
         return _fail_outside_window(
             database, market_date=market_date,
             bundle=bundle if existing is None else None,
             existing=existing, started=started, reason="deadline_start_refusal",
+            lock_deadline=lock_deadline,
         )
     if not _in_admissible_window(market_date, started):
         return _fail_outside_window(
             database, market_date=market_date,
             bundle=bundle if existing is None else None,
             existing=existing, started=started,
+            lock_deadline=lock_deadline,
         )
     if existing is None:
-        con = db.connect(database, read_only=True, wait_s=DB_WAIT_S)
+        con = _connect(database, lock_deadline, read_only=True)
         try:
             bundle = p15_universe(
                 con, market_date, held_tickers=_held(con),
@@ -628,41 +657,23 @@ def _run(
         finally:
             con.close()
     bundle, context, allowed, cutoff, run_id = _prepare_scoring_context(
-        database, existing, bundle, started, market_date, now, clock, fetch_news,
+        database, existing, bundle, started, market_date, now, clock, fetch_news, lock_deadline,
     )
     aggregates, calls, deadline_exceeded = _score_chunks(
-        database, bundle, context, allowed, cutoff, run_id, deadline, generate, clock,
+        database, bundle, context, allowed, cutoff, run_id, deadline, generate, clock, lock_deadline,
     )
-    if deadline_exceeded:
-        con = db.connect(database, wait_s=DB_WAIT_S)
-        try:
-            with db.transaction(con):
-                store.fail_run(
-                    con, run_id, reason="P15 scoring exceeded the 12:00 UTC deadline",
-                    completed_at=clock(),
-                )
-        finally:
-            con.close()
-        return {"status": "failed", "market_date": bundle["market_date"],
-                "reason": "deadline_exceeded", "model_call_count": calls,
-                "replayed": False}
-    completed = clock().astimezone(timezone.utc)
-    if completed >= deadline:
-        con = db.connect(database, wait_s=DB_WAIT_S)
-        try:
-            with db.transaction(con):
+    con = _connect(database, lock_deadline)
+    try:
+        completed = clock().astimezone(timezone.utc)
+        with db.transaction(con):
+            if deadline_exceeded or completed >= deadline:
                 store.fail_run(
                     con, run_id, reason="P15 scoring exceeded the 12:00 UTC deadline",
                     completed_at=completed,
                 )
-        finally:
-            con.close()
-        return {"status": "failed", "market_date": bundle["market_date"],
-                "reason": "deadline_exceeded", "model_call_count": calls,
-                "replayed": False}
-    con = db.connect(database, wait_s=DB_WAIT_S)
-    try:
-        with db.transaction(con):
+                return {"status": "failed", "market_date": bundle["market_date"],
+                        "reason": "deadline_exceeded", "model_call_count": calls,
+                        "replayed": False}
             samples = _stored_samples(con, run_id)
             trace = _trace(run_id, bundle, context, aggregates, samples, started, completed)
             result = agent_evaluation.record_trace(con, trace)
@@ -683,13 +694,16 @@ def _run_with_books(
     = agent_model_client.generate_p15_scoring_json,
     fetch_news=daily_opportunity_news._fetch,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    lock_deadline: float | None = None,
 ) -> dict:
+    if lock_deadline is None:
+        lock_deadline = _lock_deadline(now or clock())
     result = _run(
         database=database, now=now, generate=generate,
-        fetch_news=fetch_news, clock=clock,
+        fetch_news=fetch_news, clock=clock, lock_deadline=lock_deadline,
     )
     if "market_date" in result:
-        con = db.connect(database, wait_s=DB_WAIT_S)
+        con = _connect(database, lock_deadline)
         try:
             books = p15_books.run_window(
                 con, date.fromisoformat(result["market_date"]), observed_at=clock()
@@ -714,10 +728,14 @@ def run(
     fetch_news=daily_opportunity_news._fetch,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
-    with advisory_file_lock(LOCK_PATH), advisory_file_lock(NIGHTLY_LOCK):
+    lock_deadline = _lock_deadline(now or clock())
+    with (
+        advisory_file_lock(LOCK_PATH, deadline=lock_deadline),
+        advisory_file_lock(NIGHTLY_LOCK, deadline=lock_deadline),
+    ):
         return _run_with_books(
             database=database, now=now, generate=generate,
-            fetch_news=fetch_news, clock=clock,
+            fetch_news=fetch_news, clock=clock, lock_deadline=lock_deadline,
         )
 
 
@@ -731,13 +749,14 @@ def dry_run(
 ) -> dict:
     """Run the exact mutating flow against an isolated DuckDB snapshot."""
     requested = (now or clock()).astimezone(timezone.utc)
+    lock_deadline = _lock_deadline(requested)
     if requested >= datetime.combine(requested.date(), DEADLINE_UTC):
         raise ScoringError("P15 scoring cannot start at or after 12:00 UTC")
     with tempfile.TemporaryDirectory(prefix="trading-engine-p15-dry-run-") as directory:
         copied = Path(directory) / "market.duckdb"
-        with advisory_file_lock(NIGHTLY_LOCK):
+        with advisory_file_lock(NIGHTLY_LOCK, deadline=lock_deadline):
             copier(database, copied)
-        con = db.connect(copied, wait_s=DB_WAIT_S)
+        con = _connect(copied, lock_deadline)
         try:
             p15_books.init_schema(con)
             state = p15_books.activation_state(con)
@@ -756,7 +775,7 @@ def dry_run(
             con.close()
         result = _run_with_books(
             database=copied, now=now, generate=generate,
-            fetch_news=fetch_news, clock=clock,
+            fetch_news=fetch_news, clock=clock, lock_deadline=lock_deadline,
         )
         return {**result, "dry_run": True}
 
