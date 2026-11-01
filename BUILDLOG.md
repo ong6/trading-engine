@@ -4841,5 +4841,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `.venv/bin/python -m pytest -q -W error -o addopts=--dist=worksteal tests/test_ops_digest.py::test_report_lists_every_run_and_stage_against_the_schedules` → `1 passed` with and without the temporary published snapshot after the fix.
 - **Metrics:** server/tools/product unchanged for this session.
 - **Next:** nothing admitted.
+## 2026-11-01 — Report new TradingView refusals without calling them failures
+
+- **Why:** the issue-batch monitor reproduction, `pytest -q tests/test_miner_monitor.py::test_tradingview_new_refusals_degrade_status_without_claiming_failure`, reports `assert 'current' == 'issues'` after 19 newly refused windows and no failures.
+- **What:** degrade the miner status when a slice adds terminal provider refusals, with a distinct refusal reason. Keep settled cumulative refusals visible without degrading a clean later slice.
+  Give real failed attempts and unresolved windows precedence over refusals; retain the existing response fields and verification tolerances.
+- **Evidence:** `.venv/bin/python -m tools.affected_tests --run` and `.venv/bin/python -m pytest -q -W error -n 8` both exit 0 at `[100%]`; regressions cover new refusals, clean later slices, failures and unresolved windows.
+- **Metrics:** server +6 LOC; tools/product unchanged (session snapshot).
+- **Next:** orchestrator review of provider mapping defects in the pinned archive and verifier.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

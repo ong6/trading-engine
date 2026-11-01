@@ -188,17 +188,33 @@ def test_miner_evidence_status_fails_closed_on_bad_evidence(
 
 
 def test_tradingview_refusals_are_reported_apart_from_failures(con):
-    # Windows the provider refused on three separate days are resolved, not failures.
+    # Historical failed attempts resolved by refusals do not degrade a clean slice.
     _setup_miner_jobs(con)
     meta = _miner_meta()
     meta["tradingview_history"].update(
-        attempted_this_run=3, refused_this_run=1, refused_windows=9)
+        refused_this_run=0, refused_windows=9,
+        attempts={"complete": 100, "empty": 5, "failed": 112, "refused": 9})
 
     result = miner_monitor.evidence_status(meta, con)
 
     assert result["status"] == "current"
     assert result["miners"]["tradingview_history"]["status"] == "current"
     assert result["miners"]["tradingview_history"]["refused_windows"] == 9
+
+
+@pytest.mark.parametrize("new_refusals", [1, 19])
+def test_tradingview_new_refusals_degrade_status_without_claiming_failure(con, new_refusals):
+    _setup_miner_jobs(con)
+    meta = _miner_meta()
+    meta["tradingview_history"].update(
+        attempted_this_run=2 + new_refusals, refused_this_run=new_refusals,
+        refused_windows=19)
+
+    result = miner_monitor.evidence_status(meta, con)
+
+    assert result["status"] == "issues"
+    assert result["miners"]["tradingview_history"]["reason"] == "miner-reported-refusals"
+    assert result["miners"]["tradingview_history"]["refused_windows"] == 19
 
 
 @pytest.mark.parametrize("failure", [{"failed_this_run": 1, "attempted_this_run": 4},
