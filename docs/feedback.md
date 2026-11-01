@@ -841,3 +841,12 @@ API keys: none added, so Alpaca, Finnhub and Alpha Vantage stay out and free bul
 scraping remain the news sources. Keys already in use are not affected by this ruling. The
 `research-text` dependency group (`torch`, `transformers`, in its separate virtual environment) is
 approved for P16 W4, which no longer has to stop after building the corpus. → `product.md`.
+
+## 2026-11-01 — The orchestrator may deploy the revisions a batch needs
+
+**Verdict.** "you can deploy any revisions u need"
+
+**Rule change.** For the 2026-11-01 engine issue batch, the orchestrator owns deploying revision 21
+and any other revision the batch needs. No gate is relaxed: revision 21 still waits until after
+2026-11-03 06:30 UTC, stays outside 22:15-23:59 UTC and follows its checklist, and the limits on
+producers, calendar-bound records, trials and the live store still hold.
