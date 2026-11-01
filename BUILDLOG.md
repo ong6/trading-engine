@@ -5402,8 +5402,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Why:** the issue-batch reproduction `pytest tests/test_verify_prices.py::test_stock_no_data_tries_etf_with_same_comparison_rules` fails: only the stocks route is called. Real BAR, DGP, FNGD and VXX requests return traded histories on the ETF route.
 - **What:** try the ETF route after an explicit empty stocks answer; retain both exact responses and preserve the original named gap when both routes are empty.
   Apply the existing comparison and indicative-series rules to the fallback; no share-class alias or tolerance changes.
-- **Evidence:** the six-name read-only run checks BAR, DGP, FNGD and VXX as agreeing on five sessions each; BH.A and VTEC remain named unchecked. Required tiers finish with only the two expected P15 file-hash and registration-identity failures; targeted tests pass.
+- **Evidence:** `pytest -q -W error tests/test_verify_prices.py tests/test_tradingview_history_archive.py` exits 0 at `[100%]`; real BAR, DGP, FNGD and VXX agree over five sessions each. Required tiers report only the two expected P15 hash and registration-identity failures.
 - **Metrics:** product +19 LOC; server/tools unchanged (session snapshot).
+- **Next:** orchestrator acceptance after the post-r21 registration.
+
+## 2026-11-01 — Retry proven TradingView mappings with append-only attempts
+
+- **Why:** `pytest tests/test_tradingview_history_archive.py::test_corrected_provider_retries_refused_window_without_editing_cohort` fails with `assert 0 == 1`; a terminal original prefix blocks a proven corrected route.
+- **What:** use nine proven provider corrections while keeping frozen symbols and prior attempts; partition refusal retries by the requested provider symbol.
+  Retain the standard receipt and require overlapping valid closes within the verifier's existing bands before retaining corrected facts. A failed proof appends a refusal.
+- **Evidence:** `pytest -q -W error tests/test_verify_prices.py tests/test_tradingview_history_archive.py` exits 0 at `[100%]`; nine real corrected requests retain receipts and append attempts with all prior rows identical. Required tiers report only the two expected P15 hash and registration-identity failures.
+- **Metrics:** product +84 LOC; server/tools unchanged (session snapshot).
 - **Next:** orchestrator acceptance after the post-r21 registration.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
