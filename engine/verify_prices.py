@@ -191,6 +191,10 @@ class SymbolNotFound(SourceError):
     """
 
 
+class SourceNoData(SourceError):
+    """The requested Nasdaq route returned an explicit empty history."""
+
+
 @dataclass(frozen=True, slots=True)
 class NasdaqResponse:
     """Exact HTTP response material for independent-evidence retention."""
@@ -301,6 +305,8 @@ def parse_nasdaq_history(
     if not isinstance(data, dict):
         raise SourceError("invalid Nasdaq data: expected object")
     symbol = data.get("symbol")
+    if symbol is None and data.get("totalRecords") == 0 and data.get("tradesTable") is None:
+        raise SourceNoData("source symbol identity differs: None")
     def normalize(value):
         return str(value).replace("/", ".").replace("-", ".").upper()
     if not symbol or normalize(symbol) != normalize(ticker):
@@ -604,7 +610,7 @@ def run(
     else:
         names = select_names(con, as_of, sample_n, max_names)
 
-    # Asset class comes from the universe table — never inferred from the symbol.
+    # The universe chooses the first route; an empty stocks route also tries ETFs.
     etf_flag = {r[0]: r[1] for r in con.execute(
         "SELECT ticker, etf FROM universe").fetchall()}
 
@@ -665,28 +671,41 @@ def run(
         fetched = None
         last_err = ""
         gone = False
-        for attempt in (1, 2):
-            if not limiter.wait(deadline):
-                return (i, not_checked(ticker, why, "time_budget",
-                                       f"{max_secs:.0f}s budget spent"), [], [], [])
-            try:
-                fetched = fetch_nasdaq_history(
-                    ticker, assetclass=assetclass, start=start, end=as_of,
-                    session=worker_session())
-                if "evidence" in fetched:
-                    source_evidence.setdefault(ticker, []).append(fetched["evidence"])
+        primary = None
+        for assetclass in (["etf"] if is_etf else ["stocks", "etf"]):
+            no_data = False
+            fetched, last_err, gone = None, "", False
+            for attempt in (1, 2):
+                if not limiter.wait(deadline):
+                    return (i, not_checked(ticker, why, "time_budget",
+                                           f"{max_secs:.0f}s budget spent"), [], [], [])
+                try:
+                    fetched = fetch_nasdaq_history(
+                        ticker, assetclass=assetclass, start=start, end=as_of,
+                        session=worker_session())
+                    if "evidence" in fetched:
+                        source_evidence.setdefault(ticker, []).append(fetched["evidence"])
+                    no_data = not fetched["bars"] and fetched["rows"] == 0
+                    break
+                except (SymbolNotFound, SourceNoData) as exc:
+                    if hasattr(exc, "evidence"):
+                        source_evidence.setdefault(ticker, []).append(exc.evidence)
+                    last_err, gone, no_data = str(exc), isinstance(exc, SymbolNotFound), True
+                    break
+                except SourceError as exc:
+                    if hasattr(exc, "evidence"):
+                        source_evidence.setdefault(ticker, []).append(exc.evidence)
+                    last_err = str(exc)
+                    if attempt == 1:
+                        time.sleep(RETRY_SLEEP)
+            if assetclass == "stocks" and no_data:
+                primary = (fetched, last_err, gone)
+                continue
+            if primary is not None and no_data:
+                # Both routes are empty: keep the original named gap and evidence.
+                fetched, last_err, gone = primary
                 break
-            except SymbolNotFound as exc:   # a settled fact, not a flaky call
-                if hasattr(exc, "evidence"):
-                    source_evidence.setdefault(ticker, []).append(exc.evidence)
-                last_err, gone = str(exc), True
-                break
-            except SourceError as exc:
-                if hasattr(exc, "evidence"):
-                    source_evidence.setdefault(ticker, []).append(exc.evidence)
-                last_err = str(exc)
-                if attempt == 1:
-                    time.sleep(RETRY_SLEEP)
+            break
         if fetched is None:
             return (i, not_checked(ticker, why,
                                    "symbol_not_found" if gone else "fetch_failed",
@@ -711,7 +730,7 @@ def run(
         # $52.90 close); VTEL/VTEC/VTEI/VTES an untraded three-decimal series 10-49bp
         # off the consolidated prints. A price-ratio guard is deliberately NOT used:
         # it would hide a missed large reverse split, which this stage exists to catch.
-        if is_etf and all(bar.get("volume") is None for bar in fetched["bars"].values()):
+        if assetclass == "etf" and all(bar.get("volume") is None for bar in fetched["bars"].values()):
             return (i, not_checked(
                 ticker, why, "source_identity",
                 f"etf answer has no volume on any of {len(fetched['bars'])} rows: "

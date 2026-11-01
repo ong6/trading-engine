@@ -5397,4 +5397,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +250 LOC; server/product unchanged (session snapshot).
 - **Next:** orchestrator acceptance and deployment.
 
+## 2026-11-01 — Try the Nasdaq ETF route when the stock route has no data
+
+- **Why:** the issue-batch reproduction `pytest tests/test_verify_prices.py::test_stock_no_data_tries_etf_with_same_comparison_rules` fails: only the stocks route is called. Real BAR, DGP, FNGD and VXX requests return traded histories on the ETF route.
+- **What:** try the ETF route after an explicit empty stocks answer; retain both exact responses and preserve the original named gap when both routes are empty.
+  Apply the existing comparison and indicative-series rules to the fallback; no share-class alias or tolerance changes.
+- **Evidence:** the six-name read-only run checks BAR, DGP, FNGD and VXX as agreeing on five sessions each; BH.A and VTEC remain named unchecked. Required tiers finish with only the two expected P15 file-hash and registration-identity failures; targeted tests pass.
+- **Metrics:** product +19 LOC; server/tools unchanged (session snapshot).
+- **Next:** orchestrator acceptance after the post-r21 registration.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
