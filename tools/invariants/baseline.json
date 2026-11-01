@@ -68,6 +68,33 @@
    "reason": "The pre-open crashed on the store lock on 2026-10-13, 10-14 and 10-19 and left no run row while AI-book entries filled. Immutable history; the missed-run record and longer lock wait land with revision 15.",
    "expires": "2027-04-20",
    "ref": "fix/p15-preopen-reliability"
+  },
+  {
+   "invariant": "publication_order",
+   "class": "window_without_scoring_run",
+   "subjects": ["p15_ai_ranked 2026-10-28"],
+   "owner": "orchestrator",
+   "reason": "The gap is real and scoring evidence was lost: store contention from the daily-opportunity restart loop interrupted run 22, which ended deadline_start_refusal. All 66 aggregate candidate decisions are absent; seven completed samples are orphaned and two responses lack durable payload and usage. The October 29 manual run wrote the October 28 window and retained prior-order fills with a reconciled mark, but no new scoring-driven entries or exits for October 29. No backfill or invariant change is accepted.",
+   "expires": "2027-04-20",
+   "ref": "fix/window-gap BUILDLOG 2026-11-01"
+  },
+  {
+   "invariant": "publication_order",
+   "class": "window_without_scoring_run",
+   "subjects": ["p15_hybrid_veto 2026-10-28"],
+   "owner": "orchestrator",
+   "reason": "The gap is real and scoring evidence was lost: store contention from the daily-opportunity restart loop interrupted run 22, which ended deadline_start_refusal. All 66 aggregate candidate decisions are absent; seven completed samples are orphaned and two responses lack durable payload and usage. The October 29 manual run wrote the October 28 window and retained prior-order fills with a reconciled mark, but only a deterministic time exit, with its intent written after the open, survives for October 29. No backfill or invariant change is accepted.",
+   "expires": "2027-04-20",
+   "ref": "fix/window-gap BUILDLOG 2026-11-01"
+  },
+  {
+   "invariant": "publication_order",
+   "class": "window_without_scoring_run",
+   "subjects": ["p15_rule_control 2026-10-28"],
+   "owner": "orchestrator",
+   "reason": "The gap is real and scoring evidence was lost: store contention from the daily-opportunity restart loop interrupted run 22, which ended deadline_start_refusal. All 66 aggregate candidate decisions are absent; seven completed samples are orphaned and two responses lack durable payload and usage. The October 29 manual run wrote the October 28 window and retained prior-order fills with a reconciled mark, but only two deterministic time exits, with their intents written after the open, survive for October 29. No backfill or invariant change is accepted.",
+   "expires": "2027-04-20",
+   "ref": "fix/window-gap BUILDLOG 2026-11-01"
   }
  ]
 }

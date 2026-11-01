@@ -4859,4 +4859,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged.
 - **Next:** orchestrator applies the reviewed repair after the live dry run confirms 1,848 CTVA rows.
 
+## 2026-11-01 — Disclose the lost October 28 P15 scoring evidence
+
+- **Why:** reproduced on the published November 1 snapshot: `tools.check_invariants --gate` reports `publication_order: regression (3 regression(s), 0 baselined)`, one October 28 window per P15 book without completed scoring. The daily-opportunity restart loop held the store; run 22 ended `deadline_start_refusal`.
+- **What:** baseline only those three subjects, owned by the orchestrator and expiring 2027-04-20. The gap is real: all 66 aggregate candidate decisions and their evaluation evidence were lost; seven completed samples survive orphaned, and two returned responses lost their durable payload and usage. Actual charges are unverified.
+  October 28's six fills and all three cash/close marks reconcile; October 29 has no new entries or AI exits from this scoring run. Its AI book stayed unchanged; control/hybrid executed three deterministic exits with intents written after the open. Pre-open reviewed older intents; three event windows are absent and one call was interrupted.
+  Rank evaluation excludes the missing decisions (`decision_unavailable`, origin 21); book metrics include both sessions. The published evaluation report does not disclose this gap. No evidence, prices, store rows, invariant or registered value changed.
+- **Evidence:** `tools.check_invariants --snapshot <published snapshot> --gate` after disclosure reports `publication_order: pass (0 regression(s), 3 baselined)`; comparison preserves every invariant's facts and every other finding. The two existing market-data regressions remain.
+- **Metrics:** server/tools/product unchanged.
+- **Next:** orchestrator acceptance; evaluation disclosure and late-intent review are deferred.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
