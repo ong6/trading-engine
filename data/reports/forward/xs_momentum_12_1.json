@@ -24,10 +24,10 @@
     "strategy": "xs_momentum_12_1"
   },
   "checks": {
-    "candidate_profitable": true,
+    "candidate_profitable": false,
     "cumulative_excess_positive": true,
     "drawdown_kill_triggered": false,
-    "execution_clean": true,
+    "execution_clean": false,
     "mean_excess_ci_above_zero": false
   },
   "control": {
@@ -58,16 +58,16 @@
   },
   "execution": {
     "ew_benchmark": {
-      "filled": 64,
-      "pending": 89,
+      "filled": 149,
+      "pending": 4,
       "rejected": 0,
-      "stale_pending": 0
+      "stale_pending": 4
     },
     "xs_momentum_12_1": {
-      "filled": 50,
-      "pending": 61,
+      "filled": 110,
+      "pending": 1,
       "rejected": 0,
-      "stale_pending": 0
+      "stale_pending": 1
     }
   },
   "frozen_runtime": {
@@ -919,36 +919,36 @@
     "superseded_runtime_contract_sha256": "c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70"
   },
   "metrics": {
-    "cumulative_excess": 0.030288383483760728,
+    "cumulative_excess": 0.004801881073207781,
     "ew_benchmark": {
-      "end_equity": 36114.159129708794,
-      "max_drawdown": -0.07884955425045492,
+      "end_equity": 34990.62890905057,
+      "max_drawdown": -0.10750702236026977,
       "start_equity": 36175.08916501901,
-      "total_return": -0.0016843091949897415
+      "total_return": -0.032742428099218235
     },
     "mean_monthly_excess": 0.030288383483760728,
     "mean_monthly_excess_ci": null,
     "xs_momentum_12_1": {
-      "end_equity": 34496.04263278383,
-      "max_drawdown": -0.052264621564318436,
+      "end_equity": 32599.719532101928,
+      "max_drawdown": -0.09894515322779429,
       "start_equity": 33536.75480688344,
-      "total_return": 0.028604074288770986
+      "total_return": -0.027940547026010454
     }
   },
   "observation": {
-    "as_of": "2026-10-30",
+    "as_of": "2026-11-02",
     "cost_break_session": "2026-10-19",
     "eligible_after": "2031-10-19",
-    "equity_sha256": "102b3e73edba5f743586ff27982dacb63d7984b5c786a7353860fe6acd1289ec",
+    "equity_sha256": "adcf8d5c432d3e904860b55d2a88e407c565f679a87baa096714a8f6ef7e55b1",
     "evaluation_clock_start": "2026-10-19",
     "mature": false,
     "observation_start": "2026-10-01",
     "paired_complete_months": 1,
     "pre_break_shared_sessions": 12,
-    "shared_sessions": 10,
+    "shared_sessions": 11,
     "signal_date": "2026-09-30"
   },
   "paper_only": true,
   "schema_version": 2,
-  "status": "ACCUMULATING"
+  "status": "REVIEW-KILL"
 }
