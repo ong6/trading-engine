@@ -829,3 +829,24 @@ forward decisions are after any training cutoff, so the after-cutoff rule holds;
 training cutoff is recorded as unknown. P7's manifest still binds the GPT-5.6-Sol:max identities
 and reports that dependency as blocked until P7 is registered on the new model. →
 `server/p15-registration.json`, `server/agent_model_client.py`, `product.md`.
+
+## 2026-11-01 — Keep data free, allow the research text dependencies
+
+**Verdict.** "for the data we want to keep it free for now, since we should be able to trade on
+public data, i dont even want to add API keys. for the research we will allow it."
+
+**Rule change.** Three open owner decisions close. P3 data budget: no paid data, so Sharadar and
+Norgate are not bought and pre-2024-10 survivor-free research stays limited to free sources. Free
+API keys: none added, so Alpaca, Finnhub and Alpha Vantage stay out and free bulk archives and
+scraping remain the news sources. Keys already in use are not affected by this ruling. The
+`research-text` dependency group (`torch`, `transformers`, in its separate virtual environment) is
+approved for P16 W4, which no longer has to stop after building the corpus. → `product.md`.
+
+## 2026-11-01 — The orchestrator may deploy the revisions a batch needs
+
+**Verdict.** "you can deploy any revisions u need"
+
+**Rule change.** For the 2026-11-01 engine issue batch, the orchestrator owns deploying revision 21
+and any other revision the batch needs. No gate is relaxed: revision 21 still waits until after
+2026-11-03 06:30 UTC, stays outside 22:15-23:59 UTC and follows its checklist, and the limits on
+producers, calendar-bound records, trials and the live store still hold.

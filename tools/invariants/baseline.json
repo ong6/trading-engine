@@ -44,6 +44,14 @@
    "ref": "p24/integrity source comparison 2026-10-21"
   },
   {
+   "invariant": "split_recorded_vs_restated",
+   "subjects": ["GRML 2026-08-26"],
+   "owner": "orchestrator",
+   "reason": "Real offering-day fall, not a 2:1 split: SEC 8-K accession 0001213900-26-094429 reports an August 26 offering at $5.00; stored closes fall from $9.71 to $5.04 and equal Yahoo's current close and adjusted-close fields on both sides. Five-session median volume rises from 237600 to 595700 (2.507x), explaining the heuristic flag despite flat break-day volume. Yahoo and Nasdaq separately report a 1:50 reverse split on August 24; that does not explain the August 26 price fall or authorize its restatement.",
+   "expires": "2027-01-20",
+   "ref": "2026-11-01 split-data SEC offering and provider-history comparison"
+  },
+  {
    "invariant": "preopen_not_voided",
    "class": "voided",
    "through": "2026-10-20",
@@ -60,6 +68,33 @@
    "reason": "The pre-open crashed on the store lock on 2026-10-13, 10-14 and 10-19 and left no run row while AI-book entries filled. Immutable history; the missed-run record and longer lock wait land with revision 15.",
    "expires": "2027-04-20",
    "ref": "fix/p15-preopen-reliability"
+  },
+  {
+   "invariant": "publication_order",
+   "class": "window_without_scoring_run",
+   "subjects": ["p15_ai_ranked 2026-10-28"],
+   "owner": "orchestrator",
+   "reason": "The gap is real and scoring evidence was lost: store contention from the daily-opportunity restart loop interrupted run 22, which ended deadline_start_refusal. All 66 aggregate candidate decisions are absent; seven completed samples are orphaned and two responses lack durable payload and usage. The October 29 manual run wrote the October 28 window and retained prior-order fills with a reconciled mark, but no new scoring-driven entries or exits for October 29. No backfill or invariant change is accepted.",
+   "expires": "2027-04-20",
+   "ref": "fix/window-gap BUILDLOG 2026-11-01"
+  },
+  {
+   "invariant": "publication_order",
+   "class": "window_without_scoring_run",
+   "subjects": ["p15_hybrid_veto 2026-10-28"],
+   "owner": "orchestrator",
+   "reason": "The gap is real and scoring evidence was lost: store contention from the daily-opportunity restart loop interrupted run 22, which ended deadline_start_refusal. All 66 aggregate candidate decisions are absent; seven completed samples are orphaned and two responses lack durable payload and usage. The October 29 manual run wrote the October 28 window and retained prior-order fills with a reconciled mark, but only a deterministic time exit, with its intent written after the open, survives for October 29. No backfill or invariant change is accepted.",
+   "expires": "2027-04-20",
+   "ref": "fix/window-gap BUILDLOG 2026-11-01"
+  },
+  {
+   "invariant": "publication_order",
+   "class": "window_without_scoring_run",
+   "subjects": ["p15_rule_control 2026-10-28"],
+   "owner": "orchestrator",
+   "reason": "The gap is real and scoring evidence was lost: store contention from the daily-opportunity restart loop interrupted run 22, which ended deadline_start_refusal. All 66 aggregate candidate decisions are absent; seven completed samples are orphaned and two responses lack durable payload and usage. The October 29 manual run wrote the October 28 window and retained prior-order fills with a reconciled mark, but only two deterministic time exits, with their intents written after the open, survive for October 29. No backfill or invariant change is accepted.",
+   "expires": "2027-04-20",
+   "ref": "fix/window-gap BUILDLOG 2026-11-01"
   }
  ]
 }

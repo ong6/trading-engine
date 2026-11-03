@@ -116,8 +116,9 @@ def _tradingview_history_has_issues(raw: dict) -> bool:
     )
     if complete + empty + failed + refused != attempted:
         raise ValueError("TradingView archive attempt accounting is inconsistent")
-    # Terminal provider refusals are resolved windows, reported apart from failures.
-    return bool(failed or unresolved)
+    # Terminal refusals resolve windows, but new ones still signal lost coverage.
+    # Cumulative refusals alone do not degrade a later clean slice.
+    return bool(failed or unresolved or refused)
 
 
 def _tradingview_history_details(raw: dict) -> dict:
@@ -190,7 +191,12 @@ def _reconcile_evidence(kind: str, raw: dict, created_at: object, result: dict) 
     if evidence_at < job_started:
         result.update(status="stale", reason="evidence-predates-latest-job")
     elif _ISSUE_CHECKS[kind](raw):
-        result.update(status="issues", reason="miner-reported-failures")
+        reason = "miner-reported-failures"
+        if kind == "tradingview_history" and not (
+            raw["failed_this_run"] or raw["unresolved_failed_windows"]
+        ):
+            reason = "miner-reported-refusals"
+        result.update(status="issues", reason=reason)
     else:
         result["status"] = "current"
     if kind in _EVIDENCE_DETAILS:

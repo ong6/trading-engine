@@ -5397,4 +5397,41 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +250 LOC; server/product unchanged (session snapshot).
 - **Next:** orchestrator acceptance and deployment.
 
+## 2026-11-01 — Isolate operations digest tests from checkout receipts
+
+- **Why:** demonstrated defect: `TRADING_ENGINE_DB=<temporary store>/market.duckdb .venv/bin/python -m pytest -q -W error tests/test_ops_digest.py::test_report_lists_every_run_and_stage_against_the_schedules` passes without a snapshot, but with the published October 15 pre-open receipt fails `assert '- trading-engine-p15-preopen: due 10-15 13:05Z' in missing`. Reproduced before the fix.
+- **What:** all report tests pass their temporary database path instead of reading a checkout's published snapshot.
+  The direct snapshot-receipt test also passes its temporary log directory.
+  The completed October 15 receipt correctly satisfies the due window; the digest needs no change.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -o addopts=--dist=worksteal tests/test_ops_digest.py::test_report_lists_every_run_and_stage_against_the_schedules` → `1 passed` with and without the temporary published snapshot after the fix.
+- **Metrics:** server/tools/product unchanged for this session.
+- **Next:** nothing admitted.
+## 2026-11-01 — Report new TradingView refusals without calling them failures
+
+- **Why:** the issue-batch monitor reproduction, `pytest -q tests/test_miner_monitor.py::test_tradingview_new_refusals_degrade_status_without_claiming_failure`, reports `assert 'current' == 'issues'` after 19 newly refused windows and no failures.
+- **What:** degrade the miner status when a slice adds terminal provider refusals, with a distinct refusal reason. Keep settled cumulative refusals visible without degrading a clean later slice.
+  Give real failed attempts and unresolved windows precedence over refusals; retain the existing response fields and verification tolerances.
+- **Evidence:** `.venv/bin/python -m tools.affected_tests --run` and `.venv/bin/python -m pytest -q -W error -n 8` both exit 0 at `[100%]`; regressions cover new refusals, clean later slices, failures and unresolved windows.
+- **Metrics:** server +6 LOC; tools/product unchanged (session snapshot).
+- **Next:** orchestrator review of provider mapping defects in the pinned archive and verifier.
+## 2026-11-01 — Distinguish a spin-off and an offering from share splits
+
+- **Why:** split-data lane; `tools.check_invariants --snapshot latest --only one_split_basis_per_ticker --only split_recorded_vs_restated` reproduces CTVA 2026-10-01 `skipped_already_adjusted` and GRML 2026-08-26 `unrecorded`, one regression each. SEC filings describe a Vylor share distribution and GRML's $5 offering.
+- **What:** accept only GRML's offering-day false positive, with an owner and expiry; its break-day bars equal the provider and the five-session volume medians explain the flag.
+  The orchestrator accepts the existing split repair for CTVA: `outcome='applied'`, ratio 6.665 is a provider history factor for a spin-off, not a share split; no spin-off action kind exists, and Vylor shares are not modelled. There are no CTVA fills, orders or positions; share effects act on nothing. No live store or registered source is changed.
+- **Evidence:** `tools.check_invariants --snapshot <repaired-copy> --only one_split_basis_per_ticker --only split_recorded_vs_restated --gate` → both pass, zero regressions; copy apply changed 1,848 CTVA rows and preserved every original. Fast tier and full suite pass; the three pre-existing October 28 publication-order regressions remain in the handoff.
+  Fresh-copy E1, sector and XS read paths and published-prior continuity results are identical; all stay ACCUMULATING. CTVA's current XS rank improves from 2,620 to 730, outside the top 50; no active book newly selects it. Walk-forward evidence stays current, although the database checksum changes.
+- **Metrics:** server/tools/product unchanged.
+- **Next:** orchestrator applies the reviewed repair after the live dry run confirms 1,848 CTVA rows.
+
+## 2026-11-01 — Disclose the lost October 28 P15 scoring evidence
+
+- **Why:** reproduced on the published November 1 snapshot: `tools.check_invariants --gate` reports `publication_order: regression (3 regression(s), 0 baselined)`, one October 28 window per P15 book without completed scoring. The daily-opportunity restart loop held the store; run 22 ended `deadline_start_refusal`.
+- **What:** baseline only those three subjects, owned by the orchestrator and expiring 2027-04-20. The gap is real: all 66 aggregate candidate decisions and their evaluation evidence were lost; seven completed samples survive orphaned, and two returned responses lost their durable payload and usage. Actual charges are unverified.
+  October 28's six fills and all three cash/close marks reconcile; October 29 has no new entries or AI exits from this scoring run. Its AI book stayed unchanged; control/hybrid executed three deterministic exits with intents written after the open. Pre-open reviewed older intents; three event windows are absent and one call was interrupted.
+  Rank evaluation excludes the missing decisions (`decision_unavailable`, origin 21); book metrics include both sessions. The published evaluation report does not disclose this gap. No evidence, prices, store rows, invariant or registered value changed.
+- **Evidence:** `tools.check_invariants --snapshot <published snapshot> --gate` after disclosure reports `publication_order: pass (0 regression(s), 3 baselined)`; comparison preserves every invariant's facts and every other finding. The two existing market-data regressions remain.
+- **Metrics:** server/tools/product unchanged.
+- **Next:** orchestrator acceptance; evaluation disclosure and late-intent review are deferred.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -137,6 +137,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-11-01 | Data stays free: no Sharadar or Norgate purchase and no new API keys (Alpaca, Finnhub, Alpha Vantage), because the engine should be able to trade on public data; survivor-free research before 2024-10 stays limited to what free sources allow. The `research-text` dependency group (`torch`, `transformers`, separate virtual environment) is approved for P16 W4 | feedback |
 | 2026-10-29 | Engine model calls move from GPT-5.6-Sol:max to GPT-6.1-Sol:max (effort high for once-a-day decisions, medium for events and the intraday observers) as a disclosed model amendment: decisions keep the model they were made with, evidence is reported pooled and as a post-switch stratum | P15 revision 20; feedback |
 | 2026-10-22 | Every agent entry doc opens with one shared block stating what we are building, the end goal (linked to the north star), what is live and what we are working on; other docs link to it instead of restating the goal | feedback; `AGENTS.md`, `README.md`, `docs/README.md` |
 | 2026-10-21 | Senior-quant review (P24): spread agents to evaluate and fix the pipelines, improve speed, make alpha generation and the engine work properly, and find new strategies; "You can do anything you want, as long as you feel it needs fixing; no need to ask me anything; you can just push." | P24; feedback |
@@ -202,11 +203,8 @@ Each row has the default that applies until the owner decides.
 | **Failure response** | Operational follow-up | Decided 2026-10-02: an agent investigates on demand; no push alerting |
 | **Private-strategy paper book** | Activation of separately held research in paper books | P21 generic account intake is implemented; new accounts remain inactive and strategy activation still needs its own admitted gates |
 | **Fill model v5 basis**: keep W6 as non-activating continuous-opening measurement, or authorize a separately registered continuous-session cohort before Stage 2 paper-auction evidence exists | Any pre-Stage-2 use of v5 coefficients | Measurement and report only; `baseline_v1` remains the default and direct paper-auction evidence is required for an auction v5 |
-| **`research-text` dependency group** (`torch`, `transformers` in a separate virtual environment) | P16's time-locked historical text lab | P16 W4 stops after building the corpus |
 | **P8 v1 order authority** once P15 books are live | A single AI book to watch | P8 v1 keeps running unchanged as its own cohort |
-| **P3 data budget**: initial and recurring ceiling for Sharadar (or Norgate) | Survivor-free point-in-time universe and fundamentals before 2024-10; historical stock-selection research | No purchase (decided 2026-10-01); free-source phase 0 only |
 | **Commit metadata rewrite** for 2026-09-18 to 09-23 author and trailer lines that break the public-hygiene rule | Clean public history | Not rewritten (needs a force-push; dates would be kept). 2026-10-20: done; the public history was rewritten for author and trailer identity only, with commit dates and trees kept and the old-to-new commit map held privately ([history index](history/README.md)) |
-| **Free API keys** (Alpaca, including the Benzinga news archive; Finnhub; Alpha Vantage) | Extra historical news for the P16 replay lab; a second realtime cross-check | Free bulk archives and scraping only (GDELT, CC-NEWS, EDGAR, wire and IR pages, Wayback) |
 | **Personal execution host** | Stage 2 | Future work, explicitly not now (decided 2026-10-02) |
 | **Model provider for real capital** with a provider-pinned immutable revision | Stage 2+ | Paper only |
 | **IBKR account and an execution-layer plan** (tax check first: US dividend withholding and US-situs estate exposure favour UCITS ETFs for allocation sleeves) | Stages 2–3 | Future work; no broker work now (decided 2026-10-02) |
