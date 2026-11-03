@@ -4869,4 +4869,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged.
 - **Next:** orchestrator acceptance; evaluation disclosure and late-intent review are deferred.
 
+## 2026-11-03 — Audit the historical walk-forward timeouts without rewriting failures
+
+- **Why:** P24 failure audit: the published snapshot and `/meta` still count 16 actionable jobs from October 19, each with `timeout: killed after 14400s`, after later weekly cohorts completed.
+- **What:** Trace all 16 to the post-v2 replay slowdown and the inherited four-hour ceiling, already fixed by the queue isolation and offline dividend-projection changes.
+  Eight have successful later book jobs; eight are obsolete after October 21 book retirements. Later anchors and runtime identities do not prove the original folds completed.
+  Deliver per-job evidence and exact existing `engine.job_resolutions --kind cancelled` commands for the orchestrator to retire stale retries, retaining every failed row; no producer or read-model change is needed.
+- **Evidence:** `PYTHONPATH=. .venv/bin/python "$WF_AUDIT_OUT/audit.py"` on the published snapshot and a jobs-only rehearsal: actionable 16 -> 0, historical 4 -> 20, failed=20 unchanged; all 1,005 job rows unchanged. The rehearsal database is removed.
+- **Metrics:** server/tools/product unchanged.
+- **Next:** orchestrator reviews and records the sixteen cancellation dispositions under the normal single-writer window; this lane makes no live-store write.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
