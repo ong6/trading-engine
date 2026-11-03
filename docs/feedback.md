@@ -850,3 +850,19 @@ approved for P16 W4, which no longer has to stop after building the corpus. → 
 and any other revision the batch needs. No gate is relaxed: revision 21 still waits until after
 2026-11-03 06:30 UTC, stays outside 22:15-23:59 UTC and follows its checklist, and the limits on
 producers, calendar-bound records, trials and the live store still hold.
+
+## 2026-11-03 — Hold revision 21 while trial 375 reads schema-1 snapshots
+
+**Verdict.** Decided by the owner's delegate Claude session under the owner's 2026-11-03 delegation,
+quoted: "for the ochestrator you can do ayinth no need to ask me". The delegate decided: hold revision
+21 and the stacked follow-up revision. An earlier "Hold r21" answer in the orchestrator's question
+dialog was a watcher keystroke, not the owner's answer, and is not recorded as one.
+
+**Rule change.** Revision 21 is not deployed, although its time gate has passed. It publishes
+manifest-schema-2 generations, while the private trial 375 runner's frozen code accepts only schema-1
+snapshot manifests, so a deploy would make its weekly signal refuse. The revision-21 checklist's
+pre-flight 6 forbids a deploy until every schema-1 consumer supports generations. Amending the live
+trial's frozen code is forbidden once results exist, and a full schema-1 copy beside the generations
+would breach the 70 GiB reserve. `r21/integrate` stays merged with main and green (`7da3d72a`); the
+stacked fixes (`fix/p15-lock`, `fix/tv-verify-pinned`) wait with it. Owner-level questions from
+orchestrator sessions go to the delegate session as plain text, not through a question dialog.
