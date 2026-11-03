@@ -4878,5 +4878,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `PYTHONPATH=. .venv/bin/python "$WF_AUDIT_OUT/audit.py"` on the published snapshot and a jobs-only rehearsal: actionable 16 -> 0, historical 4 -> 20, failed=20 unchanged; all 1,005 job rows unchanged. The rehearsal database is removed.
 - **Metrics:** server/tools/product unchanged.
 - **Next:** orchestrator reviews and records the sixteen cancellation dispositions under the normal single-writer window; this lane makes no live-store write.
+## 2026-11-03 — Trace pending fills to price-basis holds and provisional opens
+
+- **Why:** stale-exposure lane; retained Yahoo bars checked against Nasdaq reproduce INTC and IOVA batches rejected despite unchanged historical prices: `admitted=0/5`, `basis_unverified` for both.
+- **What:** identified the consecutive-close split-factor test as the hold: INTC fell 28.5761% on October 30; IOVA fell 35.4490% on October 29. Both match the existing band around 2/3, with no captured split action.
+  ARX, BWET, IBTA, OGN and THG have November 2 bars stored with provisional open faults; Yahoo now supplies settled geometry. LXP and RAMP left the directory on November 2 and have no later provider bars; the existing five-session delisting rule first qualifies on November 6 if silence continues.
+  No source or store changed. The defective admission rule is in pinned `engine/lib/db.py`, outside this lane's allowed paths; correction needs an orchestrator scope and release-rule ruling.
+- **Evidence:** `PYTHONPATH=. .venv/bin/python -m pytest -q -s -W error -n 0 <session-output>/test_basis_hold_reproduction.py` → `2 failed in 0.77s`, each `assert 0 == 5`; all source bars pass scalar admission and the independent price comparison.
+- **Metrics:** server/tools/product unchanged.
+- **Next:** orchestrator admits the price-basis correction and its evidence-based release rule.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
