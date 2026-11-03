@@ -5434,4 +5434,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged.
 - **Next:** orchestrator acceptance; evaluation disclosure and late-intent review are deferred.
 
+## 2026-11-03 — Release price moves backed by unchanged history and completed actions
+
+- **Why:** basis-release ruling; `.venv/bin/python -m pytest -q -W error -n 0 tests/test_basis_release.py` reproduces INTC and IOVA at `assert 0 == 22` and `assert 0 == 23`, despite twenty unchanged prior closes and completed action fetches.
+- **What:** release only consecutive-close holds with twenty unchanged stored sessions in incoming history, no nearby captured corporate action and an action fetch completed successfully on or after the break. Keep existing revision tolerance, split-factor bands, scalar admission and split-revision holds.
+  A split neither restated nor reported by its provider can pass this rule; `split_recorded_vs_restated` and `repair_integrity` remain the backstop. The source is stacked on the held revision 21 and is not deployed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_basis_release.py tests/test_price_admission.py` exits 0 at `[100%]`; recorded-history replay releases 68/163 candidate holds and 0/6 backfill holds, using the published action snapshot.
+- **Metrics:** product/engine +25 LOC; server/tools unchanged; tests +156 LOC against the branch base.
+- **Next:** orchestrator acceptance and revision-21 deployment.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
