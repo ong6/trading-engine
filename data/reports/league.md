@@ -12,15 +12,13 @@
 | 8 | Macro Composite (all-signals) | 2026-08-03 | $38,302 | −1.79% | −1.30% | −2.27% | 1 | 2 | −1.40% |
 | 9 | Dual Momentum (GEM) | 2026-07-17 | $37,705 | −3.32% | −4.76% | −6.25% | 1 | 6 | −0.97% |
 | 10 | Equal-Weight Benchmark | 2026-07-17 | $34,991 | −10.28% | −11.72% | −19.00% | 51 | 269 | −4.26% |
-| 11 | p15_ai_ranked | 2026-09-26 | $8,846 ‡ | −11.54% | −9.04% | −12.56% | 6 | 96 | −3.40% |
-| 12 | p15_hybrid_veto | 2026-09-26 | $8,715 ‡ | −12.85% | −10.35% | −14.18% | 9 | 57 | −2.12% |
-| 13 | p15_rule_control | 2026-09-26 | $8,713 ‡ | −12.87% | −10.37% | −14.31% | 8 | 55 | −1.47% |
-| 14 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $33,262 | −14.71% | −12.96% | −17.37% | 51 | 204 | −4.33% |
+| 11 | p15_ai_ranked | 2026-09-26 | $8,638 | −13.62% | −11.12% | −14.61% | 8 | 98 | −5.57% |
+| 12 | p15_hybrid_veto | 2026-09-26 | $8,530 | −14.70% | −12.20% | −16.00% | 9 | 57 | −4.57% |
+| 13 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $33,262 | −14.71% | −12.96% | −17.37% | 51 | 204 | −4.33% |
+| 14 | p15_rule_control | 2026-09-26 | $8,518 | −14.82% | −12.33% | −16.23% | 9 | 57 | −4.23% |
 | 15 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $32,600 | −16.41% | −14.95% | −17.31% | 50 | 110 | −3.35% |
 
 _Regime: **risk-on** · each return uses its book's persisted starting capital · as of 2026-11-02._
-
-_‡ marked through 2026-10-30: p15_ai_ranked, p15_hybrid_veto, p15_rule_control. A P15 book is marked by its own window after that session's P15 fills, never provisionally by the league._
 
 ## Commission break
 
@@ -36,10 +34,10 @@ _‡ marked through 2026-10-30: p15_ai_ranked, p15_hybrid_veto, p15_rule_control
 | Macro Composite (all-signals) | −1.26% | $0.39 |
 | Dual Momentum (GEM) | −0.69% | $3.10 |
 | Equal-Weight Benchmark | −1.29% | $33.21 |
-| p15_ai_ranked | −4.46% | $16.30 |
-| p15_hybrid_veto | −3.10% | $7.99 |
-| p15_rule_control | −2.02% | $6.80 |
+| p15_ai_ranked | −6.70% | $17.03 |
+| p15_hybrid_veto | −5.16% | $7.99 |
 | EW Screen — Inverse-Vol Weighted | −1.29% | $33.10 |
+| p15_rule_control | −4.22% | $7.58 |
 | XS Momentum 12-1 (unscreened control) | +0.42% | $24.23 |
 
 _† commissions from the recorded cost-profile break (2026-10-19); evaluation clocks restart at each break._
@@ -56,8 +54,8 @@ These names have not TRADED since the date shown, so they are valued at a close 
 | ew_voltarget | IOVA | 34.0379 | 2026-10-30 | 1 | $288.64 | 0.87% |
 | high_52wk | LXP | 21.8063 | 2026-10-30 | 1 | $1,334.11 | 3.40% |
 | momo_stopped | IOVA | 274.5308 | 2026-10-30 | 1 | $2,328.02 | 6.04% |
-| p15_ai_ranked | IOVA | 41.1981 | 2026-10-30 | 1 | $349.36 | 3.95% |
-| p15_hybrid_veto | IOVA | 43.1404 | 2026-10-30 | 1 | $365.83 | 4.20% |
-| p15_rule_control | IOVA | 42.6614 | 2026-10-30 | 1 | $361.77 | 4.15% |
+| p15_ai_ranked | IOVA | 41.1981 | 2026-10-30 | 1 | $349.36 | 4.04% |
+| p15_hybrid_veto | IOVA | 43.1404 | 2026-10-30 | 1 | $365.83 | 4.29% |
+| p15_rule_control | IOVA | 42.6614 | 2026-10-30 | 1 | $361.77 | 4.25% |
 | template_top5 | IOVA | 555.4829 | 2026-10-30 | 1 | $4,710.49 | 12.15% |
 | xs_momentum_12_1 | IOVA | 52.6316 | 2026-10-30 | 1 | $446.32 | 1.37% |
