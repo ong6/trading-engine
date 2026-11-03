@@ -24,7 +24,7 @@
     "strategy": "xs_momentum_12_1"
   },
   "checks": {
-    "candidate_profitable": false,
+    "candidate_profitable": true,
     "cumulative_excess_positive": true,
     "drawdown_kill_triggered": false,
     "execution_clean": false,
@@ -58,10 +58,10 @@
   },
   "execution": {
     "ew_benchmark": {
-      "filled": 149,
-      "pending": 4,
+      "filled": 151,
+      "pending": 2,
       "rejected": 0,
-      "stale_pending": 4
+      "stale_pending": 2
     },
     "xs_momentum_12_1": {
       "filled": 110,
@@ -919,33 +919,33 @@
     "superseded_runtime_contract_sha256": "c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70"
   },
   "metrics": {
-    "cumulative_excess": 0.004801881073207781,
+    "cumulative_excess": 0.03423690588581274,
     "ew_benchmark": {
-      "end_equity": 34990.62890905057,
+      "end_equity": 35090.236301311714,
       "max_drawdown": -0.10750702236026977,
       "start_equity": 36175.08916501901,
-      "total_return": -0.032742428099218235
+      "total_return": -0.0299889478850639
     },
     "mean_monthly_excess": 0.030288383483760728,
     "mean_monthly_excess_ci": null,
     "xs_momentum_12_1": {
-      "end_equity": 32599.719532101928,
+      "end_equity": 33679.21753278449,
       "max_drawdown": -0.09894515322779429,
       "start_equity": 33536.75480688344,
-      "total_return": -0.027940547026010454
+      "total_return": 0.0042479580007488416
     }
   },
   "observation": {
-    "as_of": "2026-11-02",
+    "as_of": "2026-11-03",
     "cost_break_session": "2026-10-19",
     "eligible_after": "2031-10-19",
-    "equity_sha256": "adcf8d5c432d3e904860b55d2a88e407c565f679a87baa096714a8f6ef7e55b1",
+    "equity_sha256": "a9a76b73a2fb696fd834b052c329d8dd16349be0f97374d6034fc2b5a855d82d",
     "evaluation_clock_start": "2026-10-19",
     "mature": false,
     "observation_start": "2026-10-01",
     "paired_complete_months": 1,
     "pre_break_shared_sessions": 12,
-    "shared_sessions": 11,
+    "shared_sessions": 12,
     "signal_date": "2026-09-30"
   },
   "paper_only": true,
