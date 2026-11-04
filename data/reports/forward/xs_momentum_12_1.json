@@ -24,7 +24,7 @@
     "strategy": "xs_momentum_12_1"
   },
   "checks": {
-    "candidate_profitable": true,
+    "candidate_profitable": false,
     "cumulative_excess_positive": true,
     "drawdown_kill_triggered": false,
     "execution_clean": false,
@@ -59,15 +59,15 @@
   "execution": {
     "ew_benchmark": {
       "filled": 151,
-      "pending": 2,
-      "rejected": 0,
-      "stale_pending": 2
+      "pending": 0,
+      "rejected": 2,
+      "stale_pending": 0
     },
     "xs_momentum_12_1": {
       "filled": 110,
-      "pending": 1,
-      "rejected": 0,
-      "stale_pending": 1
+      "pending": 0,
+      "rejected": 1,
+      "stale_pending": 0
     }
   },
   "frozen_runtime": {
@@ -919,33 +919,33 @@
     "superseded_runtime_contract_sha256": "c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70"
   },
   "metrics": {
-    "cumulative_excess": 0.03423690588581274,
+    "cumulative_excess": 0.011127644351851429,
     "ew_benchmark": {
-      "end_equity": 35090.236301311714,
+      "end_equity": 35256.226031329374,
       "max_drawdown": -0.10750702236026977,
       "start_equity": 36175.08916501901,
-      "total_return": -0.0299889478850639
+      "total_return": -0.02540043866922015
     },
     "mean_monthly_excess": 0.030288383483760728,
     "mean_monthly_excess_ci": null,
     "xs_momentum_12_1": {
-      "end_equity": 33679.21753278449,
+      "end_equity": 33058.09160345276,
       "max_drawdown": -0.09894515322779429,
       "start_equity": 33536.75480688344,
-      "total_return": 0.0042479580007488416
+      "total_return": -0.01427279431736872
     }
   },
   "observation": {
-    "as_of": "2026-11-03",
+    "as_of": "2026-11-04",
     "cost_break_session": "2026-10-19",
     "eligible_after": "2031-10-19",
-    "equity_sha256": "a9a76b73a2fb696fd834b052c329d8dd16349be0f97374d6034fc2b5a855d82d",
+    "equity_sha256": "846348842350d8b805c76b40017aaeee7a97a1b449cad8aab096e6f63bb8c912",
     "evaluation_clock_start": "2026-10-19",
     "mature": false,
     "observation_start": "2026-10-01",
     "paired_complete_months": 1,
     "pre_break_shared_sessions": 12,
-    "shared_sessions": 12,
+    "shared_sessions": 13,
     "signal_date": "2026-09-30"
   },
   "paper_only": true,
