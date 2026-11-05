@@ -47,8 +47,8 @@
     "store_gb": 52.12
   },
   "price_verify": {
-    "last_run": "2026-11-03T22:45:59.392553+00:00",
-    "as_of": "2026-11-03",
+    "last_run": "2026-11-04T22:46:03.597188+00:00",
+    "as_of": "2026-11-04",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -61,13 +61,14 @@
       "low",
       "close"
     ],
-    "names_selected": 177,
+    "names_selected": 179,
     "names_checked": 176,
     "names_agreeing": 176,
     "names_disagreeing": 0,
-    "names_not_checked": 1,
+    "names_not_checked": 3,
     "not_checked_reasons": {
-      "symbol_not_found": 1
+      "symbol_not_found": 2,
+      "fetch_failed": 1
     },
     "not_checked_names": [
       {
@@ -75,6 +76,18 @@
         "why": "held",
         "reason": "symbol_not_found",
         "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "USAC",
+        "why": "sample",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "BH.A",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "source symbol identity differs: None"
       }
     ],
     "bars_compared": 706,
@@ -106,14 +119,14 @@
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
     "volume_bars_compared": 706,
     "newest_session": {
-      "session": "2026-11-03",
+      "session": "2026-11-04",
       "status": "not_checked",
       "reason": "source_lag",
       "names_with_store_bar": 174,
       "names_compared": 0,
-      "source_latest_session": "2026-11-02"
+      "source_latest_session": "2026-11-03"
     },
-    "provisional_note": "on 2026-11-03 (newest stored session) the source had a bar for 0 of 174 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
+    "provisional_note": "on 2026-11-04 (newest stored session) the source had a bar for 0 of 174 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
     "provisional_ohl_median_bp": null,
     "provisional_ohl_max_bp": null,
     "provisional_ohl_over_tolerance": 0,
@@ -121,25 +134,27 @@
     "store_missing_sessions": {
       "INTC": [
         "2026-10-30",
-        "2026-11-02"
+        "2026-11-02",
+        "2026-11-03"
       ],
       "IOVA": [
         "2026-10-29",
-        "2026-11-02"
+        "2026-11-02",
+        "2026-11-03"
       ]
     },
     "n_names_store_missing_sessions": 2,
-    "secs": 110.3,
+    "secs": 109.8,
     "evidence_receipt": {
-      "sha256": "00fb2a76afbe05d334e73be2340385b3fcbfd800b81eb3117575691f0098a756",
-      "path": "price-verify/00fb2a76afbe05d334e73be2340385b3fcbfd800b81eb3117575691f0098a756.json",
-      "bytes": 683313
+      "sha256": "68271752174b384f5bc1c0eb20beadf9b7ea1a09f6f520ca7310ddbe14f8a8a7",
+      "path": "price-verify/68271752174b384f5bc1c0eb20beadf9b7ea1a09f6f520ca7310ddbe14f8a8a7.json",
+      "bytes": 686615
     },
     "name_results_report": {
       "path": "reports/producer-detail/price-verify.json",
-      "names": 177,
-      "bytes": 60254,
-      "sha256": "57e87f6448f45ac07d9b62db73cfe5314ca2248ca001a202d5f233fcdd411949"
+      "names": 179,
+      "bytes": 60570,
+      "sha256": "e5d5bafbb040c976c2cb55b8c0d40c52553cc832c6bb0eb2c54fad9a6e783072"
     }
   },
   "intraday": {
@@ -167,35 +182,35 @@
     "sources": {
       "squeezemetrics": {
         "status": "ok",
-        "rows_fetched": 7800,
+        "rows_fetched": 7802,
         "rows_inserted": 2,
         "series": [
           "dix",
           "gex"
         ],
-        "secs": 3.5
+        "secs": 4.0
       },
       "vix": {
         "status": "ok",
-        "rows_fetched": 13614,
+        "rows_fetched": 13616,
         "rows_inserted": 2,
         "series": [
           "vix",
           "vix3m"
         ],
-        "secs": 0.7
+        "secs": 0.8
       },
       "fred": {
         "status": "ok",
         "rows_fetched": 99,
-        "rows_inserted": 2,
+        "rows_inserted": 3,
         "series": [
           "hy_oas",
           "icsa",
           "nfci",
           "t10y2y"
         ],
-        "secs": 1.9
+        "secs": 2.3
       },
       "putcall": {
         "status": "ok",
@@ -205,7 +220,7 @@
           "pc_equity",
           "pc_total"
         ],
-        "secs": 7.9
+        "secs": 7.6
       },
       "aaii": {
         "status": "ok",
@@ -215,7 +230,7 @@
           "aaii_bear",
           "aaii_bull"
         ],
-        "secs": 1.5
+        "secs": 7.7
       },
       "finra_margin": {
         "status": "ok",
@@ -225,7 +240,7 @@
           "free_credit",
           "margin_debt"
         ],
-        "secs": 1.1
+        "secs": 1.2
       },
       "short_interest": {
         "status": "ok",
@@ -234,7 +249,7 @@
         "series": [
           "short_interest_dtc"
         ],
-        "secs": 11.0
+        "secs": 10.7
       },
       "cot": {
         "status": "ok",
@@ -243,7 +258,7 @@
         "series": [
           "cot_es_lev_net"
         ],
-        "secs": 1.0
+        "secs": 1.2
       },
       "breadth": {
         "status": "ok",
@@ -254,34 +269,34 @@
           "breadth_pct_200",
           "zweig_ratio"
         ],
-        "secs": 0.7
+        "secs": 0.6
       }
     },
-    "rows_inserted": 11,
+    "rows_inserted": 12,
     "warnings": [],
     "series_totals": {
       "aaii_bear": 2048,
       "aaii_bull": 2048,
-      "breadth_nh_nl": 3730,
-      "breadth_pct_200": 3730,
+      "breadth_nh_nl": 3731,
+      "breadth_pct_200": 3731,
       "cot_es_lev_net": 1064,
-      "dix": 3900,
+      "dix": 3901,
       "free_credit": 200,
-      "gex": 3900,
-      "hy_oas": 854,
+      "gex": 3901,
+      "hy_oas": 855,
       "icsa": 3121,
       "margin_debt": 357,
-      "nfci": 2912,
-      "pc_equity": 4216,
-      "pc_total": 4216,
+      "nfci": 2913,
+      "pc_equity": 4217,
+      "pc_total": 4217,
       "short_interest_dtc": 77,
-      "t10y2y": 12603,
-      "vix": 9307,
-      "vix3m": 4307,
-      "zweig_ratio": 3730
+      "t10y2y": 12604,
+      "vix": 9308,
+      "vix3m": 4308,
+      "zweig_ratio": 3731
     },
-    "last_run": "2026-11-03T22:44:42.812822+00:00",
-    "store_gb": 51.38
+    "last_run": "2026-11-04T22:44:54.266834+00:00",
+    "store_gb": 52.12
   },
   "earnings": {
     "last_run": "2026-10-30T23:52:42.038688+00:00",
