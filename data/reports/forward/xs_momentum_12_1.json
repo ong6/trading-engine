@@ -25,7 +25,7 @@
   },
   "checks": {
     "candidate_profitable": false,
-    "cumulative_excess_positive": false,
+    "cumulative_excess_positive": true,
     "drawdown_kill_triggered": false,
     "execution_clean": false,
     "mean_excess_ci_above_zero": false
@@ -919,33 +919,33 @@
     "superseded_runtime_contract_sha256": "c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70"
   },
   "metrics": {
-    "cumulative_excess": -0.0005663190361770987,
+    "cumulative_excess": 0.02080383196380675,
     "ew_benchmark": {
-      "end_equity": 33503.49237931015,
+      "end_equity": 34370.7835746479,
       "max_drawdown": -0.14684709418637398,
       "start_equity": 36175.08916501901,
-      "total_return": -0.07385183692352226
+      "total_return": -0.04987701846816328
     },
     "mean_monthly_excess": 0.030288383483760728,
     "mean_monthly_excess_ci": null,
     "xs_momentum_12_1": {
-      "end_equity": 31041.011357282587,
+      "end_equity": 32561.73447963204,
       "max_drawdown": -0.18139635033890267,
       "start_equity": 33536.75480688344,
-      "total_return": -0.07441815595969936
+      "total_return": -0.02907318650435653
     }
   },
   "observation": {
-    "as_of": "2026-11-06",
+    "as_of": "2026-11-09",
     "cost_break_session": "2026-10-19",
     "eligible_after": "2031-10-19",
-    "equity_sha256": "4abaa75904e0c31acfbcb152cb56b687b2fdd7f6f00edc3708a171798a14dcfc",
+    "equity_sha256": "46190acad01c3ddcffab09f13c3e26ff976e04dde0ea33795b3a5bb8d431ded3",
     "evaluation_clock_start": "2026-10-19",
     "mature": false,
     "observation_start": "2026-10-01",
     "paired_complete_months": 1,
     "pre_break_shared_sessions": 12,
-    "shared_sessions": 15,
+    "shared_sessions": 16,
     "signal_date": "2026-09-30"
   },
   "paper_only": true,
