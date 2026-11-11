@@ -130,6 +130,70 @@ def test_publish_is_atomic_retains_latest_plus_one_and_records_manifest(tmp_path
     con.close()
 
 
+def test_generation_also_satisfies_same_directory_schema_one_price_reader(tmp_path):
+    root, source = _repo(tmp_path, cold=True)
+    publish_snapshot.publish_snapshot(root, source, now=NOW)
+    directory = (source.parent / "snapshots").resolve()
+    opened = (directory / "market-latest.duckdb").resolve(strict=True)
+    manifest = json.loads(opened.with_suffix(".json").read_text())
+
+    assert opened.parent == directory
+    assert manifest["snapshot"] == opened.name
+    assert manifest.get("schema_version") == 1
+    assert len(manifest.get("sha256", "")) == 64
+    assert datetime(2026, 10, 1, 20, tzinfo=timezone.utc) <= datetime.fromisoformat(
+        manifest["as_of"],
+    ) <= datetime.now(timezone.utc)
+    assert snapshots._hash_file(opened) == manifest["sha256"]
+    assert manifest["sha256"] == manifest["hot_database"]["sha256"]
+    with duckdb.connect(str(opened), read_only=True) as con:
+        assert con.execute("SELECT ticker,date FROM prices ORDER BY date DESC LIMIT 1").fetchone() == (
+            "SPY", datetime(2026, 10, 1).date(),
+        )
+    with snapshots.pin_latest_generation(source) as info:
+        assert info.manifest_schema_version == 2
+        assert info.path == opened
+        assert info.parts
+
+
+@pytest.mark.parametrize("patch", [
+    {"schema_version": 2}, {"schema_version": True}, {"sha256": "a" * 64},
+    {"sha256": None}, {"unexpected": 1},
+])
+def test_generation_refuses_inconsistent_compatibility_fields(tmp_path, patch):
+    root, source = _repo(tmp_path)
+    manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    path = source.parent / "snapshots" / Path(manifest["snapshot"]).with_suffix(".json")
+    body = dict(manifest)
+    body.pop("manifest_sha256")
+    body.update(patch)
+    body["manifest_sha256"] = backup_database.canonical_sha256(body)
+    path.write_text(json.dumps(body))
+
+    with pytest.raises(snapshots.GenerationError, match="no valid published generation"):
+        snapshots.pin_latest_generation(source)
+
+
+@pytest.mark.parametrize("remove", [("schema_version",), ("sha256",), ("schema_version", "sha256")])
+def test_generation_compatibility_pair_is_complete_or_absent_for_older_manifests(tmp_path, remove):
+    root, source = _repo(tmp_path)
+    manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    path = source.parent / "snapshots" / Path(manifest["snapshot"]).with_suffix(".json")
+    body = dict(manifest)
+    body.pop("manifest_sha256")
+    for field in remove:
+        body.pop(field)
+    body["manifest_sha256"] = backup_database.canonical_sha256(body)
+    path.write_text(json.dumps(body))
+
+    if len(remove) == 2:
+        with snapshots.pin_latest_generation(source) as info:
+            assert info.manifest_schema_version == 2
+    else:
+        with pytest.raises(snapshots.GenerationError, match="no valid published generation"):
+            snapshots.pin_latest_generation(source)
+
+
 @pytest.mark.parametrize("wal", [False, True])
 def test_publish_never_uses_a_logical_whole_database_copy(tmp_path, monkeypatch, wal):
     root, source = _repo(tmp_path)

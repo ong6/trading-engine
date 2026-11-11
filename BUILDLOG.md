@@ -5453,4 +5453,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged.
 - **Next:** orchestrator admits the price-basis correction and its evidence-based release rule.
 
+## 2026-11-11 — Keep schema-1 price readers on the generation hot file
+
+- **Why:** the admitted revision-21 unblock; the new same-directory schema-1 reader test fails with `AssertionError: assert None == 1` because publication omits `schema_version`.
+- **What:** publish schema-1 compatibility fields in the authenticated schema-2 manifest, pointing at the existing hot file; accept only a complete, matching compatibility pair.
+  Keep generation byte verification, cold tables, lifetime pins and older schema-2 manifests working without another store copy.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_publish_snapshot.py -k 'schema_one or compatibility'` → nine tests passed; the opened file's hash matches both manifest identities.
+- **Metrics:** server unchanged; tools +3; product +9.
+- **Next:** merge the three admitted stacked fixes, then one integrated re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

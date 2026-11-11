@@ -1209,8 +1209,11 @@ def _publish_locked(
             capture, temporary, snapshot["row_counts"], set(cold_specs),
         )
         cohort = _install_cohort(directory, captured_cohort)
+        hot_sha256 = _sha256(temporary)
         body = {
             "manifest_schema_version": 2,
+            "schema_version": 1,
+            "sha256": hot_sha256,
             "duckdb_version": duckdb.__version__,
             "generation_id": destination.stem,
             "snapshot": destination.name,
@@ -1222,7 +1225,7 @@ def _publish_locked(
             "hot_database": {
                 "path": destination.name,
                 "size_bytes": temporary.stat().st_size,
-                "sha256": _sha256(temporary),
+                "sha256": hot_sha256,
             },
             "row_counts": snapshot["row_counts"],
             "source_snapshot": snapshot,

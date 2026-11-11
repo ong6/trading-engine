@@ -568,7 +568,7 @@ def _generation_info(
         "cohort", "metrics",
     }
     if (
-        set(body) - {"duckdb_version"} != expected_fields
+        set(body) - {"duckdb_version", "schema_version", "sha256"} != expected_fields
         or body.get("manifest_schema_version") != 2
         or not isinstance(body.get("duckdb_version", ""), str)
     ):
@@ -577,6 +577,15 @@ def _generation_info(
     if not isinstance(generation_id, str) or generation_id != snapshot.stem:
         return None
     hot = _recorded_file(directory, body.get("hot_database"), expected_path=Path(snapshot.name))
+    compatibility = set(body) & {"schema_version", "sha256"}
+    if compatibility and (
+        compatibility != {"schema_version", "sha256"}
+        or type(body["schema_version"]) is not int
+        or body["schema_version"] != 1
+        or hot is None
+        or body["sha256"] != hot[2]
+    ):
+        return None
     as_of = _utc_timestamp(body.get("as_of"))
     schema_id = body.get("database_schema_id")
     catalog_hash = body.get("catalog_sha256")
