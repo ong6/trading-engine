@@ -11,6 +11,7 @@ on three attempts each at least a day apart; transport failures never are.
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -46,6 +47,13 @@ ATTEMPT_STATUSES = ("complete", "empty", "failed", "refused")
 DEFAULT_START = date(2022, 1, 1)
 LIMITATION = ("current-liquid-universe snapshot; survivor-biased and retrieval-time-only; "
               "not historical membership or promotion-quality stock-selection evidence")
+# Same-span real requests proved these routes against 377-379 stored closes each.
+# The frozen cohort keeps its original symbol; every corrected response is checked again.
+CORRECTED_PROVIDER_SYMBOLS = {
+    "NYSE:ET": "AMEX:ET", "NASDAQ:CECO": "AMEX:CECO", "NYSE:DDS": "AMEX:DDS",
+    "NYSE:LUMN": "NASDAQ:LUMN", "NYSE:OBK": "AMEX:OBK", "NYSE:SUN": "AMEX:SUN",
+    "NASDAQ:TCBI": "AMEX:TCBI", "NYSE:USAC": "AMEX:USAC", "NASDAQ:IBOC": "AMEX:IBOC",
+}
 
 
 class ArchiveError(ValueError):
@@ -190,8 +198,9 @@ def _due_chunk(
         "SELECT COUNT(*) FILTER (WHERE status='failed'),MAX(started_at),"
         "COUNT(*) FILTER (WHERE status='refused') FROM tradingview_history_attempts "
         "WHERE cohort_id=? AND ticker=? AND start_date=? AND end_date=? "
+        "AND provider_symbol=? "
         "AND status IN ('failed','refused')",
-        [cohort_id, chunk["ticker"], chunk["start"], chunk["end"]],
+        [cohort_id, chunk["ticker"], chunk["start"], chunk["end"], chunk["provider_symbol"]],
     ).fetchone()
     if refused:
         return None
@@ -228,6 +237,7 @@ def _pending_chunks(
     rows.sort(key=lambda row: (row[3], row[0]))
     pending = []
     for _ordinal, ticker, provider_symbol, completed_through, completed_attempts in rows:
+        provider_symbol = CORRECTED_PROVIDER_SYMBOLS.get(provider_symbol, provider_symbol)
         if isinstance(completed_through, datetime):
             completed_through = completed_through.date()
         start = completed_through + timedelta(days=1)
@@ -262,8 +272,10 @@ def _terminal_refusal(
         return False
     prior = [row[0] for row in con.execute(
         "SELECT started_at FROM tradingview_history_attempts WHERE cohort_id=? AND ticker=? "
-        "AND start_date=? AND end_date=? AND status='failed' AND starts_with(error,?)",
-        [cohort_id, chunk["ticker"], chunk["start"], chunk["end"], PROVIDER_REFUSAL],
+        "AND start_date=? AND end_date=? AND provider_symbol=? "
+        "AND status='failed' AND starts_with(error,?)",
+        [cohort_id, chunk["ticker"], chunk["start"], chunk["end"],
+         chunk["provider_symbol"], PROVIDER_REFUSAL],
     ).fetchall()]
     days: list[datetime] = []
     for attempted in sorted([*prior, _utc_naive(started_at)]):
@@ -397,6 +409,65 @@ def archive_status(con: duckdb.DuckDBPyConnection, cohort_id: str) -> dict:
             "execution_authority": "none", "operational_price_mutation": False}
 
 
+def _close_proof(observations: list[dict], stored: dict[date, float]) -> str | None:
+    """Require overlapping valid closes under the verifier's unchanged two bands."""
+    from engine.verify_prices import TOLERANCE_ABS_USD, TOLERANCE_BP, _diff_bp
+
+    source = {item["event_at"].date(): item["payload"]["close"] for item in observations}
+    overlap = source.keys() & stored.keys()
+    if not overlap:
+        return "corrected TradingView symbol has no overlapping stored closes"
+    for day in sorted(overlap):
+        a, b = stored[day], source[day]
+        if any(isinstance(value, bool) or not isinstance(value, (int, float))
+               or not math.isfinite(value) or value <= 0 for value in (a, b)):
+            return f"corrected TradingView symbol has invalid close on {day}"
+        if _diff_bp(a, b) > TOLERANCE_BP and abs(a - b) >= TOLERANCE_ABS_USD:
+            return f"corrected TradingView symbol disagrees with stored close on {day}"
+    return None
+
+
+def _capture_corrected_history(
+    provider_symbol: str, start: date, end: date, *, database: Path,
+    stored: dict[date, float], fetch=None,
+) -> dict:
+    """Retain the exact standard receipt, and retain bars only after close proof."""
+    from server import market_data_sources, tradingview_source
+
+    bars = min(tradingview_source.MAX_HISTORY_BARS, max(10, (end - start).days + 10))
+    reference = int(datetime.combine(end + timedelta(days=1), datetime.min.time(),
+                                     timezone.utc).timestamp())
+    transcript = (fetch or tradingview_source._fetch)(
+        provider_symbol, mode="history", bars=bars, reference=reference)
+    request = {"provider_symbol": provider_symbol, "mode": "history",
+               "start": start.isoformat(), "end": end.isoformat(), "bars": bars,
+               "reference": reference, "timeframe": "1D", "adjustment": "splits",
+               "protocol_version": tradingview_source.SOURCE_VERSION}
+    response = market_data_sources.SourceResponse(
+        transcript.body, "application/json", 200, transcript.requested_at, transcript.received_at)
+    con = db.connect(database)
+    try:
+        receipt = market_data_sources.retain_response(
+            con, source_id=market_data_sources.TRADINGVIEW, dataset="historical_daily_bars",
+            endpoint=tradingview_source.ENDPOINT, request=request, response=response)
+        try:
+            observations = tradingview_source.parse_history(provider_symbol, start, end, transcript)
+        except tradingview_source.TradingViewSourceError as exc:
+            if str(exc) != "TradingView history range has no bars":
+                raise
+            observations = []
+        error = _close_proof(observations, stored)
+        facts = [] if error else market_data_sources.retain_observations(
+            con, source_id=market_data_sources.TRADINGVIEW,
+            receipt_sha256=receipt["receipt_sha256"], receipt_dataset="historical_daily_bars",
+            received_at=transcript.received_at, observations=observations,
+            fact_type="market.ohlcv.1d.retrieved", source_version=tradingview_source.SOURCE_VERSION)
+    finally:
+        con.close()
+    return {"status": "refused" if error else "complete", "fact_count": len(facts),
+            "receipt_sha256": receipt["receipt_sha256"], "error": error}
+
+
 def run_connection_narrowed(
     params: dict | None, db_path: str | Path | None = None, meta_path: str | Path | None = None,
     *, capture: Callable | None = None, clock: Callable[[], datetime] | None = None,
@@ -438,6 +509,12 @@ def run_connection_narrowed(
             if through is None:
                 raise ArchiveError("archive has no breadth-qualified through date")
         chunks = _pending_chunks(con, cohort_id, through, limit, max_attempts, now())
+        proof_closes = {
+            chunk["ticker"]: dict(con.execute(
+                "SELECT date,close FROM prices WHERE ticker=? AND date BETWEEN ? AND ?",
+                [chunk["ticker"], chunk["start"], chunk["end"]]).fetchall())
+            for chunk in chunks if chunk["provider_symbol"] in CORRECTED_PROVIDER_SYMBOLS.values()
+        }
     finally:
         con.close()
     if capture is None:
@@ -450,10 +527,17 @@ def run_connection_narrowed(
             time.sleep(pause)
         begun = now()
         try:
-            result = capture(chunk["provider_symbol"], chunk["start"], chunk["end"],
-                             database=path)
-            status = "empty" if result["fact_count"] == 0 else "complete"
-            fact_count, receipt, error = int(result["fact_count"]), result["receipt_sha256"], None
+            if chunk["ticker"] in proof_closes:
+                result = _capture_corrected_history(
+                    chunk["provider_symbol"], chunk["start"], chunk["end"],
+                    database=path, stored=proof_closes[chunk["ticker"]])
+            else:
+                result = capture(chunk["provider_symbol"], chunk["start"], chunk["end"],
+                                 database=path)
+            status = ("refused" if result.get("status") == "refused" else
+                      "empty" if result["fact_count"] == 0 else "complete")
+            fact_count, receipt, error = (int(result["fact_count"]), result["receipt_sha256"],
+                                          result.get("error"))
         except Exception as exc:  # noqa: BLE001 - one symbol cannot abort checkpointing others
             status, fact_count, receipt, error = "failed", 0, None, str(exc)[:500]
         status = _checkpoint(path, cohort_id, chunk, status, fact_count=fact_count,

@@ -349,3 +349,76 @@ def test_failed_tail_window_resolves_when_a_wider_window_completes(tmp_path):
     assert result["completed_this_run"] == 1 and result["checkpoint_end"] == "2022-02-07"
     assert result["attempts"]["failed"] == 1
     assert result["unresolved_failed_windows"] == 0
+
+
+def test_corrected_provider_retries_refused_window_without_editing_cohort(tmp_path, monkeypatch):
+    path, run = _failing_window(tmp_path, 'TradingView provider unavailable: symbol_error')
+    run(32)
+    run(56)
+    con = db.connect(path)
+    before = con.execute('SELECT * FROM tradingview_history_attempts ORDER BY id').fetchall()
+    monkeypatch.setattr(archive, 'CORRECTED_PROVIDER_SYMBOLS', {'NYSE:IBM': 'AMEX:IBM'}, raising=False)
+    chunks = archive._pending_chunks(con, 'retry-v1', date(2022, 1, 31), 1, 3, NOW + timedelta(hours=80))
+    assert len(chunks) == 1
+    assert chunks[0]['provider_symbol'] == 'AMEX:IBM'
+    archive._record_attempt(con, cohort_id='retry-v1', chunk=chunks[0], status='complete',
+                            fact_count=1, receipt_sha256='corrected', error=None,
+                            started_at=NOW + timedelta(hours=80), completed_at=NOW + timedelta(hours=80))
+    assert con.execute('SELECT * FROM tradingview_history_attempts ORDER BY id').fetchall()[:-1] == before
+    assert con.execute('SELECT provider_symbol FROM tradingview_history_symbols').fetchone() == ('NYSE:IBM',)
+    assert archive._pending_chunks(con, 'retry-v1', date(2022, 1, 31), 1, 3, NOW + timedelta(hours=104)) == []
+    con.close()
+
+
+@pytest.mark.parametrize('stored,accepted', [(100.0, True), (100.5, False), (None, False)])
+def test_corrected_response_proof_precedes_facts_and_keeps_standard_receipt(tmp_path, stored, accepted):
+    import json
+
+    from server import official_quote_source
+    from server import tradingview_source as tv
+
+    day = date(2022, 1, 3)
+    event = int(datetime(2022, 1, 3, 14, 30, tzinfo=timezone.utc).timestamp())
+    packets = [
+        {'m': 'symbol_resolved', 'p': ['cs_fixture', 'ser_1', {'source_id': 'BATS', 'exchange': 'AMEX'}]},
+        {'m': 'timescale_update', 'p': ['cs_fixture', {'$prices': {'s': [{'v': [event, 100, 101, 99, 100, 1000]}]}}]},
+        {'m': 'series_completed', 'p': ['cs_fixture', '$prices']},
+    ]
+    body = json.dumps({'received': [tv._packet(p['m'], p['p']) for p in packets]}).encode()
+    transcript = tv.Transcript(body, NOW, NOW)
+    path = tmp_path / 'market.duckdb'
+    _database(path)
+    con = db.connect(path)
+    archive.init_schema(con)
+    archive.ensure_cohort(con, cohort_id='proof-v1', start=day, selected_at=NOW, symbols=['IBM'])
+    con.close()
+    calls = []
+
+    def fetch(symbol, **kwargs):
+        # The network call has no DuckDB lease; a separate writer can open here.
+        writer = db.connect(path, wait_s=0)
+        writer.close()
+        calls.append((symbol, kwargs))
+        return transcript
+
+    result = archive._capture_corrected_history('AMEX:IBM', day, day, database=path,
+                                                stored={day: stored}, fetch=fetch)
+    con = db.connect(path, read_only=True)
+    receipt = con.execute('SELECT request_payload,response_body FROM source_response_receipts').fetchone()
+    count = con.execute('SELECT COUNT(*) FROM bitemporal_facts').fetchone()[0]
+    con.close()
+    assert calls == [('AMEX:IBM', {'mode': 'history', 'bars': 10, 'reference': event + 34200})]
+    assert receipt[1] == body
+    assert json.loads(receipt[0])['provider_symbol'] == 'AMEX:IBM'
+    assert result['status'] == ('complete' if accepted else 'refused')
+    assert count == int(accepted)
+    # The unchanged standard collector creates exactly the same receipt identity.
+    standard = official_quote_source.capture_tradingview_history('AMEX:IBM', day, day,
+                                                                database=path, fetch=fetch)
+    assert result['receipt_sha256'] == standard['receipt_sha256']
+
+
+def test_close_proof_keeps_existing_absolute_floor_and_requires_overlap():
+    observations = [{'event_at': datetime(2022, 1, 3, tzinfo=timezone.utc), 'payload': {'close': 0.9925}}]
+    assert archive._close_proof(observations, {date(2022, 1, 3): 0.99}) is None
+    assert archive._close_proof(observations, {}) == 'corrected TradingView symbol has no overlapping stored closes'
