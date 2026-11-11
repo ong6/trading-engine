@@ -58,16 +58,16 @@
   },
   "execution": {
     "ew_benchmark": {
-      "filled": 149,
-      "pending": 4,
-      "rejected": 0,
-      "stale_pending": 4
+      "filled": 151,
+      "pending": 0,
+      "rejected": 2,
+      "stale_pending": 0
     },
     "xs_momentum_12_1": {
       "filled": 110,
-      "pending": 1,
-      "rejected": 0,
-      "stale_pending": 1
+      "pending": 0,
+      "rejected": 1,
+      "stale_pending": 0
     }
   },
   "frozen_runtime": {
@@ -919,33 +919,33 @@
     "superseded_runtime_contract_sha256": "c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70"
   },
   "metrics": {
-    "cumulative_excess": 0.004801881073207781,
+    "cumulative_excess": 0.024386346561034,
     "ew_benchmark": {
-      "end_equity": 34990.62890905057,
-      "max_drawdown": -0.10750702236026977,
+      "end_equity": 33815.38832639904,
+      "max_drawdown": -0.14684709418637398,
       "start_equity": 36175.08916501901,
-      "total_return": -0.032742428099218235
+      "total_return": -0.06522999370798443
     },
     "mean_monthly_excess": 0.030288383483760728,
     "mean_monthly_excess_ci": null,
     "xs_momentum_12_1": {
-      "end_equity": 32599.719532101928,
-      "max_drawdown": -0.09894515322779429,
+      "end_equity": 32166.991427097295,
+      "max_drawdown": -0.18139635033890267,
       "start_equity": 33536.75480688344,
-      "total_return": -0.027940547026010454
+      "total_return": -0.040843647146950435
     }
   },
   "observation": {
-    "as_of": "2026-11-02",
+    "as_of": "2026-11-10",
     "cost_break_session": "2026-10-19",
     "eligible_after": "2031-10-19",
-    "equity_sha256": "adcf8d5c432d3e904860b55d2a88e407c565f679a87baa096714a8f6ef7e55b1",
+    "equity_sha256": "3fb756ed2a10fd9b4815303625261615118f31327f7a660188231ccd337d3402",
     "evaluation_clock_start": "2026-10-19",
     "mature": false,
     "observation_start": "2026-10-01",
     "paired_complete_months": 1,
     "pre_break_shared_sessions": 12,
-    "shared_sessions": 11,
+    "shared_sessions": 17,
     "signal_date": "2026-09-30"
   },
   "paper_only": true,

@@ -1,61 +1,52 @@
-# Paper League — 2026-11-02
+# Paper League — 2026-11-10
 
 | # | Portfolio | Inception | Equity | Total ret | vs SPY | Max DD | Open | Fills | Last 5d |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | Sector ETF Rotation | 2026-07-28 | $43,429 | +11.36% | +9.58% | −1.73% | 3 | 12 | −0.83% |
-| 2 | PEAD (earnings reaction) | 2026-07-28 | $39,962 | +2.47% | +0.70% | −3.02% | 10 | 50 | +1.68% |
-| 3 | SPY Buy & Hold | 2026-07-17 | $39,321 | +0.82% | −0.62% | −3.45% | 1 | 1 | −1.72% |
-| 4 | 52-Week-High Momentum | 2026-07-28 | $39,264 | +0.68% | −1.09% | −4.07% | 23 | 115 | +1.59% |
-| 5 | Discretionary (paper) | 2026-07-17 | $38,940 | −0.15% | −1.59% | −4.31% | 1 | 1 | −1.69% |
-| 6 | Template Top 5 | 2026-07-17 | $38,772 | −0.59% | −2.02% | −24.43% | 6 | 103 | −1.58% |
-| 7 | Momentum Top 10 (stop-managed) | 2026-07-28 | $38,558 | −1.13% | −2.91% | −21.84% | 12 | 200 | −0.23% |
-| 8 | Macro Composite (all-signals) | 2026-08-03 | $38,302 | −1.79% | −1.30% | −2.27% | 1 | 2 | −1.40% |
-| 9 | Dual Momentum (GEM) | 2026-07-17 | $37,705 | −3.32% | −4.76% | −6.25% | 1 | 6 | −0.97% |
-| 10 | Equal-Weight Benchmark | 2026-07-17 | $34,991 | −10.28% | −11.72% | −19.00% | 51 | 269 | −4.26% |
-| 11 | p15_ai_ranked | 2026-09-26 | $8,638 | −13.62% | −11.12% | −14.61% | 8 | 98 | −5.57% |
-| 12 | p15_hybrid_veto | 2026-09-26 | $8,530 | −14.70% | −12.20% | −16.00% | 9 | 57 | −4.57% |
-| 13 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $33,262 | −14.71% | −12.96% | −17.37% | 51 | 204 | −4.33% |
-| 14 | p15_rule_control | 2026-09-26 | $8,518 | −14.82% | −12.33% | −16.23% | 9 | 57 | −4.23% |
-| 15 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $32,600 | −16.41% | −14.95% | −17.31% | 50 | 110 | −3.35% |
+| 1 | Sector ETF Rotation | 2026-07-28 | $42,747 | +9.61% | +8.13% | −4.53% | 3 | 12 | −0.49% |
+| 2 | PEAD (earnings reaction) | 2026-07-28 | $39,564 | +1.45% | −0.03% | −3.05% | 10 | 54 | −0.17% |
+| 3 | SPY Buy & Hold | 2026-07-17 | $39,208 | +0.53% | −0.61% | −5.89% | 1 | 1 | −0.58% |
+| 4 | 52-Week-High Momentum | 2026-07-28 | $38,793 | −0.53% | −2.01% | −4.07% | 23 | 117 | −0.81% |
+| 5 | Template Top 5 | 2026-07-17 | $38,463 | −1.38% | −2.52% | −26.88% | 5 | 112 | +0.54% |
+| 6 | Discretionary (paper) | 2026-07-17 | $38,415 | −1.50% | −2.65% | −5.99% | 1 | 1 | −1.70% |
+| 7 | Macro Composite (all-signals) | 2026-08-03 | $38,191 | −2.07% | −1.30% | −4.75% | 1 | 2 | −0.59% |
+| 8 | Dual Momentum (GEM) | 2026-07-17 | $37,944 | −2.71% | −3.85% | −7.61% | 1 | 6 | +1.24% |
+| 9 | Momentum Top 10 (stop-managed) | 2026-07-28 | $37,746 | −3.22% | −4.69% | −24.39% | 12 | 217 | −2.24% |
+| 10 | p15_hybrid_veto | 2026-09-26 | $8,839 | −11.61% | −8.83% | −16.22% | 7 | 73 | +2.85% |
+| 11 | p15_rule_control | 2026-09-26 | $8,790 | −12.10% | −9.32% | −17.38% | 7 | 70 | +1.60% |
+| 12 | p15_ai_ranked | 2026-09-26 | $8,705 | −12.95% | −10.18% | −15.24% | 3 | 115 | −0.45% |
+| 13 | Equal-Weight Benchmark | 2026-07-17 | $33,815 | −13.29% | −14.44% | −22.57% | 52 | 271 | −3.63% |
+| 14 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $32,167 | −17.52% | −15.78% | −24.56% | 50 | 110 | −4.49% |
+| 15 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $31,665 | −18.81% | −16.77% | −21.73% | 52 | 206 | −5.01% |
 
-_Regime: **risk-on** · each return uses its book's persisted starting capital · as of 2026-11-02._
+_Regime: **risk-on** · each return uses its book's persisted starting capital · as of 2026-11-10._
 
 ## Commission break
 
 | Portfolio | Since break | Fees paid |
 |---|---:|---:|
-| Sector ETF Rotation | +0.85% | $2.35 |
-| PEAD (earnings reaction) | +2.26% | $3.96 |
-| SPY Buy & Hold | −1.45% | $0.00 |
-| 52-Week-High Momentum | +3.18% | $12.10 |
-| Discretionary (paper) | −1.33% | $0.00 |
-| Template Top 5 | +4.73% | $12.05 |
-| Momentum Top 10 (stop-managed) | −1.16% | $24.19 |
-| Macro Composite (all-signals) | −1.26% | $0.39 |
-| Dual Momentum (GEM) | −0.69% | $3.10 |
-| Equal-Weight Benchmark | −1.29% | $33.21 |
-| p15_ai_ranked | −6.70% | $17.03 |
-| p15_hybrid_veto | −5.16% | $7.99 |
-| EW Screen — Inverse-Vol Weighted | −1.29% | $33.10 |
-| p15_rule_control | −4.22% | $7.58 |
-| XS Momentum 12-1 (unscreened control) | +0.42% | $24.23 |
+| Sector ETF Rotation | −0.73% | $2.35 |
+| PEAD (earnings reaction) | +1.24% | $5.76 |
+| SPY Buy & Hold | −1.74% | $0.00 |
+| 52-Week-High Momentum | +1.94% | $12.83 |
+| Template Top 5 | +3.89% | $18.85 |
+| Discretionary (paper) | −2.66% | $0.00 |
+| Macro Composite (all-signals) | −1.55% | $0.39 |
+| Dual Momentum (GEM) | −0.06% | $3.10 |
+| Momentum Top 10 (stop-managed) | −3.24% | $33.79 |
+| p15_hybrid_veto | −1.73% | $14.01 |
+| p15_rule_control | −1.15% | $12.45 |
+| p15_ai_ranked | −5.98% | $23.48 |
+| Equal-Weight Benchmark | −4.61% | $33.93 |
+| XS Momentum 12-1 (unscreened control) | −0.91% | $24.23 |
+| EW Screen — Inverse-Vol Weighted | −6.03% | $33.81 |
 
 _† commissions from the recorded cost-profile break (2026-10-19); evaluation clocks restart at each break._
 
-## ⚠ Stale marks — 11 position(s) carried at an old close
+## ⚠ Stale marks — 2 position(s) carried at an old close
 
 These names have not TRADED since the date shown, so they are valued at a close that cannot change until they trade again. **Sessions stale counts from the last bar with real volume, not the last bar on file** — yfinance keeps emitting a dead quote as a zero-volume bar after a name stops trading, which makes a dead position look fresher than it is. A halt resolves itself. A name the exchange directory has dropped is closed out at its last real traded close after 5 sessions without a traded bar, or at sourced terms booked with `sim.settle`. **The equity above includes these marks.**
 
 | Book | Ticker | Qty | Last traded | Sessions stale | Frozen value | % of equity |
 |---|---|---|---|---|---|---|
-| ew_benchmark | INTC | 6.8996 | 2026-10-29 | 2 | $635.25 | 1.82% |
-| ew_voltarget | INTC | 7.0962 | 2026-10-29 | 2 | $653.35 | 1.96% |
-| ew_benchmark | IOVA | 56.4740 | 2026-10-30 | 1 | $478.90 | 1.37% |
-| ew_voltarget | IOVA | 34.0379 | 2026-10-30 | 1 | $288.64 | 0.87% |
-| high_52wk | LXP | 21.8063 | 2026-10-30 | 1 | $1,334.11 | 3.40% |
-| momo_stopped | IOVA | 274.5308 | 2026-10-30 | 1 | $2,328.02 | 6.04% |
-| p15_ai_ranked | IOVA | 41.1981 | 2026-10-30 | 1 | $349.36 | 4.04% |
-| p15_hybrid_veto | IOVA | 43.1404 | 2026-10-30 | 1 | $365.83 | 4.29% |
-| p15_rule_control | IOVA | 42.6614 | 2026-10-30 | 1 | $361.77 | 4.25% |
-| template_top5 | IOVA | 555.4829 | 2026-10-30 | 1 | $4,710.49 | 12.15% |
-| xs_momentum_12_1 | IOVA | 52.6316 | 2026-10-30 | 1 | $446.32 | 1.37% |
+| ew_benchmark | INTC | 6.8996 | 2026-10-29 | 8 | $635.25 | 1.88% |
+| ew_voltarget | INTC | 7.0962 | 2026-10-29 | 8 | $653.35 | 2.06% |
