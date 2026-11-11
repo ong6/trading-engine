@@ -64,7 +64,7 @@
       "engine/collect.py": "d2ebc861c82ed855775d31e7bc11fde91a4c6d183a30685858b4579c44a9dda3",
       "engine/daily_opportunities.py": "a1ea689abd2ab365dd2ac2aedf31e17bd021a7eecd4e9a0fc303a42f00075d43",
       "engine/earnings.py": "cb53840084c637f4e49f22ac27adbfdd8eeab1b3c22aa3abb8c1293be89a8b0d",
-      "engine/forward_review.py": "9f606b8559304052e32ae6d7fb5a96807598bbe1d3720282c5e126949a2c20f6",
+      "engine/forward_review.py": "2af1d136587784c653fd2a392d9dd34777dc33247e207d8453639cf91d44a90e",
       "engine/free_massive_minute.py": "ee1bc0120836e264b52fc016dbc446233f7bff160b7976ee2c697c69e02a1b1d",
       "engine/free_sources.py": "414af6dcd99bba91ea96cd2340f40680a74b39d0dab31aed194aaaca93a49126",
       "engine/fundamentals.py": "98c023b658ee13e247b649e0fd12dd8332f48878a11b188a41e0cfcce9df642a",
@@ -72,14 +72,14 @@
       "engine/intraday.py": "baf545f0f81c7f6bc6542c54cc99baf2da1f34a2d0c40f5f74425cb3372c8108",
       "engine/lib/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "engine/lib/data_quality.py": "8025ff4323d1e6698bbb4be9858d2b33289b1981f05cf311ccc10a1e4c0c1299",
-      "engine/lib/db.py": "54e1c1eec1d3e90d71967c30f2bc24b250b68596658601ddaf97f86cbd456e78",
+      "engine/lib/db.py": "426f9eba20e0965e7ae5fbb46f47bb33c10640d0629b4ef2c3fb4307fc560cec",
       "engine/lib/driver.sh": "3aa594fc39982ce5b085848d0d459cbf2a1d092a10518574df4eec209e08b4e2",
       "engine/lib/leverage.py": "12295fc760792e5026dc7dbd6b2f3ccd8610a4e4038f5b9699764e14fe3fea68",
       "engine/lib/log.py": "02fd05ba4da797ec62bb467a6bcce93e07929029cdfde21db302fece2ce79bd3",
       "engine/lib/provenance.py": "971bc3f8517c5b626bde31b51a18faacfa2860b3345b46239a49a0e12de881f8",
       "engine/lib/resources.py": "5854a10abb5804981ca6ae386ec95530c15bd6c588115aad4c2e385961981790",
       "engine/lib/settings.py": "88c830214847130473e08be7a4ecb188645f6ed2d379626839b456e91bf2a17e",
-      "engine/lib/snapshots.py": "142293fc60e33b9507336bf4265668f333a7e31135b124f4ab442a9adf11c7bc",
+      "engine/lib/snapshots.py": "3fbc0f2278aa5e3b04229018a72cdac8542ce085688bf6144e91d088b22170c8",
       "engine/lib/store_limits.py": "2f7980bab69092ce1a77f48fb63ddfcdfdfbd57f6cd7afd64c089875533e9047",
       "engine/lib/util.py": "d64081f1f467432577fb90ca8d8674b80f095ca32b7e6da7b7f8bcebdab5c82b",
       "engine/liquid_history.py": "9924aa0f2f6a02f8ba9a70fa96a5a2c61b12bf831d495484abc122233b869b2d",
@@ -99,10 +99,10 @@
       "engine/sec_acceptance.py": "39beda3cfbdd6c281a34044dd188418ee7a56a80d1ca8adbd7a7ad3bfbf72279",
       "engine/signals.py": "02cf36bb53213ab8e6e4a1b30549dc2fbc94484168e1ae763ad245174a77056c",
       "engine/sync.py": "9d77a8e963047481ecbed290b4d112ef7c3158fadbb9b5aded91defd33abd574",
-      "engine/tradingview_history_archive.py": "c9060c28a57ca875237d4b035fa1cc8303a37017ed94c033e63c38d6585a4743",
+      "engine/tradingview_history_archive.py": "d2aecc6267410883719aec42a6d2720187a876c9aef4782631f256bf32d6e019",
       "engine/universe.py": "ad3cf5f62730767081ee7718006ce4f78f4c6bfdbb80ab90caeef118abc276a7",
-      "engine/verify_prices.py": "6a018d0206da40853e2b970b57f29be8d8a197f0250062f8dcd145ee226be346",
-      "engine/xs_forward_review.py": "b202e37abcb524f4b5e84d16d4786891fccf0a2dee7af0365b564ace965807f7",
+      "engine/verify_prices.py": "2e25f18b9c6f3e93fd5f219e0684932a4c16a544e95cf2b8a1b9d40ec152f799",
+      "engine/xs_forward_review.py": "2a737983ef728808a0877c7e75b88c73353a16b56ab4222d658302e2f848ebf3",
       "farm/__init__.py": "bf84aec09336388f858d7c1e7c28cab3da1d8d18096ed36ef460ea49114f11e0",
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
       "farm/backtest/__init__.py": "b65d882bc9e7d1ba6e704fc93be8aa4188775ead4cf4028a3da7141c298427b7",
@@ -112,7 +112,7 @@
       "farm/backtest/stats.py": "994e2147b30fad6c061888f51e6b22238500e185424f007ae96a408df3cdf3c8",
       "farm/capital_sensitivity.py": "90119096f6c31e53427ea8ffa61b8af558b131c0f78ff0841183baa024958244",
       "farm/experiment.py": "bf588f503d4bcec829c8083d5dad3fca0846fa80c726301535cf11a854c82abb",
-      "farm/experiment_runner.py": "025156e04aba22cb41b827c8c632e89bcb78ae2c316b7a15fff7d26caf076ecb",
+      "farm/experiment_runner.py": "e719554952d9a2b0e6ed190ac41e727925f28c462467b7d6b3ebc637b086cc18",
       "farm/p15_event_runner.py": "9b854aa624e46d6bca8125bbf9e9c69567d0133470d1f4a240490cf43a60d56a",
       "farm/stats/__init__.py": "a7e26e929b2d925fd3060ac1af6e20c228479c6552f75dcfcd629b5ff0470b65",
       "farm/stats/equity.py": "e1ffaa2768ff7abed75c053b2273bda215adf6be44c1c60844ed509cbc9bdd1e",
@@ -149,7 +149,7 @@
       "server/p15_incremental_collect.py": "76b64b6c190a3a69b4cac62efeb3a7eea119546726e75e7f523bcb7368309e66",
       "server/p15_preopen.py": "f8853a6dc74bf9064050a372f66399dd8edcade536b71a3dfbe54719e089620b",
       "server/p15_price_fetch_attempts.py": "bea009a446f472418a151acc27d2fe511e0fb1cc4d9d00d62652bd1466aed4b4",
-      "server/p15_scoring_runner.py": "935c6d0de333fc5d2d8c94acd5d4d6c0ec47ddc0add71222fed4851a8ae0333b",
+      "server/p15_scoring_runner.py": "9268d6cc43eb269b782d74df8679a2bf2cf4374308cbf3e5305e8868c56f812a",
       "server/p15_scoring_store.py": "4660607b6bb5b18fdb6ee7585b8bdadab9dfa9af9417f0ae51833bc87a695bee",
       "server/run_p15_scoring.sh": "bcfa40abb53d4040c89325d2ccbc296d5164f94eafc99bde3aeb04cce933cb9a",
       "server/status_validation.py": "538a2b74aa645475cdbb760c14f0ce2f49a2a4417e4c400197b724dd2ff4c770",
@@ -216,12 +216,12 @@
       "tools/agent_trial_register.py": "6cd235435466a0a18ec8bcb4c1618f9228e2b3f994583a905ff2da3ed9c7d84d",
       "tools/backup_database.py": "719f475e21e5e3d0782bfaf38ab7599029ab69e38b742ca235148af7cd07e2df",
       "tools/p15_evidence_validation.py": "731b0e9ea8d47141686e885c71c3812074709c9fbde255922e6bbda05b3ccf52",
-      "tools/publish_snapshot.py": "aea707f7f8624d4893cc04419739d47753502035ecfa9ed43bc6dc37ef159da2",
+      "tools/publish_snapshot.py": "4c9ee5aa5030c59859893aa989b36bb9888a21f1b6ca13004f23d649a0bbc0d9",
       "tools/release_manifest.py": "03e7517aac05b0800629307fe46f874ea5478adc47e87be933aa3b991fb7c0ea",
       "tools/sec_edgar_capture.py": "8e7a705262f44532d2c812ed22ccd66c9b35d9633c0f89288d1347fe2a52ea6d",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "7e84006905e60ec7d3bce482ec35f190795e08c0"
+    "source_commit": "d0a163f0b4409c3434815c2ebb9105969d4ce698"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -404,7 +404,6 @@
   "registered_at": "2026-10-03T02:52:40Z",
   "registration_id": "p15-profitability-evidence-loop-v1",
   "registration_revision": 21,
-  "registration_sha256": "0c42af77d52d2e8cffa0853e82cd28804d9cc64edb087d7f8432ff80b0356097",
   "revision_reason": "Revision 21 after deployed revision 20 (owner-directed GPT-6.1-Sol model amendment, 2026-10-29), from the P24 storage revision. Collection changes: TradingView daily history collection is paused (server/collection-policy.json; its timer and service become disabled), Massive option collection is paused (tools/free_massive_options.py), and five macro series without a reader are no longer fetched (gex, pc_total, aaii_bull, free_credit and cot_es_lev_net; engine/signals.py); their stored history is kept and each pause is one flag. Schedule changes: a new publish-on-change timer (:12 and :42 UTC) republishes the read-only store generation at most once every three hours during US market hours, P15 pre-open now publishes after its run while P15 events no longer publish, and the TradingView history timer no longer runs; no other unit's schedule changes. Reader and storage paths: the operational store is versioned by explicit schema migrations whose baseline is frozen as data (the deployed catalog is an exact pre-image; drifted tables are rebuilt with every row kept and proven equal); API reads serve immutable hot/cold generations, flagged stale or pending publication instead of refused, while every producer keeps reading the primary; publication copies the primary under the producer locks and builds from the copy; backups copy the quiesced file bytes and record the DuckDB version and WAL identity; new raw payloads keep the legacy encoding until a later conversion one-off; producers refuse to write a store that has not been migrated. Storage limits: a default and minimum 70 GiB free-space reserve (environment may only raise it), with each backup and publication copy counted, and per-role DuckDB thread and memory limits bound store connections. Unchanged: for every source and series still collected, what is fetched, admitted, stored, priced, filled, scored and labeled. Runtime contracts E1 v8, sector v12 and XS v23 keep their versions and what they compute; each explicit migration replaces only the deployed revision-20 digest and refuses any other predecessor. Frozen verdict rules, scores, labels, gates and valid-data outcomes remain unchanged. Accepted collection and timing fixes: all-null liquid backfill padding is not a failure; terminal evaluation labels skip calendar and price work; hourly and four-hour observers release the writer during news and model calls; pre-open advisory and DuckDB acquisition share one monotonic deadline. The revision-20 GPT-6.1-Sol model amendment, its role efforts and all prior GPT-5.6 identities survive intact. Integrated unblock (2026-11-11): schema-1 price readers use the generation hot file with matching authenticated compatibility fields and no extra store copy; scoring store locks wait through the unchanged registered deadline; Nasdaq empty-stock responses try the ETF route under existing verification bands and proven TradingView mappings retain append-only attempts; consecutive-close basis holds release only after twenty unchanged stored sessions, no nearby captured action and a completed action fetch on or after the break. Unreported, un-restated splits remain an accepted residual risk with the existing integrity backstop. No registered strategy, model, statistical threshold, schedule or frozen evidence is tuned.",
   "schema_version": 1,
   "scoring": {
@@ -446,5 +445,6 @@
     "mover_limit": 40,
     "trend_limit": 20,
     "version": "p15-universe-v1"
-  }
+  },
+  "registration_sha256": "8ff97367449314838c699e5f94acd52c0643ff1901eff682968f00e3de99a02e"
 }
