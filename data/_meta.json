@@ -74,8 +74,8 @@
     "store_gb": 53.61
   },
   "price_verify": {
-    "last_run": "2026-11-09T22:47:52.865341+00:00",
-    "as_of": "2026-11-09",
+    "last_run": "2026-11-10T22:55:44.633525+00:00",
+    "as_of": "2026-11-10",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -88,22 +88,22 @@
       "low",
       "close"
     ],
-    "names_selected": 178,
-    "names_checked": 178,
-    "names_agreeing": 178,
+    "names_selected": 175,
+    "names_checked": 175,
+    "names_agreeing": 175,
     "names_disagreeing": 0,
     "names_not_checked": 0,
     "not_checked_reasons": {},
     "not_checked_names": [],
-    "bars_compared": 713,
-    "field_comparisons": 2852,
+    "bars_compared": 701,
+    "field_comparisons": 2804,
     "worst": {
       "ticker": "EVC",
-      "date": "2026-11-03",
+      "date": "2026-11-05",
       "field": "high",
-      "store": 6.97,
-      "source": 6.965,
-      "diff_bp": 7.17
+      "store": 7.61,
+      "source": 7.605,
+      "diff_bp": 6.57
     },
     "worst_is_disagreement": false,
     "disagreements": [],
@@ -122,16 +122,16 @@
     "volume_note": "volume differs by design on the newest session (same-day volume settles after the close); measured, never alarmed on",
     "volume_median_abs_diff_pct_latest_session": null,
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
-    "volume_bars_compared": 713,
+    "volume_bars_compared": 701,
     "newest_session": {
-      "session": "2026-11-09",
+      "session": "2026-11-10",
       "status": "not_checked",
       "reason": "source_lag",
-      "names_with_store_bar": 177,
+      "names_with_store_bar": 174,
       "names_compared": 0,
-      "source_latest_session": "2026-11-06"
+      "source_latest_session": "2026-11-09"
     },
-    "provisional_note": "on 2026-11-09 (newest stored session) the source had a bar for 0 of 177 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
+    "provisional_note": "on 2026-11-10 (newest stored session) the source had a bar for 0 of 174 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
     "provisional_ohl_median_bp": null,
     "provisional_ohl_max_bp": null,
     "provisional_ohl_over_tolerance": 0,
@@ -143,21 +143,22 @@
         "2026-11-03",
         "2026-11-04",
         "2026-11-05",
-        "2026-11-06"
+        "2026-11-06",
+        "2026-11-09"
       ]
     },
     "n_names_store_missing_sessions": 1,
-    "secs": 111.0,
+    "secs": 103.5,
     "evidence_receipt": {
-      "sha256": "a6728fe1afc06111a1356558f2847aba99a85a061403ea44dc732c6772a1b893",
-      "path": "price-verify/a6728fe1afc06111a1356558f2847aba99a85a061403ea44dc732c6772a1b893.json",
-      "bytes": 689380
+      "sha256": "f8729bd937fb2921cc40f02f0c4ba487ae5eb33c3ca145fecc8efebbe1b34126",
+      "path": "price-verify/f8729bd937fb2921cc40f02f0c4ba487ae5eb33c3ca145fecc8efebbe1b34126.json",
+      "bytes": 677096
     },
     "name_results_report": {
       "path": "reports/producer-detail/price-verify.json",
-      "names": 178,
-      "bytes": 60831,
-      "sha256": "2ae5dc0cdca015aedccfa5468d63449f873aab2c69687d43c1fdbb3059986689"
+      "names": 175,
+      "bytes": 59785,
+      "sha256": "393ede7a4d746377c16cda15f1e97ece4bddcdf2b08cc0ec760b6a24f70594c0"
     }
   },
   "intraday": {
@@ -185,23 +186,23 @@
     "sources": {
       "squeezemetrics": {
         "status": "ok",
-        "rows_fetched": 7808,
+        "rows_fetched": 7810,
         "rows_inserted": 2,
         "series": [
           "dix",
           "gex"
         ],
-        "secs": 4.1
+        "secs": 5.2
       },
       "vix": {
         "status": "ok",
-        "rows_fetched": 13622,
-        "rows_inserted": 2,
+        "rows_fetched": 13625,
+        "rows_inserted": 3,
         "series": [
           "vix",
           "vix3m"
         ],
-        "secs": 0.8
+        "secs": 0.7
       },
       "fred": {
         "status": "ok",
@@ -213,7 +214,7 @@
           "nfci",
           "t10y2y"
         ],
-        "secs": 4.0
+        "secs": 2.2
       },
       "putcall": {
         "status": "ok",
@@ -223,7 +224,7 @@
           "pc_equity",
           "pc_total"
         ],
-        "secs": 7.6
+        "secs": 7.2
       },
       "aaii": {
         "status": "ok",
@@ -233,7 +234,7 @@
           "aaii_bear",
           "aaii_bull"
         ],
-        "secs": 3.3
+        "secs": 44.0
       },
       "finra_margin": {
         "status": "ok",
@@ -248,11 +249,11 @@
       "short_interest": {
         "status": "ok",
         "rows_fetched": 2,
-        "rows_inserted": 0,
+        "rows_inserted": 1,
         "series": [
           "short_interest_dtc"
         ],
-        "secs": 11.0
+        "secs": 11.9
       },
       "cot": {
         "status": "ok",
@@ -261,7 +262,7 @@
         "series": [
           "cot_es_lev_net"
         ],
-        "secs": 1.3
+        "secs": 3.3
       },
       "breadth": {
         "status": "ok",
@@ -272,33 +273,33 @@
           "breadth_pct_200",
           "zweig_ratio"
         ],
-        "secs": 0.6
+        "secs": 0.7
       }
     },
-    "rows_inserted": 11,
+    "rows_inserted": 13,
     "warnings": [],
     "series_totals": {
       "aaii_bear": 2049,
       "aaii_bull": 2049,
-      "breadth_nh_nl": 3734,
-      "breadth_pct_200": 3734,
+      "breadth_nh_nl": 3735,
+      "breadth_pct_200": 3735,
       "cot_es_lev_net": 1065,
-      "dix": 3904,
+      "dix": 3905,
       "free_credit": 200,
-      "gex": 3904,
-      "hy_oas": 858,
+      "gex": 3905,
+      "hy_oas": 859,
       "icsa": 3122,
       "margin_debt": 357,
       "nfci": 2913,
-      "pc_equity": 4220,
-      "pc_total": 4220,
-      "short_interest_dtc": 77,
-      "t10y2y": 12607,
-      "vix": 9311,
-      "vix3m": 4311,
-      "zweig_ratio": 3734
+      "pc_equity": 4221,
+      "pc_total": 4221,
+      "short_interest_dtc": 78,
+      "t10y2y": 12608,
+      "vix": 9312,
+      "vix3m": 4313,
+      "zweig_ratio": 3735
     },
-    "last_run": "2026-11-09T22:46:40.125441+00:00",
+    "last_run": "2026-11-10T22:55:21.822754+00:00",
     "store_gb": 53.61
   },
   "earnings": {
@@ -780,7 +781,7 @@
   "snapshot_disk_warning": {
     "snapshots_gb": 35.35,
     "soft_cap_gb": 35.0,
-    "flagged_at": "2026-11-10T22:53:37.306144+00:00",
+    "flagged_at": "2026-11-10T23:48:00.571729+00:00",
     "message": "store/snapshots/ is 35.4 GiB, over the 35 GiB snapshot cap"
   }
 }
