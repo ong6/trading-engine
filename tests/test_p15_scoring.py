@@ -494,7 +494,8 @@ def test_p15_scoring_uses_bounded_database_waits(tmp_path, monkeypatch):
     waits = []
 
     def observed_connect(*args, **kwargs):
-        waits.append(kwargs.get("wait_s"))
+        if args[0] != ":memory:":  # ATR calculation uses a scratch connection.
+            waits.append((kwargs.get("wait_s"), kwargs.get("deadline")))
         return original(*args, **kwargs)
 
     monkeypatch.setattr(p15_scoring_runner.db, "connect", observed_connect)
@@ -504,7 +505,9 @@ def test_p15_scoring_uses_bounded_database_waits(tmp_path, monkeypatch):
     )
 
     assert result["status"] == "completed"
-    assert waits and all(wait == p15_scoring_runner.DB_WAIT_S for wait in waits)
+    assert waits and all(0 < wait <= 9.5 * 3600 for wait, _deadline in waits)
+    assert len({deadline for _wait, deadline in waits}) == 1
+    assert waits[-1][0] <= waits[0][0]
 
 
 def test_p15_scoring_recovers_after_real_database_lock_contention(tmp_path, monkeypatch):
@@ -521,7 +524,6 @@ def test_p15_scoring_recovers_after_real_database_lock_contention(tmp_path, monk
     )
     try:
         assert holder.stdout.readline().strip() == "ready"
-        monkeypatch.setattr(p15_scoring_runner, "DB_WAIT_S", 0.5)
         monkeypatch.setattr(db, "_LOCK_RETRY_S", 0.05)
         monkeypatch.setattr(db.settings, "lock_wait_s", lambda: 0.5)
         release = threading.Timer(
@@ -668,7 +670,8 @@ def test_p15_dry_run_holds_production_lock_only_while_copying(tmp_path, monkeypa
     active_locks = set()
 
     @contextmanager
-    def observed_lock(path):
+    def observed_lock(path, *, deadline):
+        assert deadline is not None
         locks.append(path)
         active_locks.add(path)
         try:
