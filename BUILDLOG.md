@@ -5499,4 +5499,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged; tools +3; product +9.
 - **Next:** merge the three admitted stacked fixes, then one integrated re-pin.
 
+## 2026-11-11 — Integrate and rehearse the revision-21 schema-1 unblock
+
+- **Why:** the orchestrator admitted the November 3 schema-1 unblock proposal and the three stacked fixes; the new reader test reproduced the missing manifest field before the fix.
+- **What:** merged current main and the P15 lock, ETF verifier/provider mapping and basis-release fixes, preserving their tests and log entries.
+  Re-pinned revision 21 once through the existing runtime-then-registration sequence; all 169 P15 source files and E1/sector/XS digests agree, with registered rules unchanged.
+  Published from a reduced real-data copy; the frozen reader accepted 59 latest-session rows and complete feature histories, and the opened hot file and generation hashes verified. Deleted the sandbox.
+  Corrected the checklist's monthly confirmation gate and recorded both its layout and frozen-client refusals, the deploy disk shortfall, and the wider-history/expired-order operator steps.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error -n 8` and the same command under `TZ=Asia/Singapore` → 6,700 passed each (270.42 s / 272.77 s); affected tests, Ruff, job audit and static schedule check pass.
+- **Metrics:** session snapshot: server +19 LOC, tools +3, product +137.
+- **Next:** orchestrator acceptance; before deploy, resolve the 44.49 GiB reserve shortfall and the separately disclosed confirmation dependency/reader amendment.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

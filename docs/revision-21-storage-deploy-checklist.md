@@ -1,14 +1,17 @@
 # P15 registration revision 21 — storage deploy checklist
 
 Branch `r21/integrate` integrates `p24/storage-r18` (`f0282839`, based on `53a86579`) into
-main `36d91bb1`, retaining the revision-20 GPT-6.1-Sol model amendment. Status: **awaiting integration acceptance**; not deployed. Rehearsed on store copies only (see "Rehearsal result"). Nothing here was run against the
-live store.
+main `36d91bb1`, retaining the revision-20 GPT-6.1-Sol model amendment. The 2026-11-11 unblock
+also merges main through `72bc5e78` and the P15-lock (`6b3b69e0`), ETF-verifier/TradingView-mapping
+(`9379457b`) and basis-release (`3dffadf1`) fixes. Status: **awaiting integration acceptance**;
+not deployed. Trial 375 compatibility is rehearsed; deploy still needs the disk reserve and
+trial 287's separate dependency/reader amendment below. All database writes were to disposable sandboxes.
 
-**Deploy plan.** Trial 287 closes at its owner-precommitted 2026-11-03 06:30 UTC epoch. Hold until that epoch
-has finished, then the orchestrator merges `r21/integrate` into `origin/main` and deploys in one sitting. Never
-deploy in 22:15–23:59 or 02:00–04:00 UTC; also avoid the producer/provider windows below. The earlier pre-flight
-switch of private `confirm_287.py` to `pin_latest_generation` is dropped: trial 287 closes on November 3 and has
-no December epoch. Check any other remaining snapshot consumers before deployment.
+**Deploy plan.** Trial 287's first epoch, 2026-11-03 06:30 UTC, has passed; it continues monthly,
+with its next timer run on 2026-12-03 06:30 UTC. The orchestrator must arrange its disclosed
+pre-epoch Nasdaq dependency amendment and generation reader switch before deployment (pre-flight 6).
+Then the orchestrator merges `r21/integrate` into `origin/main` and deploys in one sitting. Never
+deploy in 22:15–23:59 or 02:00–04:00 UTC; also avoid the producer/provider windows below.
 
 **Rename.** The storage work formerly numbered revision 20 is revision 21 after main's model amendment.
 `ops/storage-r20/` is now `ops/storage-r21/`; `P20_*`, `R20_*` and `p20_*` become `P21_*`, `R21_*` and `p21_*`.
@@ -72,26 +75,32 @@ Use a new `r21-deploy` state directory. Historical rehearsal entries keep their 
   separate pit/research databases; publication and backup re-verify the exact catalog, so a bypass fails closed there.
 - **Still open:** the off-host remote restore drill (needs a generation-backed bundle committed to the private backup
   repo); orchestrator sign-off on pausing TradingView history; incremental capture (copy only changed
-  table data instead of the whole 12.8 GB primary) as a follow-up to cut publication I/O.
+  table data) as a follow-up to cut publication I/O; the measured deploy disk shortfall and
+  trial 287 amendment (pre-flights 3 and 6).
 
 ## Revision-21 pins
 
 The final integration pins are recorded below after all source changes. Registration revision 21 keeps the
 revision-20 model amendment, efforts and prior GPT-5.6 identities intact. Its reason discloses the accepted liquid
-backfill, terminal-label, observer-writer and pre-open deadline fixes and the enforced 70 GiB minimum reserve.
+backfill, terminal-label, observer-writer and pre-open deadline fixes, the enforced 70 GiB minimum reserve,
+and the schema-1 compatibility, scoring lock deadline, ETF verification, proven provider mappings and
+evidence-based basis release integrated on 2026-11-11 (including the unreported-split residual risk).
 `source_commit` is the last commit touching a registered file; `code_identity.files` covers the complete imported
 closure; `registration_sha256` uses `canonical_sha256` over the document with that key removed. E1 v8, sector v12
 and XS v23 retain every frozen value and migrate only their deployed digests. Any later pinned-source edit requires
 all affected hashes, source commit and the registration self-hash to be recomputed before acceptance.
 
-Final pins: 169 source files; `source_commit` `7e84006905e60ec7d3bce482ec35f190795e08c0`;
-`registration_sha256` `0c42af77d52d2e8cffa0853e82cd28804d9cc64edb087d7f8432ff80b0356097`.
+One integrated re-pin follows the existing two-commit sequence: freeze the runtime literals and
+disclosure (`d0a163f0`), then hash that committed imported closure into P15 (`5b48873f`). No later
+registered source edit is included. Final pins: 169 source files;
+`source_commit` `d0a163f0b4409c3434815c2ebb9105969d4ce698`;
+`registration_sha256` `8ff97367449314838c699e5f94acd52c0643ff1901eff682968f00e3de99a02e`.
 
 | Contract | Version | New digest | Accepted deployed predecessor (unchanged by the revision-20 model amendment) |
 |---|---|---|---|
-| E1 | 8 | `f8f31db9ffdf0d6b793706912d5655d31cb71ca915a71b3000e569697cf75465` | `2c8ec5b06a93edbca6104569c1bb5c66514cd6476f209169ca1f6041cd470538` |
-| Sector | 12 | `de4e60ec4700130ac1bcac59bc17fca639e98595aa649e851f3340395b5c5d72` | `bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea` |
-| XS | 23 | `3f7fec7a8c9bb22a3fa857c2ea04ce4e62593f8aa6fcf85c363cf3d97bc4f48d` | `d00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6` |
+| E1 | 8 | `3a285208cb6025ba6fb42ddbf3533702f7a76b171b29a5bae8e6986f781b3c51` | `2c8ec5b06a93edbca6104569c1bb5c66514cd6476f209169ca1f6041cd470538` |
+| Sector | 12 | `f35d29dbc04dc55e0896a1a07461fa3ab085553158ffd6a8e0dd0956e469764d` | `bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea` |
+| XS | 23 | `2236463e21bb5399a38047b51b3eda314b9c821e0b381fd1024e52835918ed86` | `d00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6` |
 
 ## Pre-flight (all must hold)
 
@@ -99,12 +108,32 @@ Final pins: 169 source files; `source_commit` `7e84006905e60ec7d3bce482ec35f1907
 2. `.venv/bin/python -m engine.job_contract audit` → `status: ok`; `python -m tools.schedule_contract_check --static` clean.
 3. Free space ≥ 70 GiB (stricter than the host's 70 GB rule) on the store filesystem (restore reserve) plus 3× store size: the backup, the first generation,
    and publication's transient copy of the primary.
+   On 2026-11-11 the primary and published pre-image are each 18,979,762,176 bytes (17.6763 GiB).
+   Required free: 132,101,214,208 bytes (123.0288 GiB). The measurement after sandbox cleanup
+   has 84,327,514,112 bytes (78.5361 GiB) free: **short by 47,773,700,096 bytes (44.4927 GiB)**.
+   This pre-flight fails today; do not start the real deploy. Re-run `df -B1` and the deploy's
+   `require_free_space(..., need_bytes=3*file_bytes(primary))` immediately before the window;
+   the figures move with other jobs and the store. Compatibility adds no store-sized file.
 4. Window outside 22:15–23:59 and 02:00–04:00 UTC every day, and outside
    13:00–21:00 and 07:30–07:50 UTC weekdays; no queue drain running. Allow about 45 minutes
    with producers quiesced (backup create plus verify, migration, first publication; see the rehearsal timings).
 5. A fresh verified off-host copy exists (trading-data backup current).
-6. Trial 287 has closed at its November 3 epoch; no `confirm_287.py` consumer switch is required. Confirm any
-   other active schema-1 consumer supports generations before deploy.
+6. The unmodified trial-375 reader accepts the generation hot file in a reduced-copy rehearsal
+   (2026-11-11, below). Publication now includes `schema_version: 1`, `snapshot`, the hot file's
+   `sha256`, and `as_of` inside the authenticated schema-2 manifest. Its resolved file and sibling
+   manifest stay in the snapshots directory, and the hot file contains `prices`; no extra copy.
+   The generation validator still checks its self-hash, exact field set, catalog and every file;
+   compatibility must be either absent on an older schema-2 manifest or a complete, matching pair.
+   The frozen reader's lines 169–179 check path, name, schema, hash **length** and session-close ≤
+   publication ≤ observation. It does not compute the file hash; the rehearsal and r21 pin do.
+   **Remaining gate:** `research/confirm_287.py` still rejects `SnapshotInfo.manifest_schema_version != 1`
+   (lines 488–494) and expects the legacy top-level `size_bytes` (499–504). Before deploy the
+   orchestrator must move that reader to `pin_latest_generation`, retain its pin for the price
+   query, and use the verified hot file size. The stacked ETF fix also changes its frozen
+   `engine/verify_prices.py` hash; lines 273–284 require a disclosed pre-epoch dependency amendment.
+   Its next epoch is December 3 at 06:30 UTC, not a closed trial. This lane edits no private code.
+   Repeat the consumer scan before quiescence. After the first publication, before releasing
+   producers, repeat the frozen-reader and generation verification command below.
 7. Inside the window, after quiescence, the deploy script runs `engine.schema_migrations plan` read-only on the live
    primary and stops unless the pre-image is `865f64aa…`.
 8. In the same window it counts NULLs, read-only, in the five deployed columns the baseline makes NOT NULL
@@ -112,6 +141,52 @@ Final pins: 169 source files; `source_commit` `7e84006905e60ec7d3bce482ec35f1907
    `daily_opportunity_execution_quality.post_fill_position_qty`, `post_fill_cash`) and stops before the backup if any
    exists: migration 0000 would refuse such a row and roll back (the reviewer reproduced the refusal). On the
    2026-10-22 copies every one of these is non-NULL.
+
+### Pre-flight 6 consumer inventory (2026-11-11)
+
+The scan covered `~/trading-alpha/live`, `~/trading-data` (including archived files), the user
+systemd units (following links), `crontab -l`, and `~/news-scraper`. The confirmation runner was
+also followed from its installed unit. No private file or unit was edited or executed as a job.
+
+| Consumer | Generation compatibility and remaining action |
+|---|---|
+| `live/t4_forward.py`, `t4-forward-signal.service` (Sunday 07:05 UTC), `t4-forward-settle.service` (Tuesday 06:30 UTC) | Accepted the hot file and schema-1 compatibility fields with the unchanged imported reader. The two frozen simulator files still match main and their private receipt. Retention keeps latest plus one predecessor; this short reader resolves once and opens read-only. |
+| `research/confirm_287.py`, `confirm-287.service`/timer | **Refuses** schema-2 at lines 488–494, before its legacy size check. Needs the separately disclosed generation reader/pin lifetime and Nasdaq-client dependency amendment above before December 3. Both refusals were reproduced without running an epoch. |
+| `trading-data/alpha-work/live-287/prepare_measurement.py:54` | Historical one-shot measurement preparation; resolves latest and reads `universe`, which remains hot. Its query succeeded on the generation (12,892 rows); no manifest-version check. The archived script contains literal `~` paths, so standalone path expansion/setup is still required; it was not run. |
+| `trading-data/backup.py`, `trading-data-backup.service` | Delegates create/verify to the installed engine backup tool; no direct schema-1 snapshot reader. r21 has generation-aware backup verification; the existing locked-primary fallback remains a primary copy. No live backup or off-host restore was run here; its disk reserve remains required. |
+| `live/gap_fade_live.py`, `live/trade_intents.py`, `trading-data/evidence_archive.py` | Their `schema_version: 1` fields describe intent/credential-proof formats, not market manifests. Gap-fade imports confirmation's Nasdaq helpers, not its market snapshot resolver. No generation-layout switch is needed for these paths. |
+| User units, crontab, news scraper | The units route to the three consumers above; crontab's engine jobs and scraper have no additional direct latest/manifest reader. Engine readers use r21's tested generation API. The scraper has no market snapshot reference. Archived documentation mentions are not scheduled consumers. |
+
+Run this **after the first generation publication and before release**, from the deployed
+checkout. It imports only the frozen snapshot interfaces, disables bytecode writes, keeps an
+r21 pin throughout, verifies the exact file the frozen reader resolves, and reads the latest
+session. It makes no private-state write and does not invoke signal, settle, report or a relay.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B - <<'PY'
+import hashlib, importlib.util, sys
+from datetime import datetime, timezone
+from pathlib import Path
+import duckdb
+from engine.lib.snapshots import pin_latest_generation
+spec = importlib.util.spec_from_file_location("r21_frozen_reader", Path.home()/"trading-alpha/live/t4_forward.py")
+reader = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = reader
+spec.loader.exec_module(reader)
+with pin_latest_generation(Path("store/market.duckdb")) as info:
+    with duckdb.connect(str(info.path), read_only=True, config={"threads":"1"}) as con:
+        latest = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+    frozen = reader.Snapshot(observed=datetime.now(timezone.utc), required_session=latest,
+                             directory=info.path.parent)
+    with frozen.path.open("rb") as handle:
+        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+    assert frozen.path == info.path and digest == frozen.metadata["sha256"] == info.sha256
+    with frozen.connection() as con:
+        rows = con.execute("SELECT COUNT(*) FROM prices WHERE date=?", [latest]).fetchone()[0]
+    assert rows > 0 and info.manifest_schema_version == 2
+    print("trial 375 accepted; hot hash and generation files verified; latest session", latest, "rows", rows)
+PY
+```
 
 ## Deploy
 
@@ -221,6 +296,13 @@ nice -n 10 .venv/bin/python -m tools.backup_database remote-restore-drill \
   --scratch-parent "$P21_RESTORE_SCRATCH"
 ```
 
+After release, refetch wider real provider history for INTC and IOVA, including at least twenty
+unchanged stored sessions before the held break and the break itself. Check the completed action
+fetch and the release receipt under the integrated basis rule; the short five-day nightly fetch
+cannot establish that history. Review the October 30 orders that already expired by `no_bar`
+against their original intents and deadlines; record the disposition without replaying an expired
+order or fabricating a historical fill. These operator steps were not run in this lane.
+
 ## Rollback
 
 ```bash
@@ -285,8 +367,13 @@ archive.
 
 ## Revision-21 acceptance checks
 
-At the integrated source, both full suites passed with 6,525 tests, zero failures and zero skips:
-UTC 259.22 s; Asia/Singapore 267.05 s. Run the release checks from `r21/integrate`:
+At the 2026-11-11 integrated source, both full suites passed with **6,700 tests**, zero failures
+and zero skips: UTC **270.42 s**; Asia/Singapore **272.77 s**, with warnings treated as errors
+and eight workers per suite. The affected-test tier, `ruff check .`, job-contract audit
+(`status: ok`, 22 jobs, no differences), static schedule check and registration identity all
+pass. The static check retains the disclosed P15-scoring restart-loop exception below.
+The earlier 2026-10-30 source passed 6,525 tests (UTC 259.22 s; Asia/Singapore 267.05 s).
+Run the release checks from `r21/integrate`:
 
 ```bash
 set -euo pipefail
@@ -295,12 +382,14 @@ TZ=Asia/Singapore REGISTRATION_BASE_REF=origin/main nice -n 10 .venv/bin/python 
 .venv/bin/python -m tools.registration_identity --base origin/main
 .venv/bin/python -m tools.deploy_gate --check . --base origin/main
 .venv/bin/python -m tools.schedule_contract_check --static
-git diff --exit-code origin/main -- sim/execution.py sim/nyse.py engine/verify_prices.py
+git diff --exit-code origin/main -- sim/execution.py sim/nyse.py
 ```
 
 Registration identity passes for its one registration that pins code. The static schedule check passes with the
 existing disclosed P15-scoring restart-loop exception. The final diff leaves both trial-375 simulator files and
-`engine/verify_prices.py` byte-identical to main; the model client also remains identical to the revision-20 client.
+the model client byte-identical to main. `engine/verify_prices.py` now includes the admitted ETF
+fallback and is registered in revision 21; trial 287's prior verifier pin needs its disclosed
+dependency amendment. No frozen trial-375 simulator source moved.
 
 ## Publication I/O (measured 2026-10-23)
 
@@ -340,6 +429,49 @@ when baseline column order is restored), migrate and refresh the three frozen ru
 copy. Delete the verified generation and working store before restoring the original pre-image for the rollback
 check. Validate the restored bytes, catalog and frozen records under the previous main code, then delete the copy.
 Run at niceness 10, with at most four DuckDB threads and at most 8 GB memory; this rehearsal uses 4 GB.
+
+## Revision-21 unblock rehearsal results (2026-11-11)
+
+A full copy could not retain 70 GiB free: the published pre-image alone is 17.6763 GiB, against
+about 8.4 GiB above the reserve. This was a **reduced-copy publication and reader rehearsal**,
+not another full-store backup/migration/rollback or a full signal run. No SEC/model request,
+relay, private-state write, live-store write, service action or deployment was performed.
+
+The disposable checkout was a shared clone of the exact re-pinned integration source. The
+original `market-20261111T030856677108Z.duckdb` was resolved once, opened read-only and its
+18,979,762,176 bytes hashed against its schema-1 publication manifest. The sandbox bootstrapped
+the current empty schema through migrations 0 and 1, then copied real prices for the reader's
+59-name universe from 2025-05-09 through 2026-11-10, the real universe table, and bounded real
+recent cold-table slices. Other tables remained empty. Seventeen current publication cohort
+files, including the Friday-postflight artifact, were copied verbatim; they do not make this
+reduced store a full evidence/forward-record replay. No evidence row was invented.
+
+Rehearsal commands (the session's retained `rehearse.py` harness performs the steps above):
+
+```bash
+df -B1 /data00
+git clone --quiet --shared --branch r21/integrate . "$P21_REHEARSAL_OUT/sandbox"
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 \
+TRADING_ENGINE_DUCKDB_THREADS=4 TRADING_ENGINE_DUCKDB_MEMORY=4GB \
+nice -n 10 .venv/bin/python "$P21_REHEARSAL_OUT/rehearse.py"
+```
+
+The harness runs `df -B1` and the unmodified reserve guard before each copy/publication, caps
+extraction spill at 256 MiB, bounds the extraction/publication working set, samples free space,
+and calls the unmodified imported `Snapshot`, `features`, `outcomes` and r21 pin interfaces.
+
+| Output | Result |
+|---|---|
+| `SCHEMA` | `status: applied`, ids `[0, 1]`, current baseline catalog |
+| `REDUCED_COPY` | 31,469,568 bytes; 22,732 prices, 12,892 universe rows, 1,000 facts, 1,000 receipts; no recent intraday rows available |
+| `PUBLICATION` | `market-20261111T055102316287Z.duckdb`; `manifest_schema_version: 2`, `schema_version: 1`; hot 9,187,328 bytes; two cold parts, 2,971,218 bytes |
+| `T4_ACCEPTED` | `hash_verified: true`, `freshness_verified: true`; latest session `2026-11-10`, 59 rows; 59 complete 253-session feature histories and 59 outcome rows |
+| `T4_REFUSAL` | Both stale and future publications still refuse: `stale snapshot or publication from the future` |
+| `GENERATION_ACCEPTED` | All referenced files byte-verified; two cold parts; schema-2 pin retained |
+| `CONFIRM_287_REFUSES` | `the published engine snapshot is a manifest-schema-2 generation; this runner reads only the single-file schema-1 snapshot. Move it to engine.lib.snapshots.pin_latest_generation before the epoch runs` |
+| `CONFIRM_287_DEPENDENCY_REFUSES` | `the frozen Nasdaq client changed: engine/verify_prices.py hashes` the integrated ETF client; `a new pin needs a disclosed pre-epoch dependency amendment` |
+| `RESOURCES` | Minimum sampled free space 84,028,370,944 bytes (78.2575 GiB), 462 samples; all copy guards passed |
+| Cleanup | Sandbox checkout, database, generations, cold parts and copied cohort removed; only text/code receipts retained |
 
 ## Revision-21 rehearsal results (2026-10-30)
 
