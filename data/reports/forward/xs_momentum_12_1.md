@@ -1,6 +1,6 @@
 # XS momentum 12-1 — prospective paper review
 
-_Status **REVIEW-KILL** · through 2026-11-10 · paper only · no automatic action._
+_Status **REVIEW-KILL** · through 2026-11-11 · paper only · no automatic action._
 
 The first shared close after the frozen 2026-09-30 signal and next-open execution is the baseline. This excludes legacy EW performance and the initial transition; later monthly rebalances retain their realized costs.
 
@@ -10,7 +10,7 @@ The test cannot mature before **2031-10-19** and requires at least **48** comple
 
 | Measure | `xs_momentum_12_1` | `ew_benchmark` | Difference |
 |---|---:|---:|---:|
-| Return | -4.08% | -6.52% | +2.44% |
+| Return | +0.25% | -6.42% | +6.67% |
 | Max drawdown | -18.14% | -14.68% | -3.45% |
 | Mean monthly excess | +3.03% | · | · (90% CI) |
 
