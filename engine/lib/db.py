@@ -1596,30 +1596,45 @@ def _validated_observations(con, df, *, intraday: bool, now, batch_id: str):
 
 
 def _basis_unverified(con, frame) -> set[str]:
-    """Check overlap revisions and both edges of each affected daily window."""
+    """Hold unexplained revisions; release market moves only with action/overlap evidence."""
     if frame.empty:
         return set()
     with registered_frame(con, "_basis_incoming", frame[["ticker", "date", "close"]]):
         stored = con.execute("""
             WITH bounds AS (SELECT ticker, MIN(date) lo, MAX(date) hi
-                            FROM _basis_incoming GROUP BY ticker)
+                            FROM _basis_incoming GROUP BY ticker),
+            prior AS (
+                SELECT p.ticker, p.date, p.close FROM prices p JOIN bounds b USING(ticker)
+                WHERE p.date < b.lo
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.date DESC) <= 20)
             SELECT p.ticker, p.date, p.close FROM prices p JOIN bounds b USING(ticker)
             WHERE p.date BETWEEN b.lo AND b.hi
-               OR p.date = (SELECT MAX(q.date) FROM prices q
-                            WHERE q.ticker=b.ticker AND q.date < b.lo)
                OR p.date = (SELECT MIN(q.date) FROM prices q
                             WHERE q.ticker=b.ticker AND q.date > b.hi)
+            UNION ALL SELECT ticker, date, close FROM prior
         """).fetchall()
     actions = {}
+    captured = {}
+    fetched = {}
     if con.execute("SELECT 1 FROM information_schema.tables WHERE table_name='corporate_actions'").fetchone():
         with registered_frame(con, "_basis_names", frame[["ticker"]].drop_duplicates()):
-            for ticker, day, ratio in con.execute(
-                "SELECT c.ticker,c.ex_date,c.value FROM corporate_actions c "
-                "JOIN _basis_names n USING(ticker) WHERE c.kind='split'"
+            for ticker, day, kind, ratio in con.execute(
+                "SELECT c.ticker,c.ex_date,c.kind,c.value FROM corporate_actions c "
+                "JOIN _basis_names n USING(ticker)"
             ).fetchall():
-                actions.setdefault(ticker, []).append((day, ratio))
+                captured.setdefault(ticker, set()).add(day)
+                if kind == "split":
+                    actions.setdefault(ticker, []).append((day, ratio))
+    if con.execute("SELECT 1 FROM information_schema.tables WHERE table_name='actions_fetch_log'").fetchone():
+        with registered_frame(con, "_basis_names", frame[["ticker"]].drop_duplicates()):
+            fetched = dict(con.execute(
+                "SELECT a.ticker, MAX(a.fetched_on) FROM actions_fetch_log a "
+                "JOIN _basis_names n USING(ticker) WHERE a.status='ok' GROUP BY a.ticker"
+            ).fetchall())
     retained = {}
+    stored_days = {}
     for ticker, day, close in stored:
+        stored_days.setdefault(ticker, set()).add(day)
         if close is not None and math.isfinite(close) and close > 0:
             retained.setdefault(ticker, {})[day] = close
     held = set()
@@ -1637,6 +1652,16 @@ def _basis_unverified(con, frame) -> set[str]:
                                 or abs(math.log(ratio * value)) <= math.log(1.08))
                            for ex, value in actions.get(ticker, []))
 
+        def market_move(day, ticker=ticker, old=old, new=new):
+            if ticker not in fetched or fetched[ticker] < day:
+                return False
+            if any(abs((ex - day).days) <= 7 for ex in captured.get(ticker, ())):
+                return False
+            prior = sorted(d for d in stored_days.get(ticker, ()) if d < day)[-20:]
+            return len(prior) == 20 and all(
+                d in old and d in new and math.isclose(new[d], old[d], rel_tol=1e-6)
+                for d in prior)
+
         if any(day in old and unexplained(close / old[day], day)
                for day, close in new.items()):
             held.add(ticker)
@@ -1649,7 +1674,7 @@ def _basis_unverified(con, frame) -> set[str]:
             if previous in old and day in old and math.isclose(
                     ratio, old[day] / old[previous], rel_tol=1e-6):
                 continue
-            if unexplained(ratio, day):
+            if unexplained(ratio, day) and not market_move(day):
                 held.add(ticker)
                 break
     return held
