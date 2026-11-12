@@ -4888,4 +4888,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged.
 - **Next:** orchestrator admits the price-basis correction and its evidence-based release rule.
 
+## 2026-11-12 — Continue minute capture after an invalid chunk
+
+- **Why:** demonstrated defect: `.venv/bin/python -m pytest -q -W error -n 0 tests/test_free_massive_minute.py::test_invalid_middle_chunk_preserves_evidence_and_allows_later_chunks` fails before the fix with `engine.free_sources.FreeSourceError: Massive minute open is invalid`; the middle chunk aborts the manifest.
+- **What:** preserve rejected raw responses before parsing, retain chunk failure context and reasons, and continue to later chunks without loading rejected bars.
+  Retry a failed chunk at most once per run, no sooner than one hour after its last failure, using the shared provider limiter. Finished failures exit 1 with an incomplete summary and no completion marker.
+  Read successful-load keys once and skip those chunks with one resume summary, avoiding repeated raw-page parsing and per-chunk resume logs.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 8` → `[100%]`, exit 0 (6378 tests); the fast tier also exits 0. The rate-limited VIDA probe returns three bars with zero OHLC, correctly rejected.
+- **Metrics:** tools +71 LOC; server/product unchanged (session snapshot).
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
