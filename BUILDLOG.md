@@ -4898,4 +4898,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +71 LOC; server/product unchanged (session snapshot).
 - **Next:** nothing admitted.
 
+## 2026-11-12 — Repair splits skipped before post-ex-date bars arrived
+
+- **Why:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_repair_integrity.py::test_skipped_split_is_restated_only_with_source_evidence` fails for `skipped_no_bars`: `assert [] == [('AAA', True), ('BBB', False)]`; a retained no-bars adjustment hides repairable history.
+- **What:** Admit that recorded outcome to the existing split repair selection.
+  Keep the complete source-history proof, mismatch refusal, audit trail and idempotence.
+  On a published-snapshot copy, all six ETFs are repaired, five quarantines resolve and invariant regressions fall from six to zero. No touched file is P15-pinned.
+- **Evidence:** `.venv/bin/python -m engine.repair_integrity --db <private-copy> --steps splits --since 2026-11-01 --apply` reports `candidates: 6, proven: 6, rows_changed: 28958`; affected tests and the full suite pass.
+- **Metrics:** server 0, tools 0, product +1 LOC; tests +5 LOC.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

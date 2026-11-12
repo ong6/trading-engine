@@ -26,7 +26,8 @@ Steps (--steps, default all, in this order):
   splits      splits whose stored break the reconciler skipped (`skipped_already_
               adjusted`: ETHA 1:3, CRWU 1:10, whose rule-3 stamps were rewritten by
               the 5d re-fetch before first_fetched_at was preserved; `skipped_
-              sanity`: a real move on the break day) or that a new split row would
+              sanity`: a real move on the break day; `skipped_no_bars`: post-ex
+              bars were unavailable at the first reconcile) or that a new split row would
               restate. Restated through `actions._restate` only when the source's
               current history classifies EVERY stored bar before the break as old
               scale (stored/source = ratio) or already new scale (= 1, kept, e.g.
@@ -73,7 +74,7 @@ MIN_EVIDENCE_BARS = 3
 POST_BREAK_SESSIONS = 10
 MAX_HISTORY_START = "1970-01-01"
 SOURCE_RETRY_S = 10
-SKIPPED_OUTCOMES = ("skipped_already_adjusted", "skipped_sanity")
+SKIPPED_OUTCOMES = ("skipped_already_adjusted", "skipped_sanity", "skipped_no_bars")
 RESTATABLE = ("applied_pending", *SKIPPED_OUTCOMES)
 MISMATCH = "skipped_source_mismatch"
 
