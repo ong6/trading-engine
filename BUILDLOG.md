@@ -5595,7 +5595,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
   Retry only ex-dates from today minus 60 days through today; older skips remain available to manual repair and count once in the run summary without individual age-out logs.
   Keep the three-history bound, complete source proof, refusal watermark/quarantine and successful-restatement idempotence.
 - **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py tests/test_repair_integrity.py` → fairness, expiry, source-proof and existing action tests pass.
-- **Metrics:** measured in the final round-two snapshot.
+- **Metrics:** round-two snapshot: server 0, tools 0, product/engine +22 LOC; tests +91.
 - **Next:** the single runtime-then-P15 re-pin, followed by all requested acceptance checks and reduced rehearsal.
+
+## 2026-11-12 — Finish revision-21 retry fairness acceptance
+
+- **Why:** the orchestrator's round-two starvation and infinite-retry defect is reproduced and admitted into the undeployed revision-21 re-pin.
+- **What:** verify that five permanent refusals cannot hide the provable sixth split, that every member of a 21-row fixed eligible set gets a weekday turn, and that aged-out skips produce no provider fetch or individual age-out log.
+  Re-pin sector/XS and the complete 175-file P15 closure once; E1's recomputed digest and all deployed predecessors stay unchanged. The same reduced real-data rehearsal passes with 122.9156 GiB minimum sampled free space; its sandbox is deleted.
+  Update the checklist's pins and evidence, with the deployment gates still owned by the orchestrator.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error -n 8` and `TZ=Asia/Singapore .venv/bin/python -m pytest -q -W error -n 8` → 6,728 passed each (317.32 s / 313.58 s); affected, Ruff, job/static schedule audits and identity checks pass.
+- **Metrics:** round-two server 0, tools 0, product +22 LOC; the supplied upstream merge also adds tools +118 and tests +181 versus the round-one snapshot.
+- **Next:** orchestrator acceptance and the documented merge/deploy window pre-flights.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

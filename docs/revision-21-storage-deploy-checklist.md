@@ -4,7 +4,7 @@ Branch `r21/integrate` integrates `p24/storage-r18` (`f0282839`, based on `53a86
 main `36d91bb1`, retaining the revision-20 GPT-6.1-Sol model amendment. The 2026-11-11 unblock
 also merges main through `72bc5e78` and the P15-lock (`6b3b69e0`), ETF-verifier/TradingView-mapping
 (`9379457b`) and basis-release (`3dffadf1`) fixes. Status: **awaiting integration acceptance**;
-not deployed. Main through `dd1b1626` adds minute-capture recovery and no-bars split repair selection.
+not deployed. Main through `e02fbabf` (merged at `4b395d91`) adds minute-capture recovery, terminal rejection evidence and no-bars split repair selection.
 The November 12 amendment adds archive capacity and bounded nightly split retry. Trial 375
 compatibility is rehearsed; live-287 signal/settle compatibility is audited. Deployment still
 requires the disk reserve and the explicit TradingView-pause sign-off below.
@@ -95,24 +95,30 @@ The November 12 notes disclose the 120 GiB total archive cap and 90 GiB live-sto
 These are operational capacity settings, not registered statistical values. Nightly retries at most
 three recorded `skipped_no_bars` splits after accepted post-ex bars arrive, through the repair tool's
 complete source-history proof; mismatches/unavailable evidence retain the skip and quarantine.
+Round two rotates groups of at most three by a UTC weekday index matching the Monday–Friday
+nightly. A fixed eligible set gets every turn within ceil(count/3) scheduled nights while eligible.
+The automatic horizon is ex-date through 60 calendar days after it; older skips remain for manual
+repair and appear only as an age-out count in the run summary. No retry ledger or migration is added.
 `source_commit` is the last commit touching a registered file; `code_identity.files` covers the complete imported
 closure; `registration_sha256` uses `canonical_sha256` over the document with that key removed. E1 v8, sector v12
 and XS v23 retain every frozen value and migrate only their deployed digests. Any later pinned-source edit requires
 all affected hashes, source commit and the registration self-hash to be recomputed before acceptance.
 
-One integrated re-pin follows the existing two-commit sequence: freeze runtime literals,
-imported file sets and disclosure (`cbc55e81`), then hash that committed closure into P15
-(`195689ab`). No later registered source edit is included. Final pins: 175 source files;
-`source_commit` `cbc55e81d5b0ce19a2043cf763092f15ef6c7b6c`;
-`registration_sha256` `8b2463c6f6beec036e1dfcdc4c425ea3df46481d3ab27535544c8c8bf16a4433`.
-The full P15 import closure now includes the repair helper and five invariant support modules;
-sector and XS also pin the repair helper reached by reconciliation.
+The round-two integrated re-pin follows the existing two-commit sequence: freeze runtime
+literals and disclosure (`41da99c1`), then hash that committed closure into P15 (`c9f3d4a2`). No later registered
+source edit is included. Final pins: 175 source files;
+`source_commit` `41da99c1169bf124894dcd433942a046076713d5`;
+`registration_sha256` `028159ed70b4bd94982f805cd703ed9445638138a1e2eb8a0deebb7540538d17`.
+The full P15 import closure includes the repair helper and five invariant support modules;
+sector and XS pin the repair helper reached by reconciliation. Their digests change for the fair
+retry selection; E1's freshly recomputed digest is unchanged. Frozen versions and accepted deployed
+predecessors remain unchanged.
 
 | Contract | Version | New digest | Accepted deployed predecessor (unchanged by the revision-20 model amendment) |
 |---|---|---|---|
 | E1 | 8 | `a024cca811e9e185a04ab5306601b1cdb16c261172a33e86aa5a1ad80166fe9d` | `2c8ec5b06a93edbca6104569c1bb5c66514cd6476f209169ca1f6041cd470538` |
-| Sector | 12 | `0c24914f569961806fe028e364119284853a3acd17abfd0c5f44e40b830c634d` | `bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea` |
-| XS | 23 | `651c9b453d36bcfe36225a37d270886fb3cf1d74f44b3817e26902292c0e2765` | `d00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6` |
+| Sector | 12 | `5e3f72322a8c74b84cd0f468a180bb31d93ddbee80149fa5fe733d92d12fae0c` | `bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea` |
+| XS | 23 | `c894547e95293624a174a341b6a64e6e6801577c402a359de7532c9044d4017c` | `d00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6` |
 
 ## Pre-flight (all must hold)
 
@@ -433,6 +439,12 @@ archive.
 
 ## Revision-21 acceptance checks
 
+Round two, on the fair-retry re-pin `c9f3d4a2`, passed **6,728 tests** per full suite,
+zero failures/errors/skips: UTC **317.32 s**, Asia/Singapore **313.58 s**, with warnings
+as errors and eight workers. The affected tier, Ruff, job audit, static schedule and
+registration identity also pass. Focused action/repair tests pass 54 cases; all 18
+focused P15/E1/sector/XS identity cases pass. Only docs/metrics follow this tested source.
+
 At the 2026-11-12 capacity/retry source, both full suites passed **6,717 tests**, zero
 failures/errors/skips: UTC **316.97 s**, Asia/Singapore **306.79 s**, warnings as errors,
 eight workers per suite. The affected tier, Ruff, job audit (22 jobs, no differences),
@@ -445,7 +457,7 @@ Current deploy pre-flights (2026-11-12; refresh live state in the window):
 |---|---|
 | 1 — main contains r21; suites/lint green | Prepared branch green; merge into main remains for the orchestrator. This lane did not push or merge main. |
 | 2 — job/static schedule contracts | PASS. Live `/meta`'s dated 12:08:59 schedule receipt still flags `confirm-287.timer` as not enabled; refresh the host's closed-confirmation inventory/receipt in the window. |
-| 3 — 70 GiB + 3× primary including WAL | PASS at 12:27:31 UTC: 132,153,675,776 bytes free (123.0777 GiB), required 132,101,214,208 (123.0288 GiB). The exact guard passes; remeasure before deployment. |
+| 3 — 70 GiB + 3× primary including WAL | PASS at 12:52:44 UTC: 132,133,576,704 bytes free (123.0590 GiB), required 132,101,214,208 (123.0288 GiB). The exact guard passes; remeasure before deployment. |
 | 4 — permitted, quiescent window; TradingView decision | Pending orchestrator verification and explicit YES/NO tick above. The next full 45-minute weekday calendar block today is 21:00–22:15 UTC, conditional on actual producer/private-reader/queue absence. |
 | 5 — fresh verified off-host backup | November 12 audit cites the 05:40:43 restore-and-push receipt; this lane did not independently retrieve or restore off-host bytes. Verify freshness in the window. |
 | 6 — consumers | New reduced-generation T4 rehearsal PASS; live-287 audit supports compatibility; confirmation timer directly reads disabled/inactive. Repeat window imports, consumer scan and first-generation reader proof before release. |
@@ -514,6 +526,19 @@ when baseline column order is restored), migrate and refresh the three frozen ru
 copy. Delete the verified generation and working store before restoring the original pre-image for the rollback
 check. Validate the restored bytes, catalog and frozen records under the previous main code, then delete the copy.
 Run at niceness 10, with at most four DuckDB threads and at most 8 GB memory; this rehearsal uses 4 GB.
+
+## Round-two fair-retry reduced rehearsal (2026-11-12)
+
+Re-ran the same reduced harness against `c9f3d4a2`, after the weekday rotation and 60-day
+horizon re-pin. The original immutable pre-image and real reduced rows are the same as the
+capacity rehearsal below. Migration ids 0 and 1 pass with catalog `7286ea9b…`.
+Publication `market-20261112T124829071883Z.duckdb` carries schema-2 and schema-1 compatibility;
+hot bytes 9,187,328; two cold parts totaling 2,810,571 bytes. The unchanged T4 reader accepts
+60 November 11 rows, 59 complete feature histories and 60 outcome rows. The exact opened
+hot-file and every generation file verify; stale/future publications refuse as before.
+Minimum sampled /data00 free is 131,979,583,488 bytes (122.9156 GiB), across 376 samples.
+All reserve guards pass. The sandbox and its databases, generation and cohort were removed.
+This reduced reader/publication proof does not replace the whole-store deploy-window gates.
 
 ## Revision-21 capacity/retry reduced rehearsal (2026-11-12)
 
