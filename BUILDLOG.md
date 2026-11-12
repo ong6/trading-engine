@@ -5509,5 +5509,33 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error -n 8` and the same command under `TZ=Asia/Singapore` → 6,700 passed each (270.42 s / 272.77 s); affected tests, Ruff, job audit and static schedule check pass.
 - **Metrics:** session snapshot: server +19 LOC, tools +3, product +137.
 - **Next:** orchestrator acceptance; before deploy, resolve the 44.49 GiB reserve shortfall and the separately disclosed confirmation dependency/reader amendment.
+## 2026-11-12 — Continue minute capture after an invalid chunk
+
+- **Why:** demonstrated defect: `.venv/bin/python -m pytest -q -W error -n 0 tests/test_free_massive_minute.py::test_invalid_middle_chunk_preserves_evidence_and_allows_later_chunks` fails before the fix with `engine.free_sources.FreeSourceError: Massive minute open is invalid`; the middle chunk aborts the manifest.
+- **What:** preserve rejected raw responses before parsing, retain chunk failure context and reasons, and continue to later chunks without loading rejected bars.
+  Retry a failed chunk at most once per run, no sooner than one hour after its last failure, using the shared provider limiter. Finished failures exit 1 with an incomplete summary and no completion marker.
+  Read successful-load keys once and skip those chunks with one resume summary, avoiding repeated raw-page parsing and per-chunk resume logs.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 8` → `[100%]`, exit 0 (6378 tests); the fast tier also exits 0. The rate-limited VIDA probe returns three bars with zero OHLC, correctly rejected.
+- **Metrics:** tools +71 LOC; server/product unchanged (session snapshot).
+- **Next:** nothing admitted.
+
+## 2026-11-12 — Repair splits skipped before post-ex-date bars arrived
+
+- **Why:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_repair_integrity.py::test_skipped_split_is_restated_only_with_source_evidence` fails for `skipped_no_bars`: `assert [] == [('AAA', True), ('BBB', False)]`; a retained no-bars adjustment hides repairable history.
+- **What:** Admit that recorded outcome to the existing split repair selection.
+  Keep the complete source-history proof, mismatch refusal, audit trail and idempotence.
+  On a published-snapshot copy, all six ETFs are repaired, five quarantines resolve and invariant regressions fall from six to zero. No touched file is P15-pinned.
+- **Evidence:** `.venv/bin/python -m engine.repair_integrity --db <private-copy> --steps splits --since 2026-11-01 --apply` reports `candidates: 6, proven: 6, rows_changed: 28958`; affected tests and the full suite pass.
+- **Metrics:** server 0, tools 0, product +1 LOC; tests +5 LOC.
+- **Next:** nothing admitted.
+
+## 2026-11-12 — Merge current main into storage revision 21
+
+- **Why:** the orchestrator admits current main, including minute-capture recovery and no-bars split repair, into the undeployed revision 21.
+- **What:** merge both fixes and current data; retain both sides' BUILDLOG entries in date order.
+  Combine minute failure recovery with revision-21 raw-payload sealing; its inherited plain-file assertion fails with FileNotFoundError on a converted store, so read the preserved bytes through the payload reader.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_free_massive_minute.py tests/test_repair_integrity.py` → 26 passed.
+- **Metrics:** merge includes upstream deltas; integration adaptation unchanged in code LOC.
+- **Next:** archive capacity amendment and bounded no-bars split retry.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

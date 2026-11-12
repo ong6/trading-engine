@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -126,7 +126,8 @@ def test_interrupted_pagination_resumes_at_saved_next_url(tmp_path: Path):
         result = capture.capture_chunk(
             con, manifest_sha256=MANIFEST_SHA, ticker="ABC", start=START, end=END,
             api_key="fixture-secret", data_dir=tmp_path, session=resumed,
-            now=lambda: ALLOWED, rate_limit=lambda: None, sleep=lambda _s: None,
+            now=lambda: ALLOWED + timedelta(seconds=capture.CHUNK_RETRY_SECONDS),
+            rate_limit=lambda: None, sleep=lambda _s: None,
         )
     finally:
         con.close()
@@ -305,6 +306,128 @@ def _fake_run(monkeypatch, tmp_path: Path, chunks: int = 3) -> list:
 def _args(tmp_path: Path, *extra: str) -> list[str]:
     return ["--database", str(tmp_path / "minute.duckdb"), "--data-dir", str(tmp_path / "data"),
             "--daily-database", str(tmp_path / "daily.duckdb"), *extra]
+
+
+def test_invalid_middle_chunk_preserves_evidence_and_allows_later_chunks(tmp_path):
+    manifest = {"manifest_sha256": MANIFEST_SHA,
+                "tickers": [{"ticker": ticker} for ticker in ("ABC", "BAD", "XYZ")],
+                "chunks": [{"start": START.isoformat(), "end": END.isoformat()}],
+                "requests_estimate": 3}
+    invalid = _page("BAD", [_bar(datetime(2026, 9, 28, 9, 30)),
+                            _bar(datetime(2026, 9, 28, 9, 31), o=0)])
+    client = _Session([_page("ABC", [_bar(datetime(2026, 9, 28, 9, 30))]), invalid,
+                       _page("XYZ", [_bar(datetime(2026, 9, 28, 9, 30))])])
+    reservations, events = [], []
+    database, data_dir = tmp_path / "minute.duckdb", tmp_path / "data"
+    result = capture.capture_manifest(
+        manifest, database=database, data_dir=data_dir, api_key="fixture-secret",
+        session=client, now=lambda: ALLOWED, rate_limit=lambda: reservations.append(True),
+        progress=events.append,
+    )
+    assert result["status"] == "incomplete"
+    assert result["completed_chunks"] == 2
+    assert result["failed_chunks"] == 1
+    assert result["reason"] == "finished with 1 failed chunks"
+    assert len(client.calls) == len(reservations) == 3
+    receipt = capture._read_progress(data_dir, "BAD", START, END)
+    failure = receipt["failure"]
+    assert not receipt["complete"] and receipt["pages"] == []
+    assert failure["reason"] == "Massive minute open is invalid"
+    assert failure["manifest_sha256"] == MANIFEST_SHA
+    assert raw_payload.read(data_dir / "raw" / f"{failure['source_sha256']}.json") == invalid
+    assert any(event.get("status") == "failed" and event["ticker"] == "BAD" for event in events)
+    con = duckdb.connect(str(database), read_only=True)
+    try:
+        assert con.execute("SELECT ticker FROM massive_minute_chunks ORDER BY ticker").fetchall() == [
+            ("ABC",), ("XYZ",),
+        ]
+        assert con.execute("SELECT ticker FROM massive_minute_bars ORDER BY ticker").fetchall() == [
+            ("ABC",), ("XYZ",),
+        ]
+    finally:
+        con.close()
+    assert capture.completed_manifest(data_dir) is None
+
+    # A rapid restart skips successful loads and makes no provider calls for the bad chunk.
+    restarted, restarted_events = _Session([]), []
+    result = capture.capture_manifest(
+        manifest, database=database, data_dir=data_dir, api_key="fixture-secret",
+        session=restarted, now=lambda: ALLOWED, rate_limit=lambda: reservations.append(True),
+        progress=restarted_events.append,
+    )
+    assert result["status"] == "incomplete" and result["failed_chunks"] == 1
+    assert result["completed_chunks"] == result["skipped_chunks"] == 2
+    assert restarted.calls == [] and len(reservations) == 3
+    assert len(restarted_events) == 2
+    assert restarted_events[0]["status"] == "resumed"
+    assert restarted_events[1]["deferred"] is True
+
+    # The next eligible run tries the bad chunk once, then finishes incomplete again.
+    retried = _Session([invalid])
+    result = capture.capture_manifest(
+        manifest, database=database, data_dir=data_dir, api_key="fixture-secret",
+        session=retried, now=lambda: ALLOWED + timedelta(seconds=capture.CHUNK_RETRY_SECONDS),
+        rate_limit=lambda: reservations.append(True),
+    )
+    assert result["status"] == "incomplete" and result["failed_chunks"] == 1
+    assert len(retried.calls) == 1 and len(reservations) == 4
+    failures = list(capture._chunk_directory(data_dir, "BAD", START, END).glob("failures/*.json"))
+    assert len(failures) == 2
+    assert all(json.loads(path.read_text())["reason"] == failure["reason"] for path in failures)
+
+    # A corrected provider response clears the active failure while retaining its evidence.
+    corrected = _Session([_page("BAD", [_bar(datetime(2026, 9, 28, 9, 30))])])
+    result = capture.capture_manifest(
+        manifest, database=database, data_dir=data_dir, api_key="fixture-secret",
+        session=corrected, now=lambda: ALLOWED + timedelta(seconds=2 * capture.CHUNK_RETRY_SECONDS),
+        rate_limit=lambda: reservations.append(True),
+    )
+    assert result["status"] == "complete" and result["failed_chunks"] == 0
+    assert result["completed_chunks"] == 3 and len(corrected.calls) == 1
+    assert len(reservations) == 5
+    receipt = capture._read_progress(data_dir, "BAD", START, END)
+    assert receipt["complete"] and "failure" not in receipt
+    assert all(path.exists() for path in failures)
+
+
+def test_failed_second_page_resumes_without_loading_any_rejected_chunk_bars(tmp_path):
+    next_url = "https://api.massive.com/v2/aggs/ticker/ABC/range/1/minute/next"
+    invalid = _page("ABC", [_bar(datetime(2026, 9, 29, 9, 30), o=0)])
+    client = _Session([_page("ABC", [_bar(datetime(2026, 9, 28, 9, 30))], next_url), invalid])
+    con = duckdb.connect()
+    minute.init_schema(con)
+    try:
+        with pytest.raises(free_sources.FreeSourceError, match="open is invalid"):
+            capture.capture_chunk(
+                con, manifest_sha256=MANIFEST_SHA, ticker="ABC", start=START, end=END,
+                api_key="fixture-secret", data_dir=tmp_path, session=client,
+                now=lambda: ALLOWED, rate_limit=lambda: None,
+            )
+        receipt = capture._read_progress(tmp_path, "ABC", START, END)
+        assert len(receipt["pages"]) == 1 and receipt["next_url"] == next_url
+        assert receipt["failure"]["url"] == next_url
+        assert con.execute("SELECT COUNT(*) FROM massive_minute_bars").fetchone() == (0,)
+        resumed = _Session([_page("ABC", [_bar(datetime(2026, 9, 29, 9, 30))])])
+        result = capture.capture_chunk(
+            con, manifest_sha256=MANIFEST_SHA, ticker="ABC", start=START, end=END,
+            api_key="fixture-secret", data_dir=tmp_path, session=resumed,
+            now=lambda: ALLOWED + timedelta(seconds=capture.CHUNK_RETRY_SECONDS),
+            rate_limit=lambda: None,
+        )
+    finally:
+        con.close()
+    assert result["row_count"] == 2
+    assert [call[0] for call in resumed.calls] == [next_url]
+
+
+def test_incomplete_capture_has_distinct_exit_and_no_completion_marker(tmp_path, monkeypatch, capsys):
+    _fake_run(monkeypatch, tmp_path)
+    result = {"status": "incomplete", "manifest_sha256": MANIFEST_SHA,
+              "completed_chunks": 2, "failed_chunks": 1, "reason": "finished with 1 failed chunks"}
+    monkeypatch.setattr(capture, "capture_manifest", lambda *_args, **_kwargs: result)
+    assert capture.main(_args(tmp_path)) == capture.EXIT_INCOMPLETE == 1
+    assert capture.completed_manifest(tmp_path / "data") is None
+    assert json.loads(capsys.readouterr().out.splitlines()[-1]) == result
 
 
 def test_completed_capture_is_marked_and_a_later_start_exits_at_once(tmp_path, monkeypatch, capsys):

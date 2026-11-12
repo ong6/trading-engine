@@ -48,9 +48,11 @@ def _run(path, closes_by_ticker, **kwargs):
                                 source=source, **kwargs)
 
 
-def test_skipped_split_is_restated_only_with_source_evidence(tmp_path):
+@pytest.mark.parametrize("skipped", ["skipped_already_adjusted", "skipped_no_bars"])
+def test_skipped_split_is_restated_only_with_source_evidence(tmp_path, skipped):
     """ETHA 1:3: every pre-break bar sits at stored/source = 1/3 and every later one
-    at 1, but rule 3 read the 5d re-fetch's restamps and skipped the split."""
+    at 1, but rule 3 read the 5d re-fetch's restamps and skipped the split.
+    A no-bars watermark left before post-ex bars arrived must also be repairable."""
     path = tmp_path / "market.duckdb"
     con = _store(path)
     brk = EX_IDX - 3
@@ -60,9 +62,12 @@ def test_skipped_split_is_restated_only_with_source_evidence(tmp_path):
         insert_bars(con, ticker, SESSIONS, close=[20.0 if k < brk else 60.0
                                                    for k in range(len(SESSIONS))])
         _stamp_after_ex(con, ticker)
-        con.execute("INSERT INTO split_adjustments VALUES (?, ?, ?, "
-                    "'skipped_already_adjusted', 0.33, ?, 0, now())",
-                    [ticker, EX, 1 / 3, SESSIONS[brk]])
+        # The first reconcile may have had no post-ex bars; accepted bars now
+        # exist, but the recorded skip still needs the complete source proof.
+        con.execute("INSERT INTO split_adjustments VALUES (?, ?, ?, ?, ?, ?, 0, now())",
+                    [ticker, EX, 1 / 3, skipped,
+                     None if skipped == "skipped_no_bars" else 0.33,
+                     None if skipped == "skipped_no_bars" else SESSIONS[brk]])
     con.close()
     source = {"AAA": [60.0] * len(SESSIONS),
               # BBB's source disagrees on one old bar: not proven, nothing restated.
@@ -77,7 +82,7 @@ def test_skipped_split_is_restated_only_with_source_evidence(tmp_path):
     # as if nothing would be restated).
     assert [(i["reconciler_verdict"], i["action"], i["rows_planned"], i["rows_changed"])
             for i in dry["splits"]] == [("skipped_already_adjusted", "restate", brk, 0),
-                                         ("skipped_already_adjusted", "none", 0, 0)]
+                                       ("skipped_already_adjusted", "none", 0, 0)]
     assert dry["summary"]["splits"] == {"candidates": 2, "proven": 1, "source_unavailable": [],
                                         "rows_planned": brk, "rows_changed": 0}
 
@@ -89,7 +94,7 @@ def test_skipped_split_is_restated_only_with_source_evidence(tmp_path):
     con = db.connect(path, read_only=True)
     try:
         assert con.execute("SELECT ticker, outcome FROM split_adjustments ORDER BY ticker"
-                           ).fetchall() == [("AAA", "applied"), ("BBB", "skipped_already_adjusted")]
+                           ).fetchall() == [("AAA", "applied"), ("BBB", skipped)]
         assert con.execute("SELECT COUNT(*) FROM price_observation_rejects WHERE ticker = 'AAA' "
                            "AND reason = 'split_restatement_predecessor'").fetchone() == (brk,)
         assert con.execute("SELECT actor FROM audit_log WHERE action = "
