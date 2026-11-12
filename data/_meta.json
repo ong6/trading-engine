@@ -83,8 +83,8 @@
     "store_gb": 53.61
   },
   "price_verify": {
-    "last_run": "2026-11-10T22:55:44.633525+00:00",
-    "as_of": "2026-11-10",
+    "last_run": "2026-11-11T23:01:29.162341+00:00",
+    "as_of": "2026-11-11",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -107,12 +107,12 @@
     "bars_compared": 701,
     "field_comparisons": 2804,
     "worst": {
-      "ticker": "EVC",
-      "date": "2026-11-05",
+      "ticker": "IEP",
+      "date": "2026-11-09",
       "field": "high",
-      "store": 7.61,
-      "source": 7.605,
-      "diff_bp": 6.57
+      "store": 4.9,
+      "source": 4.895,
+      "diff_bp": 10.2
     },
     "worst_is_disagreement": false,
     "disagreements": [],
@@ -133,41 +133,31 @@
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
     "volume_bars_compared": 701,
     "newest_session": {
-      "session": "2026-11-10",
+      "session": "2026-11-11",
       "status": "not_checked",
       "reason": "source_lag",
       "names_with_store_bar": 174,
       "names_compared": 0,
-      "source_latest_session": "2026-11-09"
+      "source_latest_session": "2026-11-10"
     },
-    "provisional_note": "on 2026-11-10 (newest stored session) the source had a bar for 0 of 174 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
+    "provisional_note": "on 2026-11-11 (newest stored session) the source had a bar for 0 of 174 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
     "provisional_ohl_median_bp": null,
     "provisional_ohl_max_bp": null,
     "provisional_ohl_over_tolerance": 0,
     "provisional_comparisons": 0,
-    "store_missing_sessions": {
-      "INTC": [
-        "2026-10-30",
-        "2026-11-02",
-        "2026-11-03",
-        "2026-11-04",
-        "2026-11-05",
-        "2026-11-06",
-        "2026-11-09"
-      ]
-    },
-    "n_names_store_missing_sessions": 1,
-    "secs": 103.5,
+    "store_missing_sessions": {},
+    "n_names_store_missing_sessions": 0,
+    "secs": 109.2,
     "evidence_receipt": {
-      "sha256": "f8729bd937fb2921cc40f02f0c4ba487ae5eb33c3ca145fecc8efebbe1b34126",
-      "path": "price-verify/f8729bd937fb2921cc40f02f0c4ba487ae5eb33c3ca145fecc8efebbe1b34126.json",
-      "bytes": 677096
+      "sha256": "87f94977ef363440bd432a0365c09e7d84c7e13bcc1a3ae5d956f0b0be4ecad5",
+      "path": "price-verify/87f94977ef363440bd432a0365c09e7d84c7e13bcc1a3ae5d956f0b0be4ecad5.json",
+      "bytes": 677972
     },
     "name_results_report": {
       "path": "reports/producer-detail/price-verify.json",
       "names": 175,
-      "bytes": 59785,
-      "sha256": "393ede7a4d746377c16cda15f1e97ece4bddcdf2b08cc0ec760b6a24f70594c0"
+      "bytes": 59724,
+      "sha256": "b33f7c7b6a21bd36593e5ec72e8733c4be3dd69dfc1e08181792c4649cfdb604"
     }
   },
   "intraday": {
@@ -195,18 +185,18 @@
     "sources": {
       "squeezemetrics": {
         "status": "ok",
-        "rows_fetched": 7810,
-        "rows_inserted": 2,
+        "rows_fetched": 7814,
+        "rows_inserted": 4,
         "series": [
           "dix",
           "gex"
         ],
-        "secs": 5.2
+        "secs": 11.6
       },
       "vix": {
         "status": "ok",
-        "rows_fetched": 13625,
-        "rows_inserted": 3,
+        "rows_fetched": 13627,
+        "rows_inserted": 2,
         "series": [
           "vix",
           "vix3m"
@@ -215,15 +205,15 @@
       },
       "fred": {
         "status": "ok",
-        "rows_fetched": 100,
-        "rows_inserted": 2,
+        "rows_fetched": 97,
+        "rows_inserted": 0,
         "series": [
           "hy_oas",
           "icsa",
           "nfci",
           "t10y2y"
         ],
-        "secs": 2.2
+        "secs": 3.2
       },
       "putcall": {
         "status": "ok",
@@ -233,7 +223,7 @@
           "pc_equity",
           "pc_total"
         ],
-        "secs": 7.2
+        "secs": 8.0
       },
       "aaii": {
         "status": "ok",
@@ -243,7 +233,7 @@
           "aaii_bear",
           "aaii_bull"
         ],
-        "secs": 44.0
+        "secs": 10.0
       },
       "finra_margin": {
         "status": "ok",
@@ -253,16 +243,16 @@
           "free_credit",
           "margin_debt"
         ],
-        "secs": 1.1
+        "secs": 0.9
       },
       "short_interest": {
         "status": "ok",
         "rows_fetched": 2,
-        "rows_inserted": 1,
+        "rows_inserted": 0,
         "series": [
           "short_interest_dtc"
         ],
-        "secs": 11.9
+        "secs": 15.3
       },
       "cot": {
         "status": "ok",
@@ -271,7 +261,7 @@
         "series": [
           "cot_es_lev_net"
         ],
-        "secs": 3.3
+        "secs": 1.5
       },
       "breadth": {
         "status": "ok",
@@ -282,33 +272,33 @@
           "breadth_pct_200",
           "zweig_ratio"
         ],
-        "secs": 0.7
+        "secs": 0.6
       }
     },
-    "rows_inserted": 13,
+    "rows_inserted": 11,
     "warnings": [],
     "series_totals": {
       "aaii_bear": 2049,
       "aaii_bull": 2049,
-      "breadth_nh_nl": 3735,
-      "breadth_pct_200": 3735,
+      "breadth_nh_nl": 3736,
+      "breadth_pct_200": 3736,
       "cot_es_lev_net": 1065,
-      "dix": 3905,
+      "dix": 3907,
       "free_credit": 200,
-      "gex": 3905,
+      "gex": 3907,
       "hy_oas": 859,
       "icsa": 3122,
       "margin_debt": 357,
       "nfci": 2913,
-      "pc_equity": 4221,
-      "pc_total": 4221,
+      "pc_equity": 4222,
+      "pc_total": 4222,
       "short_interest_dtc": 78,
       "t10y2y": 12608,
-      "vix": 9312,
-      "vix3m": 4313,
-      "zweig_ratio": 3735
+      "vix": 9313,
+      "vix3m": 4314,
+      "zweig_ratio": 3736
     },
-    "last_run": "2026-11-10T22:55:21.822754+00:00",
+    "last_run": "2026-11-11T23:00:36.070220+00:00",
     "store_gb": 53.61
   },
   "earnings": {
@@ -790,7 +780,7 @@
   "snapshot_disk_warning": {
     "snapshots_gb": 35.35,
     "soft_cap_gb": 35.0,
-    "flagged_at": "2026-11-11T22:58:42.153220+00:00",
+    "flagged_at": "2026-11-11T23:43:49.743913+00:00",
     "message": "store/snapshots/ is 35.4 GiB, over the 35 GiB snapshot cap"
   }
 }
