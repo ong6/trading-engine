@@ -798,7 +798,11 @@ credential, account, or capital authority.
 
 Nice-19/ionice for all heavy work; one DuckDB writer at a time, with up to 8 isolated
 read-only replay workers for explicitly `parallel_safe` jobs; load/RAM checks; disk
-watchdog at 60/80 GB; and polite fetch pacing per host. The normal queue drain has a
+watchdog at a 90 GiB live-store soft warning and 120 GiB total-store archive hard cap
+in revision 21 (operational capacity settings on the larger store volume). Archive
+dispatch also requires 70 GiB free plus twice the primary and WAL on their filesystem,
+and keeps the 10 GiB root-disk check. Refused jobs stay pending. Fetch pacing remains
+polite per host. The normal queue drain has a
 4-hour start budget; the Saturday sweep driver raises that to 12 hours. A budget expiry
 stops new jobs and leaves them pending—it never kills an in-flight job. The box has 32
 cores and 62 GiB RAM. EOD, intraday, signals, actions, earnings, and fundamentals network

@@ -5558,4 +5558,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** included in the final session snapshot.
 - **Next:** correct the deploy checklist and re-pin the integrated revision once.
 
+## 2026-11-12 — Correct revision-21 capacity and consumer deploy gates
+
+- **Why:** orchestrator-admitted checklist corrections, backed by the capacity and private-consumer audits.
+- **What:** confirmation 287 is closed by the October 30 commitment on its November 3 PENDING epoch; its timer was disabled today and its frozen code is preserved.
+  Record live-287 compatibility and its diagnostic exception-name change, with read-only window checks; express the deploy reserve as primary plus WAL, and require a new pre-image after today's live split repair.
+  Add the parent-queue archive drain and earnings/Friday evidence verification; expose the TradingView pause as an explicit orchestrator yes/no sign-off.
+- **Evidence:** `git diff --check` → clean; the documented postflight command's help confirms read-only verification and the parent queue command retains normal admission.
+- **Metrics:** code unchanged.
+- **Next:** finalize the single runtime-then-P15 re-pin and repeat rehearsal and acceptance checks.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

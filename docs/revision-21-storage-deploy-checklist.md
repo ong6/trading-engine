@@ -4,13 +4,18 @@ Branch `r21/integrate` integrates `p24/storage-r18` (`f0282839`, based on `53a86
 main `36d91bb1`, retaining the revision-20 GPT-6.1-Sol model amendment. The 2026-11-11 unblock
 also merges main through `72bc5e78` and the P15-lock (`6b3b69e0`), ETF-verifier/TradingView-mapping
 (`9379457b`) and basis-release (`3dffadf1`) fixes. Status: **awaiting integration acceptance**;
-not deployed. Trial 375 compatibility is rehearsed; deploy still needs the disk reserve and
-trial 287's separate dependency/reader amendment below. All database writes were to disposable sandboxes.
+not deployed. Main through `dd1b1626` adds minute-capture recovery and no-bars split repair selection.
+The November 12 amendment adds archive capacity and bounded nightly split retry. Trial 375
+compatibility is rehearsed; live-287 signal/settle compatibility is audited. Deployment still
+requires the disk reserve and the explicit TradingView-pause sign-off below.
+All database writes in this lane were to disposable sandboxes.
 
-**Deploy plan.** Trial 287's first epoch, 2026-11-03 06:30 UTC, has passed; it continues monthly,
-with its next timer run on 2026-12-03 06:30 UTC. The orchestrator must arrange its disclosed
-pre-epoch Nasdaq dependency amendment and generation reader switch before deployment (pre-flight 6).
-Then the orchestrator merges `r21/integrate` into `origin/main` and deploys in one sitting. Never
+**Deploy plan.** Trial 287 confirmation is **CLOSED**. The owner's October 30 pre-commitment
+(private README) closes it on any November 3 result other than PASS; that epoch was PENDING.
+The orchestrator disabled `confirm-287.timer` on 2026-11-12 at about 12:10 UTC. Preserve its
+frozen runner, registration and PENDING ledger; it never runs again and needs no amendment.
+The separately registered live-287 paper signal and settlement remain compatible (pre-flight 6).
+The orchestrator merges `r21/integrate` into `origin/main` and deploys in one sitting. Never
 deploy in 22:15–23:59 or 02:00–04:00 UTC; also avoid the producer/provider windows below.
 
 **Rename.** The storage work formerly numbered revision 20 is revision 21 after main's model amendment.
@@ -74,9 +79,9 @@ Use a new `r21-deploy` state directory. Historical rehearsal entries keep their 
   resolve, DuckDB relation-API persistence (refused at run time by the guard instead), and statements against the
   separate pit/research databases; publication and backup re-verify the exact catalog, so a bypass fails closed there.
 - **Still open:** the off-host remote restore drill (needs a generation-backed bundle committed to the private backup
-  repo); orchestrator sign-off on pausing TradingView history; incremental capture (copy only changed
-  table data) as a follow-up to cut publication I/O; the measured deploy disk shortfall and
-  trial 287 amendment (pre-flights 3 and 6).
+  repo); the explicit yes/no TradingView-pause sign-off in pre-flight 4; incremental capture
+  (copy only changed table data) as a follow-up to cut publication I/O; the deploy disk reserve
+  (pre-flight 3), to be measured again in the window.
 
 ## Revision-21 pins
 
@@ -85,6 +90,11 @@ revision-20 model amendment, efforts and prior GPT-5.6 identities intact. Its re
 backfill, terminal-label, observer-writer and pre-open deadline fixes, the enforced 70 GiB minimum reserve,
 and the schema-1 compatibility, scoring lock deadline, ETF verification, proven provider mappings and
 evidence-based basis release integrated on 2026-11-11 (including the unreported-split residual risk).
+The November 12 notes disclose the 120 GiB total archive cap and 90 GiB live-store soft warning
+(the former 60:80 proportion), plus the store-volume reserve of 70 GiB + 2× primary including WAL.
+These are operational capacity settings, not registered statistical values. Nightly retries at most
+three recorded `skipped_no_bars` splits after accepted post-ex bars arrive, through the repair tool's
+complete source-history proof; mismatches/unavailable evidence retain the skip and quarantine.
 `source_commit` is the last commit touching a registered file; `code_identity.files` covers the complete imported
 closure; `registration_sha256` uses `canonical_sha256` over the document with that key removed. E1 v8, sector v12
 and XS v23 retain every frozen value and migrate only their deployed digests. Any later pinned-source edit requires
@@ -106,17 +116,30 @@ registered source edit is included. Final pins: 169 source files;
 
 1. `main` contains the merged branch at registration revision 21; both timezone suites green; `ruff check .` clean.
 2. `.venv/bin/python -m engine.job_contract audit` → `status: ok`; `python -m tools.schedule_contract_check --static` clean.
-3. Free space ≥ 70 GiB (stricter than the host's 70 GB rule) on the store filesystem (restore reserve) plus 3× store size: the backup, the first generation,
+3. Free space ≥ 70 GiB (stricter than the host's 70 GB rule) on the store filesystem (restore reserve) plus 3× primary size (`market.duckdb` including WAL): the backup, the first generation,
    and publication's transient copy of the primary.
    On 2026-11-11 the primary and published pre-image are each 18,979,762,176 bytes (17.6763 GiB).
    Required free: 132,101,214,208 bytes (123.0288 GiB). The measurement after sandbox cleanup
    has 84,327,514,112 bytes (78.5361 GiB) free: **short by 47,773,700,096 bytes (44.4927 GiB)**.
-   This pre-flight fails today; do not start the real deploy. Re-run `df -B1` and the deploy's
+   That dated measurement failed; background backup compression is reclaiming space on November 12.
+   The final November 12 measurement below does not replace the window gate. Re-run `df -B1` and the deploy's
    `require_free_space(..., need_bytes=3*file_bytes(primary))` immediately before the window;
    the figures move with other jobs and the store. Compatibility adds no store-sized file.
 4. Window outside 22:15–23:59 and 02:00–04:00 UTC every day, and outside
    13:00–21:00 and 07:30–07:50 UTC weekdays; no queue drain running. Allow about 45 minutes
    with producers quiesced (backup create plus verify, migration, first publication; see the rehearsal timings).
+   Account for private readers too: live-287 settle/report Tue–Sat 07:40 and 11:50 UTC,
+   signal weekdays 09:25 New York; T4 Sunday 07:05 signal and Tuesday 06:30 settle;
+   backup starts daily 04:30 and 10:30; weekend queue work starts 06:00. Refresh actual timers,
+   cron and queue state before choosing the window. The scripts do not pause every private reader.
+
+   **Orchestrator decision (tick exactly one before deploy):**
+
+   - [ ] **YES** — accept the revision-21 TradingView-history collection pause; its timer/service
+     stay disabled on release, stored history is retained, and the normal parent queue respects the pause.
+   - [ ] **NO** — hold revision-21 deployment; this checklist does not authorize changing the pause.
+
+   The November 12 lane leaves this decision unticked for the orchestrator.
 5. A fresh verified off-host copy exists (trading-data backup current).
 6. The unmodified trial-375 reader accepts the generation hot file in a reduced-copy rehearsal
    (2026-11-11, below). Publication now includes `schema_version: 1`, `snapshot`, the hot file's
@@ -126,23 +149,31 @@ registered source edit is included. Final pins: 169 source files;
    compatibility must be either absent on an older schema-2 manifest or a complete, matching pair.
    The frozen reader's lines 169–179 check path, name, schema, hash **length** and session-close ≤
    publication ≤ observation. It does not compute the file hash; the rehearsal and r21 pin do.
-   **Remaining gate:** `research/confirm_287.py` still rejects `SnapshotInfo.manifest_schema_version != 1`
-   (lines 488–494) and expects the legacy top-level `size_bytes` (499–504). Before deploy the
-   orchestrator must move that reader to `pin_latest_generation`, retain its pin for the price
-   query, and use the verified hot file size. The stacked ETF fix also changes its frozen
-   `engine/verify_prices.py` hash; lines 273–284 require a disclosed pre-epoch dependency amendment.
-   Its next epoch is December 3 at 06:30 UTC, not a closed trial. This lane edits no private code.
-   Repeat the consumer scan before quiescence. After the first publication, before releasing
-   producers, repeat the frozen-reader and generation verification command below.
+   **Confirmation closure:** its known schema-2 and frozen-verifier refusals are historical diagnostics,
+   no longer a deploy blocker. Confirmation is closed under the owner's pre-result commitment;
+   the orchestrator disabled its timer at about 12:10 UTC today. In the window verify
+   `systemctl --user is-enabled confirm-287.timer` reports `disabled` and
+   `systemctl --user is-active confirm-287.timer` reports `inactive` (each returns nonzero for
+   that expected state); it must not be queued to run. Do not amend or run the frozen confirmation.
+   **Live-287 compatibility:** the November 12 r21-gates audit imported signal/settle and replayed
+   322 cached responses: 315 successful parses, seven errors, no price differences. Its paths never
+   call confirmation's source-pin or snapshot-layout gates. Explicit empty history now reports
+   `fetch_or_parse_error:SourceNoData:…` instead of `fetch_or_parse_error:SourceError:…`; both are
+   missing-price observations caught by `SourceError`, with no substitute fill or new ETF fallback.
+   Repeat the consumer scan and read-only live imports below before quiescence. After first publication,
+   before release, repeat the frozen-reader and generation verification command below.
 7. Inside the window, after quiescence, the deploy script runs `engine.schema_migrations plan` read-only on the live
    primary and stops unless the pre-image is `865f64aa…`.
+   The orchestrator already applied the November 12 live split repair (six iShares ETFs,
+   28,958 bars) after the earlier audit; re-take the migration pre-image in this window rather
+   than reuse the earlier receipt. This lane made no live-store write.
 8. In the same window it counts NULLs, read-only, in the five deployed columns the baseline makes NOT NULL
    (`agent_evaluation_labels.round_trip_cost_bps`, `net_return`, `net_excess_return`;
    `daily_opportunity_execution_quality.post_fill_position_qty`, `post_fill_cash`) and stops before the backup if any
    exists: migration 0000 would refuse such a row and roll back (the reviewer reproduced the refusal). On the
    2026-10-22 copies every one of these is non-NULL.
 
-### Pre-flight 6 consumer inventory (2026-11-11)
+### Pre-flight 6 consumer inventory (November 11 scan, November 12 audit and closure)
 
 The scan covered `~/trading-alpha/live`, `~/trading-data` (including archived files), the user
 systemd units (following links), `crontab -l`, and `~/news-scraper`. The confirmation runner was
@@ -151,10 +182,10 @@ also followed from its installed unit. No private file or unit was edited or exe
 | Consumer | Generation compatibility and remaining action |
 |---|---|
 | `live/t4_forward.py`, `t4-forward-signal.service` (Sunday 07:05 UTC), `t4-forward-settle.service` (Tuesday 06:30 UTC) | Accepted the hot file and schema-1 compatibility fields with the unchanged imported reader. The two frozen simulator files still match main and their private receipt. Retention keeps latest plus one predecessor; this short reader resolves once and opens read-only. |
-| `research/confirm_287.py`, `confirm-287.service`/timer | **Refuses** schema-2 at lines 488–494, before its legacy size check. Needs the separately disclosed generation reader/pin lifetime and Nasdaq-client dependency amendment above before December 3. Both refusals were reproduced without running an epoch. |
+| `research/confirm_287.py`, `confirm-287.service`/timer | **CLOSED**, November 3 PENDING triggered the October 30 owner commitment; timer disabled by the orchestrator November 12 ~12:10 UTC. Preserve frozen bytes and the ledger; no future epoch or amendment. Verify inactive/disabled in the window. |
 | `trading-data/alpha-work/live-287/prepare_measurement.py:54` | Historical one-shot measurement preparation; resolves latest and reads `universe`, which remains hot. Its query succeeded on the generation (12,892 rows); no manifest-version check. The archived script contains literal `~` paths, so standalone path expansion/setup is still required; it was not run. |
 | `trading-data/backup.py`, `trading-data-backup.service` | Delegates create/verify to the installed engine backup tool; no direct schema-1 snapshot reader. r21 has generation-aware backup verification; the existing locked-primary fallback remains a primary copy. No live backup or off-host restore was run here; its disk reserve remains required. |
-| `live/gap_fade_live.py`, `live/trade_intents.py`, `trading-data/evidence_archive.py` | Their `schema_version: 1` fields describe intent/credential-proof formats, not market manifests. Gap-fade imports confirmation's Nasdaq helpers, not its market snapshot resolver. No generation-layout switch is needed for these paths. |
+| `live/gap_fade_live.py` signal/settle/report, `live/trade_intents.py`, `trading-data/evidence_archive.py` | Compatible in the November 12 import/cache audit. Gap-fade uses confirmation's Nasdaq helpers, never the monthly gates. One missing-price exception-name diagnostic changes to `SourceNoData`; prices and refusal semantics match. Intent schemas are separate from market manifests. Verify imports in the window and observe the first normal signal/settle/report after release. |
 | User units, crontab, news scraper | The units route to the three consumers above; crontab's engine jobs and scraper have no additional direct latest/manifest reader. Engine readers use r21's tested generation API. The scraper has no market snapshot reference. Archived documentation mentions are not scheduled consumers. |
 
 Run this **after the first generation publication and before release**, from the deployed
@@ -185,6 +216,21 @@ with pin_latest_generation(Path("store/market.duckdb")) as info:
         rows = con.execute("SELECT COUNT(*) FROM prices WHERE date=?", [latest]).fetchone()[0]
     assert rows > 0 and info.manifest_schema_version == 2
     print("trial 375 accepted; hot hash and generation files verified; latest session", latest, "rows", rows)
+PY
+```
+
+Read-only live-287 import check from the deployed checkout before release (no signal,
+settlement, report, export or provider call):
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B - <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path.home()/"trading-alpha/live"))
+import gap_fade_live, massive_287, trade_intents
+from engine.verify_prices import SourceError, SourceNoData
+assert issubclass(SourceNoData, SourceError)
+print("live-287 signal/settle imports accepted; SourceNoData remains a SourceError")
 PY
 ```
 
@@ -296,6 +342,24 @@ nice -n 10 .venv/bin/python -m tools.backup_database remote-restore-drill \
   --scratch-parent "$P21_RESTORE_SCRATCH"
 ```
 
+After release, drain pending archive jobs **1006/1007/1009/1014** (TradingView history,
+intraday, earnings and fundamentals) through the normal parent queue in an available producer
+window. Recheck the store cap and 70 GiB + 2× primary/WAL reserve; preserve failed attempts.
+The normal budget can require several windows. A `PARTIAL:` result means work remains pending;
+repeat in the next permitted window. The TradingView collection pause stays in force; check its
+reported disposition under that policy. Never bypass parent admission with the child `--run-one`.
+
+```bash
+.venv/bin/python -m engine.queue_runner --run --kinds earnings,fundamentals,intraday,tradingview_history --jobs 1 --report-partial
+.venv/bin/python -m engine.queue_runner --status
+.venv/bin/python -m tools.verify_friday_postflight --dry-run  # after the first normal Friday nightly
+```
+
+Verify all four job dispositions through the queue, and query `SELECT MAX(as_of) FROM earnings_calendar`
+on the primary in a normal read-only window: it must advance beyond October 30 and meet Friday
+postflight's freshness rule. Retain queue and postflight receipts; the first normal Friday
+postflight after release must have no stale-earnings failure. This lane runs no live queue or postflight.
+
 After release, refetch wider real provider history for INTC and IOVA, including at least twenty
 unchanged stored sessions before the held break and the break itself. Check the completed action
 fetch and the release receipt under the integrated basis rule; the short five-day nightly fetch
@@ -388,8 +452,8 @@ git diff --exit-code origin/main -- sim/execution.py sim/nyse.py
 Registration identity passes for its one registration that pins code. The static schedule check passes with the
 existing disclosed P15-scoring restart-loop exception. The final diff leaves both trial-375 simulator files and
 the model client byte-identical to main. `engine/verify_prices.py` now includes the admitted ETF
-fallback and is registered in revision 21; trial 287's prior verifier pin needs its disclosed
-dependency amendment. No frozen trial-375 simulator source moved.
+fallback and is registered in revision 21; confirmation 287 stays closed with its frozen
+verifier pin preserved. No frozen trial-375 simulator source moved.
 
 ## Publication I/O (measured 2026-10-23)
 
@@ -430,7 +494,7 @@ copy. Delete the verified generation and working store before restoring the orig
 check. Validate the restored bytes, catalog and frozen records under the previous main code, then delete the copy.
 Run at niceness 10, with at most four DuckDB threads and at most 8 GB memory; this rehearsal uses 4 GB.
 
-## Revision-21 unblock rehearsal results (2026-11-11)
+## Historical revision-21 unblock rehearsal results (2026-11-11)
 
 A full copy could not retain 70 GiB free: the published pre-image alone is 17.6763 GiB, against
 about 8.4 GiB above the reserve. This was a **reduced-copy publication and reader rehearsal**,
@@ -468,8 +532,8 @@ and calls the unmodified imported `Snapshot`, `features`, `outcomes` and r21 pin
 | `T4_ACCEPTED` | `hash_verified: true`, `freshness_verified: true`; latest session `2026-11-10`, 59 rows; 59 complete 253-session feature histories and 59 outcome rows |
 | `T4_REFUSAL` | Both stale and future publications still refuse: `stale snapshot or publication from the future` |
 | `GENERATION_ACCEPTED` | All referenced files byte-verified; two cold parts; schema-2 pin retained |
-| `CONFIRM_287_REFUSES` | `the published engine snapshot is a manifest-schema-2 generation; this runner reads only the single-file schema-1 snapshot. Move it to engine.lib.snapshots.pin_latest_generation before the epoch runs` |
-| `CONFIRM_287_DEPENDENCY_REFUSES` | `the frozen Nasdaq client changed: engine/verify_prices.py hashes` the integrated ETF client; `a new pin needs a disclosed pre-epoch dependency amendment` |
+| Historical `CONFIRM_287_REFUSES` (confirmation now closed) | `the published engine snapshot is a manifest-schema-2 generation; this runner reads only the single-file schema-1 snapshot. Move it to engine.lib.snapshots.pin_latest_generation before the epoch runs` |
+| Historical `CONFIRM_287_DEPENDENCY_REFUSES` (no amendment allowed) | `the frozen Nasdaq client changed: engine/verify_prices.py hashes` the integrated ETF client; `a new pin needs a disclosed pre-epoch dependency amendment` |
 | `RESOURCES` | Minimum sampled free space 84,028,370,944 bytes (78.2575 GiB), 462 samples; all copy guards passed |
 | Cleanup | Sandbox checkout, database, generations, cold parts and copied cohort removed; only text/code receipts retained |
 
