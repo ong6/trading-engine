@@ -19,7 +19,7 @@ import pandas as pd
 import pytest
 from conftest import SESSIONS, insert_bars
 
-from engine import actions, collect
+from engine import actions, collect, repair_integrity
 from engine.lib import db
 from sim import corp_actions_shakedown, portfolio
 from sim.schema import INITIAL_CASH, init_sim_schema
@@ -825,3 +825,73 @@ def test_reconcile_restating_the_split_clears_the_scan_quarantine(con):
     assert con.execute("SELECT outcome FROM split_adjustments WHERE ticker = 'IESC'"
                        ).fetchone()[0] == "applied"
     assert _quarantine(con) == {}
+
+
+@pytest.mark.parametrize("source_result", ["proven", "mismatch", "missing", "exception", "no_post"])
+def test_nightly_retries_no_bars_skip_only_with_complete_source_proof(
+    con, monkeypatch, source_result,
+):
+    from engine import price_quarantine
+
+    db.init_schema(con)
+    db.init_actions_schema(con)
+    init_sim_schema(con)
+    dates = SESSIONS[:EX_IDX] if source_result == "no_post" else SESSIONS
+    insert_bars(con, TK, dates, close=[PRE if d < EX else POST for d in dates])
+    con.execute("INSERT INTO universe (ticker,yf_ticker,active,liquid) VALUES (?, ?, TRUE, TRUE)",
+                [TK, TK])
+    con.execute("INSERT INTO corporate_actions VALUES (?, ?, 'split', ?, 'yfinance', now())",
+                [TK, EX, RATIO])
+    con.execute("INSERT INTO split_adjustments VALUES (?, ?, ?, 'skipped_no_bars', NULL, NULL, 0, now())",
+                [TK, EX, RATIO])
+    price_quarantine.set_quarantine(con, TK, reason=actions.QUARANTINE_SPLIT,
+                                         evidence="recorded no-bars skip")
+    before = {table: con.execute(f"SELECT * FROM {table}").fetchall()
+              for table in ("prices", "split_adjustments", "price_quarantine", "audit_log")}
+    calls = []
+
+    def source(yf, ticker, start):
+        calls.append((yf, ticker, start))
+        if source_result == "exception":
+            raise RuntimeError("source unavailable")
+        if source_result == "missing":
+            return {}
+        history = dict.fromkeys(SESSIONS, POST)
+        if source_result == "mismatch":
+            history[SESSIONS[0]] = POST * 1.1
+        return history
+
+    monkeypatch.setattr(repair_integrity, "source_closes", source)
+    summary = actions.reconcile(con)
+    if source_result == "proven":
+        assert summary["rows_restated"] == EX_IDX
+        assert _verdict(con) == ("applied", EX, EX_IDX)
+        assert list(_closes(con).values()) == pytest.approx([POST] * len(SESSIONS))
+        assert _quarantine(con) == {}
+        assert con.execute("SELECT COUNT(*) FROM price_observation_rejects "
+                           "WHERE reason='split_restatement_predecessor'").fetchone() == (EX_IDX,)
+        after = {table: con.execute(f"SELECT * FROM {table}").fetchall() for table in before}
+        actions.reconcile(con)
+        assert len(calls) == 1
+        assert after == {table: con.execute(f"SELECT * FROM {table}").fetchall() for table in before}
+    else:
+        assert summary["rows_restated"] == 0
+        assert before == {table: con.execute(f"SELECT * FROM {table}").fetchall() for table in before}
+    assert len(calls) == (0 if source_result == "no_post" else 1)
+
+
+def test_nightly_no_bars_source_retry_is_bounded(con, monkeypatch):
+    db.init_schema(con)
+    db.init_actions_schema(con)
+    for k in range(8):
+        ticker = f"NAME{k}"
+        insert_bars(con, ticker, SESSIONS, close=_step(EX_IDX, PRE, POST))
+        con.execute("INSERT INTO split_adjustments VALUES (?, ?, ?, 'skipped_no_bars', NULL, NULL, 0, now())",
+                    [ticker, EX, RATIO])
+    calls = []
+    monkeypatch.setattr(repair_integrity, "source_closes",
+                        lambda yf, ticker, start: calls.append(ticker) or {})
+    actions.reconcile(con)
+    assert calls == ["NAME0", "NAME1", "NAME2"]
+    assert con.execute("SELECT COUNT(*) FROM split_adjustments WHERE outcome='skipped_no_bars'"
+                       ).fetchone() == (8,)

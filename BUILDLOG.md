@@ -5548,4 +5548,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** included in the final session snapshot.
 - **Next:** bounded nightly retry for no-bars split skips.
 
+## 2026-11-12 — Retry no-bars split skips after accepted bars arrive
+
+- **Why:** admitted revision-21 retry; `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py -k 'nightly_retries_no_bars or nightly_no_bars_source'` fails: proven history leaves `rows_restated=0`, and the retry source-call list is empty.
+- **What:** retry at most three recorded no-bars splits per reconciliation, only after accepted post-ex-date bars exist.
+  Reuse repair-integrity candidate, full-history proof and application helpers; mismatch, empty history or source failure keeps the skip and quarantine and logs the refusal. No outer provider retry loop.
+  Successful restatement resolves the split quarantine and preserves originals; later reconciliation is idempotent.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py tests/test_repair_integrity.py` → proof, refusal, no-post-bar, bound and idempotence cases pass.
+- **Metrics:** included in the final session snapshot.
+- **Next:** correct the deploy checklist and re-pin the integrated revision once.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
