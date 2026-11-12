@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Build and run the resumable P3 Massive free minute-bar capture.
 
-The capture is finite. When every chunk of the frozen manifest is stored it writes
-``capture-complete.json`` (the manifest identity) in the data directory, and a later start
-for the same manifest exits 0 at once; its user unit does not start while that file exists.
+The capture is finite. When every chunk is loaded or terminally rejected it writes
+``capture-complete.json`` with an explicit completion status and any rejections. A later
+start for the same manifest exits 0; its unit does not start while that file exists.
 ``--max-runtime-hours`` pauses between chunks once the run is that old and exits 75 (resume
 later); the unit restarts it, so the capture keeps a bounded run without a failed result.
-Rejected chunks retain their evidence and do not stop later chunks. A finished manifest with
-failures exits 1 without a completion marker; each failed chunk is retried at most once per
-run, no sooner than one hour after its last failure, through the shared provider limiter.
+Rejected chunks retain their evidence and do not stop later chunks. Cooldown-only work
+waits until due within the runtime bound, otherwise pauses. Three identical parser
+rejections spanning at least 48 hours become terminal; only --retry-terminal retries them.
 """
 from __future__ import annotations
 
@@ -36,6 +36,8 @@ COMPLETE_FILE = "capture-complete.json"
 EXIT_PAUSED = 75
 EXIT_INCOMPLETE = 1
 CHUNK_RETRY_SECONDS = 3600
+TERMINAL_MIN_ATTEMPTS = 3
+TERMINAL_MIN_SECONDS = 48 * 3600
 HTTP_TIMEOUT_SECONDS = 60
 # Until this branch reaches the daily service, leave its two ten-call starts uncontested.
 DAILY_HANDOFF_WINDOWS = (
@@ -215,6 +217,38 @@ def _cached_pages(data_dir: Path, progress: dict) -> list[tuple[bytes, datetime]
     ]
 
 
+def _terminal_result(progress: dict) -> dict:
+    return {"status": "rejected_terminal",
+            **{key: progress[key] for key in ("ticker", "start", "end")},
+            **progress["rejected_terminal"]}
+
+
+def _record_rejection(directory: Path, progress: dict, failure: dict, evidence_sha: str) -> None:
+    """Track consecutive parser rejections; older evidence never implies new attempts."""
+    if not failure["parser_rejection"] or failure["source_sha256"] is None:
+        progress.pop("rejection_attempts", None)
+        return
+    attempts = progress.get("rejection_attempts", [])
+    if attempts and any(attempts[-1][key] != failure[key]
+                        for key in ("source_sha256", "reason")):
+        attempts = []
+    attempts.append({"attempted_at": failure["fetched_at"],
+                     "source_sha256": failure["source_sha256"], "reason": failure["reason"],
+                     "failure_evidence_sha256": evidence_sha})
+    progress["rejection_attempts"] = attempts
+    span = (datetime.fromisoformat(attempts[-1]["attempted_at"])
+            - datetime.fromisoformat(attempts[0]["attempted_at"])).total_seconds()
+    if len(attempts) < TERMINAL_MIN_ATTEMPTS or span < TERMINAL_MIN_SECONDS:
+        return
+    decision = {"status": "rejected_terminal", "manifest_sha256": failure["manifest_sha256"],
+                **{key: failure[key] for key in ("ticker", "start", "end", "reason")},
+                "decided_at": failure["failed_at"], "attempts": attempts}
+    body = (json.dumps(decision, sort_keys=True) + "\n").encode()
+    sha = hashlib.sha256(body).hexdigest()
+    daily_capture._write_private_atomic(directory / "rejections" / f"{sha}.json", body)
+    progress["rejected_terminal"] = {"reason": failure["reason"], "evidence_sha256": sha}
+
+
 def _validate_next_url(url: str) -> None:
     parsed = urlparse(url)
     if (parsed.scheme != "https" or parsed.netloc != "api.massive.com"
@@ -259,6 +293,7 @@ def capture_chunk(
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     rate_limit: Callable[[], object] | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    retry_terminal: bool = False,
 ) -> dict:
     directory = _chunk_directory(data_dir, ticker, start, end)
     receipt_path = directory / "receipt.json"
@@ -267,11 +302,20 @@ def capture_chunk(
     encoded = quote(ticker, safe="")
     first_url = ENDPOINT.format(ticker=encoded, start=start.isoformat(), end=end.isoformat())
     url, source_sha, fetched_at = first_url, None, None
-    loading = False
+    loading, parsing = False, False
     try:
         saved = _read_progress(data_dir, ticker, start, end)
         if saved is not None:
             progress = saved
+        terminal = progress.get("rejected_terminal")
+        if terminal is not None:
+            if not retry_terminal:
+                return _terminal_result(progress)
+            # The explicit retry starts new evidence; the old decision file is retained.
+            progress.pop("rejected_terminal")
+            progress.pop("rejection_attempts", None)
+            progress.pop("failure", None)
+            _write_progress(receipt_path, progress)
         failure = progress.get("failure")
         if failure is not None and now() < datetime.fromisoformat(failure["retry_after"]):
             return {"status": "failed", "ticker": ticker, "start": start.isoformat(),
@@ -290,7 +334,10 @@ def capture_chunk(
                 source_sha = hashlib.sha256(body).hexdigest()
                 daily_capture._write_private_atomic(data_dir / "raw" / f"{source_sha}.json", body)
             body = daily_capture._response_body(response, "Massive minute")
+            parsing = True
             _, next_url = minute.parse_page(body, ticker=ticker, start=start, end=end)
+            parsing = False
+            progress.pop("rejection_attempts", None)
             if next_url is not None:
                 _validate_next_url(next_url)
             progress["pages"].append({"fetched_at": fetched_at.isoformat(),
@@ -314,17 +361,21 @@ def capture_chunk(
         failure = {"manifest_sha256": manifest_sha256, "ticker": ticker,
                    "start": start.isoformat(), "end": end.isoformat(), "reason": str(exc),
                    "failed_at": failed_at.isoformat(), "source_sha256": source_sha,
+                   "parser_rejection": parsing,
                    "fetched_at": None if fetched_at is None else fetched_at.isoformat(),
                    "url": url, "pages": list(progress["pages"]),
                    "retry_after": (failed_at + timedelta(seconds=CHUNK_RETRY_SECONDS)).isoformat()}
         evidence = (json.dumps(failure, sort_keys=True) + "\n").encode()
         evidence_sha = hashlib.sha256(evidence).hexdigest()
         daily_capture._write_private_atomic(directory / "failures" / f"{evidence_sha}.json", evidence)
+        _record_rejection(directory, progress, failure, evidence_sha)
         if loading:
             # A whole-chunk rejection (such as overlapping pages) needs a fresh fetch.
             progress["pages"], progress["next_url"] = [], None
         progress["complete"], progress["failure"] = False, failure
         _write_progress(receipt_path, progress)
+        if "rejected_terminal" in progress:
+            return _terminal_result(progress)
         raise
 
 
@@ -337,17 +388,30 @@ def capture_manifest(
     progress: Callable[[dict], None] | None = None,
     monotonic: Callable[[], float] | None = None,
     max_runtime_seconds: float | None = None,
+    retry_terminal: bool = False,
 ) -> dict:
     monotonic = monotonic or time.monotonic
     client = session or requests.Session()
     deadline = None if max_runtime_seconds is None else monotonic() + max_runtime_seconds
     database.parent.mkdir(parents=True, exist_ok=True)
     con = db.connect(database, wait_s=0)
-    completed, failed, skipped = 0, 0, 0
+    completed, skipped = 0, 0
+    failures: dict[tuple, dict] = {}
+    rejections: dict[tuple, dict] = {}
 
     def summary(status: str) -> dict:
-        return {"status": status, "completed_chunks": completed, "failed_chunks": failed,
+        return {"status": status, "completed_chunks": completed, "failed_chunks": len(failures),
+                "rejected_terminal_chunks": len(rejections), "rejections": list(rejections.values()),
                 "skipped_chunks": skipped, "manifest_sha256": manifest["manifest_sha256"]}
+
+    def wait_until(resume_at: datetime) -> bool:
+        wait = max(0.0, (resume_at - daily_capture._aware_utc(
+            now(), "capture timestamp"
+        )).total_seconds())
+        if deadline is not None and monotonic() + wait >= deadline:
+            return False
+        sleep(wait)
+        return True
 
     try:
         minute.init_schema(con)
@@ -360,44 +424,59 @@ def capture_manifest(
                        date.fromisoformat(chunk["end"])) in loaded
                       for item in manifest["tickers"] for chunk in manifest["chunks"])
         completed = skipped
+        pending = []
+        for item in manifest["tickers"]:
+            for chunk in manifest["chunks"]:
+                key = (item["ticker"], date.fromisoformat(chunk["start"]),
+                       date.fromisoformat(chunk["end"]))
+                if key in loaded:
+                    continue
+                saved = _read_progress(data_dir, *key)
+                if saved is not None and "rejected_terminal" in saved:
+                    rejections[key] = {k: v for k, v in _terminal_result(saved).items()
+                                       if k != "status"}
+                    if not retry_terminal:
+                        continue
+                if saved is not None and "failure" in saved:
+                    failures[key] = saved["failure"]
+                pending.append(key)
         if progress is not None and skipped:
             progress({**summary("resumed"), "total_chunks": manifest["requests_estimate"]})
-        for ticker_item in manifest["tickers"]:
-            ticker = ticker_item["ticker"]
-            for chunk in manifest["chunks"]:
-                start, end = date.fromisoformat(chunk["start"]), date.fromisoformat(chunk["end"])
-                if (ticker, start, end) in loaded:
+        while pending:
+            remaining = []
+            for key in pending:
+                ticker, start, end = key
+                failure = failures.get(key)
+                if (failure is not None and not (retry_terminal and key in rejections)
+                        and now() < datetime.fromisoformat(failure["retry_after"])):
+                    remaining.append(key)
+                    if progress is not None:
+                        progress({**summary("failed"), "ticker": ticker,
+                                  "start": start.isoformat(), "end": end.isoformat(),
+                                  "reason": failure["reason"], "deferred": True,
+                                  "retry_after": failure["retry_after"]})
                     continue
                 if deadline is not None and monotonic() >= deadline:
                     return summary("paused")
                 if not _minute_network_permitted(now()):
-                    resume_at = _next_permitted(now())
-                    wait = max(0.0, (resume_at - daily_capture._aware_utc(
-                        now(), "capture timestamp"
-                    )).total_seconds())
-                    # Pause rather than sleep through a no-call window past the bound.
-                    if deadline is not None and monotonic() + wait >= deadline:
+                    if not wait_until(_next_permitted(now())):
                         return summary("paused")
-                    sleep(wait)
                 try:
                     try:
                         result = capture_chunk(
                             con, manifest_sha256=manifest["manifest_sha256"], ticker=ticker,
                             start=start, end=end, api_key=api_key, data_dir=data_dir,
                             session=client, now=now, rate_limit=rate_limit, sleep=sleep,
+                            retry_terminal=retry_terminal,
                         )
                     except MinuteWindowClosed:
-                        resume_at = _next_permitted(now())
-                        wait = max(0.0, (resume_at - daily_capture._aware_utc(
-                            now(), "capture timestamp"
-                        )).total_seconds())
-                        if deadline is not None and monotonic() + wait >= deadline:
+                        if not wait_until(_next_permitted(now())):
                             return summary("paused")
-                        sleep(wait)
                         result = capture_chunk(
                             con, manifest_sha256=manifest["manifest_sha256"], ticker=ticker,
                             start=start, end=end, api_key=api_key, data_dir=data_dir,
                             session=client, now=now, rate_limit=rate_limit, sleep=sleep,
+                            retry_terminal=retry_terminal,
                         )
                 except MinuteWindowClosed:
                     return summary("paused")
@@ -405,35 +484,67 @@ def capture_manifest(
                     result = {"status": "failed", "ticker": ticker, "start": start.isoformat(),
                               "end": end.isoformat(), "reason": str(exc)}
                 if result.get("status") == "failed":
-                    failed += 1
+                    saved = _read_progress(data_dir, *key)
+                    if saved is None or "failure" not in saved:
+                        return {**summary("incomplete"), "reason": result["reason"]}
+                    failures[key] = saved["failure"]
+                    rejections.pop(key, None)
+                    remaining.append(key)
+                elif result.get("status") == "rejected_terminal":
+                    failures.pop(key, None)
+                    rejections[key] = {k: v for k, v in result.items() if k != "status"}
                 else:
+                    failures.pop(key, None)
+                    rejections.pop(key, None)
                     completed += 1
                 if progress is not None:
-                    progress({**result, "completed_chunks": completed, "failed_chunks": failed,
+                    progress({**summary(result.get("status", "loaded")), **result,
                               "total_chunks": manifest["requests_estimate"]})
+            pending = remaining
+            if pending:
+                earliest = min(datetime.fromisoformat(failures[key]["retry_after"])
+                               for key in pending)
+                if not wait_until(earliest):
+                    return summary("paused")
     finally:
         con.close()
         if session is None:
             client.close()
-    if failed:
-        return {**summary("incomplete"), "reason": f"finished with {failed} failed chunks"}
-    return summary("complete")
+    return summary("complete_with_rejections" if rejections else "complete")
 
 
 def completed_manifest(data_dir: Path) -> str | None:
-    """The manifest identity recorded as completely captured, or None."""
+    """The manifest identity of a clean full capture, or None."""
+    payload = _completion(data_dir)
+    if payload is None or payload["status"] != "complete":
+        return None
+    return payload["manifest_sha256"]
+
+
+def _completion(data_dir: Path) -> dict | None:
     try:
         payload = json.loads((data_dir / COMPLETE_FILE).read_text())
     except (OSError, ValueError):
         return None
     value = payload.get("manifest_sha256") if isinstance(payload, dict) else None
-    return value if isinstance(value, str) and free_sources.SHA256.fullmatch(value) else None
+    if not isinstance(value, str) or free_sources.SHA256.fullmatch(value) is None:
+        return None
+    status = payload.get("status", "complete")
+    if status not in {"complete", "complete_with_rejections"}:
+        return None
+    if status == "complete" and (payload.get("rejections") or payload.get("rejected_terminal_chunks")):
+        return None
+    return {**payload, "status": status}
 
 
 def _mark_complete(data_dir: Path, result: dict) -> None:
     payload = {"manifest_sha256": result["manifest_sha256"],
+               "status": result["status"],
                "completed_chunks": result["completed_chunks"],
                "completed_at": datetime.now(timezone.utc).isoformat()}
+    if result["status"] == "complete_with_rejections":
+        payload.update(rejected_terminal_chunks=result["rejected_terminal_chunks"],
+                       rejections=result["rejections"])
     daily_capture._write_private_atomic(
         data_dir / COMPLETE_FILE, (json.dumps(payload, sort_keys=True) + "\n").encode()
     )
@@ -456,6 +567,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--priority-tickers", type=Path)
     parser.add_argument("--priority-json", type=Path)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--retry-terminal", action="store_true",
+                        help="retry terminal chunks, retaining their earlier decision evidence")
     parser.add_argument("--max-runtime-hours", type=float,
                         help="pause between chunks after this long and exit 75 to resume later")
     args = parser.parse_args(argv)
@@ -470,19 +583,24 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(_summary(manifest), sort_keys=True), flush=True)
         if args.prepare_only:
             return 0
-        if completed_manifest(args.data_dir) == manifest["manifest_sha256"]:
-            print(json.dumps({"status": "complete", "reason": "capture already complete",
-                              "manifest_sha256": manifest["manifest_sha256"]},
+        completion = _completion(args.data_dir)
+        if (completion is not None and completion["manifest_sha256"] == manifest["manifest_sha256"]
+                and not args.retry_terminal):
+            print(json.dumps({**completion, "reason": "capture already complete"},
                              sort_keys=True), flush=True)
             return 0
+        if args.retry_terminal:
+            # A paused operator retry must not leave a stale marker stopping the unit.
+            (args.data_dir / COMPLETE_FILE).unlink(missing_ok=True)
         api_key = daily_capture._load_massive_key()
         result = capture_manifest(
             manifest, database=args.database, data_dir=args.data_dir, api_key=api_key,
             progress=lambda item: print(json.dumps(item, sort_keys=True), flush=True),
             max_runtime_seconds=(None if args.max_runtime_hours is None
                                  else args.max_runtime_hours * 3600),
+            retry_terminal=args.retry_terminal,
         )
-        if result["status"] == "complete":
+        if result["status"] in {"complete", "complete_with_rejections"}:
             _mark_complete(args.data_dir, result)
         print(json.dumps(result, sort_keys=True), flush=True)
         if result["status"] == "paused":

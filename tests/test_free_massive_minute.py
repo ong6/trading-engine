@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import multiprocessing
 from datetime import date, datetime, timedelta, timezone
@@ -300,6 +301,185 @@ def _args(tmp_path: Path, *extra: str) -> list[str]:
             "--daily-database", str(tmp_path / "daily.duckdb"), *extra]
 
 
+def _reject_at(con, tmp_path, body, hours):
+    return capture.capture_chunk(
+        con, manifest_sha256=MANIFEST_SHA, ticker="ABC", start=START, end=END,
+        api_key="fixture-secret", data_dir=tmp_path, session=_Session([body]),
+        now=lambda: ALLOWED + timedelta(hours=hours), rate_limit=lambda: None,
+    )
+
+
+def test_cooldown_only_remainder_pauses_with_exit_75(tmp_path, monkeypatch, capsys):
+    manifest = {"manifest_sha256": MANIFEST_SHA, "tickers": [{"ticker": "ABC"}],
+                "chunks": [{"start": START.isoformat(), "end": END.isoformat()}],
+                "requests_estimate": 1, "ticker_count": 1,
+                "runtime_at_five_per_minute_hours": 0.0, "window": {}}
+    con = duckdb.connect()
+    try:
+        with pytest.raises(free_sources.FreeSourceError):
+            _reject_at(con, tmp_path / "data", _page("ABC", [_bar(
+                datetime(2026, 9, 28, 9, 30), o=0)]), 0)
+    finally:
+        con.close()
+    monkeypatch.setattr(capture, "prepare_manifest", lambda **_kwargs: manifest)
+    monkeypatch.setattr(daily_capture, "_load_massive_key", lambda: "k")
+    monkeypatch.setattr(capture, "_minute_network_permitted", lambda _now: True)
+    actual_capture = capture.capture_manifest
+    client, sleeps = _Session([]), []
+
+    def run(*args, **kwargs):
+        return actual_capture(*args, **kwargs, session=client, now=lambda: ALLOWED,
+                              sleep=sleeps.append)
+
+    monkeypatch.setattr(capture, "capture_manifest", run)
+    assert capture.main(_args(tmp_path, "--max-runtime-hours", "0.01")) == 75
+    result = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert result["status"] == "paused" and result["failed_chunks"] == 1
+    assert client.calls == sleeps == []
+    assert not (tmp_path / "data" / capture.COMPLETE_FILE).exists()
+
+
+def test_cooldown_waits_for_earliest_retry_that_fits_runtime(tmp_path, monkeypatch):
+    invalid = _page("ABC", [_bar(datetime(2026, 9, 28, 9, 30), o=0)])
+    con = duckdb.connect()
+    try:
+        with pytest.raises(free_sources.FreeSourceError):
+            _reject_at(con, tmp_path / "data", invalid, 0)
+    finally:
+        con.close()
+    manifest = {"manifest_sha256": MANIFEST_SHA, "tickers": [{"ticker": "ABC"}],
+                "chunks": [{"start": START.isoformat(), "end": END.isoformat()}],
+                "requests_estimate": 1}
+    clock, sleeps = [ALLOWED], []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += timedelta(seconds=seconds)
+
+    monkeypatch.setattr(capture, "_minute_network_permitted", lambda _now: True)
+    client = _Session([_page("ABC", [_bar(datetime(2026, 9, 28, 9, 30))])])
+    result = capture.capture_manifest(
+        manifest, database=tmp_path / "minute.duckdb", data_dir=tmp_path / "data",
+        api_key="k", session=client, now=lambda: clock[0], sleep=sleep,
+        monotonic=lambda: (clock[0] - ALLOWED).total_seconds(), max_runtime_seconds=7200,
+        rate_limit=lambda: None,
+    )
+    assert result["status"] == "complete" and result["failed_chunks"] == 0
+    assert sleeps == [3600.0] and len(client.calls) == 1
+
+
+def test_identical_parser_rejections_need_three_attempts_over_48_hours(tmp_path):
+    invalid = _page("ABC", [_bar(datetime(2026, 9, 28, 9, 30), o=0)])
+    con = duckdb.connect()
+    minute.init_schema(con)
+    try:
+        for hours in (0, 24, 47):
+            with pytest.raises(free_sources.FreeSourceError, match="open is invalid"):
+                _reject_at(con, tmp_path, invalid, hours)
+            assert "rejected_terminal" not in capture._read_progress(tmp_path, "ABC", START, END)
+        result = _reject_at(con, tmp_path, invalid, 48)
+        assert result["status"] == "rejected_terminal"
+        receipt = capture._read_progress(tmp_path, "ABC", START, END)
+        decision = receipt["rejected_terminal"]
+        evidence_path = capture._chunk_directory(tmp_path, "ABC", START, END) / (
+            f"rejections/{decision['evidence_sha256']}.json")
+        evidence_bytes = evidence_path.read_bytes()
+        assert hashlib.sha256(evidence_bytes).hexdigest() == decision["evidence_sha256"]
+        evidence = json.loads(evidence_bytes)
+        assert evidence["reason"] == "Massive minute open is invalid"
+        assert [a["attempted_at"] for a in evidence["attempts"]] == [
+            (ALLOWED + timedelta(hours=h)).isoformat() for h in (0, 24, 47, 48)]
+        assert {a["source_sha256"] for a in evidence["attempts"]} == {
+            hashlib.sha256(invalid).hexdigest()}
+        for attempt in evidence["attempts"]:
+            path = evidence_path.parent.parent / "failures" / (
+                f"{attempt['failure_evidence_sha256']}.json")
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == attempt["failure_evidence_sha256"]
+        skipped = capture.capture_chunk(
+            con, manifest_sha256=MANIFEST_SHA, ticker="ABC", start=START, end=END,
+            api_key="k", data_dir=tmp_path, session=_Session([]),
+            now=lambda: ALLOWED + timedelta(hours=100), rate_limit=lambda: None,
+        )
+        assert skipped["status"] == "rejected_terminal"
+        assert evidence_path.read_bytes() == evidence_bytes
+        assert con.execute("SELECT COUNT(*) FROM massive_minute_bars").fetchone() == (0,)
+        assert con.execute("SELECT COUNT(*) FROM massive_minute_chunks").fetchone() == (0,)
+    finally:
+        con.close()
+
+
+def test_changed_response_or_reason_resets_rejection_attempts(tmp_path):
+    bodies = [_page("ABC", [_bar(datetime(2026, 9, 28, 9, 30), o=0, v=v)])
+              for v in (1000, 2000)]
+    con = duckdb.connect()
+    try:
+        for hours, body in ((0, bodies[0]), (24, bodies[0]), (48, bodies[1]), (72, bodies[1])):
+            with pytest.raises(free_sources.FreeSourceError):
+                _reject_at(con, tmp_path, body, hours)
+            assert "rejected_terminal" not in capture._read_progress(tmp_path, "ABC", START, END)
+        receipt = capture._read_progress(tmp_path, "ABC", START, END)
+        assert len(receipt["rejection_attempts"]) == 2
+        # A different parser reason also starts a new series.
+        changed = _page("ABC", [_bar(datetime(2026, 9, 28, 9, 30), h=0)])
+        with pytest.raises(free_sources.FreeSourceError, match="high is invalid"):
+            _reject_at(con, tmp_path, changed, 96)
+        assert len(capture._read_progress(tmp_path, "ABC", START, END)["rejection_attempts"]) == 1
+    finally:
+        con.close()
+
+
+def test_terminal_marker_and_operator_retry_can_load_a_later_valid_response(
+    tmp_path, monkeypatch, capsys,
+):
+    invalid = _page("ABC", [_bar(datetime(2026, 9, 28, 9, 30), o=0)])
+    con = duckdb.connect()
+    try:
+        for hours in (0, 24):
+            with pytest.raises(free_sources.FreeSourceError):
+                _reject_at(con, tmp_path / "data", invalid, hours)
+        assert _reject_at(con, tmp_path / "data", invalid, 48)["status"] == "rejected_terminal"
+    finally:
+        con.close()
+    manifest = {"manifest_sha256": MANIFEST_SHA, "tickers": [{"ticker": "ABC"}],
+                "chunks": [{"start": START.isoformat(), "end": END.isoformat()}],
+                "requests_estimate": 1, "ticker_count": 1,
+                "runtime_at_five_per_minute_hours": 0.0, "window": {}}
+    monkeypatch.setattr(capture, "prepare_manifest", lambda **_kwargs: manifest)
+    monkeypatch.setattr(daily_capture, "_load_massive_key", lambda: "k")
+    monkeypatch.setattr(capture, "_minute_network_permitted", lambda _now: True)
+    monkeypatch.setattr(free_sources, "wait_for_massive_rate_limit", lambda **_kwargs: None)
+    client = _Session([])
+    monkeypatch.setattr(capture.requests, "Session", lambda: client)
+    monkeypatch.setattr(client, "close", lambda: None, raising=False)
+    assert capture.main(_args(tmp_path)) == 0
+    marker = json.loads((tmp_path / "data" / capture.COMPLETE_FILE).read_text())
+    assert marker["status"] == "complete_with_rejections"
+    assert marker["completed_chunks"] == 0 and marker["rejected_terminal_chunks"] == 1
+    assert len(marker["rejections"]) == 1
+    rejection = marker["rejections"][0]
+    assert {k: rejection[k] for k in ("ticker", "start", "end", "reason")} == {
+        "ticker": "ABC", "start": START.isoformat(), "end": END.isoformat(),
+        "reason": "Massive minute open is invalid"}
+    assert len(rejection["evidence_sha256"]) == 64
+    assert capture.completed_manifest(tmp_path / "data") is None
+    assert capture.main(_args(tmp_path)) == 0
+    summaries = [json.loads(line) for line in capsys.readouterr().out.splitlines()
+                 if json.loads(line)["status"] != "prepared"]
+    assert all(s["status"] == "complete_with_rejections" and s["rejections"] == [rejection]
+               for s in summaries)
+    assert client.calls == []
+    evidence_paths = list((tmp_path / "data" / "chunks").glob("*/rejections/*.json"))
+    original_evidence = [p.read_bytes() for p in evidence_paths]
+    client.responses = [_page("ABC", [_bar(datetime(2026, 9, 28, 9, 30))])]
+    assert capture.main(_args(tmp_path, "--retry-terminal")) == 0
+    assert len(client.calls) == 1
+    receipt = capture._read_progress(tmp_path / "data", "ABC", START, END)
+    assert receipt["complete"] and "failure" not in receipt
+    assert "rejected_terminal" not in receipt
+    assert [p.read_bytes() for p in evidence_paths] == original_evidence
+    assert capture.completed_manifest(tmp_path / "data") == MANIFEST_SHA
+
+
 def test_invalid_middle_chunk_preserves_evidence_and_allows_later_chunks(tmp_path):
     manifest = {"manifest_sha256": MANIFEST_SHA,
                 "tickers": [{"ticker": ticker} for ticker in ("ABC", "BAD", "XYZ")],
@@ -314,12 +494,11 @@ def test_invalid_middle_chunk_preserves_evidence_and_allows_later_chunks(tmp_pat
     result = capture.capture_manifest(
         manifest, database=database, data_dir=data_dir, api_key="fixture-secret",
         session=client, now=lambda: ALLOWED, rate_limit=lambda: reservations.append(True),
-        progress=events.append,
+        progress=events.append, max_runtime_seconds=60,
     )
-    assert result["status"] == "incomplete"
+    assert result["status"] == "paused"
     assert result["completed_chunks"] == 2
     assert result["failed_chunks"] == 1
-    assert result["reason"] == "finished with 1 failed chunks"
     assert len(client.calls) == len(reservations) == 3
     receipt = capture._read_progress(data_dir, "BAD", START, END)
     failure = receipt["failure"]
@@ -345,23 +524,23 @@ def test_invalid_middle_chunk_preserves_evidence_and_allows_later_chunks(tmp_pat
     result = capture.capture_manifest(
         manifest, database=database, data_dir=data_dir, api_key="fixture-secret",
         session=restarted, now=lambda: ALLOWED, rate_limit=lambda: reservations.append(True),
-        progress=restarted_events.append,
+        progress=restarted_events.append, max_runtime_seconds=60,
     )
-    assert result["status"] == "incomplete" and result["failed_chunks"] == 1
+    assert result["status"] == "paused" and result["failed_chunks"] == 1
     assert result["completed_chunks"] == result["skipped_chunks"] == 2
     assert restarted.calls == [] and len(reservations) == 3
     assert len(restarted_events) == 2
     assert restarted_events[0]["status"] == "resumed"
     assert restarted_events[1]["deferred"] is True
 
-    # The next eligible run tries the bad chunk once, then finishes incomplete again.
+    # The next eligible run tries the bad chunk once, then pauses during its cooldown.
     retried = _Session([invalid])
     result = capture.capture_manifest(
         manifest, database=database, data_dir=data_dir, api_key="fixture-secret",
         session=retried, now=lambda: ALLOWED + timedelta(seconds=capture.CHUNK_RETRY_SECONDS),
-        rate_limit=lambda: reservations.append(True),
+        rate_limit=lambda: reservations.append(True), max_runtime_seconds=60,
     )
-    assert result["status"] == "incomplete" and result["failed_chunks"] == 1
+    assert result["status"] == "paused" and result["failed_chunks"] == 1
     assert len(retried.calls) == 1 and len(reservations) == 4
     failures = list(capture._chunk_directory(data_dir, "BAD", START, END).glob("failures/*.json"))
     assert len(failures) == 2
@@ -430,6 +609,8 @@ def test_completed_capture_is_marked_and_a_later_start_exits_at_once(tmp_path, m
     assert len(calls) == 3
     assert capture.completed_manifest(tmp_path / "data") == "a" * 64
     marker = tmp_path / "data" / capture.COMPLETE_FILE
+    assert json.loads(marker.read_text())["status"] == "complete"
+    assert "rejections" not in json.loads(marker.read_text())
     assert oct(marker.stat().st_mode & 0o777) == "0o600"
 
     assert capture.main(_args(tmp_path)) == 0
