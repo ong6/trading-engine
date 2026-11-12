@@ -993,19 +993,39 @@ def decide_split(con, tk: str, ex: date, ratio: float) -> tuple[str, int, str | 
 
 
 NO_BARS_RETRY_LIMIT = 3  # operational nightly work bound; one full-history fetch per candidate
+NO_BARS_RETRY_DAYS = 60  # older skips remain for manual source-proven repair
 
 
 def _retry_no_bars_splits(con) -> dict:
-    """Retry recorded no-bars skips only through the repair tool's complete proof."""
+    """Rotate recent skips by UTC weekday, through the repair tool's complete proof.
+
+    A fixed eligible set is exhausted within ceil(count / limit) weekday nights,
+    even if every preceding candidate is permanently refused. No retry state is written.
+    """
     from engine import repair_integrity as repair
 
+    today = datetime.now(timezone.utc).date()
+    cutoff = today - timedelta(days=NO_BARS_RETRY_DAYS)
+    aged_out = con.execute(
+        "SELECT COUNT(*) FROM split_adjustments WHERE outcome='skipped_no_bars' "
+        "AND ex_date < ?", [cutoff],
+    ).fetchone()[0]
     rows = con.execute(
         "SELECT s.ticker, s.ex_date, s.ratio FROM split_adjustments s "
-        "WHERE s.outcome='skipped_no_bars' AND EXISTS "
+        "WHERE s.outcome='skipped_no_bars' AND s.ex_date BETWEEN ? AND ? AND EXISTS "
         "(SELECT 1 FROM prices p WHERE p.ticker=s.ticker AND p.date>=s.ex_date) "
-        "ORDER BY s.ex_date, s.ticker LIMIT ?", [NO_BARS_RETRY_LIMIT],
+        "ORDER BY s.ex_date, s.ticker", [cutoff, today],
     ).fetchall()
-    summary = {"attempted": len(rows), "applied": 0, "rows_restated": 0}
+    eligible = len(rows)
+    groups = (eligible + NO_BARS_RETRY_LIMIT - 1) // NO_BARS_RETRY_LIMIT
+    # The nightly runs Monday-Friday. Counting calendar days could permanently
+    # assign groups to weekends (e.g. seven groups); weekend invocations reuse Friday.
+    weeks, weekday = divmod(today.toordinal() - 1, 7)
+    night = weeks * 5 + min(weekday, 4)
+    offset = (night % groups) * NO_BARS_RETRY_LIMIT if groups else 0
+    rows = rows[offset:offset + NO_BARS_RETRY_LIMIT]
+    summary = {"eligible": eligible, "aged_out": aged_out,
+               "attempted": len(rows), "applied": 0, "rows_restated": 0}
     for ticker, ex, ratio in rows:
         cand = repair.split_candidate(con, ticker, ex, float(ratio), new=False)
         if cand is None:
@@ -1028,6 +1048,8 @@ def _retry_no_bars_splits(con) -> dict:
         summary["applied"] += 1
         summary["rows_restated"] += n
         log.info(f"[actions] no-bars retry RESTATED {ticker} ex={ex} rows={n}")
+    log.info(f"[actions] no-bars retry summary: eligible={eligible} attempted={len(rows)} "
+             f"applied={summary['applied']} aged_out={aged_out}")
     return summary
 
 

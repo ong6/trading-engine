@@ -866,3 +866,15 @@ trial's frozen code is forbidden once results exist, and a full schema-1 copy be
 would breach the 70 GiB reserve. `r21/integrate` stays merged with main and green (`7da3d72a`); the
 stacked fixes (`fix/p15-lock`, `fix/tv-verify-pinned`) wait with it. Owner-level questions from
 orchestrator sessions go to the delegate session as plain text, not through a question dialog.
+
+## 2026-11-12 — Share and expire automatic no-bars split retries
+
+**Verdict.** The orchestrator accepts the revision-21 capacity integration except its retry
+selection: three permanently refused rows can starve later repairable splits and fetch forever.
+
+**Rule change.** The undeployed revision-21 amendment rotates three-candidate groups by the UTC
+weekday reconciliation index, matching the scheduled nightly, and restricts automatic retries
+to ex-dates at most 60 days old. Older skips remain available to manual repair and are counted
+once per run in the summary. Complete source proof, retained refusal evidence, statistical
+values and the three-history per-night bound stay unchanged. Re-pin the runtime identities and
+P15 once, then repeat both timezone suites and the reduced rehearsal before acceptance.

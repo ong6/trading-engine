@@ -5588,4 +5588,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +118 LOC; server/product unchanged; tests +181 LOC (session snapshot).
 - **Next:** nothing admitted.
 
+## 2026-11-12 — Rotate and expire automatic no-bars split retries
+
+- **Why:** orchestrator round-two review; `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py -k 'rotates_past_permanent or ages_out_without'` reproduces starvation (`NEW` is absent from the source calls) and fetches for two 61-day-old skips; a 21-row fixture also exposes weekend starvation in a calendar-day rotation.
+- **What:** rotate three-candidate groups by a UTC weekday index, matching the Monday–Friday nightly; every member of a fixed eligible set gets its turn within ceil(count/3) scheduled nights while eligible.
+  Retry only ex-dates from today minus 60 days through today; older skips remain available to manual repair and count once in the run summary without individual age-out logs.
+  Keep the three-history bound, complete source proof, refusal watermark/quarantine and successful-restatement idempotence.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py tests/test_repair_integrity.py` → fairness, expiry, source-proof and existing action tests pass.
+- **Metrics:** measured in the final round-two snapshot.
+- **Next:** the single runtime-then-P15 re-pin, followed by all requested acceptance checks and reduced rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
