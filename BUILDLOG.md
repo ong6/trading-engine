@@ -5545,7 +5545,7 @@ the 42-entry 2026-09-19 C90 complexity series is in
   Before archive dispatch require 70 GiB plus twice the primary and WAL on their own filesystem; keep the root check and leave refused jobs pending with the reason logged.
   These are operational capacity settings, disclosed with revision 21; no statistical registered value changes.
 - **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_queue_runner.py` → dispatch boundaries, pending state and volume/WAL accounting pass.
-- **Metrics:** included in the final session snapshot.
+- **Metrics:** final session snapshot: server 0, tools 0, product +59 LOC (both code fixes and runtime file-set additions).
 - **Next:** bounded nightly retry for no-bars split skips.
 
 ## 2026-11-12 — Retry no-bars split skips after accepted bars arrive
@@ -5555,7 +5555,7 @@ the 42-entry 2026-09-19 C90 complexity series is in
   Reuse repair-integrity candidate, full-history proof and application helpers; mismatch, empty history or source failure keeps the skip and quarantine and logs the refusal. No outer provider retry loop.
   Successful restatement resolves the split quarantine and preserves originals; later reconciliation is idempotent.
 - **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py tests/test_repair_integrity.py` → proof, refusal, no-post-bar, bound and idempotence cases pass.
-- **Metrics:** included in the final session snapshot.
+- **Metrics:** final session snapshot: server 0, tools 0, product +59 LOC (both code fixes and runtime file-set additions).
 - **Next:** correct the deploy checklist and re-pin the integrated revision once.
 
 ## 2026-11-12 — Correct revision-21 capacity and consumer deploy gates
@@ -5567,5 +5567,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `git diff --check` → clean; the documented postflight command's help confirms read-only verification and the parent queue command retains normal admission.
 - **Metrics:** code unchanged.
 - **Next:** finalize the single runtime-then-P15 re-pin and repeat rehearsal and acceptance checks.
+
+## 2026-11-12 — Finish the revision-21 capacity and retry integration
+
+- **Why:** the orchestrator admits the capacity setting, source-proven nightly retry and checklist corrections into the undeployed revision-21 re-pin.
+- **What:** merge current main, retain both fixes and log histories, and freeze P15's complete 175-file import closure plus E1/sector/XS runtime identities with their deployed predecessors unchanged.
+  The new reduced real-data generation passes the unchanged T4 reader and exact file verification; its sandbox is deleted. Confirmation 287 remains closed and frozen; live-287 compatibility and post-deploy archive recovery are documented.
+  Record today's eight deploy pre-flights; the 70 GiB plus three-primary reserve guard now passes, while merge, quiescence and TradingView yes/no remain with the orchestrator.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error -n 8` and `TZ=Asia/Singapore .venv/bin/python -m pytest -q -W error -n 8` → 6,717 passed each (316.97 s / 306.79 s); required affected, lint, audit and identity checks pass.
+- **Metrics:** session server 0, tools 0, product +59 LOC; relative to the prior published snapshot, merged upstream adds tools +69 and product +1.
+- **Next:** orchestrator acceptance, main merge and deployment after the documented window pre-flights.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

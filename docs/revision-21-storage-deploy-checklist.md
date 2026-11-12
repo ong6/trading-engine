@@ -100,17 +100,19 @@ closure; `registration_sha256` uses `canonical_sha256` over the document with th
 and XS v23 retain every frozen value and migrate only their deployed digests. Any later pinned-source edit requires
 all affected hashes, source commit and the registration self-hash to be recomputed before acceptance.
 
-One integrated re-pin follows the existing two-commit sequence: freeze the runtime literals and
-disclosure (`d0a163f0`), then hash that committed imported closure into P15 (`5b48873f`). No later
-registered source edit is included. Final pins: 169 source files;
-`source_commit` `d0a163f0b4409c3434815c2ebb9105969d4ce698`;
-`registration_sha256` `8ff97367449314838c699e5f94acd52c0643ff1901eff682968f00e3de99a02e`.
+One integrated re-pin follows the existing two-commit sequence: freeze runtime literals,
+imported file sets and disclosure (`cbc55e81`), then hash that committed closure into P15
+(`195689ab`). No later registered source edit is included. Final pins: 175 source files;
+`source_commit` `cbc55e81d5b0ce19a2043cf763092f15ef6c7b6c`;
+`registration_sha256` `8b2463c6f6beec036e1dfcdc4c425ea3df46481d3ab27535544c8c8bf16a4433`.
+The full P15 import closure now includes the repair helper and five invariant support modules;
+sector and XS also pin the repair helper reached by reconciliation.
 
 | Contract | Version | New digest | Accepted deployed predecessor (unchanged by the revision-20 model amendment) |
 |---|---|---|---|
-| E1 | 8 | `3a285208cb6025ba6fb42ddbf3533702f7a76b171b29a5bae8e6986f781b3c51` | `2c8ec5b06a93edbca6104569c1bb5c66514cd6476f209169ca1f6041cd470538` |
-| Sector | 12 | `f35d29dbc04dc55e0896a1a07461fa3ab085553158ffd6a8e0dd0956e469764d` | `bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea` |
-| XS | 23 | `2236463e21bb5399a38047b51b3eda314b9c821e0b381fd1024e52835918ed86` | `d00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6` |
+| E1 | 8 | `a024cca811e9e185a04ab5306601b1cdb16c261172a33e86aa5a1ad80166fe9d` | `2c8ec5b06a93edbca6104569c1bb5c66514cd6476f209169ca1f6041cd470538` |
+| Sector | 12 | `0c24914f569961806fe028e364119284853a3acd17abfd0c5f44e40b830c634d` | `bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea` |
+| XS | 23 | `651c9b453d36bcfe36225a37d270886fb3cf1d74f44b3817e26902292c0e2765` | `d00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6` |
 
 ## Pre-flight (all must hold)
 
@@ -431,6 +433,25 @@ archive.
 
 ## Revision-21 acceptance checks
 
+At the 2026-11-12 capacity/retry source, both full suites passed **6,717 tests**, zero
+failures/errors/skips: UTC **316.97 s**, Asia/Singapore **306.79 s**, warnings as errors,
+eight workers per suite. The affected tier, Ruff, job audit (22 jobs, no differences),
+static schedule check and registration identity pass; all 18 focused P15/runtime checks pass.
+Only documentation and metrics follow the rehearsed/fully tested source `195689ab`.
+
+Current deploy pre-flights (2026-11-12; refresh live state in the window):
+
+| Pre-flight | Today's state |
+|---|---|
+| 1 — main contains r21; suites/lint green | Prepared branch green; merge into main remains for the orchestrator. This lane did not push or merge main. |
+| 2 — job/static schedule contracts | PASS. Live `/meta`'s dated 12:08:59 schedule receipt still flags `confirm-287.timer` as not enabled; refresh the host's closed-confirmation inventory/receipt in the window. |
+| 3 — 70 GiB + 3× primary including WAL | PASS at 12:27:31 UTC: 132,153,675,776 bytes free (123.0777 GiB), required 132,101,214,208 (123.0288 GiB). The exact guard passes; remeasure before deployment. |
+| 4 — permitted, quiescent window; TradingView decision | Pending orchestrator verification and explicit YES/NO tick above. The next full 45-minute weekday calendar block today is 21:00–22:15 UTC, conditional on actual producer/private-reader/queue absence. |
+| 5 — fresh verified off-host backup | November 12 audit cites the 05:40:43 restore-and-push receipt; this lane did not independently retrieve or restore off-host bytes. Verify freshness in the window. |
+| 6 — consumers | New reduced-generation T4 rehearsal PASS; live-287 audit supports compatibility; confirmation timer directly reads disabled/inactive. Repeat window imports, consumer scan and first-generation reader proof before release. |
+| 7 — migration pre-image | Earlier catalog audit passed; today's six-ETF live repair is already applied. A fresh post-quiescence pre-image receipt is mandatory. |
+| 8 — five NOT NULL columns | Earlier November 12 read-only counts were all zero. Recheck in the same window before backup/migration. |
+
 At the 2026-11-11 integrated source, both full suites passed with **6,700 tests**, zero failures
 and zero skips: UTC **270.42 s**; Asia/Singapore **272.77 s**, with warnings treated as errors
 and eight workers per suite. The affected-test tier, `ruff check .`, job-contract audit
@@ -493,6 +514,27 @@ when baseline column order is restored), migrate and refresh the three frozen ru
 copy. Delete the verified generation and working store before restoring the original pre-image for the rollback
 check. Validate the restored bytes, catalog and frozen records under the previous main code, then delete the copy.
 Run at niceness 10, with at most four DuckDB threads and at most 8 GB memory; this rehearsal uses 4 GB.
+
+## Revision-21 capacity/retry reduced rehearsal (2026-11-12)
+
+Re-ran the cited reduced-copy harness against `195689ab` (the complete new source and P15 pin).
+Only its output/sandbox directory changed to the capacity lane. The immutable published pre-image
+was `market-20261112T100325108641Z.duckdb`, 18,979,762,176 bytes, hashed against its manifest.
+The new generation's catalog is current (`7286ea9b…`, migrations 0 and 1). The reduced store
+has 22,736 real prices, 12,897 universe rows, 1,000 facts and 1,000 receipts; no recent intraday rows.
+Seventeen matching current cohort files were copied verbatim. No source bar or evidence was invented.
+
+Publication `market-20261112T122209531952Z.duckdb` carries schema-2 generation and schema-1
+compatibility fields; hot bytes 9,187,328, two cold parts totaling 2,810,571 bytes. The unchanged T4
+reader accepted 60 latest-session rows for November 11, 59 complete 253-session feature histories
+and 60 outcome rows. The exact opened hot-file hash and every generation file verified; stale
+and future cases still refused. Confirmation's preserved refusal diagnostics were exercised only
+as read functions; its closed epoch runner was not invoked. Minimum sampled /data00 free space
+was 116,909,240,320 bytes (108.8802 GiB), across 566 samples. Every copy/publication reserve
+check passed. The disposable checkout, store, generation and parts were deleted after verification.
+
+This is a reduced publication/reader rehearsal. It does not certify the whole live store's backup,
+migration, forward-record refresh or rollback; those remain deploy-window gates.
 
 ## Historical revision-21 unblock rehearsal results (2026-11-11)
 
