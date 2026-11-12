@@ -16,10 +16,11 @@ Before starting ANY job the runner enforces the §12.7 guards and logs honestly:
   * a job whose declared memory need > 48 GiB would blow the engine budget
     -> refuse that job with an error; parallel batch width is also reduced to
     keep the sum of declared worker memory within 48 GiB;
-  * disk watchdog: store/ excluding snapshots/ > 60 GiB soft -> set _meta.json
+  * disk watchdog: store/ excluding snapshots/ > 90 GiB soft -> set _meta.json
     disk_warning (merge), and snapshots/ over its own cap -> snapshot_disk_warning;
-    store/ including snapshots > 80 GiB hard OR root free < 10 GiB -> refuse
-    archive-type jobs
+    store/ including snapshots > 120 GiB hard OR root free < 10 GiB -> refuse
+    archive-type jobs; the store volume must also retain 70 GiB plus twice the
+    primary's bytes (including WAL), leaving room for publication and recovery
     (EOD collection is the last thing to stop; here we only gate archive jobs).
 
 CLI:
@@ -68,7 +69,7 @@ from pathlib import Path
 
 import duckdb
 
-from engine.lib import db, snapshots
+from engine.lib import db, snapshots, store_limits
 from engine.lib import resources as rsc
 from engine.lib.settings import META_PATH as DEFAULT_META
 from engine.lib.settings import REPO_ROOT, STORE_DIR
@@ -89,7 +90,7 @@ LOAD_5MIN_MAX = 28.0
 FREE_RAM_MIN_GB = 8.0       # refuse to start below this much free RAM
 ENGINE_RAM_BUDGET_MB = 48000  # one in-process job or combined parallel batch
 STORE_SOFT_GB = rsc.STORE_SOFT_GB  # soft cap on store/ minus snapshots/ -> warn
-STORE_HARD_GB = 80.0        # hard cap on all of store/ -> refuse archive jobs
+STORE_HARD_GB = 120.0       # operational capacity on the current store volume
 ROOT_FREE_MIN_GB = 10.0     # refuse archive jobs below this root free space
 # Concurrency for `parallel_safe` job kinds ONLY (see JOB_TYPES). Default 1 =
 # the historical strictly-sequential drain; nothing changes unless --jobs is
@@ -1313,16 +1314,28 @@ def _drain_rows(con, pending: list[tuple], meta_path: str | Path, *, db_path=Non
         # --- disk watchdog (always refresh the soft warning) ---
         # Snapshots have their own retention and cap, so the soft cap reads the
         # live store; the hard cap still guards the whole of store/.
-        store_gb = rsc.live_store_gb(STORE_DIR)
-        snapshot_gb = rsc.snapshots_gb(STORE_DIR)
+        primary = Path(db_path) if db_path is not None else STORE_DIR / "market.duckdb"
+        store_gb = rsc.live_store_gb(primary.parent)
+        snapshot_gb = rsc.snapshots_gb(primary.parent)
         total_gb = store_gb + snapshot_gb
         root_free = rsc.root_free_gb("/")
         rsc.update_disk_warning(meta_path, store_gb, STORE_SOFT_GB, snapshots_gb=snapshot_gb)
         is_archive = JOB_TYPES.get(kind, {}).get("archive", False)
-        if is_archive and (total_gb > STORE_HARD_GB or root_free < ROOT_FREE_MIN_GB):
-            why = (f"store/ {total_gb:.1f} GiB > {STORE_HARD_GB:.0f} hard"
-                   if total_gb > STORE_HARD_GB
-                   else f"root free {root_free:.1f} GiB < {ROOT_FREE_MIN_GB:.0f}")
+        why = None
+        if is_archive:
+            if total_gb > STORE_HARD_GB:
+                why = f"store/ {total_gb:.1f} GiB > {STORE_HARD_GB:.0f} hard"
+            elif root_free < ROOT_FREE_MIN_GB:
+                why = f"root free {root_free:.1f} GiB < {ROOT_FREE_MIN_GB:.0f}"
+            else:
+                try:
+                    store_limits.require_free_space(
+                        primary.parent, purpose=f"archive job {jid} ({kind})",
+                        need_bytes=2 * store_limits.file_bytes(primary),
+                    )
+                except OSError as exc:
+                    why = str(exc)
+        if why is not None:
             print(f"[queue] disk watchdog: refusing archive job {jid} ({kind}): {why}; "
                   f"leaving it pending")
             continue

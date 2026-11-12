@@ -5538,4 +5538,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** merge includes upstream deltas; integration adaptation unchanged in code LOC.
 - **Next:** archive capacity amendment and bounded no-bars split retry.
 
+## 2026-11-12 — Give archives a volume-sized cap and recovery reserve
+
+- **Why:** admitted revision-21 capacity amendment; the new dispatch tests reproduce a 90 GiB archive refusal and dispatch with one byte less than the store reserve plus two primary files; the warning still trips at 60 GiB.
+- **What:** raise the total archive hard cap to 120 GiB and the live-store soft warning to 90 GiB, preserving the former 60:80 proportion.
+  Before archive dispatch require 70 GiB plus twice the primary and WAL on their own filesystem; keep the root check and leave refused jobs pending with the reason logged.
+  These are operational capacity settings, disclosed with revision 21; no statistical registered value changes.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_queue_runner.py` → dispatch boundaries, pending state and volume/WAL accounting pass.
+- **Metrics:** included in the final session snapshot.
+- **Next:** bounded nightly retry for no-bars split skips.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

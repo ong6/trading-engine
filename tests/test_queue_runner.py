@@ -10,12 +10,13 @@ import subprocess
 import sys
 import time
 from datetime import date
+from types import SimpleNamespace
 
 import duckdb
 import pytest
 
 from engine import queue_runner as qr
-from engine.lib import db
+from engine.lib import db, store_limits
 
 
 @pytest.fixture
@@ -717,6 +718,59 @@ def sequential_kind(monkeypatch):
     monkeypatch.setattr(qr.rsc, "root_free_gb", lambda _path: 100.0)
     monkeypatch.setattr(qr.rsc, "update_disk_warning", lambda *_args, **_kwargs: None)
     return ran
+
+
+@pytest.mark.parametrize("total_gib,spare_bytes,root_gib,archive,refusal", [
+    (90, 0, 100, True, None),
+    (120, 0, 100, True, None),
+    (121, 0, 100, True, "121.0 GiB > 120 hard"),
+    (40, -1, 100, True, "filesystem of"),
+    (40, 0, 9, True, "root free"),
+    (121, -1, 9, False, None),
+])
+def test_archive_dispatch_preserves_store_recovery_space(
+    qcon, sequential_kind, monkeypatch, tmp_path, capsys,
+    total_gib, spare_bytes, root_gib, archive, refusal,
+):
+    primary = tmp_path / "volume" / "market.duckdb"
+    primary.parent.mkdir()
+    primary.write_bytes(b"primary bytes")
+    primary.with_suffix(".duckdb.wal").write_bytes(b"wal bytes")
+    required = 70 * 1024**3 + 2 * (len(b"primary bytes") + len(b"wal bytes"))
+    checked = []
+
+    def usage(path):
+        checked.append(path)
+        return SimpleNamespace(free=required + spare_bytes)
+
+    monkeypatch.setitem(store_limits.require_free_space.__kwdefaults__, "disk_usage", usage)
+    monkeypatch.setitem(qr.JOB_TYPES["seqfake"], "archive", archive)
+    monkeypatch.setattr(qr.rsc, "live_store_gb", lambda _path: total_gib - 30)
+    monkeypatch.setattr(qr.rsc, "snapshots_gb", lambda _path: 30)
+    monkeypatch.setattr(qr.rsc, "root_free_gb", lambda path: root_gib if path == "/" else 999)
+    qr.cmd_enqueue(qcon, "seqfake", "{}", 100, None)
+    before = _rows(qcon)
+    assert qr._drain(qcon, tmp_path / "meta.json", db_path=primary) == 0
+    output = capsys.readouterr().out
+    if refusal:
+        assert _rows(qcon) == before
+        assert sequential_kind == []
+        assert refusal in output and "leaving it pending" in output
+    else:
+        assert _rows(qcon, "state") == [("done",)]
+        assert sequential_kind == [{}]
+    if archive and total_gib <= 120 and root_gib >= 10:
+        assert checked == [primary.parent]
+    else:
+        assert checked == []
+
+
+def test_operational_soft_warning_at_ninety_gib(tmp_path):
+    meta = tmp_path / "meta.json"
+    qr.rsc.update_disk_warning(meta, 89)
+    assert qr.rsc.read_meta(meta)["disk_warning"] is None
+    qr.rsc.update_disk_warning(meta, 91)
+    assert qr.rsc.read_meta(meta)["disk_warning"]["soft_cap_gb"] == 90
 
 
 def test_nightly_drain_leaves_research_rows_pending(

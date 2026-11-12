@@ -114,7 +114,7 @@ def free_ram_gb() -> float:
 # are bounded by their own retention (latest + N, tools/publish_snapshot.py), so
 # the §12.7 soft cap measures the live store without them and snapshots carry a
 # separate cap: room for the retained pair plus one in-flight publication.
-STORE_SOFT_GB = 60.0
+STORE_SOFT_GB = 90.0
 SNAPSHOTS_DIRNAME = "snapshots"
 SNAPSHOT_SOFT_GB = 35.0
 
