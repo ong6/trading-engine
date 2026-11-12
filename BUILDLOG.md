@@ -5578,4 +5578,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** session server 0, tools 0, product +59 LOC; relative to the prior published snapshot, merged upstream adds tools +69 and product +1.
 - **Next:** orchestrator acceptance, main merge and deployment after the documented window pre-flights.
 
+## 2026-11-12 — Finish minute capture with evidenced terminal rejections
+
+- **Why:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_free_massive_minute.py -k 'cooldown or identical_parser or changed_response or terminal_marker'` fails before the fix: cooldown returns exit 1 (`assert 1 == 75`), and repeated parser rejections never become terminal (five failing cases).
+- **What:** wait for the earliest failed-chunk cooldown when it fits the runtime bound; otherwise pause with exit 75.
+  Three byte-identical responses rejected by the parser for the same reason over at least 48 hours become terminal, with immutable attempt evidence and an explicit operator retry.
+  Complete loaded-or-terminal manifests with a rejection count/list and distinct marker status; clean-capture identity reads exclude those markers. No touched file is P15-pinned.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 8` → `[100%]`, exit 0; affected tests and all 21 minute-capture tests pass.
+- **Metrics:** tools +118 LOC; server/product unchanged; tests +181 LOC (session snapshot).
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
