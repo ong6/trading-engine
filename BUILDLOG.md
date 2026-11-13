@@ -5687,4 +5687,20 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** merge to main and deploy revision 21 by its checklist.
 
+## 2026-11-13 — Deploy revision 21 (storage generations, capacity, retained collection)
+
+- **Why:** owner direction of 2026-11-13 to deploy without holding; the old 80 GiB cap had refused
+  four archive jobs nightly since 2 Nov.
+- **What:** merged `72d4459b` and ran `ops/storage-r21/deploy.sh` from 05:48 UTC: backup, schema
+  migration, E1/sector/XS runtime migrations, first generation and the trial-375 reader proof passed.
+  The live-287 import proof stopped the script: its block resolves `massive_287` from
+  `trading-alpha/live`, but the module is in `trading-alpha/research`. The orchestrator reran that
+  proof with the path corrected (pass), ran the schedule gate and released at 07:02 UTC. Release
+  dropped the two news-scraper cron lines the contract requires; they were restored from the
+  pre-deploy crontab before the released check passed. Receipts: `~/.local/state/r21-deploy/`.
+- **Evidence:** every command in the checklist's "Verify after release" block exits zero;
+  `/health` serves `x-generation-stale: false`; registration identity passes.
+- **Metrics:** unchanged since the merge snapshot.
+- **Next:** drain archive jobs 1006/1007/1009/1014; fix the proof path and the crontab release defect.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
