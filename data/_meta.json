@@ -769,7 +769,7 @@
   "snapshot_disk_warning": {
     "snapshots_gb": 35.35,
     "soft_cap_gb": 35.0,
-    "flagged_at": "2026-11-12T23:42:00.678666+00:00",
+    "flagged_at": "2026-11-13T03:48:55.681761+00:00",
     "message": "store/snapshots/ is 35.4 GiB, over the 35 GiB snapshot cap"
   }
 }
