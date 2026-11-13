@@ -56,10 +56,11 @@ def test_main_closes_connection_on_schema_failure(monkeypatch):
 # --------------------------------------------------------------------------- #
 # nightly plan
 # --------------------------------------------------------------------------- #
-def test_nightly_plan_monday_has_three_mining_jobs():
+def test_nightly_plan_monday_includes_enabled_collection():
     plan = qr.nightly_plan(date(2026, 8, 31))  # a Monday
     assert [(k, p) for k, p, _ in plan] == [
-        ("intraday", 100), ("signals", 105), ("earnings", 110)]
+        ("intraday", 100), ("signals", 105), ("earnings", 110),
+        ("tradingview_history", 130)]
     assert dict((k, params) for k, _, params in plan)["signals"] == '{"mode": "incremental"}'
 
 
@@ -67,18 +68,19 @@ def test_nightly_plan_friday_adds_fundamentals_last():
     plan = qr.nightly_plan(date(2026, 9, 4))  # a Friday
     assert [(k, p) for k, p, _ in plan] == [
         ("intraday", 100), ("signals", 105), ("earnings", 110),
-        ("fundamentals", 120)]
+        ("tradingview_history", 130), ("fundamentals", 120)]
 
 
 @pytest.mark.parametrize("wd", [1, 2, 3, 4, 6, 7])
 def test_nightly_plan_weekday_override_non_friday(wd):
     assert [k for k, _, _ in qr.nightly_plan(weekday=wd)] == [
-        "intraday", "signals", "earnings"]
+        "intraday", "signals", "earnings", "tradingview_history"]
 
 
 def test_nightly_plan_weekday_override_beats_date():
     plan = qr.nightly_plan(date(2026, 8, 31), weekday=5)   # Monday date, forced Friday
     assert plan[-1][0] == "fundamentals"
+    assert plan[-2][0] == "tradingview_history"
 
 
 def test_nightly_plan_rejects_bad_weekday():
@@ -113,18 +115,20 @@ def test_enqueue_nightly_writes_rows_and_is_idempotent(qcon, capsys):
         ("intraday", "pending", 100, "{}"),
         ("signals", "pending", 105, '{"mode": "incremental"}'),
         ("earnings", "pending", 110, "{}"),
+        ("tradingview_history", "pending", 130,
+         '{"cohort_id":"liquid-current-v1","start":"2022-01-01","max_chunks":50}'),
         ("fundamentals", "pending", 120, "{}"),
     ]
     # a second nightly (same weekday) dedups every one — the guard-tripped case
     assert qr.cmd_enqueue_nightly(qcon, weekday=5) == 0
-    assert len(_rows(qcon)) == 4
+    assert len(_rows(qcon)) == 5
     assert "skipping duplicate enqueue" in capsys.readouterr().out
 
 
 def test_enqueue_nightly_monday_skips_fundamentals(qcon):
     qr.cmd_enqueue_nightly(qcon, date(2026, 8, 31))
     assert [r[0] for r in _rows(qcon, "kind")] == [
-        "intraday", "signals", "earnings"]
+        "intraday", "signals", "earnings", "tradingview_history"]
 
 
 def test_enqueue_nightly_params_match_the_old_bash_text(qcon):
@@ -140,7 +144,7 @@ def test_enqueue_nightly_dry_run_writes_nothing(qcon, capsys):
     assert qr.cmd_enqueue_nightly(qcon, weekday=5, dry_run=True) == 0
     assert _rows(qcon) == []
     out = capsys.readouterr().out
-    assert out.count("DRY RUN would enqueue") == 4
+    assert out.count("DRY RUN would enqueue") == 5
     assert "fundamentals priority=120" in out
 
 
@@ -1052,3 +1056,34 @@ def test_parallel_child_falls_back_to_live_without_a_fresh_snapshot(
     assert seen == ["live", "live"]
     out = capsys.readouterr().out
     assert "no valid published snapshot" in out and "h old" in out
+
+
+def test_registered_collection_dispatches_pending_job_1006_through_parent(
+    qcon, monkeypatch, tmp_path, capsys,
+):
+    from engine import tradingview_history_archive
+
+    assert qr._tradingview_history_collection_enabled() is True
+    assert tradingview_history_archive.collection_enabled() is True
+    qr.cmd_enqueue(qcon, "tradingview_history", '{}', 130, None)
+    qcon.execute("UPDATE jobs SET id=1006")
+    dispatched = []
+
+    def child(job, database, meta, con):
+        dispatched.append(job)
+        qr._set_state(con, job[0], "done", progress="complete")
+        return 0, con
+
+    monkeypatch.setattr(qr, "_run_releasing_job", child)
+    monkeypatch.setattr(qr, "_DRAIN_LOCK_FD", 1)
+    monkeypatch.setattr(qr.rsc, "load_5min", lambda: 0.0)
+    monkeypatch.setattr(qr.rsc, "free_ram_gb", lambda: 100.0)
+    monkeypatch.setattr(qr.rsc, "live_store_gb", lambda _path: 0.0)
+    monkeypatch.setattr(qr.rsc, "snapshots_gb", lambda _path: 0.0)
+    monkeypatch.setattr(qr.rsc, "root_free_gb", lambda _path: 100.0)
+    monkeypatch.setattr(qr.store_limits, "require_free_space", lambda *_args, **_kw: {})
+    assert qr.cmd_run(qcon, tmp_path / "meta.json", db_path=tmp_path / "market.duckdb",
+                      kinds={"tradingview_history"}, report_partial=True) == 0
+    assert len(dispatched) == 1 and dispatched[0][:2] == (1006, "tradingview_history")
+    assert qcon.execute("SELECT state FROM jobs WHERE id=1006").fetchone() == ("done",)
+    assert "1 done, 0 timed out, 0 failed, 0 left pending" in capsys.readouterr().out

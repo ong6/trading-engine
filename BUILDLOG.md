@@ -5608,4 +5608,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** round-two server 0, tools 0, product +22 LOC; the supplied upstream merge also adds tools +118 and tests +181 versus the round-one snapshot.
 - **Next:** orchestrator acceptance and the documented merge/deploy window pre-flights.
 
+## 2026-11-13 — Restore TradingView collection through the deployment lifecycle
+
+- **Why:** owner collection decision and orchestrator revision-21 admission; `.venv/bin/python -m pytest -q -W error -n 0 tests/test_storage_r21_ops.py tests/test_schedule_contract.py tests/test_queue_runner.py tests/test_install_automation.py -k 'host_tradingview or host_accepts_active or schedule_state_follows or pending_job_1006 or stage_installs'` fails five cases: enabled release is skipped/refused, schedule and staging stay disabled, and job 1006 sees collection disabled.
+- **What:** restore the collection flag and revision-20 timer/service registration; schedule, staging and release follow the one flag.
+  Quiesce TradingView with every managed producer and resume it at release; preserve explicit pause tests and parent-queue dispatch for job 1006.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_storage_r21_ops.py tests/test_schedule_contract.py tests/test_install_automation.py tests/test_miner_monitor.py tests/test_tradingview_history_archive.py tests/test_stage_timings.py tests/test_service_units.py` → `[100%]`, exit 0; the corrected parent-queue suite also passes.
+- **Metrics:** server +15 LOC, tools unchanged, product unchanged; final snapshot follows acceptance.
+- **Next:** restore the retained option and macro collection flags.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

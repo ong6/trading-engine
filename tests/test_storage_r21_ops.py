@@ -352,3 +352,86 @@ def test_rollback_after_release_stops_before_release_when_the_refresh_is_invalid
     assert "producers stay quiesced" in rollback.stderr
     calls = (state / "host-calls").read_text().splitlines()
     assert "release-previous" not in calls and "readers" not in calls
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_host_tradingview_release_follows_collection_flag(tmp_path, enabled):
+    state = tmp_path / "state"
+    state.mkdir()
+    timer = "trading-engine-tradingview-history.timer"
+    (state / "predeploy-units").write_text(f"{timer} active\n")
+    runner = tmp_path / "python-stub"
+    runner.write_text(
+        "#!/bin/bash\n"
+        'if [[ "$*" == *--collection-state* ]]; then\n'
+        f"  printf '%s\\n' {'enabled' if enabled else 'paused'}\n"
+        "else printf '{}\\n'; fi\n"
+    )
+    runner.chmod(0o755)
+    script = '''
+set -euo pipefail
+source "$HOST_FILE"
+active=false
+systemctl() {
+  echo "$*" >> "$P21_STATE/systemctl-calls"
+  if [[ "$*" == *is-active* ]]; then $active; return; fi
+  if [[ "$*" == *start* ]]; then active=true; fi
+}
+p21_schedule_check() { :; }
+p21_stage_units
+p21_release
+'''
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, timeout=10,
+        env={**os.environ, "HOST_FILE": str(OPS / "host.bash"),
+             "P21_ROOT": str(tmp_path), "P21_STATE": str(state), "PY": str(runner)},
+    )
+    assert result.returncode == 0, result.stderr
+    calls = (state / "systemctl-calls").read_text()
+    assert (f"start {timer}" in calls) is enabled
+
+
+def test_host_accepts_active_tradingview_only_when_collection_is_enabled(tmp_path):
+    runner = tmp_path / "python-stub"
+    runner.write_text("#!/bin/bash\nprintf 'enabled\\n'\n")
+    runner.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", 'set -euo pipefail; source "$HOST_FILE"; '
+         'systemctl() { return 0; }; p21_schedule_check() { :; }; p21_verify_held'],
+        env={**os.environ, "HOST_FILE": str(OPS / "host.bash"), "PY": str(runner)},
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_host_quiesces_tradingview_timer_and_service_with_other_producers(tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    (tmp_path / "store").mkdir()
+    result = subprocess.run(
+        ["bash", "-c", '''
+set -euo pipefail
+source "$HOST_FILE"
+crontab() { return 1; }
+systemctl() {
+  echo "$*" >> "$P21_STATE/systemctl-calls"
+  case "$2" in
+    list-units)
+      printf '%s\n' 'trading-engine-tradingview-history.timer loaded active waiting' \
+                    'trading-engine-tradingview-history.service loaded active running' \
+                    'trading-engine-p15-scoring.timer loaded active waiting' ;;
+    show) printf 'inactive\n' ;;
+  esac
+}
+p21_quiesce
+'''],
+        env={**os.environ, "HOST_FILE": str(OPS / "host.bash"),
+             "P21_ROOT": str(tmp_path), "P21_STATE": str(state)},
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    calls = (state / "systemctl-calls").read_text().splitlines()
+    stops = [line.split()[2:] for line in calls if line.startswith("--user stop ")]
+    assert any("trading-engine-tradingview-history.timer" in units for units in stops)
+    assert any("trading-engine-tradingview-history.service" in units for units in stops)
+    assert not any(" start " in line for line in calls)

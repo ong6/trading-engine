@@ -681,3 +681,18 @@ def test_installer_counts_a_completed_finite_unit_as_settled(tmp_path, monkeypat
     assert install_automation._settled(unit, "activating", tmp_path)
     shown[unit] = "ActiveState=activating\nSubState=auto-restart\nResult=exit-code\n"
     assert not install_automation._settled(unit, "activating", tmp_path)
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_tradingview_schedule_state_follows_one_collection_flag(tmp_path, enabled):
+    manifest = tmp_path / "schedule-contract.json"
+    manifest.write_bytes(sc.MANIFEST_PATH.read_bytes())
+    (tmp_path / "collection-policy.json").write_text(json.dumps(
+        {"schema_version": 1, "tradingview_history": enabled}
+    ))
+    loaded = sc.load_manifest(manifest)
+    units = {entry["unit"]: entry for entry in loaded["units"]}
+    for name in ("trading-engine-tradingview-history.timer",
+                 "trading-engine-tradingview-history.service"):
+        assert units[name]["state"] == ("enabled" if enabled else "disabled")
+    assert ("trading-engine-tradingview-history.timer" in sc.autostart_units(loaded)) is enabled

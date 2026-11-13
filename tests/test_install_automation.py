@@ -71,7 +71,7 @@ def _repo(tmp_path: Path) -> tuple[Path, Path]:
     verifier.write_text("")
     policy = root / install_automation.COLLECTION_POLICY_RELATIVE
     policy.parent.mkdir(parents=True, exist_ok=True)
-    policy.write_text('{"schema_version":1,"tradingview_history":false}\n')
+    policy.write_bytes((install_automation.REPO_ROOT / install_automation.COLLECTION_POLICY_RELATIVE).read_bytes())
     return root, home
 
 
@@ -517,8 +517,12 @@ def test_paused_tradingview_timer_is_removed_from_expected_schedule_and_converge
 ):
     root, home = _repo(tmp_path)
     timer = install_automation.TRADINGVIEW_HISTORY_TIMER
-    assert timer not in install_automation.AUTOSTART_UNITS
-    assert timer in install_automation.PAUSED_UNITS
+    (root / install_automation.COLLECTION_POLICY_RELATIVE).write_text(
+        '{"schema_version":1,"tradingview_history":false}\n'
+    )
+    autostart, paused = install_automation._desired_unit_sets(root)
+    assert timer not in autostart
+    assert timer in paused
     unit_dir = home / ".config/systemd/user"
     unit_dir.mkdir(parents=True)
     for unit, relative in install_automation.UNIT_SOURCES.items():
@@ -578,6 +582,9 @@ def test_paused_timer_treats_every_non_disabled_non_inactive_state_as_drift(
 ):
     root, home = _repo(tmp_path)
     timer = install_automation.TRADINGVIEW_HISTORY_TIMER
+    (root / install_automation.COLLECTION_POLICY_RELATIVE).write_text(
+        '{"schema_version":1,"tradingview_history":false}\n'
+    )
     current = install_automation.render_crontab("", root)
 
     def state(action, unit):
@@ -1913,10 +1920,10 @@ def test_stage_installs_and_enables_but_starts_nothing_and_keeps_the_crontab(
     root, home = _repo(tmp_path)
     tradingview = install_automation.TRADINGVIEW_HISTORY_TIMER
 
-    def state(action, unit):  # quiesced producers: every timer stopped, TradingView enabled
+    def state(action, unit):  # quiesced producers: every timer stopped and disabled
         if action == "is-active":
             return "inactive"
-        return "enabled" if unit == tradingview else "disabled"
+        return "disabled"
 
     calls = []
     monkeypatch.setattr(install_automation, "_service_state", state)
@@ -1931,8 +1938,8 @@ def test_stage_installs_and_enables_but_starts_nothing_and_keeps_the_crontab(
     assert ["systemctl", "--user", "daemon-reload"] in calls
     enable = next(args for args in calls if args[:3] == ["systemctl", "--user", "enable"])
     assert "trading-engine-publish-on-change.timer" in enable
-    assert tradingview not in enable
-    assert ["systemctl", "--user", "disable", tradingview] in calls
+    assert tradingview in enable
+    assert not any(args[:3] == ["systemctl", "--user", "disable"] for args in calls)
     assert not any(args[:3] in (["systemctl", "--user", "start"],
                                 ["systemctl", "--user", "restart"]) for args in calls)
     assert not any(args[:1] == ["crontab"] for args in calls)

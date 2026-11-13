@@ -9,6 +9,10 @@ P21_MANAGED_PREFIXES='^(trading-engine-|massive-|te-autopush\.|store-sync\.|trad
 P21_TRADINGVIEW_TIMER=trading-engine-tradingview-history.timer
 P21_NEW_UNITS=(trading-engine-publish-on-change.timer trading-engine-publish-on-change.service)
 
+p21_tradingview_state() {
+  "$PY" -m engine.tradingview_history_archive --collection-state
+}
+
 p21_capture() {
   # Record what ran before the deploy, once; a retry keeps the first record.
   test ! -e "$P21_STATE/host-captured" || return 0
@@ -112,12 +116,16 @@ p21_stage_units() {
 p21_release() {
   # Release producers: the full install starts the repository's autostart timers and installs
   # the managed crontab (never a paused unit); host timers that were active before the
-  # deploy (backup, store sync, autopush) start again, the paused TradingView timer never.
+  # deploy (backup, store sync, autopush) start again. TradingView follows its collection flag.
   "$PY" -m tools.install_automation --apply > "$P21_STATE/install-apply.json"
-  local name state
+  local name state collection_state
+  collection_state="$(p21_tradingview_state)"
+  case "$collection_state" in enabled|paused) ;; *) return 1 ;; esac
   while read -r name state; do
     test "$state" = active && [[ "$name" == *.timer ]] || continue
-    test "$name" != "$P21_TRADINGVIEW_TIMER" || continue
+    if test "$name" = "$P21_TRADINGVIEW_TIMER" && test "$collection_state" = paused; then
+      continue
+    fi
     systemctl --user is-active --quiet "$name" || systemctl --user start "$name"
   done < "$P21_STATE/predeploy-units"
   p21_verify_held
@@ -148,7 +156,10 @@ p21_verify_held() {
   # After release: the ops digest's checks, run now. No held or paused unit may be enabled
   # or active, and every autostart unit must be installed and enabled.
   p21_schedule_check released not-active
-  if systemctl --user is-active --quiet "$P21_TRADINGVIEW_TIMER"; then
+  local collection_state
+  collection_state="$(p21_tradingview_state)"
+  case "$collection_state" in enabled|paused) ;; *) return 1 ;; esac
+  if test "$collection_state" = paused && systemctl --user is-active --quiet "$P21_TRADINGVIEW_TIMER"; then
     echo "the paused TradingView timer is active" >&2
     return 1
   fi

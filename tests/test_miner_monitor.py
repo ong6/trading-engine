@@ -232,7 +232,8 @@ def test_tradingview_failures_still_show_beside_refusals(con, failure):
     assert result["miners"]["tradingview_history"]["reason"] == "miner-reported-failures"
 
 
-def test_tradingview_intentional_pause_is_current_without_a_queue_job(con):
+def test_tradingview_intentional_pause_is_current_without_a_queue_job(con, monkeypatch):
+    monkeypatch.setattr(miner_monitor, "_tradingview_collection_enabled", lambda: False)
     _setup_miner_jobs(con)
     con.execute("DELETE FROM jobs WHERE kind='tradingview_history'")
     meta = _miner_meta()
@@ -250,7 +251,7 @@ def test_tradingview_intentional_pause_is_current_without_a_queue_job(con):
     }
 
 
-def test_reenabled_tradingview_reports_later_failed_job_not_stale_pause(con, monkeypatch):
+def test_reenabled_tradingview_reports_later_failed_job_not_stale_pause(con):
     _setup_miner_jobs(con)
     con.execute(
         "UPDATE jobs SET state='failed', progress='startup', "
@@ -263,7 +264,7 @@ def test_reenabled_tradingview_reports_later_failed_job_not_stale_pause(con, mon
         "collection_enabled": False, "cohort_id": "liquid-current-v1",
         "last_run": "2026-09-07T23:00:00+00:00",
     }
-    monkeypatch.setattr(miner_monitor, "_tradingview_collection_enabled", lambda: True)
+    assert miner_monitor._tradingview_collection_enabled() is True
 
     result = miner_monitor.evidence_status(meta, con)
     assert result["status"] == "failed"

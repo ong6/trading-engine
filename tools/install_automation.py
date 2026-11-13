@@ -32,8 +32,7 @@ COMPLETING_UNITS = schedule_contract.completing_units()
 POST_INSTALL_SCHEDULER_STATUSES = frozenset({"ok", "degraded"})
 TRADINGVIEW_HISTORY_TIMER = "trading-engine-tradingview-history.timer"
 COLLECTION_POLICY_RELATIVE = Path("server/collection-policy.json")
-# The schedule contract declares the paused TradingView timer non-enabled, so the
-# collection policy can only add it back once the contract enables it again.
+# TradingView's one collection flag controls enablement in either direction.
 _BASE_AUTOSTART_UNITS = scheduler_monitor.AUTOSTART_UNITS - {TRADINGVIEW_HISTORY_TIMER}
 
 
