@@ -7,7 +7,8 @@ also merges main through `72bc5e78` and the P15-lock (`6b3b69e0`), ETF-verifier/
 not deployed. Main through `e02fbabf` (merged at `4b395d91`) adds minute-capture recovery, terminal rejection evidence and no-bars split repair selection.
 The November 12 amendment adds archive capacity and bounded nightly split retry. Trial 375
 compatibility is rehearsed; live-287 signal/settle compatibility is audited. Deployment still
-requires the disk reserve and the explicit TradingView-pause sign-off below.
+requires the disk reserve and the quiescent window rules below. The owner collection decision
+on November 13 keeps every revision-20 collection path enabled in revision 21.
 All database writes in this lane were to disposable sandboxes.
 
 **Deploy plan.** Trial 287 confirmation is **CLOSED**. The owner's October 30 pre-commitment
@@ -73,14 +74,13 @@ Use a new `r21-deploy` state directory. Historical rehearsal entries keep their 
   under `set -euo pipefail`, every result checked; state persists in `$P21_STATE/state.env`; backup, migration and
   publication take the producer locks themselves (never inside a held lock); the live checkout stays on branch
   `main` and neither script copies or reverts anything under `data/`; units are staged without starting timers and
-  timers start only at release, never the paused TradingView timer; the live schedule-contract check runs before
+  timers start only at release, including TradingView when its collection flag is enabled; the live schedule-contract check runs before
   release and again after it.
 - **Known guard bypasses (accepted residual risk).** DDL assembled at run time from values the coverage scan cannot
   resolve, DuckDB relation-API persistence (refused at run time by the guard instead), and statements against the
   separate pit/research databases; publication and backup re-verify the exact catalog, so a bypass fails closed there.
 - **Still open:** the off-host remote restore drill (needs a generation-backed bundle committed to the private backup
-  repo); the explicit yes/no TradingView-pause sign-off in pre-flight 4; incremental capture
-  (copy only changed table data) as a follow-up to cut publication I/O; the deploy disk reserve
+  repo); incremental capture (copy only changed table data) as a follow-up to cut publication I/O; the deploy disk reserve
   (pre-flight 3), to be measured again in the window.
 
 ## Revision-21 pins
@@ -141,13 +141,12 @@ predecessors remain unchanged.
    backup starts daily 04:30 and 10:30; weekend queue work starts 06:00. Refresh actual timers,
    cron and queue state before choosing the window. The scripts do not pause every private reader.
 
-   **Orchestrator decision (tick exactly one before deploy):**
+   **Owner collection decision (2026-11-13).** Revision 21 pauses no collection relative
+   to deployed revision 20. TradingView daily history, Massive options and the five macro
+   series retain their collection flags enabled; each switch remains available for a later
+   explicit pause. TradingView is quiesced during deploy and resumes at release. The existing
+   revision-20 Massive options timer hold for provider responses is unchanged.
 
-   - [ ] **YES** — accept the revision-21 TradingView-history collection pause; its timer/service
-     stay disabled on release, stored history is retained, and the normal parent queue respects the pause.
-   - [ ] **NO** — hold revision-21 deployment; this checklist does not authorize changing the pause.
-
-   The November 12 lane leaves this decision unticked for the orchestrator.
 5. A fresh verified off-host copy exists (trading-data backup current).
 6. The unmodified trial-375 reader accepts the generation hot file in a reduced-copy rehearsal
    (2026-11-11, below). Publication now includes `schema_version: 1`, `snapshot`, the hot file's
@@ -295,8 +294,8 @@ nice -n 10 bash "$HOME/r21-deploy.sh"
 8. Runs `schedule_contract_check --live` and refuses any violation except the ones quiescence explains (`not-active`
    timers, `missing-cron`).
 9. Releases producers with the full `install_automation --apply` (installs and enables
-   `trading-engine-publish-on-change.timer`), restarts the host timers that ran before (never the
-   paused TradingView timer), and runs the live schedule-contract check again. A failure from here on says producers
+   `trading-engine-publish-on-change.timer` and the enabled TradingView history timer), restarts
+   the host timers that ran before subject to the collection flag, and runs the live schedule-contract check again. A failure from here on says producers
    may be running.
 
 ## Verify after release (stop at the first failure and roll back)
@@ -354,8 +353,10 @@ After release, drain pending archive jobs **1006/1007/1009/1014** (TradingView h
 intraday, earnings and fundamentals) through the normal parent queue in an available producer
 window. Recheck the store cap and 70 GiB + 2× primary/WAL reserve; preserve failed attempts.
 The normal budget can require several windows. A `PARTIAL:` result means work remains pending;
-repeat in the next permitted window. The TradingView collection pause stays in force; check its
-reported disposition under that policy. Never bypass parent admission with the child `--run-one`.
+repeat in the next permitted window. Job **1006** must dispatch as `tradingview_history` under
+the enabled flag, through the parent queue's resource, capacity and producer admission checks.
+Retain its normal completion or partial/failure receipt alongside the other three jobs. Never
+bypass parent admission with the child `--run-one`.
 
 ```bash
 .venv/bin/python -m engine.queue_runner --run --kinds earnings,fundamentals,intraday,tradingview_history --jobs 1 --report-partial
@@ -458,7 +459,7 @@ Current deploy pre-flights (2026-11-12; refresh live state in the window):
 | 1 — main contains r21; suites/lint green | Prepared branch green; merge into main remains for the orchestrator. This lane did not push or merge main. |
 | 2 — job/static schedule contracts | PASS. Live `/meta`'s dated 12:08:59 schedule receipt still flags `confirm-287.timer` as not enabled; refresh the host's closed-confirmation inventory/receipt in the window. |
 | 3 — 70 GiB + 3× primary including WAL | PASS at 12:52:44 UTC: 132,133,576,704 bytes free (123.0590 GiB), required 132,101,214,208 (123.0288 GiB). The exact guard passes; remeasure before deployment. |
-| 4 — permitted, quiescent window; TradingView decision | Pending orchestrator verification and explicit YES/NO tick above. The next full 45-minute weekday calendar block today is 21:00–22:15 UTC, conditional on actual producer/private-reader/queue absence. |
+| 4 — permitted, quiescent window | Pending orchestrator verification. The November 13 window is 05:45–07:30 UTC, conditional on actual producer/private-reader/queue absence; the next window is Saturday. Keep the exclusion and 45-minute rules above. |
 | 5 — fresh verified off-host backup | November 12 audit cites the 05:40:43 restore-and-push receipt; this lane did not independently retrieve or restore off-host bytes. Verify freshness in the window. |
 | 6 — consumers | New reduced-generation T4 rehearsal PASS; live-287 audit supports compatibility; confirmation timer directly reads disabled/inactive. Repeat window imports, consumer scan and first-generation reader proof before release. |
 | 7 — migration pre-image | Earlier catalog audit passed; today's six-ETF live repair is already applied. A fresh post-quiescence pre-image receipt is mandatory. |

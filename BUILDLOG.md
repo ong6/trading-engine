@@ -5626,4 +5626,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; tests add enabled and paused parser coverage.
 - **Next:** correct the checklist and perform the single revision-21 re-pin.
 
+## 2026-11-13 — Apply the owner collection decision to the revision-21 checklist
+
+- **Why:** owner decision at about 03:40 UTC: "why pause trading view? just get data as much as you need"; the orchestrator admits retaining all three revision-20 collection paths.
+- **What:** remove TradingView YES/NO sign-off while preserving every window rule; document TradingView quiescence and release plus normal parent-queue dispatch for job 1006.
+  Retain publish-on-change and its weekend rules; record the owner decision in feedback, product and scope, with the existing options timer hold unchanged.
+- **Evidence:** `git diff --check` → clean; static schedule check reports `schedule contract: ok (static)`.
+- **Metrics:** code unchanged.
+- **Next:** the single P15 revision-21 re-pin, then required acceptance checks.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

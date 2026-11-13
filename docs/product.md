@@ -137,6 +137,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-11-13 | Undeployed storage revision 21 pauses no collection relative to revision 20: retain TradingView history, Massive options and the five macro series behind enabled collection switches; TradingView resumes after deploy quiescence | feedback; revision-21 checklist |
 | 2026-11-01 | Data stays free: no Sharadar or Norgate purchase and no new API keys (Alpaca, Finnhub, Alpha Vantage), because the engine should be able to trade on public data; survivor-free research before 2024-10 stays limited to what free sources allow. The `research-text` dependency group (`torch`, `transformers`, separate virtual environment) is approved for P16 W4 | feedback |
 | 2026-10-29 | Engine model calls move from GPT-5.6-Sol:max to GPT-6.1-Sol:max (effort high for once-a-day decisions, medium for events and the intraday observers) as a disclosed model amendment: decisions keep the model they were made with, evidence is reported pooled and as a post-switch stratum | P15 revision 20; feedback |
 | 2026-10-22 | Every agent entry doc opens with one shared block stating what we are building, the end goal (linked to the north star), what is live and what we are working on; other docs link to it instead of restating the goal | feedback; `AGENTS.md`, `README.md`, `docs/README.md` |

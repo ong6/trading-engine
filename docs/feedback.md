@@ -878,3 +878,16 @@ to ex-dates at most 60 days old. Older skips remain available to manual repair a
 once per run in the summary. Complete source proof, retained refusal evidence, statistical
 values and the three-history per-night bound stay unchanged. Re-pin the runtime identities and
 P15 once, then repeat both timezone suites and the reduced rehearsal before acceptance.
+
+## 2026-11-13 — Preserve collection in the undeployed storage revision
+
+**Verdict.** At about 03:40 UTC the owner said: "why pause trading view? just get data as much as you need."
+
+**Rule change.** The orchestrator applies this decision to all three collection pauses proposed
+by undeployed revision 21: TradingView daily history, Massive options and the five macro series
+(gex, pc_total, aaii_bull, free_credit, cot_es_lev_net). Revision 21 pauses no collection relative
+to deployed revision 20; retained one-flag switches stay enabled. TradingView is quiesced only
+for deploy and resumes at release through the normal parent queue. The existing options timer
+hold for provider responses, storage/publication controls and window rules remain as deployed.
+Remove the TradingView-pause sign-off; re-pin revision 21 once and verify both timezone suites
+and the stub deploy/rollback rehearsal before acceptance. → `revision-21-storage-deploy-checklist.md`.

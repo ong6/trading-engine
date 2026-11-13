@@ -35,7 +35,9 @@ profitability evidence loop's activation workstream (P15 W8) activated on 2026-0
 current source registration is revision 17 (revision 15's price-admission, trusted-money, flow,
 operations, board and test corrections, then P24's batches as revisions 16 and 17) on top of
 revision 14's P22 commissions, clocks and account engine, without changing activation, verdict
-rules, scoring, labels, gates or schedules. P24 (active, 2026-10-21) admits its lanes' fixes and
+rules, scoring, labels, gates or schedules. The owner's 2026-11-13 collection decision keeps revision-21 collection equal to revision 20;
+TradingView resumes after deploy quiescence, with all three retained collection switches on.
+P24 (active, 2026-10-21) admits its lanes' fixes and
 output-identical speed work; its storage revision (18) is not live until its rehearsal passes.
 Completed outputs from agent paper decisions (P5), the alpha experiment (P6), the 2022 replay
 (P10), forward agent evaluation (P11), the agent research product (P12), market-data source
