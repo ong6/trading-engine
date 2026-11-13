@@ -866,3 +866,12 @@ trial's frozen code is forbidden once results exist, and a full schema-1 copy be
 would breach the 70 GiB reserve. `r21/integrate` stays merged with main and green (`7da3d72a`); the
 stacked fixes (`fix/p15-lock`, `fix/tv-verify-pinned`) wait with it. Owner-level questions from
 orchestrator sessions go to the delegate session as plain text, not through a question dialog.
+
+## 2026-11-13 — The orchestrator directs Codex sessions
+
+**Verdict.** "ok we can change to claude prompting codex"; the owner leaves the choice of worker
+model to the orchestrator ("use the best model you deem needed").
+
+**Rule change.** `AGENTS.md` names the orchestrating setup as Claude directing Codex or other
+sessions, without a model version, and its closing heading reads "Absolute rules". Decision rights
+are unchanged: the orchestrator owns technical decisions and the owner owns product questions.

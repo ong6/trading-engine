@@ -4918,4 +4918,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +118 LOC; server/product unchanged; tests +181 LOC (session snapshot).
 - **Next:** nothing admitted.
 
+## 2026-11-13 — Name the orchestrating setup without a model version
+
+- **Why:** owner feedback of 2026-11-13 (`docs/feedback.md`), after a prompt audit of the agent docs.
+- **What:** `AGENTS.md` says Claude directing Codex or other sessions, and the closing heading drops
+  "(unchanged)". No rule, gate or registered file changes.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_operating_contract.py tests/test_public_hygiene.py` passes.
+- **Metrics:** unchanged.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
