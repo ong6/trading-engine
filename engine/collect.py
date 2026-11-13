@@ -638,6 +638,34 @@ def _is_trading_day(day: date) -> bool:
     return not sched.empty
 
 
+def basis_recovery_starts(con, tickers: list[str]) -> dict[str, date]:
+    """History bounds for unresolved basis rejects, including twenty prior stored sessions.
+
+    A later accepted fetch supersedes a hold for that key. Selecting context grants
+    no admission: the returned source history still goes through db.upsert_prices.
+    """
+    if not tickers or not con.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name='price_observation_rejects'"
+    ).fetchone():
+        return {}
+    with db.registered_frame(con, "_recovery_names", pd.DataFrame({"ticker": tickers})):
+        return dict(con.execute("""
+            WITH held AS (
+                SELECT r.ticker, MIN(r.date) AS first_day
+                FROM price_observation_rejects r JOIN _recovery_names n USING(ticker)
+                LEFT JOIN prices p ON p.ticker=r.ticker AND p.date=r.date
+                WHERE r.reason='basis_unverified' AND r.interval='1d'
+                  AND (p.ticker IS NULL OR p.fetched_at IS NULL OR p.fetched_at < r.recorded_at)
+                GROUP BY r.ticker),
+            prior AS (
+                SELECT p.ticker, p.date FROM prices p JOIN held h USING(ticker)
+                WHERE p.date < h.first_day
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.date DESC) <= 20)
+            SELECT h.ticker, COALESCE(MIN(p.date), h.first_day)
+            FROM held h LEFT JOIN prior p USING(ticker) GROUP BY h.ticker, h.first_day
+        """).fetchall())
+
+
 def mode_incremental(
     db_path: str | Path,
     force: bool,
@@ -659,13 +687,23 @@ def mode_incremental(
 
     yf_to_canon = _universe_map(db_path, "active = TRUE AND liquid = TRUE", limit)
     all_yf = list(yf_to_canon)
+    con = db.connect(db_path, read_only=True)
+    try:
+        recovery = basis_recovery_starts(con, list(yf_to_canon.values()))
+    finally:
+        con.close()
+    ordinary = [y for y in all_yf if yf_to_canon[y] not in recovery]
+    held = [y for y in all_yf if yf_to_canon[y] in recovery]
+    batches = [(batch, None) for batch in _batches(ordinary, 200)]
+    batches += [(batch, min(recovery[yf_to_canon[y]] for y in batch).isoformat())
+                for batch in _batches(held, 200)]
 
     got_all: set[str] = set()
     no_data: list[str] = []
     probes_left = MAX_ABSENT_PROBES
-    for batch in _batches(all_yf, 200):
+    for batch, start in batches:
         sub_map = {y: yf_to_canon[y] for y in batch}
-        raw = _download(batch, period="5d", start=None)
+        raw = _download(batch, period=None if start else "5d", start=start)
         df, got = _extract_long(raw, sub_map)
         # Columns mean the source answered per name; none means the call failed.
         answered = bool(got) or (raw is not None and len(raw.columns) > 0)

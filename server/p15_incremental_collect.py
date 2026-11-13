@@ -23,10 +23,16 @@ MAX_OPEN_LABEL_FETCHES = 20
 
 
 def _history(provider_ticker: str, start: date, end: date):
-    return collect.yf.Ticker(provider_ticker).history(
-        start=start.isoformat(), end=end.isoformat(), interval="1d",
-        auto_adjust=False, actions=False, timeout=30, raise_errors=True,
-    )
+    debug = collect.yf.config.debug
+    previous = debug.hide_exceptions
+    try:
+        debug.hide_exceptions = False
+        return collect.yf.Ticker(provider_ticker).history(
+            start=start.isoformat(), end=end.isoformat(), interval="1d",
+            auto_adjust=False, actions=False, timeout=30,
+        )
+    finally:
+        debug.hide_exceptions = previous
 
 
 def _fetch_exact(
@@ -85,6 +91,21 @@ def _fetch_exact(
     return None, None
 
 
+def _recover_basis(database, obligation, start, end, *, history, sleep):
+    """One context request with the existing single retry; never an absence receipt."""
+    for attempt in range(2):
+        try:
+            raw = history(obligation["provider_ticker"], start, end)
+            frame = collect._frame_from_sub(raw, obligation["ticker"])
+        except Exception:  # noqa: BLE001 - one retry, no fabricated evidence
+            frame = None
+        if frame is not None:
+            collect._upsert_batch(database, frame)
+            return
+        if attempt == 0:
+            sleep(2)
+
+
 def run(
     database: Path = DEFAULT_DB, *, now: datetime | None = None,
     history: ExactHistory = _history, sleep: Callable[[float], None] = time.sleep,
@@ -108,14 +129,29 @@ def run(
         obligations = p15_price_fetch_attempts.open_label_obligations(
             con, through_date=market_date, known_at=attempted_at,
         )
+        recovery = collect.basis_recovery_starts(con, list({o["ticker"] for o in obligations}))
     finally:
         con.close()
     outstanding = len(obligations)
-    obligations = obligations[:MAX_OPEN_LABEL_FETCHES]
     receipts = []
     exact_completed = 0
     exact_failed = 0
+    fetches_left = MAX_OPEN_LABEL_FETCHES
+    recovered = set()
+    exact_requested = 0
     for obligation in obligations:
+        if fetches_left == 0:
+            break
+        ticker = obligation["ticker"]
+        if ticker in recovery and ticker not in recovered:
+            fetches_left -= 1
+            recovered.add(ticker)
+            _recover_basis(database, obligation, recovery[ticker], market_date + timedelta(days=1),
+                           history=history, sleep=sleep)
+        if fetches_left == 0:
+            break
+        fetches_left -= 1
+        exact_requested += 1
         receipt, frame = _fetch_exact(
             obligation, requested_at=attempted_at, history=history, sleep=sleep,
         )
@@ -149,7 +185,7 @@ def run(
             "open_label_completed": exact_completed,
             "open_label_missing": sum(row["status"] == "missing" for row in receipts),
             "open_label_failed": exact_failed,
-            "open_label_deferred": outstanding - len(obligations),
+            "open_label_deferred": outstanding - exact_requested,
             "open_label_outstanding": outstanding,
         }
     finally:

@@ -379,6 +379,25 @@ def test_render_crontab_preserves_another_checkout_postflight(tmp_path):
     assert other in rendered
 
 
+def test_release_preserves_external_lines_inside_the_managed_block(tmp_path, monkeypatch):
+    root, _home = _repo(tmp_path)
+    external = (
+        "@reboot /srv/news/run.sh # cron:news_scraper_boot\n"
+        "*/5 * * * * /srv/news/watchdog.sh # cron:news_scraper_watchdog\n"
+        "NEWS_MODE=public\n# Operator news jobs\n"
+    )
+    current = install_automation.render_crontab("", root).replace(
+        install_automation.END_MARKER, external + install_automation.END_MARKER,
+    )
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: current)
+    installed = []
+    monkeypatch.setattr(install_automation, "_checked",
+                        lambda args, *, input_text: installed.append(input_text))
+    assert install_automation._refresh_and_install_crontab(root)
+    assert external in installed[0]
+    assert install_automation.render_crontab(installed[0], root) == installed[0]
+
+
 @pytest.mark.parametrize(
     "text",
     (
