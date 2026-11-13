@@ -5673,4 +5673,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** nothing admitted.
 
+## 2026-11-13 — Accept revision 21 and record the closed confirmation timer as disabled
+
+- **Why:** revision-21 deploy (owner, 2026-11-13: deploy without holding); reproduction: with this
+  branch `python -m tools.schedule_contract_check --live` reported `not-enabled: confirm-287.timer`,
+  which the deploy's before-release schedule gate refuses.
+- **What:** the orchestrator ran both timezone suites outside the writer's sandbox (green) and
+  replayed the sector and XS runtime migrations on the latest published snapshot against the live
+  published reports (both migrate). The schedule contract now lists the closed trial-287
+  confirmation timer and service as disabled, matching the host since 2026-11-12.
+- **Evidence:** `python -m tools.schedule_contract_check --live` → only `not-installed:
+  trading-engine-publish-on-change.timer`, which the deploy installs before its gate.
+- **Metrics:** unchanged.
+- **Next:** merge to main and deploy revision 21 by its checklist.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
