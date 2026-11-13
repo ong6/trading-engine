@@ -9,6 +9,7 @@ from datetime import date, timedelta
 import pytest
 
 from engine import forward_review
+from tests.deployed_runtime_helpers import deployed_runtime
 
 
 @pytest.fixture(autouse=True)
@@ -361,8 +362,7 @@ def _deployed_result(con) -> dict:
     _setup(con)
     _equity(con, forward_review.OBSERVATION_START, 2, 101, 100)
     prior = forward_review.evaluate(con)
-    prior["frozen_runtime"]["runtime_contract_sha256"] = (
-        forward_review.AMENDED_RUNTIME_CONTRACT_SHA256)
+    prior["frozen_runtime"].update(deployed_runtime("sector"))
     return prior
 
 
@@ -385,6 +385,7 @@ def test_runtime_contract_migration_preserves_complete_prior_result(con):
     assert migrated["frozen_runtime"] == {
         **prior["frozen_runtime"],
         "runtime_contract_sha256": forward_review.EXPECTED_RUNTIME_CONTRACT_SHA256,
+        "runtime_contract_files": list(forward_review.RUNTIME_CONTRACT_FILES),
     }
 
 
@@ -426,8 +427,7 @@ def test_runtime_contract_migration_replaces_only_the_amended_digest(con):
     _equity(con, forward_review.OBSERVATION_START, 2, 101, 100)
     current = forward_review.evaluate(con)
     prior = copy.deepcopy(current)
-    prior["frozen_runtime"]["runtime_contract_sha256"] = (
-        forward_review.AMENDED_RUNTIME_CONTRACT_SHA256)
+    prior["frozen_runtime"].update(deployed_runtime("sector"))
     with pytest.raises(ValueError, match="requires explicit migration"):
         forward_review.evaluate(con, prior_result=prior)
 
@@ -653,3 +653,17 @@ def test_cost_break_retains_complete_prefix_across_repeated_reviews(con):
                 [forward_review.CANDIDATE_ID, forward_review.OBSERVATION_START])
     with pytest.raises(ValueError, match="baseline equity changed|previously published forward equity window changed"):
         forward_review.evaluate(con, prior_result=result)
+
+
+@pytest.mark.parametrize("change", ["added", "missing", "reordered"])
+def test_runtime_migration_refuses_wrong_deployed_file_list(con, change):
+    prior = _deployed_result(con)
+    files = prior["frozen_runtime"]["runtime_contract_files"]
+    if change == "added":
+        files.append("engine/repair_integrity.py")
+    elif change == "missing":
+        files.pop()
+    else:
+        files.reverse()
+    with pytest.raises(ValueError, match="not the exact migration checkpoint"):
+        forward_review.migrate_runtime_contract(con, prior)

@@ -173,7 +173,9 @@ def _run(sandbox: dict, script: str, state: Path) -> subprocess.CompletedProcess
     env = {**os.environ, "P21_ROOT": str(sandbox["live"]), "P21_STATE": str(state),
            "P21_APPROVED_SHA": sandbox["approved"], "P21_PY": sys.executable,
            "P21_HOST_HELPERS": str(sandbox["host"]), "P21_SYNC_VENV": "0",
-           "P21_BACKUP_PARENT": str(sandbox["tmp"] / "backups"), "PYTHONPATH": ""}
+           "P21_BACKUP_PARENT": str(sandbox["tmp"] / "backups"), "PYTHONPATH": "",
+           "HOME": str(sandbox["tmp"] / "home"),
+           "PATH": str(sandbox["tmp"] / "bin") + os.pathsep + os.environ["PATH"]}
     if script == "deploy":
         command = ["bash", str(OPS / "deploy.sh")]
     else:
@@ -188,6 +190,158 @@ def _state(state: Path) -> dict:
         key, _, value = line.partition("=")
         values[key] = value
     return values
+
+
+@pytest.fixture
+def complete_deploy(sandbox):
+    """Reach release with store/API stand-ins and execute both actual proof blocks."""
+    modules = {
+        "engine/schema_migrations.py": '''
+import json, pathlib, sys
+current = pathlib.Path("store/migrated")
+if sys.argv[1] == "apply": current.touch()
+print(json.dumps({"status": "current" if current.exists() else "planned",
+    "expected_pre_catalog_sha256":
+    "7286ea9b55c05d1bb16af2f2faeeb6aa69b1d5f711e1219efb2d5c27709a2e5d" if current.exists() else
+    "865f64aad4529c6f2cde3d0fb72d7b70dd968b85f49905681db1aef825d59a65"}))
+''',
+        "tools/backup_database.py": '''
+import json, pathlib, sys
+if sys.argv[1] == "create": pathlib.Path(sys.argv[2]).mkdir(parents=True)
+print(json.dumps({"status": "ok", "manifest_sha256": "m"}))
+''',
+        "farm/experiment_runner.py": '''
+import json, pathlib
+EXPECTED_RUNTIME_CONTRACT_SHA256 = "e1-new"
+def load_forward_config(*args): return ({}, None)
+def checkpoint_path(cfg): return pathlib.Path("data/reports/experiments/e1-spy-monday-forward.json")
+if __name__ == "__main__":
+    checkpoint_path({}).write_text(json.dumps({"runtime_contract_sha256": EXPECTED_RUNTIME_CONTRACT_SHA256}))
+''',
+        "tools/check_invariants.py": 'print("invariants ok")\n',
+        "tools/publish_snapshot.py": '''
+import json, pathlib
+pathlib.Path("store/hot.duckdb").write_bytes(b"hot fixture")
+print(json.dumps({"status": "published"}))
+''',
+        "engine/lib/snapshots.py": '''
+import hashlib, os
+from contextlib import contextmanager
+from pathlib import Path
+from types import SimpleNamespace
+def call(value):
+    with (Path(os.environ["P21_STATE"])/"host-calls").open("a") as handle: handle.write(value+"\\n")
+@contextmanager
+def pin_latest_generation(primary):
+    assert primary == Path("store/market.duckdb")
+    path = Path("store/hot.duckdb").resolve()
+    call("pin-enter")
+    try:
+        yield SimpleNamespace(path=path, sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                              manifest_schema_version=2)
+    finally: call("pin-exit")
+''',
+        "duckdb.py": '''
+from datetime import date
+class Connection:
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def execute(self, sql, parameters=None):
+        if "MAX(date)" in sql: self.result = (date(2026,11,11),)
+        else:
+            assert parameters == [date(2026,11,11)]
+            self.result = (60,)
+        return self
+    def fetchone(self): return self.result
+def connect(path, *, read_only, config):
+    assert read_only is True and config == {"threads":"1"}
+    return Connection()
+''',
+        "engine/verify_prices.py": '''
+class SourceError(Exception): pass
+class SourceNoData(SourceError): pass
+''',
+    }
+    for family in ("sector", "xs"):
+        filename = "sector_momentum" if family == "sector" else "xs_momentum_12_1"
+        modules[f"engine/{'forward_review' if family == 'sector' else 'xs_forward_review'}.py"] = f'''
+import json, pathlib
+EXPECTED_RUNTIME_CONTRACT_SHA256 = "{family}-new"
+if __name__ == "__main__":
+    pathlib.Path("data/reports/forward/{filename}.json").write_text(json.dumps({{
+        "status":"ACCUMULATING", "frozen_runtime":{{"runtime_contract_sha256":EXPECTED_RUNTIME_CONTRACT_SHA256}}}}))
+'''
+    author = sandbox["author"]
+    _git(author, "checkout", "-q", "storage-r21")
+    _commit(author, modules, "deploy stand-ins")
+    _git(author, "checkout", "-q", "main")
+    _git(author, "merge", "-q", "--no-ff", "-m", "Merge complete deploy", "storage-r21")
+    sandbox["approved"] = _git(author, "rev-parse", "HEAD")
+    _git(author, "push", "-q", "origin", "main")
+    private = sandbox["tmp"] / "home/trading-alpha/live"
+    private.mkdir(parents=True)
+    (private / "t4_forward.py").write_text('''
+import hashlib
+from engine.lib.snapshots import call
+from duckdb import connect
+class Snapshot:
+    def __init__(self, *, observed, required_session, directory):
+        assert observed.tzinfo is not None and required_session is not None
+        self.path = directory/"hot.duckdb"
+        self.metadata = {"sha256":hashlib.sha256(self.path.read_bytes()).hexdigest()}
+        if (directory/"refuse-reader").exists(): self.metadata["sha256"] = "0"*64
+        call("trial-375")
+    def connection(self): return connect(str(self.path), read_only=True, config={"threads":"1"})
+''')
+    for name in ("gap_fade_live", "massive_287", "trade_intents"):
+        (private / f"{name}.py").write_text(
+            f'from engine.lib.snapshots import call\ncall("{name}")\n')
+    bin_dir = sandbox["tmp"] / "bin"
+    bin_dir.mkdir()
+    curl = bin_dir / "curl"
+    curl.write_text(f"#!{sys.executable}\n" + '''
+import json, sys
+from pathlib import Path
+args=sys.argv
+if "--dump-header" in args:
+    Path(args[args.index("--dump-header")+1]).write_text("x-data-source: snapshot\\nx-generation-id: market-fixture\\n")
+body = ({key:{"status":"ACCUMULATING"} for key in ("e1_forward","forward_review","xs_forward_review")}
+        if args[-1].endswith("/meta") else {"generation":{"pending_publication":False}})
+Path(args[args.index("--output")+1]).write_text(json.dumps(body))
+''')
+    curl.chmod(0o755)
+    return sandbox
+
+
+@pytest.mark.parametrize("failure", [None, "trial-375", "live-287"])
+def test_deploy_requires_both_frozen_proofs_before_release(complete_deploy, failure):
+    sandbox = complete_deploy
+    if failure == "trial-375":
+        (sandbox["live"] / "store/refuse-reader").touch()
+    elif failure == "live-287":
+        (sandbox["tmp"] / "home/trading-alpha/live/gap_fade_live.py").write_text(
+            'raise RuntimeError("live-287 import refused")\n')
+    state = sandbox["tmp"] / "state"
+    result = _run(sandbox, "deploy", state)
+    calls = (state / "host-calls").read_text().splitlines()
+    assert calls.index("stage") < calls.index("readers") < calls.index("pin-enter")
+    assert calls.index("pin-enter") < calls.index("trial-375") < calls.index("pin-exit")
+    if failure:
+        assert result.returncode != 0
+        assert "producers stay quiesced" in result.stderr
+        assert "release" not in calls and "schedule-check before-release" not in calls
+        assert _state(state)["P21_PHASE"] == "readers-verified"
+        receipt = "trial-375-reader.txt" if failure == "trial-375" else "live-287-imports.txt"
+        assert "Traceback" in (state / receipt).read_text()
+    else:
+        assert result.returncode == 0, result.stderr
+        assert _state(state)["P21_PHASE"] == "released"
+        assert calls.index("pin-exit") < calls.index("gap_fade_live")
+        assert calls.index("trade_intents") < calls.index("schedule-check before-release") < calls.index("release")
+        assert "trial 375 accepted" in (state / "trial-375-reader.txt").read_text()
+        assert "live-287 signal/settle imports accepted" in (state / "live-287-imports.txt").read_text()
+        assert "P21_PHASE=frozen-readers-verified" in (state / "state.env").read_text()
+    assert not list((sandbox["tmp"] / "home/trading-alpha").rglob("__pycache__"))
 
 
 def test_rollback_after_a_failed_backup_create_reverts_on_main_and_leaves_the_store(sandbox):

@@ -114,13 +114,57 @@ SUPERSEDED_RUNTIME_CONTRACT_SHA256 = 'c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd3
 RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. XS strategy, signal boundary, paired control and statistical verdict rules are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, collection audits a split-like re-fetch and triggers back-adjustment, and this migration compares the deployed report's fill model, signal-boundary runtime pin and clock fields as published; undeployed pre-deploy amendment 2026-10-17 separates retained prefix continuity from restarted evaluation sessions and validates their partition without changing equity, signal, baseline, ledger or verdict rules; revision 15 after v2: r15-data preserves rejected observations and gates scalar/calendar/basis admission; r15-money refuses malformed arithmetic and shares trusted fill/mark bars; r15-flow reduces repeated fetches, offline reports and history copies; r15-ops reports recorded outcomes and moves the Sunday history slot; board-2 shows dated quality and prospective gates; r15-tests reuses private fixtures and caps native threads. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged; binding orchestrator October 18 cleanup rulings: P15 session identity is captured SPY price dates union hard-invalid rejected dates, with XNYS membership for basis holds; stored labels and hashes remain immutable; missing trusted P15 bars and sleeve sizing wait with audited untrusted_bar and no substitute price; cold UI readiness uses a bounded five-minute wait; undeployed revision 15 amended 2026-10-20 by the reviewed fixes landed after v2: liquid split coverage, first-stored split provenance and a quarantining break scan; same-night provisional bars shown flagged; scratch replays never attach live stores and grids keep one reader; finite walk-forward results; snapshot disk cap and once-daily history publication; pre-open reliability, nightly evidence order and scoring report commits; two reviewed model runtimes by hash; same-night bars whose only fault is the open admitted provisionally for their close, never filled, labeled or scored on that open. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged"
 # Filled after the file list was frozen; tests verify this against current bytes.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "c894547e95293624a174a341b6a64e6e6801577c402a359de7532c9044d4017c"
+    "8d54dfbec5db3ee4d077931d9941113f4fd5d5e11e1fe3f005369c91bf9df45c"
 )
 
 # The deployed code identity of this same contract version (revision 19, installed
 # 2026-10-22). Revision 21 changed pinned bytes but not what the XS pair computes, so
-# the version stays and an explicit migration replaces only this digest.
+# the version stays and an explicit migration replaces the deployed runtime identity.
 AMENDED_RUNTIME_CONTRACT_SHA256 = 'd00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6'
+# Exact file list published by the deployed predecessor, independent of this closure.
+AMENDED_RUNTIME_CONTRACT_FILES = (
+    'engine/p15_calendar.py',
+    'sim/p15_books.py',
+    'engine/accounts/__init__.py',
+    'engine/accounts/actions.py',
+    'engine/accounts/settle.py',
+    'engine/actions.py',
+    'engine/collect.py',
+    'engine/lib/data_quality.py',
+    'engine/lib/db.py',
+    'engine/lib/resources.py',
+    'engine/lib/util.py',
+    'engine/money/alerts.py',
+    'engine/money/halts.py',
+    'engine/screen.py',
+    'engine/universe.py',
+    'engine/xs_forward_review.py',
+    'farm/walkforward/monthly.py',
+    'sim/bar_sources.py',
+    'sim/book_breaks.py',
+    'sim/calendar.py',
+    'sim/costs/__init__.py',
+    'sim/costs/baseline_v1.py',
+    'sim/costs/ibkr_pro_tiered_v1.py',
+    'sim/costs/profiles.py',
+    'sim/execution.py',
+    'sim/fills.py',
+    'sim/league.py',
+    'sim/ledger.py',
+    'sim/margin.py',
+    'sim/money_inputs.py',
+    'sim/nyse.py',
+    'sim/order_types.py',
+    'sim/portfolio.py',
+    'sim/schema.py',
+    'sim/settle.py',
+    'sim/shorts.py',
+    'sim/strategies/base.py',
+    'sim/strategies/ew_benchmark.py',
+    'sim/strategies/xs_common.py',
+    'sim/strategies/xs_momentum_12_1.py',
+    'sim/valuation.py',
+)
 
 
 @dataclass(frozen=True)
@@ -773,12 +817,12 @@ def _deployed_runtime() -> dict:
         "runtime_contract_sha256": AMENDED_RUNTIME_CONTRACT_SHA256,
         "superseded_runtime_contract_sha256": SUPERSEDED_RUNTIME_CONTRACT_SHA256,
         "runtime_contract_migration": RUNTIME_CONTRACT_MIGRATION,
-        "runtime_contract_files": list(RUNTIME_CONTRACT_FILES),
+        "runtime_contract_files": list(AMENDED_RUNTIME_CONTRACT_FILES),
     }
 
 
 def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
-    """Replace only the deployed digest on the exact published XS report.
+    """Replace the deployed runtime identity on the exact published XS report.
 
     The only accepted predecessor is the valid report the deployed revision published,
     whose signal boundary pins the same deployed digest. An INVALID report is refused,
@@ -826,7 +870,11 @@ def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
 
 
 def _runtime_metadata_current() -> dict:
-    return {**_deployed_runtime(), "runtime_contract_sha256": EXPECTED_RUNTIME_CONTRACT_SHA256}
+    return {
+        **_deployed_runtime(),
+        "runtime_contract_sha256": EXPECTED_RUNTIME_CONTRACT_SHA256,
+        "runtime_contract_files": list(RUNTIME_CONTRACT_FILES),
+    }
 
 
 def _move_boundary_digest(result: dict, prior: dict, *, current: bool) -> None:

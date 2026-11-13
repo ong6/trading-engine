@@ -217,6 +217,44 @@ assert all(state not in (None, "INVALID") for state in states.values()), states'
 "$PY" -m tools.publish_snapshot --retention-dry-run > "$P21_STATE/retention.json"
 record P21_PHASE readers-verified
 
+step "frozen trial-375 reader and generation verification (read-only)"
+PYTHONDONTWRITEBYTECODE=1 "$PY" -B - > "$P21_STATE/trial-375-reader.txt" 2>&1 <<'PYCODE'
+import hashlib, importlib.util, sys
+from datetime import datetime, timezone
+from pathlib import Path
+import duckdb
+from engine.lib.snapshots import pin_latest_generation
+spec = importlib.util.spec_from_file_location("r21_frozen_reader", Path.home()/"trading-alpha/live/t4_forward.py")
+reader = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = reader
+spec.loader.exec_module(reader)
+with pin_latest_generation(Path("store/market.duckdb")) as info:
+    with duckdb.connect(str(info.path), read_only=True, config={"threads":"1"}) as con:
+        latest = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+    frozen = reader.Snapshot(observed=datetime.now(timezone.utc), required_session=latest,
+                             directory=info.path.parent)
+    with frozen.path.open("rb") as handle:
+        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+    assert frozen.path == info.path and digest == frozen.metadata["sha256"] == info.sha256
+    with frozen.connection() as con:
+        rows = con.execute("SELECT COUNT(*) FROM prices WHERE date=?", [latest]).fetchone()[0]
+    assert rows > 0 and info.manifest_schema_version == 2
+    print("trial 375 accepted; hot hash and generation files verified; latest session", latest, "rows", rows)
+PYCODE
+
+step "live-287 signal/settle imports (read-only)"
+PYTHONDONTWRITEBYTECODE=1 "$PY" -B - > "$P21_STATE/live-287-imports.txt" 2>&1 <<'PYCODE'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path.home()/"trading-alpha/live"))
+import gap_fade_live, massive_287, trade_intents
+from engine.verify_prices import SourceError, SourceNoData
+assert issubclass(SourceNoData, SourceError)
+print("live-287 signal/settle imports accepted; SourceNoData remains a SourceError")
+PYCODE
+
+record P21_PHASE frozen-readers-verified
+
 step "live schedule contract before release (quiesced: only stopped timers and the removed crontab)"
 p21_schedule_check before-release not-active missing-cron
 

@@ -13,6 +13,7 @@ import pytest
 from engine import xs_forward_review as review
 from sim.strategies.configs import config_by_id
 from tests.conftest import insert_bars
+from tests.deployed_runtime_helpers import deployed_runtime
 
 
 def _setup(con) -> None:
@@ -517,7 +518,7 @@ def _pre_signal_deployed_checkpoint(con) -> dict:
             [portfolio_id],
         )
     prior = review.evaluate(con)
-    prior["frozen_runtime"]["runtime_contract_sha256"] = review.AMENDED_RUNTIME_CONTRACT_SHA256
+    prior["frozen_runtime"].update(deployed_runtime("xs"))
     return prior
 
 
@@ -546,6 +547,7 @@ def test_explicit_runtime_contract_migration_preserves_pre_signal_protocol(con):
     assert migrated["frozen_runtime"] == {
         **prior["frozen_runtime"],
         "runtime_contract_sha256": review.EXPECTED_RUNTIME_CONTRACT_SHA256,
+        "runtime_contract_files": list(review.RUNTIME_CONTRACT_FILES),
     }
 
 
@@ -581,9 +583,9 @@ def test_runtime_contract_migration_preserves_accumulated_prefix(con):
 
 
 def _deployed_amended_result(current: dict, digest: str) -> dict:
-    # The deployed revision-15 report under this same contract version: every field is
-    # current except the runtime digest, which its signal boundary pins as well.
+    # Use the deployed file list and metadata copied from its published frozen block.
     prior = copy.deepcopy(current)
+    prior["frozen_runtime"].update(deployed_runtime("xs"))
     prior["frozen_runtime"]["runtime_contract_sha256"] = digest
     prior["frozen_runtime"]["signal_boundary"]["protocol_contract"][
         "runtime_contract_sha256"] = digest
@@ -704,3 +706,21 @@ def test_cost_break_retains_complete_migrated_prefix_across_repeated_reviews(con
         [review.CANDIDATE_ID])
     with pytest.raises(ValueError, match="previously published XS forward equity window changed"):
         review.evaluate(con, prior_result=first)
+
+
+@pytest.mark.parametrize("change", ["added", "missing", "reordered"])
+def test_runtime_migration_refuses_wrong_deployed_file_list(con, change):
+    _setup(con)
+    waiting = _freeze(con)
+    _transition(con)
+    prior = _deployed_amended_result(review.evaluate(con, prior_result=waiting),
+                                     review.AMENDED_RUNTIME_CONTRACT_SHA256)
+    files = prior["frozen_runtime"]["runtime_contract_files"]
+    if change == "added":
+        files.append("engine/repair_integrity.py")
+    elif change == "missing":
+        files.pop()
+    else:
+        files.reverse()
+    with pytest.raises(ValueError, match="not the exact migration checkpoint"):
+        review.migrate_runtime_contract(con, prior)

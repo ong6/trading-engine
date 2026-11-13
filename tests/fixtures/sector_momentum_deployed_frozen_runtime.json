@@ -1,0 +1,92 @@
+{
+  "baseline_equity": {
+    "sector_momentum": 41742.09372396311,
+    "spy_benchmark": 40163.91313403321
+  },
+  "baseline_note": "The 2026-09-04 closing marks are the prospective baseline. Existing holdings were inherited from the pre-v4 paper path; no pre-baseline return is credited to this observation.",
+  "baseline_state": {
+    "sector_momentum": {
+      "cash": 35.138662886144374,
+      "equity": 41742.09372396311,
+      "n_positions": 3,
+      "positions": [
+        [
+          "XLE",
+          216.7514552594882,
+          58.74868862533569,
+          64.05999755859375
+        ],
+        [
+          "XLK",
+          74.13743682635298,
+          174.18400450134274,
+          187.27999877929688
+        ],
+        [
+          "XLV",
+          81.29133004417835,
+          163.93930986015226,
+          171.4499969482422
+        ]
+      ]
+    },
+    "spy_benchmark": {
+      "cash": 114.03300708008464,
+      "equity": 40163.91313403321,
+      "n_positions": 1,
+      "positions": [
+        [
+          "SPY",
+          52.0,
+          747.8070575561522,
+          770.1900024414062
+        ]
+      ]
+    }
+  },
+  "baseline_state_sha256": "6009bf5f765b8f28e41636d60666af5d9319c121aa0668f214ba7a647cc0a902",
+  "execution_profile_sha256": "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db",
+  "fill_model": "v5",
+  "observation_start": "2026-09-04",
+  "runtime_contract_files": [
+    "engine/p15_calendar.py",
+    "sim/p15_books.py",
+    "engine/accounts/__init__.py",
+    "engine/accounts/actions.py",
+    "engine/accounts/settle.py",
+    "engine/actions.py",
+    "engine/forward_review.py",
+    "engine/lib/data_quality.py",
+    "engine/lib/db.py",
+    "engine/lib/util.py",
+    "engine/money/alerts.py",
+    "engine/money/halts.py",
+    "sim/bar_sources.py",
+    "sim/book_breaks.py",
+    "sim/calendar.py",
+    "sim/costs/__init__.py",
+    "sim/costs/baseline_v1.py",
+    "sim/costs/ibkr_pro_tiered_v1.py",
+    "sim/costs/profiles.py",
+    "sim/execution.py",
+    "sim/fills.py",
+    "sim/league.py",
+    "sim/ledger.py",
+    "sim/margin.py",
+    "sim/money_inputs.py",
+    "sim/nyse.py",
+    "sim/order_types.py",
+    "sim/portfolio.py",
+    "sim/schema.py",
+    "sim/settle.py",
+    "sim/shorts.py",
+    "sim/strategies/base.py",
+    "sim/strategies/sector_momentum.py",
+    "sim/strategies/spy_benchmark.py",
+    "sim/valuation.py"
+  ],
+  "runtime_contract_migration": "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. Sector strategy, paired control, baseline prefix and kill criterion are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, a split-like re-fetch triggers back-adjustment, and this migration compares the deployed report's fill model and clock fields as published; second pre-deploy amendment 2026-10-17 under D1 fixes the same retained-prefix continuity defect class found by the fresh rehearsal: evaluated and retained counts are partitioned at the prior clock, with schema-v1 behavior, complete equity hashes, baselines and forward ledgers unchanged; revision 15 after v2: r15-data preserves rejected observations and gates scalar/calendar/basis admission; r15-money refuses malformed arithmetic and shares trusted fill/mark bars; r15-flow reduces repeated fetches, offline reports and history copies; r15-ops reports recorded outcomes and moves the Sunday history slot; board-2 shows dated quality and prospective gates; r15-tests reuses private fixtures and caps native threads. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged; binding orchestrator October 18 cleanup rulings: P15 session identity is captured SPY price dates union hard-invalid rejected dates, with XNYS membership for basis holds; stored labels and hashes remain immutable; missing trusted P15 bars and sleeve sizing wait with audited untrusted_bar and no substitute price; cold UI readiness uses a bounded five-minute wait; undeployed revision 15 amended 2026-10-20 by the reviewed fixes landed after v2: liquid split coverage, first-stored split provenance and a quarantining break scan; same-night provisional bars shown flagged; scratch replays never attach live stores and grids keep one reader; finite walk-forward results; snapshot disk cap and once-daily history publication; pre-open reliability, nightly evidence order and scoring report commits; two reviewed model runtimes by hash; same-night bars whose only fault is the open admitted provisionally for their close, never filled, labeled or scored on that open. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged",
+  "runtime_contract_sha256": "bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea",
+  "runtime_contract_version": 12,
+  "superseded_runtime_contract_sha256": "c7c868a9176172eafab99427723ce7edf5bdb7326693cb9f351ff29ab52d9168"
+}

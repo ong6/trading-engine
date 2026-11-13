@@ -87,7 +87,7 @@ RUNTIME_CONTRACT_VERSION = 12
 SUPERSEDED_RUNTIME_CONTRACT_SHA256 = 'c7c868a9176172eafab99427723ce7edf5bdb7326693cb9f351ff29ab52d9168'
 RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. Sector strategy, paired control, baseline prefix and kill criterion are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, a split-like re-fetch triggers back-adjustment, and this migration compares the deployed report's fill model and clock fields as published; second pre-deploy amendment 2026-10-17 under D1 fixes the same retained-prefix continuity defect class found by the fresh rehearsal: evaluated and retained counts are partitioned at the prior clock, with schema-v1 behavior, complete equity hashes, baselines and forward ledgers unchanged; revision 15 after v2: r15-data preserves rejected observations and gates scalar/calendar/basis admission; r15-money refuses malformed arithmetic and shares trusted fill/mark bars; r15-flow reduces repeated fetches, offline reports and history copies; r15-ops reports recorded outcomes and moves the Sunday history slot; board-2 shows dated quality and prospective gates; r15-tests reuses private fixtures and caps native threads. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged; binding orchestrator October 18 cleanup rulings: P15 session identity is captured SPY price dates union hard-invalid rejected dates, with XNYS membership for basis holds; stored labels and hashes remain immutable; missing trusted P15 bars and sleeve sizing wait with audited untrusted_bar and no substitute price; cold UI readiness uses a bounded five-minute wait; undeployed revision 15 amended 2026-10-20 by the reviewed fixes landed after v2: liquid split coverage, first-stored split provenance and a quarantining break scan; same-night provisional bars shown flagged; scratch replays never attach live stores and grids keep one reader; finite walk-forward results; snapshot disk cap and once-daily history publication; pre-open reliability, nightly evidence order and scoring report commits; two reviewed model runtimes by hash; same-night bars whose only fault is the open admitted provisionally for their close, never filled, labeled or scored on that open. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged"
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "5e3f72322a8c74b84cd0f468a180bb31d93ddbee80149fa5fe733d92d12fae0c"
+    "deebf2f38df6fe7c0f42a0635a075da3e0e1f7d824006c8d0707f2bc65317146"
 )
 RUNTIME_CONTRACT_FILES = (
     'engine/p15_calendar.py',
@@ -129,8 +129,46 @@ RUNTIME_CONTRACT_FILES = (
 )
 # The deployed code identity of this same contract version (revision 19, installed
 # 2026-10-22). Revision 21 changed pinned bytes but not what the sector pair computes,
-# so the version stays and an explicit migration replaces only this digest.
+# so the version stays and an explicit migration replaces the deployed runtime identity.
 AMENDED_RUNTIME_CONTRACT_SHA256 = 'bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea'
+# Exact file list published by the deployed predecessor, independent of this closure.
+AMENDED_RUNTIME_CONTRACT_FILES = (
+    'engine/p15_calendar.py',
+    'sim/p15_books.py',
+    'engine/accounts/__init__.py',
+    'engine/accounts/actions.py',
+    'engine/accounts/settle.py',
+    'engine/actions.py',
+    'engine/forward_review.py',
+    'engine/lib/data_quality.py',
+    'engine/lib/db.py',
+    'engine/lib/util.py',
+    'engine/money/alerts.py',
+    'engine/money/halts.py',
+    'sim/bar_sources.py',
+    'sim/book_breaks.py',
+    'sim/calendar.py',
+    'sim/costs/__init__.py',
+    'sim/costs/baseline_v1.py',
+    'sim/costs/ibkr_pro_tiered_v1.py',
+    'sim/costs/profiles.py',
+    'sim/execution.py',
+    'sim/fills.py',
+    'sim/league.py',
+    'sim/ledger.py',
+    'sim/margin.py',
+    'sim/money_inputs.py',
+    'sim/nyse.py',
+    'sim/order_types.py',
+    'sim/portfolio.py',
+    'sim/schema.py',
+    'sim/settle.py',
+    'sim/shorts.py',
+    'sim/strategies/base.py',
+    'sim/strategies/sector_momentum.py',
+    'sim/strategies/spy_benchmark.py',
+    'sim/valuation.py',
+)
 EXPECTED_STRATEGY_TYPES = {
     CANDIDATE_ID: SectorMomentum,
     CONTROL_ID: SpyBenchmark,
@@ -687,11 +725,20 @@ def _validate_published_runtime(prior_result: dict | None) -> None:
         raise ValueError("published sector runtime contract requires explicit migration")
 
 
+def _deployed_runtime() -> dict:
+    """Exact runtime metadata published by the deployed predecessor."""
+    return {
+        **_runtime_metadata(),
+        "runtime_contract_sha256": AMENDED_RUNTIME_CONTRACT_SHA256,
+        "runtime_contract_files": list(AMENDED_RUNTIME_CONTRACT_FILES),
+    }
+
+
 def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
-    """Replace only the deployed digest on the exact published sector report.
+    """Replace the deployed runtime identity on the exact published sector report.
 
     The only accepted predecessor is the valid report the deployed revision published:
-    the current contract version, files and migration text under the deployed digest
+    the deployed file list and digest with the same contract version and migration text
     (``AMENDED_RUNTIME_CONTRACT_SHA256``). An INVALID report is refused, never migrated
     from the last valid result it preserves.
     """
@@ -699,11 +746,12 @@ def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
         raise ValueError("published sector forward report is required for migration")
     if prior_result.get("status") == "INVALID":
         raise ValueError("published sector forward report is INVALID; migration refused")
+    published = prior_result.get("frozen_runtime") or {}
+    if {key: published.get(key) for key in _deployed_runtime()} != _deployed_runtime():
+        raise ValueError("published sector predecessor report is not the exact migration checkpoint")
     current = evaluate(con)
     expected_prior = copy.deepcopy(current)
-    expected_prior["frozen_runtime"].update(
-        {**_runtime_metadata(), "runtime_contract_sha256": AMENDED_RUNTIME_CONTRACT_SHA256}
-    )
+    expected_prior["frozen_runtime"].update(_deployed_runtime())
     prior_json = json.loads(json.dumps(prior_result, default=str))
     expected_json = json.loads(json.dumps(expected_prior, default=str))
     if prior_json != expected_json:

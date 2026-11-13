@@ -6,6 +6,7 @@ import pytest
 
 from engine import forward_review as sector
 from engine import xs_forward_review as xs
+from tests.deployed_runtime_helpers import deployed_runtime
 from tests.test_sector_forward_status import _setup_live_sector_forward
 from tests.test_xs_forward_review import _deployed_amended_result, _freeze, _setup, _transition
 from tools.migrate_cost_profiles import migrate
@@ -18,8 +19,7 @@ def test_both_forward_families_retain_prefix_across_repeated_cost_break_reviews(
     _transition(con)
     priors = {sector: sector.evaluate(con), xs: xs.evaluate(con, prior_result=waiting)}
     predecessor = deepcopy(priors[sector])
-    predecessor["frozen_runtime"]["runtime_contract_sha256"] = (
-        sector.AMENDED_RUNTIME_CONTRACT_SHA256)
+    predecessor["frozen_runtime"].update(deployed_runtime("sector"))
     priors[sector] = sector.migrate_runtime_contract(con, predecessor)
     priors[xs] = xs.migrate_runtime_contract(
         con, _deployed_amended_result(priors[xs], xs.AMENDED_RUNTIME_CONTRACT_SHA256))

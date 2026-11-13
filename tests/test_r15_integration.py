@@ -9,6 +9,7 @@ from engine.lib import db
 from engine.lib.data_quality import price_bar_reasons, trusted_bar, trusted_bar_sql
 from server import market_read_models, position_read_models
 from sim import league, portfolio
+from tests.deployed_runtime_helpers import deployed_runtime
 from tests.read_model_helpers import liquid_universe
 
 
@@ -91,7 +92,7 @@ def test_revision15_migrates_after_v2_break_and_preserves_frozen_outcomes(con, m
                     "'baseline_v1', 'ibkr_pro_tiered_v1', 14, 'D0', current_timestamp)", [book])
     prior = review.evaluate(con, prior_result=result)
     prior = copy.deepcopy(prior)
-    prior['frozen_runtime']['runtime_contract_sha256'] = review.AMENDED_RUNTIME_CONTRACT_SHA256
+    prior['frozen_runtime'].update(deployed_runtime(family))
     if family == 'xs':
         prior['frozen_runtime']['signal_boundary']['protocol_contract']['runtime_contract_sha256'] = review.AMENDED_RUNTIME_CONTRACT_SHA256
     migrated = review.migrate_runtime_contract(con, prior)

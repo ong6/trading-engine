@@ -7,6 +7,7 @@ import pytest
 
 from farm import experiment_runner
 from tests.conftest import insert_bars
+from tests.deployed_runtime_helpers import deployed_runtime
 
 
 def _config():
@@ -187,7 +188,7 @@ def test_run_fails_closed_when_runtime_contract_changes(con, monkeypatch):
 def _deployed_checkpoint(cfg: dict, phash: str, rows: list[dict]) -> dict:
     """The checkpoint the deployed revision wrote: current except the deployed digest."""
     deployed = experiment_runner._checkpoint_payload(cfg, phash, rows)
-    deployed["runtime_contract_sha256"] = experiment_runner.AMENDED_RUNTIME_CONTRACT_SHA256
+    deployed.update(deployed_runtime("e1"))
     return deployed
 
 
@@ -264,7 +265,7 @@ def test_runtime_contract_migration_replaces_only_the_amended_digest(
     monkeypatch.setattr(experiment_runner, "REPORTS_DIR", tmp_path)
     rows = experiment_runner.load_oos_series(con, cfg, phash)
     deployed = experiment_runner._checkpoint_payload(cfg, phash, rows)
-    deployed["runtime_contract_sha256"] = experiment_runner.AMENDED_RUNTIME_CONTRACT_SHA256
+    deployed.update(deployed_runtime("e1"))
     path = experiment_runner.checkpoint_path(cfg)
     path.write_text(json.dumps(deployed))
     with pytest.raises(ValueError, match="E1 forward checkpoint is invalid"):
