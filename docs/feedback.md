@@ -891,3 +891,16 @@ for deploy and resumes at release through the normal parent queue. The existing 
 hold for provider responses, storage/publication controls and window rules remain as deployed.
 Remove the TradingView-pause sign-off; re-pin revision 21 once and verify both timezone suites
 and the stub deploy/rollback rehearsal before acceptance. → `revision-21-storage-deploy-checklist.md`.
+
+
+## 2026-11-13 — Require exact deployed predecessor metadata and reader proof before release
+
+**Verdict.** The revision-21 independent review rejected sector/XS migrations comparing the
+published predecessor with the current file list, and deploy releasing producers before the
+checklist's frozen-reader and live-287 import proofs.
+
+**Rule change.** Pin the deployed digest and file list separately, retaining every evidence
+comparison; execute both existing read-only proof blocks after first publication and before
+release, retain their outputs, and keep producers quiesced on failure. Re-pin once and verify
+both timezone suites. This lane commits only in its clone; merge and deployment remain with
+the orchestrator. → revision-21 deploy checklist and script.

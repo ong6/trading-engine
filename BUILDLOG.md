@@ -5653,4 +5653,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** session server +14 LOC, tools -1 LOC, product unchanged; tests +193 LOC.
 - **Next:** orchestrator acceptance and the documented merge/deploy window pre-flights.
 
+## 2026-11-13 — Repair revision-21 predecessor migration and prove readers before release
+
+- **Why:** the orchestrator reproduced XS rejecting the deployed report because only `runtime_contract_files` differs; the sector closure differs the same way, and deploy omitted the checklist's pre-release reader proofs.
+- **What:** pin literal deployed sector/XS file lists independently, retaining the exact digest and every published-evidence comparison; migrate to the current closure and refuse added, missing or reordered predecessor files.
+  Copy deployed frozen-runtime fixture blocks and verify continuity on disposable databases; E1's deployed file list and recomputed digest already match, so its source is unchanged.
+  Run both unchanged read-only checklist proof blocks after reader verification, save their output and keep producers quiesced on either failure; all 13 deploy/rollback rehearsal cases pass.
+  Re-pin sector/XS and the same 175-file P15 closure once, preserving every frozen setting. The published reports pass their metadata guards; `con=None` then reaches database evidence evaluation and cannot return a migrated report.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 8 tests/test_forward_review.py tests/test_xs_forward_review.py tests/test_experiment_runner.py tests/test_forward_cost_break_continuity.py tests/test_r15_integration.py tests/test_sector_forward_status.py tests/test_xs_forward_status.py tests/test_storage_r21_ops.py` → 162 passed; Ruff, job/static schedule and registration identity pass. Full/affected gates remain incomplete at 99%; diagnostic stacks show generated account-delivery tests in DuckDB operations, and a one-thread standalone seed passes.
+- **Metrics:** server 0, tools 0, product +96 LOC; tests +210 LOC.
+- **Next:** blocked: orchestrator selects a permitted runner for the unfinished full/affected gates and clarifies the database-dependent published-report proof; merge/deploy gates remain closed.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

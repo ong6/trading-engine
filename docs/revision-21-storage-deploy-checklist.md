@@ -101,24 +101,24 @@ The automatic horizon is ex-date through 60 calendar days after it; older skips 
 repair and appear only as an age-out count in the run summary. No retry ledger or migration is added.
 `source_commit` is the last commit touching a registered file; `code_identity.files` covers the complete imported
 closure; `registration_sha256` uses `canonical_sha256` over the document with that key removed. E1 v8, sector v12
-and XS v23 retain every frozen value and migrate only their deployed digests. Any later pinned-source edit requires
+and XS v23 retain every frozen value and migrate their exact deployed runtime identities. Any later pinned-source edit requires
 all affected hashes, source commit and the registration self-hash to be recomputed before acceptance.
 
-The owner collection amendment re-pins P15 once after both collection commits and checklist
-corrections. Final pins: 175 source files;
-`source_commit` `064957d5c13c917155ec5a46345f81a3cc3bdf1e`;
-`registration_sha256` `456c7b401e0bbf4806bba4fc432c2091321a9dbfcf546e6e804b0baa5c5f1a09`.
-Only `engine/signals.py` changes within P15's imported closure. E1 v8, sector v12 and XS v23
-keep the r21-cap versions, digests, file sets and exact accepted deployed predecessors below;
-the collection files changed here do not occur in their pinned file sets. No runtime re-pin is
-needed. The collection and schedule sentences disclose all enabled flags and TradingView's
-revision-20 cadence; the appended owner sentence states that revision 21 pauses no collection.
+The November 13 migration/proof correction re-pins P15 once after both admitted fixes.
+The closure retains 175 source files; `source_commit` is `79cf9961088320d9fa58ea697464dab74dfa9c56`
+and `registration_sha256` is `2aa04397361eeceb7bb48c317962b5a13f142ebd1ee8f3788df98f0c4743c2c1`.
+Sector v12 and XS v23 migrate the literal deployed digest and file list, which omit
+`engine/repair_integrity.py`, to the current digest and list, which include it. Every existing
+comparison of the published evidence remains. Their fixture blocks are copied from the deployed
+reports; additions, omissions and reordered predecessor lists refuse. E1 v8's deployed list
+already matches its current list, so its guard and digest need no change. Collection, model,
+frozen strategy and statistical settings remain unchanged.
 
 | Contract | Version | New digest | Accepted deployed predecessor (unchanged by the revision-20 model amendment) |
 |---|---|---|---|
 | E1 | 8 | `a024cca811e9e185a04ab5306601b1cdb16c261172a33e86aa5a1ad80166fe9d` | `2c8ec5b06a93edbca6104569c1bb5c66514cd6476f209169ca1f6041cd470538` |
-| Sector | 12 | `5e3f72322a8c74b84cd0f468a180bb31d93ddbee80149fa5fe733d92d12fae0c` | `bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea` |
-| XS | 23 | `c894547e95293624a174a341b6a64e6e6801577c402a359de7532c9044d4017c` | `d00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6` |
+| Sector | 12 | `deebf2f38df6fe7c0f42a0635a075da3e0e1f7d824006c8d0707f2bc65317146` | `bad2576494c4c1357d8045018d98da3d1575ed096844b66423f094ee104dd7ea` |
+| XS | 23 | `8d54dfbec5db3ee4d077931d9941113f4fd5d5e11e1fe3f005369c91bf9df45c` | `d00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6` |
 
 ## Pre-flight (all must hold)
 
@@ -168,7 +168,7 @@ revision-20 cadence; the appended owner sentence states that revision 21 pauses 
    `fetch_or_parse_error:SourceNoData:…` instead of `fetch_or_parse_error:SourceError:…`; both are
    missing-price observations caught by `SourceError`, with no substitute fill or new ETF fallback.
    Repeat the consumer scan and read-only live imports below before quiescence. After first publication,
-   before release, repeat the frozen-reader and generation verification command below.
+   before release, the deploy runs both read-only proof commands below and records their output.
 7. Inside the window, after quiescence, the deploy script runs `engine.schema_migrations plan` read-only on the live
    primary and stops unless the pre-image is `865f64aa…`.
    The orchestrator already applied the November 12 live split repair (six iShares ETFs,
@@ -195,8 +195,8 @@ also followed from its installed unit. No private file or unit was edited or exe
 | `live/gap_fade_live.py` signal/settle/report, `live/trade_intents.py`, `trading-data/evidence_archive.py` | Compatible in the November 12 import/cache audit. Gap-fade uses confirmation's Nasdaq helpers, never the monthly gates. One missing-price exception-name diagnostic changes to `SourceNoData`; prices and refusal semantics match. Intent schemas are separate from market manifests. Verify imports in the window and observe the first normal signal/settle/report after release. |
 | User units, crontab, news scraper | The units route to the three consumers above; crontab's engine jobs and scraper have no additional direct latest/manifest reader. Engine readers use r21's tested generation API. The scraper has no market snapshot reference. Archived documentation mentions are not scheduled consumers. |
 
-Run this **after the first generation publication and before release**, from the deployed
-checkout. It imports only the frozen snapshot interfaces, disables bytecode writes, keeps an
+The deploy runs this **after the first generation publication and before release**, from the
+deployed checkout, and saves stdout and stderr to `$P21_STATE/trial-375-reader.txt`. It imports only the frozen snapshot interfaces, disables bytecode writes, keeps an
 r21 pin throughout, verifies the exact file the frozen reader resolves, and reads the latest
 session. It makes no private-state write and does not invoke signal, settle, report or a relay.
 
@@ -226,8 +226,10 @@ with pin_latest_generation(Path("store/market.duckdb")) as info:
 PY
 ```
 
-Read-only live-287 import check from the deployed checkout before release (no signal,
-settlement, report, export or provider call):
+The deploy then runs this read-only live-287 import check, saving stdout and stderr to
+`$P21_STATE/live-287-imports.txt` (no signal, settlement, report, export or provider call).
+Only after both commands succeed does it record `P21_PHASE=frozen-readers-verified`.
+Either failure leaves `P21_PHASE=readers-verified` and producers quiesced:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B - <<'PY'
@@ -285,15 +287,18 @@ nice -n 10 bash "$HOME/r21-deploy.sh"
 5. Pre-flights 7 and 8 (read-only); backup create and verify under `$HOME/r21-backups`. The bundle is recorded in
    `state.env` (`R21_BACKUP`, `R21_MANIFEST`) only after it verifies.
 6. Migrates (`--source-commit` is the deployed `HEAD`) and asserts `current`; runs the E1, sector and XS
-   `--migrate-runtime-contract` migrations (each accepts only the deployed revision-19 digest and refuses an INVALID
+   `--migrate-runtime-contract` migrations (each accepts only the deployed revision-19 digest and file list and refuses an INVALID
    published report) and one ordinary refresh; then asserts that E1's checkpoint and the sector and XS reports carry
    the re-pinned digests and that neither report is INVALID.
 7. Publishes the first generation; stages units with `install_automation --stage` (nothing starts); explicitly restarts the API and UI after the source change (even when their unit files match)
    and checks the generation headers, the evidence route (`pending_publication: false`), `/meta`'s
    `e1_forward`, `forward_review` and `xs_forward_review` (none INVALID), the invariants and retention.
-8. Runs `schedule_contract_check --live` and refuses any violation except the ones quiescence explains (`not-active`
+8. Runs the exact pre-flight 6 trial-375 frozen-reader/generation proof and live-287 import proof,
+   read-only with bytecode disabled, after `readers-verified`. Records both outputs under `$P21_STATE`
+   and advances to `frozen-readers-verified` only when both succeed; a failure keeps producers quiesced.
+9. Runs `schedule_contract_check --live` and refuses any violation except the ones quiescence explains (`not-active`
    timers, `missing-cron`).
-9. Releases producers with the full `install_automation --apply` (installs and enables
+10. Releases producers with the full `install_automation --apply` (installs and enables
    `trading-engine-publish-on-change.timer` and the enabled TradingView history timer), restarts
    the host timers that ran before subject to the collection flag, and runs the live schedule-contract check again. A failure from here on says producers
    may be running.
@@ -301,7 +306,7 @@ nice -n 10 bash "$HOME/r21-deploy.sh"
 ## Verify after release (stop at the first failure and roll back)
 
 Run from the deployed checkout; each command must exit zero. The deploy's reader phase (step 7) restarts
-trading-engine-api and trading-engine-ui explicitly, and step 9's `install_automation --apply` restarts and
+trading-engine-api and trading-engine-ui explicitly, and step 10's `install_automation --apply` restarts and
 health-checks them again because their source changed in the deployed range (`changes.restarted_services` in its
 output; each entry must show `status: ok`). Do not restart them again here: wait for readiness instead. This prevents the stale-source failure observed after
 October 22, when the API ran old code for eight days.
@@ -439,6 +444,21 @@ writers to zstd, after which a code rollback can no longer read new raw payloads
 archive.
 
 ## Revision-21 acceptance checks
+
+The November 13 predecessor/proof correction is **blocked on final acceptance** on source
+`982589da`: 162 focused migration/continuity/status and deploy checks pass, including all 13
+stub deploy/rollback cases. Literal deployed metadata matches the public reports; both
+`con=None` calls reach stored-evidence evaluation and then require a database connection.
+E1 has no deployed file-list mismatch, and its source and digest are unchanged. Ruff, the
+22-job audit, static schedule check, registration identity and the metrics budget pass.
+
+The affected tier and both full timezone suites reached 99% without failure output but did
+not finish. A UTC diagnostic rerun shows long generated account-delivery tests in DuckDB
+connections, catalog checks and accounting queries; a standalone seed passes with one
+DuckDB thread. A sequential capped UTC rerun also stops producing reports at 99% and is
+interrupted. These attempts are incomplete gates, not passing suites. The orchestrator must
+complete the required full/affected proofs on a permitted runner before merge/deployment;
+this lane changes no gate or unrelated source to claim acceptance. All command output is retained.
 
 The November 13 owner collection amendment, on re-pinned source `98a82fac`, passes
 **6,740 tests** per full suite, zero failures/errors/skips: UTC **279.61 s**,
