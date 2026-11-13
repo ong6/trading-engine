@@ -59,8 +59,8 @@ Sources (verified 2026-07-31 from this box):
   short_interest_dtc       FINRA consolidated short interest, aggregated to one
                            market-wide days-to-cover per settlement date
   gex, pc_total, aaii_bull, free_credit, cot_es_lev_net
-                           Paused unread series; flip the one collection flag
-                           only after each has a named consumer.
+                           Research archive series; one collection flag can pause
+                           these five together while retaining stored history.
   breadth_pct_200,         INTERNAL, computed from `prices` — no network.
   breadth_nh_nl,           Survivor-bias disclosure: the ticker set is TODAY's
   zweig_ratio              liquid universe_snapshot, so delisted names are absent
@@ -89,8 +89,8 @@ log = get_logger("signals")
 HTTP_TIMEOUT = 120         # seconds; the FRED/AAII files are big and slow
 HOST_SLEEP = 0.3           # politeness pause between requests to the SAME host
 RETRY_SLEEP = 10           # one backoff before giving up on a request
-# One-line re-enable: set True only after every paused series has a named consumer.
-UNREAD_MACRO_COLLECTION_ENABLED = False
+# Owner collection decision (2026-11-13): retain revision-20 collection; one pause switch.
+UNREAD_MACRO_COLLECTION_ENABLED = True
 UNREAD_MACRO_SERIES = frozenset({
     "gex", "pc_total", "aaii_bull", "free_credit", "cot_es_lev_net",
 })

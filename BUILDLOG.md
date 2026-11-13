@@ -5614,7 +5614,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **What:** restore the collection flag and revision-20 timer/service registration; schedule, staging and release follow the one flag.
   Quiesce TradingView with every managed producer and resume it at release; preserve explicit pause tests and parent-queue dispatch for job 1006.
 - **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_storage_r21_ops.py tests/test_schedule_contract.py tests/test_install_automation.py tests/test_miner_monitor.py tests/test_tradingview_history_archive.py tests/test_stage_timings.py tests/test_service_units.py` → `[100%]`, exit 0; the corrected parent-queue suite also passes.
-- **Metrics:** server +15 LOC, tools unchanged, product unchanged; final snapshot follows acceptance.
+- **Metrics:** server +14 LOC, tools -1 LOC, product unchanged; final snapshot follows acceptance.
 - **Next:** restore the retained option and macro collection flags.
+
+## 2026-11-13 — Retain revision-20 option and macro collection
+
+- **Why:** owner collection decision and orchestrator revision-21 admission; `.venv/bin/python -m pytest -q -W error -n 0 tests/test_signals.py tests/test_free_massive_options.py -k 'registered_config or unread_macro'` fails both cases with `assert False is True` before the flag changes.
+- **What:** turn on the existing Massive options switch and the five-series macro switch; retained readers, parsers and storage paths need no restoration.
+  Preserve explicit pause coverage and verify enabled collection through recorded-response option tests and macro parser fixtures.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_queue_runner.py tests/test_signals.py tests/test_free_massive_options.py` → `[100%]`, exit 0; all five macro parsers and recorded option responses pass.
+- **Metrics:** server/tools/product unchanged; tests add enabled and paused parser coverage.
+- **Next:** correct the checklist and perform the single revision-21 re-pin.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

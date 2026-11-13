@@ -23,8 +23,8 @@ CONTRACTS_ENDPOINT = "https://api.massive.com/v3/reference/options/contracts"
 DAILY_ENDPOINT = "https://api.massive.com/v2/aggs/ticker/O:{occ}/range/1/day/{start}/{end}"
 MANIFEST_PATH = REPO_ROOT / "server/options-capture-manifest.json"
 HTTP_TIMEOUT_SECONDS = 60
-# One-line re-enable: set True only after a registered study reads the archive.
-COLLECTION_ENABLED = False
+# Owner collection decision (2026-11-13): retain revision-20 collection; one pause switch.
+COLLECTION_ENABLED = True
 
 
 def _manifest_identity(payload: dict) -> str:

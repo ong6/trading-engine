@@ -65,12 +65,11 @@ class Session:
         )
 
 
-@pytest.fixture(autouse=True)
-def enable_collection_for_capture_tests(monkeypatch):
-    monkeypatch.setattr(capture, "COLLECTION_ENABLED", True)
+def test_collection_is_enabled_by_registered_config():
+    assert capture.COLLECTION_ENABLED is True
 
 
-def test_collection_is_paused_by_default_config_without_io(tmp_path, monkeypatch, capsys):
+def test_collection_flag_can_pause_without_io(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(capture, "COLLECTION_ENABLED", False)
     database = tmp_path / "options.duckdb"
     result = capture.capture(
