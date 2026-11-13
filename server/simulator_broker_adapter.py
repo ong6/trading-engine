@@ -103,6 +103,18 @@ def _stored_nonnegative(value: object, label: str) -> float:
         raise BrokerStateError(f"stored {label} is invalid") from exc
 
 
+def init_schema(con: duckdb.DuckDBPyConnection) -> None:
+    """Create the adapter-owned idempotency mapping (part of the migration baseline)."""
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS simulator_broker_order_keys (
+            idempotency_key VARCHAR PRIMARY KEY,
+            order_id       BIGINT UNIQUE NOT NULL
+        )
+        """
+    )
+
+
 class SimulatorBrokerAdapter(BrokerAdapter):
     """Expose simulator account/order state through the broker-neutral contract."""
 
@@ -111,14 +123,7 @@ class SimulatorBrokerAdapter(BrokerAdapter):
 
     def init_schema(self) -> None:
         """Create the adapter-owned idempotency mapping."""
-        self._con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS simulator_broker_order_keys (
-                idempotency_key VARCHAR PRIMARY KEY,
-                order_id       BIGINT UNIQUE NOT NULL
-            )
-            """
-        )
+        init_schema(self._con)
 
     def _account_row(self, account_id: str) -> tuple:
         require_identifier(account_id, "account identifier")

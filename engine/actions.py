@@ -992,10 +992,72 @@ def decide_split(con, tk: str, ex: date, ratio: float) -> tuple[str, int, str | 
     return outcome, 0, line
 
 
+NO_BARS_RETRY_LIMIT = 3  # operational nightly work bound; one full-history fetch per candidate
+NO_BARS_RETRY_DAYS = 60  # older skips remain for manual source-proven repair
+
+
+def _retry_no_bars_splits(con) -> dict:
+    """Rotate recent skips by UTC weekday, through the repair tool's complete proof.
+
+    A fixed eligible set is exhausted within ceil(count / limit) weekday nights,
+    even if every preceding candidate is permanently refused. No retry state is written.
+    """
+    from engine import repair_integrity as repair
+
+    today = datetime.now(timezone.utc).date()
+    cutoff = today - timedelta(days=NO_BARS_RETRY_DAYS)
+    aged_out = con.execute(
+        "SELECT COUNT(*) FROM split_adjustments WHERE outcome='skipped_no_bars' "
+        "AND ex_date < ?", [cutoff],
+    ).fetchone()[0]
+    rows = con.execute(
+        "SELECT s.ticker, s.ex_date, s.ratio FROM split_adjustments s "
+        "WHERE s.outcome='skipped_no_bars' AND s.ex_date BETWEEN ? AND ? AND EXISTS "
+        "(SELECT 1 FROM prices p WHERE p.ticker=s.ticker AND p.date>=s.ex_date) "
+        "ORDER BY s.ex_date, s.ticker", [cutoff, today],
+    ).fetchall()
+    eligible = len(rows)
+    groups = (eligible + NO_BARS_RETRY_LIMIT - 1) // NO_BARS_RETRY_LIMIT
+    # The nightly runs Monday-Friday. Counting calendar days could permanently
+    # assign groups to weekends (e.g. seven groups); weekend invocations reuse Friday.
+    weeks, weekday = divmod(today.toordinal() - 1, 7)
+    night = weeks * 5 + min(weekday, 4)
+    offset = (night % groups) * NO_BARS_RETRY_LIMIT if groups else 0
+    rows = rows[offset:offset + NO_BARS_RETRY_LIMIT]
+    summary = {"eligible": eligible, "aged_out": aged_out,
+               "attempted": len(rows), "applied": 0, "rows_restated": 0}
+    for ticker, ex, ratio in rows:
+        cand = repair.split_candidate(con, ticker, ex, float(ratio), new=False)
+        if cand is None:
+            log.info(f"[actions] no-bars retry {ticker} ex={ex}: no restatable candidate; "
+                     "keeping recorded skip and quarantine")
+            continue
+        try:
+            history = repair.source_closes(repair._yf(con, ticker), ticker, None)
+        except Exception as exc:  # noqa: BLE001 - unavailable source leaves retained evidence intact
+            log.warning(f"[actions] no-bars retry {ticker} ex={ex}: source unavailable: {exc}; "
+                        "keeping recorded skip and quarantine")
+            continue
+        evidence = repair.split_evidence(con, cand, history) if history else {
+            "proven": False, "reason": "source returned no history"}
+        if not evidence["proven"]:
+            log.info(f"[actions] no-bars retry {ticker} ex={ex}: proof refused {evidence}; "
+                     "keeping recorded skip and quarantine")
+            continue
+        n = repair.apply_split(con, cand, evidence)
+        summary["applied"] += 1
+        summary["rows_restated"] += n
+        log.info(f"[actions] no-bars retry RESTATED {ticker} ex={ex} rows={n}")
+    log.info(f"[actions] no-bars retry summary: eligible={eligible} attempted={len(rows)} "
+             f"applied={summary['applied']} aged_out={aged_out}")
+    return summary
+
+
 def reconcile(con) -> dict:
     """Adjudicate every not-yet-considered split with ex_date <= the latest bar,
     restating where the stored series genuinely shows the break. Idempotent: the
-    split_adjustments watermark means each split is decided exactly once."""
+    applied watermark prevents repeat restatement. Recorded no-bars skips may retry
+    after post-ex bars arrive, through complete source proof and a fixed work bound."""
     latest = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
     if latest is None:
         log.info("[actions] reconcile: prices table is empty; nothing to do")
@@ -1020,11 +1082,15 @@ def reconcile(con) -> dict:
         todos += [todo] if todo else []
         counts[outcome] = counts.get(outcome, 0) + 1
 
+    retry = _retry_no_bars_splits(con)
+    restated_rows += retry["rows_restated"]
+    if retry["applied"]:
+        counts["applied"] = counts.get("applied", 0) + retry["applied"]
     todos += tripwire(con)
     todos += scan_breaks(con)
     todos += _unexplained_rewrites(con)
     summary = {"candidates": len(cands), "rows_restated": restated_rows,
-               "outcomes": counts, "warnings": len(todos)}
+               "outcomes": counts, "warnings": len(todos), "no_bars_retry": retry}
     log.info(f"[actions] reconcile DONE: {counts or '{}'} rows_restated={restated_rows}")
     if todos:
         # The first reconcile after a full backfill adjudicates the entire split

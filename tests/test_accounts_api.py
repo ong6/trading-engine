@@ -63,6 +63,7 @@ def _api_account(con, monkeypatch, account_id="acct-private"):
         accounts_routes, "_require_account_mutation",
         lambda _account_id, _authorization: None,
     )
+    monkeypatch.setattr(accounts_routes, "_require_token", lambda _authorization: None)
     monkeypatch.setattr(
         accounts_routes, "_require_account_access",
         lambda _con, _account_id, _authorization: None,
@@ -124,6 +125,7 @@ def test_order_route_stamps_received_at_before_opening_writer(con, monkeypatch):
 
     monkeypatch.setattr(accounts_routes, "datetime", Clock)
     monkeypatch.setattr(accounts_routes, "_write_connection", lambda: connection(None))
+    monkeypatch.setattr(accounts_routes, "_require_token", lambda _authorization: None)
     monkeypatch.setattr(
         accounts_routes, "_require_account_mutation",
         lambda _account_id, _authorization: None,
@@ -132,6 +134,32 @@ def test_order_route_stamps_received_at_before_opening_writer(con, monkeypatch):
     result = accounts_routes.submit_order("acct-a", {"account_id": "acct-a"}, "Bearer x")
     assert events == ["stamp", "lock", "submit"]
     assert result["received_at"] == NOW.isoformat()
+
+
+@pytest.mark.parametrize(
+    ("call", "args"),
+    [
+        (accounts_routes.submit_order, ("acct-a", {"account_id": "wrong"}, None)),
+        (accounts_routes.resume_account, ("acct-a", {"effective_at": "past"}, None)),
+    ],
+)
+def test_unauthorized_mutation_precedes_body_validation_and_writer(
+    monkeypatch, call, args,
+):
+    opened = []
+
+    @contextmanager
+    def forbidden_writer():
+        opened.append(True)
+        yield None
+
+    monkeypatch.setattr(accounts_routes, "_authorized", lambda _authorization: False)
+    monkeypatch.setattr(accounts_routes, "_write_connection", forbidden_writer)
+
+    with pytest.raises(HTTPException) as exc_info:
+        call(*args)
+    assert exc_info.value.status_code == 401
+    assert opened == []
 
 
 def test_gross_cap_refusal_maps_through_api_and_cli(con, monkeypatch, capsys):
@@ -183,7 +211,9 @@ def test_private_and_unknown_accounts_are_indistinguishable(con, monkeypatch):
     assert errors == [(404, "unknown account"), (404, "unknown account")]
     with pytest.raises(HTTPException) as exc_info:
         accounts_routes.halt_account("acct-private")
-    assert (exc_info.value.status_code, exc_info.value.detail) == (404, "unknown account")
+    assert (exc_info.value.status_code, exc_info.value.detail) == (
+        401, "valid account bearer token required",
+    )
 
 
 def test_account_routes_reject_non_loopback_host_before_database_access(monkeypatch):

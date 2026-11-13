@@ -77,7 +77,8 @@ is a dated summary of them.
 - The live store repair ran on 2026-10-22: 18,798 rows corrected (split restatements, the WLFC
   bar on a third price basis, never-settled same-night bars). The snapshot invariant monitor runs
   in shadow mode.
-- 17 active paper books after the 2026-10-21 retirement of eight books with no after-cost edge,
+- 15 active paper books after the 2026-10-21 retirement of eight books with no after-cost edge
+  and the 2026-10-30 retirement of two gated exact copies ([evidence](history/league-thin-2026-10-30.md)),
   including the three [P15](plans/p15-profitability-evidence-loop.md) books (live since
   2026-09-29; collecting, no performance claim before its registered looks). P15's SEC 8-K event
   source works again since revision 17; it had been rejecting almost every response.
@@ -136,6 +137,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-11-13 | Undeployed storage revision 21 pauses no collection relative to revision 20: retain TradingView history, Massive options and the five macro series behind enabled collection switches; TradingView resumes after deploy quiescence | feedback; revision-21 checklist |
 | 2026-11-01 | Data stays free: no Sharadar or Norgate purchase and no new API keys (Alpaca, Finnhub, Alpha Vantage), because the engine should be able to trade on public data; survivor-free research before 2024-10 stays limited to what free sources allow. The `research-text` dependency group (`torch`, `transformers`, separate virtual environment) is approved for P16 W4 | feedback |
 | 2026-10-29 | Engine model calls move from GPT-5.6-Sol:max to GPT-6.1-Sol:max (effort high for once-a-day decisions, medium for events and the intraday observers) as a disclosed model amendment: decisions keep the model they were made with, evidence is reported pooled and as a post-switch stratum | P15 revision 20; feedback |
 | 2026-10-22 | Every agent entry doc opens with one shared block stating what we are building, the end goal (linked to the north star), what is live and what we are working on; other docs link to it instead of restating the goal | feedback; `AGENTS.md`, `README.md`, `docs/README.md` |
@@ -219,7 +221,7 @@ Updated 2026-10-22 for engine v2 live and P24 active.
    and leave no uncommitted work on the host. A broken producer beats every item below.
 2. **Finish P24 without disturbing the frozen records.** Land the remaining lanes only after both
    timezone suites pass on the merged tree, with one re-pin per batch. The storage revision
-   (revision 18) goes live only after its review findings are fixed and its store-copy rehearsal
+   (revision 21) goes live only after its review findings are fixed and its store-copy rehearsal
    passes. Watch the invariant monitor (shadow) after the 2026-10-22 store repair.
 3. **Finish the P22 engine-v2 cutover.** Engine v2 deployed 2026-10-18 (D0 2026-10-19); the
    commit-identity rewrite of the older public history was done on 2026-10-20. Still to do: the
@@ -242,7 +244,8 @@ Updated 2026-10-22 for engine v2 live and P24 active.
    observation, then the tri-arm orchestrator and its status panel. It tests whether the AI
    allocates better than the rule at low turnover, which the research verdicts favour.
 9. **League collapse (P2).** Retire books that answer no open question to cut nightly noise. The
-   first batch of eight no-edge books was retired on 2026-10-21 (17 books remain active).
+   first batch of eight no-edge books was retired on 2026-10-21; two gated exact copies followed on
+   2026-10-30 (15 books remain active).
 10. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
     exit path using the P8 FSLY position.
 

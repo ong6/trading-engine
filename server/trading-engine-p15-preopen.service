@@ -7,10 +7,11 @@ Wants=network-online.target trae-proxy.service
 Type=oneshot
 WorkingDirectory=%h/trading-engine
 ExecStart=%h/trading-engine/.venv/bin/python -m server.p15_preopen --run
+ExecStartPost=-%h/trading-engine/.venv/bin/python -m tools.publish_snapshot
 Environment=PYTHONUNBUFFERED=1
 Nice=19
 IOSchedulingClass=idle
-TimeoutStartSec=20min
+TimeoutStartSec=40min
 PrivateTmp=true
 ProtectSystem=full
 ProtectControlGroups=true

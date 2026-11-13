@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +20,7 @@ from server import (
     daily_opportunity_runner,
     daily_opportunity_store,
     daily_opportunity_tools,
+    hourly_opportunity_observer,
 )
 from sim import league
 from sim.schema import init_sim_schema
@@ -25,6 +28,88 @@ from tests.test_market_data_sources import held_store_reader
 
 NOW = datetime(2026, 9, 22, 1, 30, tzinfo=timezone.utc)
 MARKET_DATE = date(2026, 9, 21)
+
+
+def _observer_identity_case(tmp_path, monkeypatch, variant_id, news_available):
+    from tests.test_intraday_source import NOW as observed
+    from tests.test_intraday_source import _body, _response
+
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    con = db.connect(path)
+    con.execute(
+        "UPDATE prices SET open=149,high=151,low=148,close=150,volume=6000000 "
+        "WHERE ticker='QUIET' AND date=?", [MARKET_DATE],
+    )
+    con.close()
+    monkeypatch.setattr(hourly_opportunity_observer, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(hourly_opportunity_observer, "LOCK_PATH", tmp_path / "observer.lock")
+    monkeypatch.setattr(hourly_opportunity_observer.intraday_source,
+                        "source_version", lambda: "test-v1")
+    ticks = iter((10.0, 10.125))
+    monkeypatch.setattr(hourly_opportunity_observer, "time",
+                        SimpleNamespace(monotonic=lambda: next(ticks)))
+    requests = []
+
+    def generate(payload):
+        requests.append(agent_model_client.intraday_opportunity_request_payload(payload))
+        return _connector(payload)
+
+    def fetch_quote(ticker, _now):
+        # A late response must remain unavailable even when the window completes later.
+        if ticker == "QUIET":
+            return hourly_opportunity_observer.intraday_source.Response(
+                _body(symbol=ticker), "application/json", 200,
+                observed + timedelta(days=1), observed + timedelta(days=1),
+            )
+        return _response(_body(symbol=ticker))
+
+    def fetch_news(ticker, now):
+        if not news_available:
+            raise daily_opportunity_news.NewsError("injected unavailable news")
+        return _news_response(ticker, now)
+
+    result = hourly_opportunity_observer.observe(
+        variant_id, database=path, now=observed, generate=generate,
+        fetch_news=fetch_news, fetch_quote=fetch_quote,
+        capture_cross_checks=lambda *_args, **_kwargs: ([], [], {"status": "unavailable"}),
+        clock=lambda: observed + timedelta(seconds=1),
+    )
+    artifact = tmp_path / "logs" / f"{variant_id}.jsonl"
+    con = db.connect(path, read_only=True)
+    try:
+        tables = [row[0] for row in con.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_name LIKE 'agent_evaluation_%' "
+            "OR table_name IN ('bitemporal_facts','source_response_receipts') ORDER BY 1"
+        ).fetchall()]
+        retained = {
+            table: json.loads(json.dumps(
+                con.execute(f'SELECT * FROM "{table}" ORDER BY 1').fetchall(), default=str,
+            )) for table in tables
+        }
+    finally:
+        con.close()
+    return result, artifact.read_text(), requests[0], retained
+
+
+@pytest.mark.parametrize("variant_id", [
+    "hourly_market_watch_v5", "four_hour_opportunity_review_v5",
+])
+@pytest.mark.parametrize("news_available", [True, False])
+def test_observer_prompt_artifact_and_persistence_match_before_release(
+    tmp_path, monkeypatch, variant_id, news_available,
+):
+    # Recorded on the pre-release observer with fixed clocks and response bytes.
+    fixture = Path(__file__).parent / "fixtures" / "observer_release"
+    expected = json.loads((fixture / f"{variant_id}-{news_available}.json").read_text())
+    result, artifact, request, retained = _observer_identity_case(
+        tmp_path, monkeypatch, variant_id, news_available,
+    )
+    assert artifact == expected["artifact"]
+    assert json.dumps(request, sort_keys=True, separators=(",", ":")) == expected["request"]
+    assert retained == expected["retained"]
+    assert result == expected["result"]
 
 
 def _database(path):

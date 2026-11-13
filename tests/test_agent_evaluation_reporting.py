@@ -1266,3 +1266,174 @@ def test_p15_projection_rejects_partial_schema(con):
     con.execute("CREATE TABLE p15_event_windows (id BIGINT)")
     with pytest.raises(agent_evaluation.EvaluationError, match="event schema is incomplete"):
         agent_evaluation.validate_p15_evidence(con)
+
+
+def _terminal_label_store(con, *, unavailable: str | None = None, missing_entry=False):
+    """A fixed post-cohort pair, a later window, and a P15 scoring decision."""
+    agent_evaluation.init_schema(con)
+    policies = (
+        'nightly_opportunity_tool_v1', 'hourly_market_watch_v5',
+        'hourly_market_watch_v5', 'four_hour_opportunity_review_v5', 'p15-scoring-v1',
+    )
+    ids = []
+    for index, policy in enumerate(policies):
+        trace = _trace(policy, 'buy', 0.7)
+        trace.update(window_id=f'{policy}:{index}', market_date=date(2026, 9, 29))
+        trace['decisions'][0]['ticker'] = 'FAST'
+        if policy == 'p15-scoring-v1':
+            trace['decisions'][0].update(decision='buy_candidate')
+        if policy == unavailable:
+            trace['decisions'][0].update(decision='unavailable', action='none', confidence=0.0)
+        result = agent_evaluation.record_trace(con, trace)
+        ids.append(con.execute(
+            'SELECT id FROM agent_evaluation_decisions WHERE trace_id=?',
+            [result['trace_id']],
+        ).fetchone()[0])
+    days = [date(2026, 10, 1) + timedelta(days=index) for index in range(33)]
+    days = [day for day in days if day.weekday() < 5][:23 if missing_entry else 20]
+    insert_bars(con, 'SPY', days, open_=100, close=101, high=102, low=99)
+    insert_bars(con, 'FAST', days[1:] if missing_entry else days,
+                open_=50, close=51, high=52, low=49)
+    if missing_entry:
+        insert_bars(con, 'FAST', [date(2026, 9, 29)], open_=49, close=50, high=51, low=48)
+    con.execute('UPDATE prices SET fetched_at=?', [NOW.replace(tzinfo=None)])
+    return ids, days, datetime(2026, 11, 4, tzinfo=timezone.utc)
+
+
+def _label_tables(con):
+    return {
+        table: [[value.isoformat() if isinstance(value, (date, datetime)) else value
+                 for value in row] for row in con.execute(f'SELECT * FROM {table} ORDER BY id').fetchall()]
+        for table in ('agent_evaluation_labels', 'agent_evaluation_labels_v2')
+    }
+
+
+def _old_label_fixture():
+    from pathlib import Path
+
+    # Captured by the unmodified label_mature at 36d91bb1 with _terminal_label_store.
+    return json.loads((Path(__file__).parent / 'fixtures' / 'terminal_labels_old.json').read_text())
+
+
+@pytest.mark.parametrize('prelabelled', [False, True])
+def test_terminal_label_exact_rerun_and_old_store_identity(con, monkeypatch, prelabelled):
+    _, _, labeled_at = _terminal_label_store(con)
+    expected = _old_label_fixture()
+    if prelabelled:
+        for table, rows in expected.items():
+            types = [str(column[1]) for column in con.execute(f'SELECT * FROM {table}').description]
+            decoded = [[date.fromisoformat(value) if kind == 'DATE' else
+                        datetime.fromisoformat(value) if kind == 'TIMESTAMP' else value
+                        for value, kind in zip(row, types, strict=True)] for row in rows]
+            con.executemany(f'INSERT INTO {table} VALUES ({",".join("?" for _ in types)})', decoded)
+    first = agent_evaluation.label_mature(con, labeled_at=labeled_at)
+    assert first['inserted'] == (0 if prelabelled else 16)
+    assert first['v2_inserted'] == (0 if prelabelled else 20)
+    assert _label_tables(con) == expected
+
+    def unexpected_outcome(*args, **kwargs):
+        pytest.fail('terminal labels must be skipped before outcome calculation')
+
+    observed = agent_evaluation.observed_sessions
+
+    def calendar(*args, **kwargs):
+        assert 'after' not in kwargs, 'terminal labels must be skipped before calendar calculation'
+        return observed(*args, **kwargs)
+
+    monkeypatch.setattr(agent_evaluation, 'observed_sessions', calendar)
+    monkeypatch.setattr(agent_evaluation, '_label_outcome_when_ready', unexpected_outcome)
+    second = agent_evaluation.label_mature(con, labeled_at=labeled_at + timedelta(days=1))
+    assert second['inserted'] == second['v2_inserted'] == 0
+    assert _label_tables(con) == expected
+
+
+@pytest.mark.parametrize('missing_id', [1, 2, 3, 4, 5])
+@pytest.mark.parametrize('missing_entry', [False, True])
+def test_terminal_label_partial_pairs_compute_only_missing_horizon(
+    con, monkeypatch, missing_id, missing_entry,
+):
+    ids, _, labeled_at = _terminal_label_store(con, missing_entry=missing_entry)
+    agent_evaluation.label_mature(con, labeled_at=labeled_at)
+    retained = _label_tables(con)
+    removed = next(row for row in retained['agent_evaluation_labels_v2']
+                   if row[2] == ids[missing_id - 1] and row[3] == 5)
+    assert removed[4] == ('missing_entry_last_available_close' if missing_entry else
+                          'next_session_open' if missing_id == 5 else 'common_entry')
+    con.execute('DELETE FROM agent_evaluation_labels_v2 WHERE id=?', [removed[0]])
+    original = agent_evaluation._label_outcome_when_ready
+    calls = []
+
+    def outcome(*args, **kwargs):
+        calls.append(args[2])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(agent_evaluation, '_label_outcome_when_ready', outcome)
+    result = agent_evaluation.label_mature(con, labeled_at=labeled_at)
+    assert result['v2_inserted'] == 1
+    assert [len(sessions) for sessions in calls] == [5]
+    restored = _label_tables(con)
+    # Re-appending gets the next ID, while the body, hash and timestamp stay exact.
+    appended = next(row for row in restored['agent_evaluation_labels_v2']
+                    if row[2:4] == removed[2:4])
+    assert appended[1:] == removed[1:]
+    assert [row for row in restored['agent_evaluation_labels_v2'] if row != appended] == [
+        row for row in retained['agent_evaluation_labels_v2'] if row != removed
+    ]
+    assert restored['agent_evaluation_labels'] == retained['agent_evaluation_labels']
+
+
+@pytest.mark.parametrize('unavailable', [
+    'nightly_opportunity_tool_v1', 'hourly_market_watch_v5',
+    'four_hour_opportunity_review_v5', 'p15-scoring-v1',
+])
+def test_terminal_label_unavailable_decisions_keep_existing_policy_behavior(con, unavailable):
+    ids, _, labeled_at = _terminal_label_store(con, unavailable=unavailable)
+    agent_evaluation.label_mature(con, labeled_at=labeled_at)
+    common = {row[0] for row in con.execute(
+        "SELECT DISTINCT decision_id FROM agent_evaluation_labels_v2 WHERE label_basis='common_entry'"
+    ).fetchall()}
+    expected = {
+        'nightly_opportunity_tool_v1': set(),
+        'hourly_market_watch_v5': {ids[0], ids[3]},
+        'four_hour_opportunity_review_v5': set(ids[:3]),
+        'p15-scoring-v1': set(ids[:4]),
+    }[unavailable]
+    assert common == expected
+    # P15 deliberately labels candidates even when the model decision was unavailable.
+    assert con.execute(
+        "SELECT COUNT(*) FROM agent_evaluation_labels_v2 WHERE decision_id=?",
+        [ids[4]],
+    ).fetchone() == (4,)
+    retained = _label_tables(con)
+    agent_evaluation.label_mature(con, labeled_at=labeled_at + timedelta(days=1))
+    assert _label_tables(con) == retained
+
+
+def test_terminal_label_newly_mature_horizons_and_missing_entry_grace(con, monkeypatch):
+    _, days, labeled_at = _terminal_label_store(con, missing_entry=True)
+    # Receipt cutoffs expose four captured sessions: H1 has its three grace sessions;
+    # H5 is still immature. A subsequent call must revisit only missing horizons.
+    con.execute('UPDATE prices SET fetched_at=? WHERE date>?',
+                [labeled_at.replace(tzinfo=None), days[3]])
+    early = datetime(2026, 10, 7, tzinfo=timezone.utc)
+    # Three available sessions leave only two sessions after H1: still in grace.
+    con.execute('UPDATE prices SET fetched_at=? WHERE date=?',
+                [early.replace(tzinfo=None), days[3]])
+    before_grace = early - timedelta(days=1)
+    assert agent_evaluation.label_mature(con, labeled_at=before_grace)['v2_inserted'] == 0
+    result = agent_evaluation.label_mature(con, labeled_at=early)
+    assert result['v2_inserted'] == 5
+    h1 = [row for row in _label_tables(con)['agent_evaluation_labels_v2'] if row[3] == 1]
+    assert all(row[4] == 'missing_entry_last_available_close' for row in h1)
+    original = agent_evaluation._label_outcome_when_ready
+    calls = []
+
+    def outcome(*args, **kwargs):
+        calls.append(len(args[2]))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(agent_evaluation, '_label_outcome_when_ready', outcome)
+    result = agent_evaluation.label_mature(con, labeled_at=labeled_at)
+    assert result['v2_inserted'] == 15
+    assert 1 not in calls and set(calls) == {5, 10, 20}
+    assert [row for row in _label_tables(con)['agent_evaluation_labels_v2'] if row[3] == 1] == h1

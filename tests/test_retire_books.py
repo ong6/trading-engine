@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from engine.lib import db
 from engine.lib.db import connect
 from server import nightly_monitor
 from sim import league
@@ -158,29 +159,32 @@ def test_open_order_refusal(retirement_store, state):
     assert _state(retirement_store[0]) == before
 
 
-def test_write_failure_rolls_back_both_books_and_audit_rows(retirement_store):
+def test_write_failure_rolls_back_both_books_and_audit_rows(retirement_store, monkeypatch):
+    # The hand-built audit_log stands in for a failing write; this test is about atomicity,
+    # not the unmigrated-store refusal (tests/test_schema_migrations.py).
+    monkeypatch.setattr(db, "_is_unmigrated_operational_store", lambda _connection: False)
     database = retirement_store[0]
-    _add_book(database, "other")
+    _add_book(database, "twin_book")
     con = connect(database)
     con.execute("DROP TABLE audit_log")
     con.execute("CREATE TABLE audit_log (ts TIMESTAMP, actor VARCHAR, action VARCHAR, "
-                "payload VARCHAR CHECK (payload NOT LIKE '%other%'))")
+                "payload VARCHAR CHECK (payload NOT LIKE '%twin_book%'))")
     con.close()
     before = _state(database)
     with pytest.raises(Exception, match="CHECK constraint failed"):
-        _run(retirement_store, "paper", "other", apply=True)
+        _run(retirement_store, "paper", "twin_book", apply=True)
     assert _state(database) == before
 
 
 def test_successful_batch_and_idempotent_rerun(retirement_store):
     database = retirement_store[0]
-    _add_book(database, "other")
-    _run(retirement_store, "paper", "other", apply=True)
+    _add_book(database, "twin_book")
+    _run(retirement_store, "paper", "twin_book", apply=True)
     before = _state(database)
     assert len(before["audit_log"]) == 2
     assert all(row[5] is False for row in before["portfolios"])
     with pytest.raises(ValueError, match="already retired"):
-        _run(retirement_store, "paper", "other", apply=True)
+        _run(retirement_store, "paper", "twin_book", apply=True)
     assert _state(database) == before
 
 

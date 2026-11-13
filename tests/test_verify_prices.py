@@ -521,3 +521,59 @@ def test_old_unreferenced_receipts_are_pruned(monkeypatch, tmp_path):
     written = json.loads(meta.read_text())[verify_prices.META_KEY]["evidence_receipt"]["sha256"]
     assert left == {names["cited"], names["fresh"], f"{written}.json",
                     ".receipt-partial", "notes.json"}
+
+@pytest.mark.parametrize('answer, expected', [('trades', 'agrees'), ('different', 'disagrees'), ('indicative', 'source_identity')])
+def test_stock_no_data_tries_etf_with_same_comparison_rules(con, monkeypatch, answer, expected):
+    con.execute("CREATE TABLE universe (ticker VARCHAR, yf_ticker VARCHAR, etf BOOLEAN)")
+    con.execute("INSERT INTO universe (ticker,yf_ticker,etf) VALUES ('BAR','BAR',FALSE)")
+    con.execute("INSERT INTO prices (ticker,date,open,high,low,close,volume) VALUES ('BAR','2026-10-30',10,11,9,10,100)")
+    calls = []
+
+    def fetch(ticker, *, assetclass, **kwargs):
+        calls.append(assetclass)
+        evidence = {'assetclass': assetclass}
+        if assetclass == 'stocks':
+            error = verify_prices.SymbolNotFound('Symbol not exists.')
+            error.evidence = evidence
+            raise error
+        return {'symbol': ticker, 'rows': 1, 'parse_errors': [], 'evidence': evidence,
+                'bars': {date(2026, 10, 30): {'open': 10, 'high': 11, 'low': 9,
+                          'close': 10.5 if answer == 'different' else 10,
+                          'volume': None if answer == 'indicative' else 100}}}
+
+    monkeypatch.setattr(verify_prices, 'fetch_nasdaq_history', fetch)
+    monkeypatch.setattr(verify_prices, 'PER_NAME_SLEEP', 0)
+    result = verify_prices.run({'tickers': ['BAR'], 'sessions': 1}, con)
+    assert calls == ['stocks', 'etf']
+    name = result['name_results'][0]
+    assert name.get('reason', name['status']) == expected
+    assert [e['assetclass'] for e in result['source_evidence']['BAR']] == calls
+
+
+@pytest.mark.parametrize('gap', ['null_symbol', 'empty_rows', 'transport'])
+def test_stock_fallback_keeps_named_gap_and_does_not_retry_transport(con, monkeypatch, gap):
+    con.execute('CREATE TABLE universe (ticker VARCHAR, etf BOOLEAN)')
+    con.execute("INSERT INTO universe VALUES ('BH.A',FALSE)")
+    con.execute("INSERT INTO prices (ticker,date,open,high,low,close,volume) VALUES ('BH.A','2026-10-30',10,11,9,10,100)")
+    calls = []
+
+    def fetch(ticker, *, assetclass, **kwargs):
+        calls.append(assetclass)
+        if gap == 'transport':
+            raise verify_prices.SourceError('transport: unavailable')
+        if assetclass == 'etf':
+            raise verify_prices.SymbolNotFound('Symbol not exists.')
+        if gap == 'null_symbol':
+            raise verify_prices.SourceNoData('source symbol identity differs: None')
+        return {'symbol': ticker, 'rows': 0, 'parse_errors': [], 'bars': {}}
+
+    monkeypatch.setattr(verify_prices, 'fetch_nasdaq_history', fetch)
+    monkeypatch.setattr(verify_prices, 'PER_NAME_SLEEP', 0)
+    monkeypatch.setattr(verify_prices, 'RETRY_SLEEP', 0)
+    result = verify_prices.run({'tickers': ['BH.A']}, con)
+    assert calls == (['stocks', 'stocks'] if gap == 'transport' else ['stocks', 'etf'])
+    item = result['name_results'][0]
+    assert item['status'] == 'not_checked'
+    assert item['reason'] == ('no_source_rows' if gap == 'empty_rows' else 'fetch_failed')
+    if gap == 'null_symbol':
+        assert item['detail'] == 'source symbol identity differs: None'

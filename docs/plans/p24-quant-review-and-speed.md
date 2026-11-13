@@ -84,7 +84,7 @@ both timezone suites pass, and does the single re-pin. Lanes never push `main`.
   books the live books' dollar fees from the 2026-10-19 cost break; the CI hygiene gate stops
   refusing data pushes; `engine.repair_integrity --names` restated MNST's missed 2:1 split on the
   live store (10,243 rows, originals kept in `price_observation_rejects`).
-- Checkpoint, storage revision (now numbered 20): held, not deployed. Migration 0000 now applies
+- Checkpoint, storage revision (now numbered 21): held, not deployed. Migration 0000 now applies
   to the deployed catalog on a real store copy, but a fresh review rejected the branch: producer
   read-only opens were redirected to published generations (the nightly would stop advancing
   books), reads refused between publications, the deploy checklist's lock order and rollback were
@@ -98,10 +98,16 @@ both timezone suites pass, and does the single re-pin. Lanes never push `main`.
   duration budget on main); main CI is green again (first since 2026-10-20) after the ci-green
   rounds fixed dependency advisories, two lint steps, the research sandbox on shared-library
   interpreters and a shared-setup charge in the duration budget.
-- Checkpoint, storage revision 20: reviewed in four rounds and ready on `p24/storage-r18`
+- Checkpoint, storage revision 21: reviewed in four rounds and ready on `p24/storage-r18`
   (`f0282839`); deploy and rollback scripts rehearsed on mirrored-live sandboxes, including one real
   nightly and byte-identical restores. Deploy is scheduled after the private trial's first epoch
-  (2026-11-03 06:30 UTC), in one sitting with that consumer's switch to generations, outside
+  (2026-11-03 06:30 UTC), after trial 287 closes, without changing its consumer, outside
   22:15-23:59 UTC, after fresh suites on the merge commit and a fresh re-pin check.
 - Open: the deploy above; incremental capture (copy only changed table data) as a follow-up to cut
   publication I/O. The alpha study lanes report in the private repository.
+
+- 2026-10-30: the storage branch formerly numbered revision 20 is integrated as revision 21
+  on `r21/integrate`, after main's revision-20 GPT-6.1-Sol model amendment. It also includes the
+  accepted liquid-backfill, terminal-label, observer-writer and pre-open deadline fixes and a
+  70 GiB minimum reserve. Trial 287 closes at its November 3 epoch; its consumer switch is no
+  longer a prerequisite. The revision-21 checklist carries the runnable deploy and rollback order.

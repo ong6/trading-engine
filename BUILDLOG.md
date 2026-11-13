@@ -4358,6 +4358,90 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools 1 line, tests +3 lines.
 - **Next:** rerun the full suites.
 
+## 2026-10-21 — Stage revision 16 (r16-gen, r16-raw) on the wave-1 landing
+
+- **Why:** P24 integrate lane; build plan E5. Both lanes were reviewed to ACCEPT on the pre-rewrite revision-15 base.
+- **What:** each lane's commits (28 and 15) are re-parented onto the rewritten revision-15 head with byte-identical trees, then merged onto `p24/integrate-wave1`, so every reviewed commit keeps its reviewed tree. Against newer main: retention keeps main's latest-plus-one-verified rules and dry run, with the lane's reader pins and part pruning; API readers always pin a generation, so main's `prefer_current_snapshot` is removed; the invariant checker reads generation manifests; the TradingView pause is declared in the schedule contract and keeps main's once-a-day publication; the catalogue gains the migration ledger and generation files.
+  Pinned files changed (no re-pin): engine/lib/db.py, engine/lib/snapshots.py, tools/backup_database.py, tools/publish_snapshot.py, engine/queue_runner.py, engine/signals.py, engine/tradingview_history_archive.py.
+- **Evidence:** storage, snapshot, backup, migration, server, raw, install, scheduler, catalogue and invariant tests pass in the merged tree; a new test proves the invariant checker resolves and reads a published generation (it is refused on main's checker).
+- **Metrics:** lanes +7,200 lines; merge adaptations about +200.
+- **Next:** store-copy rehearsal.
+
+## 2026-10-21 — Let a versioned store's connection drop session temp tables
+
+- **Why:** reproduction: with the P22 harness on a versioned (revision-16) store, every nightly account phase fails with `SchemaMigrationRequired: runtime schema DDL requires an explicit migration`; `engine.accounts.sources.production_sources` snapshots its sources into `CREATE TEMP TABLE`s and ends with an unqualified `DROP TABLE account_source_errors`, which the guard treats as persistent DDL. On the migrated live store the nightly league's account phase would fail the same way.
+- **What:** the guarded connection allows an unqualified `DROP TABLE|VIEW [IF EXISTS] name` only when a temporary object of that name exists (DuckDB resolves the unqualified name to it first); every other DROP still needs a migration.
+- **Evidence:** `pytest tests/test_schema_migrations.py -k temp_tables` passes and fails without the change; the P22 round-2/3 account tests pass on a versioned store except the one below.
+- **Metrics:** engine +17 lines (pinned file engine/lib/db.py), tests +24 lines.
+- **Next:** P22 harness on generations.
+
+## 2026-10-21 — Serve the P22 round-2/3 API reads from a published generation
+
+- **Why:** r16-gen integrator action: five P22 GET regressions call revision-16 readers, which serve only a pinned generation, without publishing one (`DBBusyError: no valid published generation`).
+- **What:** the P22 harness builds its market store on the exact baseline catalog with a migration ledger (copying the shared fixture rows, since the speed plugin replaces the shared fixture file), and `publish()` publishes the generation the API reads; the five tests publish before their GETs. One test now stamps `execution_profile` on its legacy portfolio row, as every producer does, because a versioned store refuses runtime backfills.
+- **Evidence:** `pytest tests/test_p22_round2.py tests/test_p22_round3.py` passes except `test_late_recovery_keeps_cash_delisting`: `sim.settle.ensure_table` creates `sim_settlements` lazily and the revision-16 baseline catalog does not contain it (a revision-16 blocker, see the rehearsal entry).
+- **Metrics:** tests +60 lines.
+- **Next:** store-copy rehearsal.
+
+## 2026-10-22 — Refresh the storage revision on main after merge batches 1 and integrity-2
+
+- **Why:** main took registration revision 16 (batch 1) and the integrity-2 merge; the storage work is now numbered revision 18.
+- **What:** `p24/r16` merges the refreshed `p24/integrate-wave1` (no conflicts). One adaptation: main's new split-reconciler test (`test_break_at_ex_but_history_fetched_after_ex_is_skipped`) sets only `fetched_at`, while the storage revision's fixtures stamp `first_fetched_at`, which the reconciler judges first; the fixture now stamps both.
+- **Evidence:** storage, snapshot, backup, migration, server, raw, install, scheduler, catalogue, invariant and P22 tests pass except `test_late_recovery_keeps_cash_delisting` (blocker B2); the 10 pin-test files have 104 failures, all runtime-contract or registration hash cascades from the seven pinned files this revision changes.
+- **Metrics:** tests +4 lines.
+- **Next:** store-copy rehearsal.
+
+## 2026-10-22 — Compute storage fingerprints in DuckDB instead of per row in Python
+
+- **Why:** reproduction: on a 12 GB store copy, `python -m tools.backup_database create` spent its first 43 minutes in `engine.lib.snapshots.query_fingerprint`, JSON-encoding every row of `SELECT * … ORDER BY ALL` in Python (about 77k rows/s on `prices`; 77.7M rows per pass, at least two passes per backup), with 13 GB RSS, all under the producer locks.
+- **What:** each row is encoded canonically and hashed with SHA-256 inside DuckDB (length-prefixed fields, NULL distinct, doubles as shortest round-trip text, TIMESTAMPTZ as epoch microseconds, BLOB as hex); Python only folds the 32-byte row digests in order. The digest covers column names and types. Rows sort by the caller's key columns (cold partitions) with the row digest as tie-break, or by digest alone where the old code sorted by all columns, so the sort carries keys plus 32 bytes and spills under a 4 GB memory cap that is restored afterwards. Fingerprints change format (`duckdb-row-sha256-v1`); no generation exists in production yet.
+- **Evidence:** `prices` (21.3M rows) 22.6 s, 940k rows/s, identical on a second run, 3.2 GB peak RSS; a new test proves order, type, value and NULL sensitivity and session-time-zone independence; backup tamper, cold-correction and migration tests keep their verdicts.
+- **Metrics:** engine +45 lines (pinned file engine/lib/snapshots.py), tests +30 lines.
+- **Next:** rerun the store-copy rehearsal.
+
+## 2026-10-22 — Rehearse the storage revision's deploy path on a store copy (blocked at migration)
+
+- **Why:** P24 integrate lane; revision 18 must be rehearsed on a copy before any deploy. `store/backups/` is empty, so the copy is the newest published snapshot (2026-10-22 02:57, SHA-256 matches its manifest; live catalog `865f64aa…`, unchanged since 2026-10-21).
+- **What:** plan 1 s; backup create 661 s (3,980 s with the old Python fingerprint), peak RSS 23.8 GB from `COPY FROM DATABASE`, which main's backup also uses and which fails out of memory under a 4-6 GB cap; verify 168 s; migration apply refused after 324 s with "database is not a supported pre-v2, v2, or r15 catalog", copy unchanged; readers refuse ("no valid published generation") and publication refuses an unmigrated store; restore drill: restored file byte-identical and logical snapshot equal to the verified bundle (154 s), and equal to an earlier run's (fingerprint stable).
+  The live catalog differs from every supported pre-image: tables `experiment_results`, `job_resolutions`, `sim_settlements` exist only live; three `agent_paper_*` tables only in the baseline; eight tables differ in DDL, and live `actions_fetch_log` rows violate the baseline's NOT NULL.
+- **Evidence:** rehearsal log in the integrate report; `python -m engine.schema_migrations apply …` exit 1 with the reason above.
+- **Metrics:** unchanged.
+- **Next:** the lane extends migration 0000 to the live catalog and lazily created tables; then re-rehearse.
+
+## 2026-10-22 — Exercise the post-migration storage path on a reconciled store copy
+
+- **Why:** the deploy path stops at migration (previous entry), so the generation, reader, backup and restore machinery was exercised on a synthetic copy: a fresh baseline catalog filled with the store copy's rows.
+- **What:** reconcile 212 s (live `actions_fetch_log` rows violate the baseline NOT NULL and were left out; three live-only tables dropped); backup 656 s; migration applied in 324 s; first generation published in 365 s (hot file 3.0 GB plus shared cold parts, 7.2 GB for two generations), republish 268 s; readers pin in 5 s and serve board and evidence reads; the invariant checker runs on the generation in 6 s; a generation-backed backup takes 491 s plus 163 s verify, and its restore is byte-identical with an equal logical snapshot. Publication and backup peak at about 24 GB RSS (`COPY FROM DATABASE` and the hot build, as on main). The deploy and rollback checklist is `docs/revision-18-storage-deploy-checklist.md`.
+- **Evidence:** every step exit 0 in the rehearsal log; restore check prints "matches".
+- **Metrics:** docs +1 file.
+- **Next:** fix the two migration blockers in the storage lane, then repeat the real-copy rehearsal before any re-pin.
+
+## 2026-10-22 — Migrate the deployed catalog exactly and own every first-use table in the baseline
+
+- **Why:** revision-20 blockers B1 and B2: migration 0000 refused the deployed catalog (`865f64aa…`, rebuilt from a published store copy) and a versioned store refuses first-use `CREATE TABLE` (`tests/test_p22_round3.py::test_late_recovery_keeps_cash_delisting` failed with SchemaMigrationRequired for `sim_settlements`).
+- **What:** the deployed catalog is a fifth exact pre-image (schema-only fixture). Bootstrap now rebuilds any existing table whose DDL differs from the fresh initializers' (column order, NOT NULL from accumulated `ADD COLUMN`), copying rows by column name and proving the copy equal (EXCEPT ALL both ways); it refuses if a stored column is missing from the baseline or changes type. The baseline gains the 52 tables code creates on first use or in inactive stores (`experiment_results` with its forward columns, `job_resolutions`, `sim_settlements`, P16, broker and authority ledgers); a new test fails if any `CREATE TABLE` in engine/, sim/, server/ or tools/ names a table the baseline does not create, apart from listed separate databases.
+  `jobs.timeout_s` is now declared by the initializer (it exists live). `actions_fetch_log.attempted_at` stays nullable: 16,435 of 22,419 deployed rows (fetched before 2026-09-07) were logged before the stamp existed, and inventing a time would fabricate evidence; writers always stamp it and readers already order it `NULLS LAST`, skip it in `arg_max`, or require a datetime. `fundamentals_fetch_log.attempted_at` keeps the initializer's nullable declaration (deployed rows are all stamped). New baseline catalog `7286ea9b…`.
+- **Evidence:** `pytest tests/test_schema_migrations.py tests/test_baseline_table_coverage.py tests/test_p22_round3.py` passes, including every deployed row kept across the rebuild.
+- **Metrics:** engine +90 lines (migration 0000, pinned engine/lib/db.py), tests +190 lines.
+- **Next:** bound backup memory, then repeat the real-copy rehearsal.
+
+## 2026-10-22 — Back up a quiesced store by copying its file bytes
+
+- **Why:** revision-20 rehearsal: backup create peaked at 23.8 GB RSS in `COPY FROM DATABASE` (one uncommitted transaction; it fails out of memory under a 4-6 GB cap), above the 8 GB budget for work beside the producers.
+- **What:** with every producer lock held, backup create now takes the source's logical snapshot, copies the file bytes (and a pending WAL, replayed and checkpointed into the copy), then requires the copy's logical snapshot to equal the source's, as before. The other `_copy_database` callers (P15/P16 scratch copies) are unchanged. Publication's DuckDB connections are capped at 4 GB and 4 threads and spill under the snapshot directory; publication cannot take the byte route because a generation's hot file must leave out the cold tables (DuckDB does not return a dropped table's blocks, so a byte copy would make every hot file the full 12 GB).
+- **Evidence:** new tests: the bundle file is byte-identical to the source and `COPY FROM DATABASE` is never used; an uncheckpointed WAL row reaches the bundle and verify passes. Store-copy numbers are in the next entry.
+- **Metrics:** tools +70 lines (pinned tools/backup_database.py, tools/publish_snapshot.py), tests +50 lines.
+- **Next:** repeat the real-copy rehearsal.
+
+## 2026-10-22 — Rehearse the revision-20 deploy path on a real store copy (migration now applies)
+
+- **Why:** revision-20 blockers B1-B3 are fixed on this branch; the deploy path must be rehearsed on a copy of the deployed store before any deploy.
+- **What:** on a copy of the newest published snapshot (13:37, catalog `865f64aa…`): plan 1 s; backup create 506 s at 5.0 GB RSS (was 661 s, 23.8 GB), bundle byte-identical to the source; verify 170 s; migration applied in 327 s to schema 1; first generation 622 s at 7.5 GB (was 24 GB); readers pin and read board and evidence data; all ten invariants pass on the generation; generation-backed backup 502 s at 10.7 GB, then 912 s at 5.1 GB once its cold-table rebuild was capped and inserted part by part (same logical snapshot); every restore drill is byte-identical with an equal logical snapshot. Copies deleted afterwards.
+  Still blocking: migration 0000's identity hashes 40 initializer source files, so after deploy any edit to one of them (even a comment) refuses every writer; the checklist records it as B4 with a proposed fix.
+- **Evidence:** `docs/revision-20-storage-deploy-checklist.md` rehearsal table; every step exits 0.
+- **Metrics:** tools +20 lines (pinned tools/backup_database.py).
+- **Next:** the orchestrator decides B4, then the single re-pin.
+
 ## 2026-10-22 — Bring the entry docs and public site pages to engine v2 live and P24 active
 
 - **Why:** P24 docs lane, and the owner's 2026-10-22 verdict (`feedback.md`): an agent landing cold must know what we are building, what is live, what is in flight and where truth lives, with nothing stale contradicting it.
@@ -4366,6 +4450,41 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `pytest tests/test_documentation_integrity.py tests/test_operating_contract.py` passes; `python -m tools.public_hygiene --range origin/main..HEAD` PASS.
 - **Metrics:** docs only; code unchanged.
 - **Next:** orchestrator merges `p24/docs` and re-syncs the changed `docs/site/` pages to the website.
+
+## 2026-10-22 — Fix two storage-revision regressions that main's merge did not cure
+
+- **Why:** after merging main (454cfc6a) into the storage revision, five tests still failed exactly as on the revision's base: `tests/test_price_admission.py::test_original_board_and_spy_observations[SPY-2026-10-16]` (DuckDB "Cannot mix values of type TIMESTAMP and VARCHAR in COALESCE") and four provider-contract replays of Massive options (`KeyError: 'contracts'` / `'daily_bars'`). All pass on main.
+- **What:** the revision declares `prices.first_fetched_at` in every store, so the upsert now always takes the availability path, whose `COALESCE` mixed the stored TIMESTAMP with an incoming text stamp; the incoming stamp is cast to TIMESTAMP. The options capture returns `paused` while collection waits for a registered reader, so the offline provider-contract replay (recorded responses, no network) lifts the pause for its run and restores it.
+  `tests/test_lane.py::test_reviewed_current_ledger_migration_expands_both_aggregate_rows` fails here and on main because this host's clone cannot fetch a commit the test names; it is host-specific and left as is.
+- **Evidence:** `pytest tests/contracts/test_provider_contracts.py tests/test_price_admission.py` passes.
+- **Metrics:** engine 1 line (pinned engine/lib/db.py), tools +4 lines.
+- **Next:** freeze the baseline DDL inside migration 0000 (B4).
+
+## 2026-10-22 — Freeze the baseline catalog inside migration 0000 (B4)
+
+- **Why:** orchestrator decision on blocker B4: migration 0000's recorded hash covered the source of 40 initializer files, so after deploy a comment-only edit to any of them (reproduced with `engine/job_resolutions.py`) would refuse every writer, publication and backup with "database migration 0000 hash does not match source", and no later migration could repair the recorded row.
+- **What:** migration 0000 now carries the baseline as data (159 tables, 3 indexes, 1 view, 1 sequence, generated from the fresh initializers) plus the per-pre-image rebuild plan (the deployed store rebuilds six tables; its `actions_fetch_log` and `jobs` already match), and its identity is that file alone. Bootstrap never calls the runtime initializers; legacy pre-v2 portfolios take the initializer's former backfill values as frozen constants.
+  `test_baseline_hash_binds_runtime_initializer_source` is replaced by a CI test that runs the fresh initializers on an empty store and requires the newest migration's exact catalog, naming each drifted object with "add a migration". The guarantee moves from runtime to CI and gets stronger: it compares the catalog the code creates, not the text of the files, so a semantic schema change can no longer hide behind a re-pinned hash, and a harmless edit no longer stops the store. A regression test edits initializer files on a migrated store and proves writers, publication and backup still open.
+  The baseline keeps the 52 empty first-use tables, including the inactive P16, broker and authority stores, in the market catalog (accepted by the orchestrator); they authorize nothing and stay empty until their own gates.
+- **Evidence:** `pytest tests/test_schema_migrations.py tests/test_backup_database.py tests/test_baseline_table_coverage.py` passes; a mutated `job_resolutions` initializer fails with "… in ['tables:job_resolutions']: add a migration".
+- **Metrics:** engine +270 lines (migration 0000 data), tests +60 lines.
+- **Next:** repeat plan, apply and publish on a fresh real copy.
+
+## 2026-10-22 — Renumber the storage revision to 20
+
+- **Why:** main takes registration revision 18 for the meta-split change and revision 19 for the reliability-data fee fixes (orchestrator, 2026-10-22), so the storage work becomes revision 20.
+- **What:** the deploy checklist is now `docs/revision-20-storage-deploy-checklist.md` (deploy variables `R20_BACKUP`, `r20-deploy`); `docs/README.md`, `docs/product.md`, the P24 row of `docs/plans/README.md` and this lane's storage entries say revision 20; the integrate lane's earlier entries keep their wording. The branch keeps its name.
+- **Evidence:** `pytest tests/test_documentation_integrity.py tests/test_operating_contract.py` passes.
+- **Metrics:** docs only.
+- **Next:** finish the store-copy rehearsal and merge main's newest head.
+
+## 2026-10-22 — Rehearse the frozen baseline migration on a fresh store copy
+
+- **Why:** orchestrator decision on B4: after freezing migration 0000 as data, repeat plan, apply and publish on a fresh real copy, with readers and invariants.
+- **What:** on a copy of the 15:52 published snapshot (catalog `865f64aa…`): plan 1 s; backup create 687 s at 5.1 GB plus verify 185 s (needed by apply; backup code unchanged); migration applied in 354 s at 5.2 GB to catalog `7286ea9b…`, schema 1, plan after `current`; first generation 632 s at 7.5 GB; readers pin and read board and evidence data; all ten invariants pass on the generation. The copy was deleted afterwards.
+- **Evidence:** the second rehearsal table in `docs/revision-20-storage-deploy-checklist.md`; every step exits 0.
+- **Metrics:** docs only.
+- **Next:** merge main's newest head and run both timezone suites.
 
 ## 2026-10-22 — Stop the hygiene gate refusing data pushes and context-variable code
 
@@ -4471,6 +4590,142 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** registration, round-3 break and cost-profile tests pass; full suite under both timezones before push.
 - **Metrics:** registration 7 lines; tests 4 lines.
 - **Next:** the Sunday 2026-10-25 walk-forward is the first to include post-break fees; storage revision 20.
+
+## 2026-10-23 — Producers read the primary; only the API pins generations (storage review finding 1)
+
+- **Why:** storage review (REJECT), finding 1, reproduced: `engine.lib.db.connect` redirected every read-only open of the store to the latest generation, so `python -m engine.market_date` printed 2026-10-01 after the nightly wrote 2026-10-02 (screen and league would skip), and a queue child printed "no such job" for a job enqueued after the last publication.
+- **What:** the redirect is removed; engine/, farm/, sim/, tools/ and the server runners open the primary read-only exactly as on main. Only the API's request path (`server/db.read_con`) pins generations.
+- **Evidence:** `tests/test_producer_reads_primary.py` (the reviewer's two repros) fails with the redirect and passes without it.
+- **Metrics:** engine −20 lines (pinned engine/lib/db.py), tests +60 lines.
+- **Next:** API reads serve the newest generation and flag staleness instead of refusing.
+
+## 2026-10-23 — Serve the newest generation and flag staleness instead of refusing (review findings 2, 3)
+
+- **Why:** storage review findings 2 and 3, reproduced: board reads refused (503) once the generation passed 24 h and evidence reads refused after every unpublished write or after 5 min, so a weekend or an unpublished agent-shadow write took the API down.
+- **What:** `server/db.read_con` serves the newest generation for every dataset; only "no generation at all" refuses. Each response carries `x-generation-stale` and `x-pending-publication` (the primary changed since capture); `/meta` and `/agent/evaluation/status` return the served generation's `as_of`, age, budget, `stale` and `pending_publication`; `/health` reports `degraded` (200) when the board is stale. A generation is stale only when it is past its budget (board 24 h, evidence 45 min) and possibly behind the primary; one captured from the primary's current bytes stays current on a quiet weekend. API writes wait up to 45 s for a short lock instead of returning 503 at once.
+- **Evidence:** `pytest tests/test_server_db.py tests/test_server_routes.py`: a stale-clock board read is 200 with the stale header and degraded health; an evidence read after a write is 200 with `pending_publication: true`; a write waits out a 1 s capture handle.
+- **Metrics:** server +60 lines, tests +90 lines.
+- **Next:** capture the primary briefly so publication no longer blocks API writes for its whole build.
+
+## 2026-10-23 — Publish from a captured copy so publication holds the primary for seconds (review findings 3, 4)
+
+- **Why:** storage review: publication held the producer locks and a read-only handle on the primary for its whole ~10-minute build, so every API POST in that window failed with a lock error (reproduced), and it read the primary's storage identity after closing that handle, so a write landing in between was attributed to the generation (reproduced: an evidence pin accepted a generation one write behind).
+- **What:** under the producer locks and one read-only handle, publication now takes the primary's metadata snapshot, copies its file bytes (a pending WAL is replayed into the copy) and records the storage identity, then releases both; cold parts, fingerprints, the hot build and the equality proof run from the copy, which must match the primary's row counts and catalog, and is deleted afterwards. The copy needs the primary's size in free space, checked first.
+- **Evidence:** `pytest tests/test_publish_snapshot.py`: the identity is read while an in-process writer is still excluded, and no capture file survives; store-copy capture times are in the rehearsal entry.
+- **Metrics:** tools +45 lines (pinned tools/publish_snapshot.py), tests +25 lines.
+- **Next:** a publish-on-change timer so evidence and the weekend board stay within their budgets.
+
+## 2026-10-23 — Publish on change every 30 minutes so evidence and the weekend board stay current
+
+- **Why:** storage review findings 2 and 3: with the TradingView timer paused nothing published at weekends, and evidence writers that do not publish (accounts-settle 07:45/11:55 UTC, agent-data-capture 01:25, agent-shadow 01:30, daily 02:00 and hourly/four-hour opportunity jobs, P15 pre-open 09:05 New York, P16 challengers when enabled, and API POSTs) left the served generation behind the primary until the next nightly. Only the nightly, P15 scoring and P15 events (at most every 2 h) publish today.
+- **What:** a new `trading-engine-publish-on-change` timer runs `tools.publish_snapshot --if-changed` at :12 and :42 UTC, minutes no other unit starts at. It skips at once when the newest generation was captured from the primary's current bytes, when another publication runs, or when a producer lock or a writer holds the primary, so it never waits on or delays a producer; otherwise it publishes, holding the primary only for the capture copy. Bound: with no producer running, evidence lags its last write by at most 30 min plus one publication; the API's evidence budget is 45 min and the board's 24 h.
+- **Evidence:** `pytest tests/test_publish_snapshot.py -k publish_on_change` (unchanged, producer lock, running publication and open writer all skip; a change publishes); `python -m engine.job_contract audit` ok; `python -m tools.schedule_contract_check --static` ok.
+- **Metrics:** tools +40 lines (pinned tools/publish_snapshot.py), ops +40 lines, two unit files, tests +60 lines.
+- **Next:** measure publish and republish times on the store copy; fix the checklist's lock order and scripts.
+
+## 2026-10-23 — Keep new raw payloads main-readable until the conversion flips a store flag (review finding 6)
+
+- **Why:** storage review finding 6, reproduced: the branch sealed every new raw payload as `.json.zst` and named it in receipts, and main's reader refuses it ("Massive cache receipt is invalid"), so a rollback after release would lose every raw payload written since.
+- **What:** `raw_payload.seal` writes the legacy plain `<sha>.json` (atomic, mode-checked, hash-verified) unless the store flag `raw-payload-encoding.json` beside the primary says `zstd`; readers keep reading both encodings. Only `tools.convert_raw_payloads --apply` forces zstd, and it records the flag (with its conversion manifest's hash) after the verified conversion, which makes that later one-off the single irreversible step. A file flag needs no schema migration and survives a code rollback untouched; an unreadable or unknown flag refuses rather than guessing. Tests isolate the flag per test (a conversion test had written it into the checkout's `store/`).
+- **Evidence:** `tests/test_raw_payload_legacy.py`: main@1fae615d's vendored Massive-cache reader parses what the branch writes before the flag; after a conversion writers seal zstd and the branch reads both; only the conversion tool forces zstd.
+- **Metrics:** engine +60 lines, tools +20 lines, tests +150 lines.
+- **Next:** record the DuckDB version in manifests and fix the memory-limit restore.
+
+## 2026-10-23 — Record the DuckDB version in manifests and restore the memory limit safely (review finding 7)
+
+- **Why:** storage review finding 7: a DuckDB upgrade changes value casts inside the row fingerprints, and verify then reported "backup database invariants do not match its manifest", the same message as a tampered bundle (reproduced with a simulated cast drift); and the fingerprint's memory-limit restore failed on DuckDB 1.3.2 and 1.5.5 ("Unknown unit for memory: 'pib'") because DuckDB prints large limits in a unit its parser rejects.
+- **What:** backup bundles (file-copy and generation-backed) and generation manifests record `duckdb_version`; verify and the generation restore refuse with "DuckDB version differs: … fingerprinted under X, this verifier runs Y; verify with X" before any fingerprint comparison. Bundles and generations written before this field still verify. The saved memory limit is restored as whole KiB parsed from DuckDB's printed text.
+- **Evidence:** `pytest tests/test_backup_database.py tests/test_publish_snapshot.py`: a bundle recorded under 1.3.2 is refused with the version message; an unversioned bundle verifies; "1.2 PiB", "3.7 GiB", "4.0 GB" and "2048 bytes" round-trip through `SET memory_limit`.
+- **Metrics:** engine +25 lines (pinned engine/lib/snapshots.py), tools +20 lines (pinned tools/backup_database.py, tools/publish_snapshot.py), tests +45 lines.
+- **Next:** check the WAL's identity during backup and widen the table-coverage scan.
+
+## 2026-10-23 — Check the source WAL's identity during backup (review finding 8)
+
+- **Why:** storage review finding 8, reproduced: a writer outside the producer locks that commits only to the WAL between the source snapshot and the byte copy, or after the copy, left the main file's identity unchanged, so backup create published a bundle missing that commit.
+- **What:** backup create records the WAL's presence and stat identity (no-follow, through the source's parent descriptor) when it opens the source and requires it unchanged at every identity check, refusing with "source database WAL changed during backup".
+- **Evidence:** `pytest tests/test_backup_database.py -k wal_commit`: a WAL-only commit before the copy and one after it are both refused and no bundle is published.
+- **Metrics:** tools +20 lines (pinned tools/backup_database.py), tests +45 lines.
+- **Next:** widen the baseline coverage scan to columns, indexes and farm/.
+
+## 2026-10-23 — Extend the baseline coverage scan to columns, indexes and farm/ (review finding 8)
+
+- **Why:** storage review finding 8: the coverage test caught first-use `CREATE TABLE` only; a lazy `ALTER TABLE … ADD COLUMN` or `CREATE INDEX` outside the baseline would also be refused on a versioned store, and farm/ was scanned only for two files.
+- **What:** the scan covers engine/, sim/, server/, tools/ and all of farm/ (replay stores, proof copies and the credit experiment's scratch connection are listed as separate databases), and fails when a runtime `ADD COLUMN`, `ALTER COLUMN … DROP NOT NULL` or `CREATE INDEX` names a column, nullability or index the frozen baseline lacks. Its docstring lists the remaining bypasses: run-time-assembled DDL, the relation API (refused by the runtime guard instead), separate databases, and other `ALTER` forms.
+- **Evidence:** `pytest tests/test_baseline_table_coverage.py`; removing `jobs.timeout_s` and one index from the frozen baseline fails it, naming `engine/queue_runner.py:364 jobs.timeout_s` and `engine/lib/db.py:914 index earnings_fetch_log_resume_idx`.
+- **Metrics:** tests +90 lines.
+- **Next:** rewrite the deploy and rollback scripts.
+
+## 2026-10-23 — Stage units during a deploy without starting timers (review finding 5)
+
+- **Why:** storage review finding 5: the checklist ran `install_automation --apply` while producers were quiesced, which starts every autostart timer and reinstalls the crontab mid-deploy, and the runbook's release then restarted every timer saved before the deploy, including the paused TradingView timer.
+- **What:** `install_automation --stage` reconciles unit files, reloads the daemon, enables autostart units (enabling does not start a timer), and stops and disables paused units; it starts and restarts nothing, leaves the crontab alone, and fails if any autostart timer is active. The full `--apply` runs at release, where it starts the timers and installs the crontab and never starts a paused unit.
+- **Evidence:** `pytest tests/test_install_automation.py -k stage`: units installed and enabled (including the publish-on-change timer), TradingView disabled, no start, restart or crontab call.
+- **Metrics:** tools +50 lines, tests +35 lines.
+- **Next:** deploy and rollback scripts that run end to end from fresh shells.
+
+## 2026-10-23 — Make the storage deploy and rollback scripts that run from fresh shells (review finding 5)
+
+- **Why:** storage review finding 5, reproduced: the checklist ran backup, migration and publication inside `p22_lock`, so each refused ("active process holds .agent-shadow.lock"); it recorded the pre-deploy commit after `git pull`, kept the backup path only in a shell variable, did not stop on errors, started timers while producers were quiesced, and its rollback did not require the backup to verify.
+- **What:** `ops/storage-r20/deploy.sh` and `rollback.sh` run under `set -euo pipefail` and check every result; host operations (units, crontab, readers) are in `host.bash`, which a rehearsal replaces with stubs. The deploy records the pre-deploy commit before the checkout moves, persists every value in `$P20_STATE/state.env`, copies the rollback script and host helpers there, asserts the live pre-image `865f64aa…` read-only after quiescence, lets backup, migration and publication take the producer locks themselves, stages units without starting timers, verifies readers, and releases producers (never the paused TradingView timer) with the live schedule-contract check. The rollback refuses unless the recorded backup verifies, restores byte for byte, removes the new units and leaves the checkout detached so the nightly cannot pull the reverted revision. The checklist is rewritten around the scripts and states what a rollback after release loses, and how `data/` and `store/pit` behave.
+- **Evidence:** `bash -n` on all three; end-to-end runs from fresh shells against a store copy are in the rehearsal entry.
+- **Metrics:** ops +270 lines, docs rewritten.
+- **Next:** rehearse deploy, readers, nightly, queue drain and rollback on fresh store copies.
+
+## 2026-10-23 — Let publication wait out a short writer before its capture
+
+- **Why:** with the capture handle, a publication that starts while an API POST holds the primary's write lock failed at once on the lock (found while preparing the rehearsal's write-during-publication check).
+- **What:** the capture handle retries a lock error for up to 30 s (an API write lasts milliseconds); the publish-on-change mode still skips at once so it never queues behind a writer.
+- **Evidence:** `pytest tests/test_publish_snapshot.py -k "short_writer or publish_on_change"`: a publication started during a 2 s writer succeeds; an open writer still makes publish-on-change skip.
+- **Metrics:** tools +15 lines (pinned tools/publish_snapshot.py), tests +25 lines.
+- **Next:** the rehearsal.
+
+## 2026-10-23 — Harden the migration rebuild: collation, transaction and NOT NULL pre-flight (review follow-ups)
+
+- **Why:** reviewer follow-ups after the crash-atomicity test passed (16 SIGKILL points always left the old or the fully migrated store): the rebuild's type check compared only the type name, so `VARCHAR COLLATE NOCASE` was silently rebuilt as plain `VARCHAR`; the rebuild drops the original before the copy is proven, so it must never run outside a transaction; and the baseline makes five deployed columns NOT NULL, where the reviewer showed a NULL makes apply refuse.
+- **What:** column types are compared with their collation (read from the stored DDL, the only place DuckDB reports it), refusing on a mismatch; `_rebuild` refuses unless an explicit transaction is open (stable `current_transaction_id()`). The five columns stay NOT NULL: `agent_evaluation_labels.round_trip_cost_bps`, `net_return` and `net_excess_return` were added with defaults, so no stored row was ever NULL; `post_fill_position_qty` and `post_fill_cash` were added nullable on 2026-09-23, but every deployed row carries both and the writer always sets them, so a NULL would mean a defect, not history. The deploy script counts NULLs in all five, read-only, before the backup and stops on any. The CI drift test now builds its reference by executing the frozen catalog data itself and checks it against migration 0000's recorded hash before comparing the fresh initializers.
+- **Evidence:** `pytest tests/test_schema_migrations.py`: a stored `COLLATE NOCASE` column is refused and kept; a rebuild outside a transaction is refused with the table untouched.
+- **Metrics:** engine +35 lines, ops +25 lines, tests +45 lines.
+- **Next:** rehearse at the final head (the migration's hash changed).
+
+## 2026-10-23 — Make the storage rollback resumable
+
+- **Why:** the first end-to-end rehearsal of `rollback.sh` stopped at its readers step (the rehearsal's stand-in readers had not stopped the deploy's API process); rerunning it would have refused at `mkdir incident`, so an operator could not finish a rollback from a fresh shell after a part-way stop.
+- **What:** the rollback keeps the first incident copy and restores the primary only once (marker files in `$P20_STATE`), always re-verifies the backup and checks the primary is byte-identical to it, so rerunning it after any stop completes it.
+- **Evidence:** `bash -n`; the final-head rehearsal runs deploy and rollback end to end from fresh shells.
+- **Metrics:** ops +10 lines.
+- **Next:** the final-head rehearsal.
+
+## 2026-10-23 — Size the API write wait to a publication's measured capture window
+
+- **Why:** the final-head rehearsal posted an API write every second through a republication: 475 succeeded and 2 returned 503 after waiting the 45 s budget, because the capture held its read-only handle for 131 s (it waited for gaps between the writes, then copied 12.7 GB).
+- **What:** API writes wait up to 180 s (`TRADING_ENGINE_API_WRITE_WAIT_S`) and retry every 0.25 s; the capture retries its handle every 0.1 s to take the first gap between writes; the publish-on-change unit uses best-effort I/O instead of idle, so the capture copy is not starved behind other I/O. Cost: an API write that arrives during a capture waits until it ends (up to about two minutes on this host under that write load) instead of failing.
+- **Evidence:** the rehearsal log for the 45 s run; the rerun with these settings is in the rehearsal entry.
+- **Metrics:** server 3 lines, tools 1 line (pinned tools/publish_snapshot.py), ops 2 lines.
+- **Next:** finish the rehearsal.
+
+## 2026-10-23 — Rehearse the reviewed storage revision on real store copies
+
+- **Why:** the storage review asked for a real-copy rehearsal of the fixed revision: deploy and rollback scripts from fresh shells, a real nightly, a queue drain with a walkforward child, a simulated weekend, and evidence reads after writes.
+- **What:** on copies of the 18:07 published snapshot in sandbox clones at main's 1fae615d: the deploy script migrated and published in 38 min (backup 620 s, migration 370 s, first generation 770 s, peak 5.4 GB), with the producer locks held 49-131 s instead of 10 min; 488 API writes during a republication all returned 200 (the slowest waited 130 s); evidence reads after writes answered 200 with `pending_publication: true` and publish-on-change cleared it; a +40 h clock served the board stale-flagged with health `degraded`, never 503; a walkforward child ran from the published generation; one real nightly advanced 33 books from 2026-10-21 to 2026-10-22 with no `SchemaMigrationRequired`. The E1, sector and XS steps wrote INVALID records because the runtime-contract pins refuse until the re-pin, as the pin tests predict. The rollback script restored the primary byte for byte. Copies deleted.
+- **Evidence:** the rehearsal tables in `docs/revision-20-storage-deploy-checklist.md`.
+- **Metrics:** docs only.
+- **Next:** the orchestrator's single re-pin, then repeat the nightly step to see valid E1, sector and XS records.
+
+## 2026-10-22 — Refuse store writes, backups and snapshot copies below a free-space reserve; bound DuckDB per connection (P24 reliability-ops)
+
+- **Why:** P24 reliability-ops, owner items 1 and 5. Nothing refused a write before the store filesystem filled: free space fell to 46 GB on 2026-10-17 (ops digest footprint) while a copy needs the 12.5 GB database again. Every store connection ran with DuckDB's defaults, 32 threads and 50.1 GiB each.
+- **What:** the connection factory refuses a writer open inside this checkout's `store/` (compared on resolved paths, since the home directory links to the data volume) unless `TRADING_ENGINE_MIN_FREE_GIB` (default 10 GiB) stays free. Snapshot publication and the file-copy backup refuse, inside the exclusive backup window so the two cannot spend the same space, unless the database and WAL plus the reserve are free; a generation restore keeps its own reserve check. Store connections get readers 4 threads / 4GB, writers 8 / 16GB (`TRADING_ENGINE_DUCKDB_THREADS`/`_MEMORY`). `store_limits.py` joins the release tool's recovery sources.
+- **Evidence:** `pytest tests/test_store_limits.py` (symlinked home and in-window ordering included) with the publish, backup, server-db, migration and installer tests pass. Store copy: the five slowest GETs return identical digests at 32 threads/50GB and at the reader limits (`/daily-opportunities/status` 43.8 s vs 41.3 s, peak RSS 633 vs 575 MB); review: rebuilding `intraday_prices`' key peaks at 9.7 GB and passes at 16GB.
+- **Metrics:** engine +12, tools +30, tests +110.
+- **Next:** orchestrator re-pins the registration and runtime contracts once (db.py, backup_database.py, publish_snapshot.py, release_manifest.py).
+
+## 2026-10-23 — Keep the evaluation projection warm across publications and API restarts
+
+- **Why:** the rehearsal measured the first `/agent/evaluation/status` call on a new API process at 4.6 min (the cold P15 projection), and the in-request recompute after any evidence input change blocked every evaluation request for that long; publish-on-change makes new generations up to every 30 minutes.
+- **What:** the projection cache was already keyed by the identity of its inputs (registration plus each audited table's row count and highest id), not the generation id; it now also persists beside the primary (`evaluation-projection-cache.json`), so a restarted API with unchanged inputs serves it at once. When the inputs changed, the request gets the previous projection with `generation.evaluation_projection_current: false` and a background warmer recomputes it; the warmer also checks the newest generation every 60 s, so a publication's new inputs are projected about a minute after it, off the request path. Only a store with no projection at all computes it in the request.
+- **Evidence:** `pytest tests/test_agent_routes.py`: unchanged inputs read the persisted projection without recomputing; changed inputs serve the previous one and wake the warmer, which recomputes only when the inputs differ. Store-copy timings are in the rehearsal entry.
+- **Metrics:** server +110 lines, tests +60 lines.
+- **Next:** the single re-pin.
 
 ## 2026-10-22 — Record the storage revision hold as a P24 checkpoint
 
@@ -4719,6 +4974,38 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +3.
 - **Next:** confirm the `checks` job on the branch run.
 
+## 2026-10-23 — Run the runtime-contract migrations and keep generated data in the deploy scripts
+
+- **Why:** revision 20 re-pins the E1, sector and XS runtime contracts, so the deploy must run each runner's `--migrate-runtime-contract` (as the P22 runbook does) before any ordinary refresh; and a fast-forward of the live checkout refuses when generated `data/` files differ, which the runbook handles by archiving them first.
+- **What:** after the schema migration the deploy script runs the three contract migrations, then one ordinary E1, sector and XS refresh, and stops if a report is INVALID; it checks the checkout is registration revision 20. Before moving the checkout it keeps changed `data/` and `logs/` files in `$P20_STATE/predeploy-artifacts`, restores the tracked paths, and puts the kept files back after. The rollback keeps the `data/` files written since release with the incident and returns `data/` to the pre-deploy versions.
+- **Evidence:** `bash -n`; the rehearsal entry runs both scripts end to end.
+- **Metrics:** ops +30 lines.
+- **Next:** the re-pin.
+
+## 2026-10-23 — Issue registration revision 20 over the storage revision
+
+- **Why:** orchestrator instruction: do the single re-pin on the storage branch, following the revision-17 pattern (registration, then same-version runtime-contract migrations and rebinds).
+- **What:** `server/p15-registration.json` is revision 20: twelve changed pinned files get their new hashes, `engine/lib/store_limits.py` (now imported by `engine/lib/db.py`) joins the registered closure, `source_commit` is the newest registered-change commit (the contract rebind), and the revision reason says what changed and that frozen rules and outcomes do not. E1 v8, sector v12 and XS v23 keep their versions: each runner's `--migrate-runtime-contract` accepts only the deployed revision-19 digest (2c8ec5b0, bad25764, d00ee812, read from the live checkpoint and reports), and each contract hash is recomputed over its frozen file list. Test expectations follow (revision, reason, registered paths, `sim_book_breaks` revision).
+- **Evidence:** the 104 formerly failing pin tests pass; `registration_sha256` is `canonical_sha256` of the body.
+- **Metrics:** registration 31 lines; tests 6 lines.
+- **Next:** rehearse the deploy, the contract migrations and a real nightly with valid E1, sector and XS records.
+
+## 2026-10-23 — Bound the storage revision's computed imports for the affected-tests selector
+
+- **Why:** after main's affected-tests selector merged, `tests/test_affected_tests.py::test_only_the_reviewed_files_import_computed_names` failed: the migration loader, the schema-migration tests and the coverage scan import modules by computed names, which would make every change select the full suite.
+- **What:** `engine.schema_migrations.run_fresh_initializers` runs migration 0000's initializers (the tests call it instead of importing by name), and the selector's reviewed list gains `engine/lib/snapshots.py` and `engine/schema_migrations.py` (they import only the string-literal module names of `MIGRATION_MODULES` and `BOOTSTRAP_CALLS`, which are import edges already) and `tests/test_baseline_table_coverage.py` (it resolves constants only in the sources it scans as text).
+- **Evidence:** `pytest tests/test_affected_tests.py tests/test_schema_migrations.py tests/test_baseline_table_coverage.py` passes.
+- **Metrics:** tools +8 lines, engine +7 lines, tests −2 lines.
+- **Next:** finish the rehearsal.
+
+## 2026-10-23 — Rehearse the re-pinned storage revision with series B limits and a real nightly
+
+- **Why:** orchestrator pass after the re-pin: show valid E1, sector and XS records from a real nightly after the deploy script and its contract migrations, and re-run the write-during-publication and evidence checks with series B's DuckDB limits.
+- **What:** on a copy of the 18:07 snapshot in a sandbox at the deployed revision-19 code (with the live checkout's generated `data/` files, which carry the deployed contract digests), the deploy script at 5fd9cd59 ran the schema migration, the three runtime-contract migrations (each from the deployed digest) and a valid ordinary refresh, then published (capture 16 s). 539 API writes during a republication all returned 200 (slowest 18 s). Evidence reads took 33-47 s warm, after an API restart and after the nightly's new inputs (served the previous projection while the warmer finished in 286 s); the remaining time is the pre-existing `agent_evaluation.status`, 47 s on the single-file store too. The nightly advanced 33 books to 2026-10-22 with sector and XS ACCUMULATING and the E1 report valid. The first deploy attempt stopped correctly: a sandbox seeded only from git carried an older E1 digest than the live checkpoint, and the migration accepts only the deployed one. Copies deleted.
+- **Evidence:** the rehearsal table in `docs/revision-20-storage-deploy-checklist.md`.
+- **Metrics:** docs only.
+- **Next:** orchestrator review and merge; the deploy stays held for trial 287.
+
 ## 2026-10-22 — Do not charge a run-wide shared build to whichever test reaches it first (P24 ci-green)
 
 - **Why:** `test (UTC, 0)` failed on main (run 436) under `--duration-budget=15`. A throwaway branch running shard 0 three times per timezone failed 5 of 6: `test_p16_book_store.py::test_contracts_use_full_registration_digest_and_remain_inactive` at 15.5–27.5 s (6.5 s in the passing run). Both P16 store tests start first on their workers and need the same P16 calibration; one builds it in the shared memo, the other waits on its lock, so both are charged the build. Locally, `-n 2 --duration-budget=4 tests/test_p16_book_store.py`: both 15 s, one flagged; at `-n 0` the calibration-store test takes 0.27 s once the calibration exists.
@@ -4795,6 +5082,284 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `python -m tools.schedule_contract_check --static` → ok; affected tests and both timezone suites pass.
 - **Metrics:** manifest only; product, server and tools code unchanged.
 - **Next:** install the units from trading-alpha and confirm the live check.
+## 2026-10-23 — Copy the capture in a child process so the handle's lock holds (review round 2, item 1)
+
+- **Why:** round-2 review, reproduced: DuckDB's read-only capture handle holds a POSIX fcntl lock on the primary, and `shutil.copyfile` closing its own descriptor on the same file released that lock for the whole process, so a writer in another process committed mid-capture; the generation had 3 rows against the primary's 4 and still reported `pending_publication: false`.
+- **What:** this process never opens the primary or its WAL during the capture: a child process copies them, hashing the bytes it reads and re-reading the copy to prove the same SHA-256. The primary's storage identity must be identical before and after the copy, and the copy's size must equal the primary's, or publication refuses with "the primary changed while it was being captured".
+- **Evidence:** `pytest tests/test_publish_snapshot.py`: a writer in another process during the capture is refused and the generation's rows equal the primary's; with the old in-process copy the same test fails (the writer commits and the identity check refuses); an identity change during the copy refuses.
+- **Metrics:** tools +45 lines (pinned tools/publish_snapshot.py), tests +45 lines.
+- **Next:** the deploy and rollback git flow.
+
+## 2026-10-23 — Runtime-contract migrations accept only the deployed digest and refuse an INVALID report (review round 2, item 6)
+
+- **Why:** round-2 review: `--migrate-runtime-contract` for E1, sector and XS still accepted the predecessor forms of earlier deploys (E1 schema-v1 legacy and prior contract v7, sector v11 and XS v22 with fill model v4 and no cost-break clock). The sector and XS migrations also migrated from the `last_valid_result` an INVALID report preserves. A revision-20 deploy has exactly one valid predecessor: the report the deployed revision 19 published.
+- **What:** each migration accepts only the current contract version, files and migration text under the deployed digest (`AMENDED_RUNTIME_CONTRACT_SHA256`); E1 also requires the current forward config. An INVALID published report is refused ("INVALID; migration refused"); the ordinary review still recovers from `last_valid_result`. The predecessor constants and the fill-model and cost-break-clock restatements are removed. The three `EXPECTED_RUNTIME_CONTRACT_SHA256` literals are re-pinned at a fixed point (E1 `676aa2ae`, sector `7b3ed5a3`, XS `0727df99`).
+- **Evidence:** `pytest tests/test_experiment_runner.py tests/test_forward_review.py tests/test_xs_forward_review.py tests/test_sector_forward_status.py tests/test_xs_forward_status.py tests/test_r15_integration.py tests/test_forward_cost_break_continuity.py`: the deployed form migrates in each family; legacy, older-version, older-config, pre-P22 shapes and INVALID reports are refused without writing; the cost-break continuity tests now migrate from the deployed form.
+- **Metrics:** pinned engine/farm files −150 lines; tests rewritten in place.
+- **Next:** registration re-pin after the remaining round-2 code changes.
+
+## 2026-10-23 — A bundle that records no DuckDB version refuses verify unless explicitly allowed (review round 2, item 7)
+
+- **Why:** round-2 review: manifests written before this revision record no `duckdb_version`, and verify accepted them silently, so a fingerprint taken under another DuckDB could read as tampering or, worse, pass unexamined.
+- **What:** `tools.backup_database verify` and `remote-restore-drill` refuse a bundle without a recorded version ("records no DuckDB version … pass --allow-unrecorded-duckdb-version"); the flag accepts it after the operator confirms which DuckDB wrote it. Bundles this revision creates always record the version, so deploy, migration and backup callers are unaffected. A recorded but different version still refuses with "DuckDB version differs".
+- **Evidence:** `pytest tests/test_backup_database.py` (155 passed): the unrecorded bundle refuses through the API and the CLI, and verifies with the flag.
+- **Metrics:** pinned tools/backup_database.py +45 lines; tests +10 lines.
+- **Next:** the deploy and rollback git flow; the checklist documents the flag.
+
+## 2026-10-23 — Deploy and rollback keep the live checkout on main and leave data/ alone (review round 2, items 2, 3 and 6)
+
+- **Why:** round-2 review. The deploy kept generated `data/` changes aside and copied them back over the new checkout, and the rollback copied `data/` aside, restored the pre-deploy versions and left `HEAD` detached; both rewrote producer output outside the normal data commit, and a detached checkout stops the nightly pull. A failed backup create recorded `R20_BACKUP` before verify, so the rollback then refused ("unexpected backup before the backup phase") or would have restored from a partial bundle. The deploy also never checked E1's status, ran the live schedule-contract check only after release, and its ERR message after release still said producers stay quiesced.
+- **What:** the orchestrator merges the approved branch into `origin/main` before the window and `P20_APPROVED_SHA` is that merge commit. `deploy.sh` refuses up front unless `HEAD` is branch `main` with an upstream, nothing is half-done in git and only `data/` commits follow the merge on `origin/main`; quiesces producers and `te-autopush`; runs the normal data commit (`engine.sync`, then `te-autopush` for anything left unpushed); `git pull --ff-only`; and refuses before touching the store unless `HEAD` contains the merge with only `data/` commits after it. The backup is recorded only after it verifies. After the contract migrations it asserts the re-pinned digests in E1's checkpoint and both reports; the readers' `/meta` must show none of `e1_forward`, `forward_review`, `xs_forward_review` INVALID. `schedule_contract_check --live` runs before release and refuses everything except `not-active` and `missing-cron`, then runs again after release. The ERR trap says whether producers may be running. `rollback.sh` never detaches: after the data commit and a pull it commits `git revert -m 1 <merge>` on `main` (once; recorded in `rollback.env`), pushes and pulls, and requires `main` to match the merge's first parent outside `data/`. Without a verified backup it accepts only phases up to `code-switched`, proves the primary's file identity unchanged since quiesce, and leaves the store alone. Shared git helpers live in `ops/storage-r20/common.bash`; predeploy-artifact copying is gone.
+- **Evidence:** `pytest tests/test_storage_r20_ops.py` (4 passed) against a bare origin and a `main` checkout with uncommitted `data/` output and stand-in engine modules: deploy with `main` moved by a data commit commits and pushes the output, fast-forwards and stops at a failing backup create with nothing recorded; the rollback reverts the merge on `main`, pushes, keeps every data commit and file, leaves the store bytes, and a rerun is a no-op; a non-`data/` commit after the merge is refused before anything stops; a changed primary without a backup, and a phase past the backup without one, are refused.
+- **Metrics:** ops +120 lines; docs: checklist deploy and rollback sections rewritten; tests +230 lines.
+- **Next:** projection cache key; revision reason; publish-on-change I/O; re-pin; mirrored-live rehearsal.
+
+## 2026-10-23 — Key the evaluation projection by content, evaluation dates and projection code (review round 2, item 4)
+
+- **Why:** round-2 review, reproduced: the persisted projection was keyed by the registration and each audited table's `COUNT(*)`/`MAX(id)`, so an in-place correction (same count and ids), a day passing a maturity or label-grace boundary, or a change to the projection code served the old projection with `evaluation_projection_current: true`.
+- **What:** the key is (registration SHA-256, projection code SHA-256, evaluation dates, table content signatures). Code: the SHA-256 of `engine/p15_evaluation.py`, `server/agent_evaluation.py`, `server/main.py`, `server/p16_status_adapter.py` and `tools/agent_trial_register.py`, computed at import. Dates: the UTC evaluation date (P15 maturity and the missing-label grace count observed sessions through it) and the New York date (event maturity counts through that); every maturity or grace boundary is a change of one of them, and the other cutoffs compare stored timestamps that precede the generation's capture. Content: the served generation's manifest already records each table's logical SHA-256 (cold tables through their append-only part fingerprints), read through the new `generation_info` on the pinned connection at no query cost; a connection without a generation hashes count plus the sum of row hashes.
+- **Evidence:** `pytest tests/test_agent_routes.py` (32 passed): an in-place update with the same count and ids changes the signature; republishing unchanged inputs keeps the key and republishing after an in-place `prices` update changes only the `prices` signature; 05:00 and 23:00 UTC share a key, 02:00 UTC (the previous New York date) and the next UTC date do not; each of the five code files changes the code identity.
+- **Metrics:** server +75 lines (server/main.py, server/db.py); tests +90 lines.
+- **Next:** revision reason; publish-on-change I/O; re-pin.
+
+## 2026-10-23 — Publish-on-change at most hourly, and not for a change no reader sees (review round 2, item 8)
+
+- **Why:** round-2 review: every publish-on-change run that found the primary changed copied the whole 12.7 GB primary, up to 48 times a day on the :12/:42 timer, whether or not anything a reader uses had changed.
+- **What:** `--if-changed` now also skips while the newest generation (from any publisher) is under 55 minutes old, so on the half-hour timer it publishes at most once an hour; the nightly's own publication at its end is the once-after-the-nightly. Each publication records every table's storage signature (`pragma_storage_info`: row groups, segments, stats, blocks, pending updates; metadata only) taken on the capture handle, in `store/snapshots/storage-signatures.json`. Publish-on-change computes the same on a read-only probe of the primary and skips when every table whose signature changed is in `UNREAD_TABLES` (the two `pit_import_*` tables: 82 of the store's 84 tables are named by code the API imports, so the board or evidence may read them). Equal signatures never skip (a checkpoint can reuse freed blocks). The evidence staleness budget is 90 minutes (60 minutes plus one publication). The schedule-contract entry is a writer with `writes: ["store/snapshots"]`.
+- **Evidence:** `pytest tests/test_publish_snapshot.py tests/test_server_db.py tests/test_schedule_contract.py`: a change 30 minutes after a generation skips and one 55 minutes after publishes; a write to `pit_import_batches` alone skips with its name and a `jobs` insert then publishes and records the new generation's signatures; signatures change for the written table only, including a write still in the WAL; no file in the API's import closure names an `UNREAD_TABLES` table. `schedule_contract_check --static` ok. Storage signatures over all 84 tables of the 2026-09-28 copy take 2.4 s.
+- **Metrics:** pinned tools/publish_snapshot.py +95 lines; server 1 line; tests +125 lines.
+- **Next:** measured copy volume per publication and per day in the mirrored-live rehearsal.
+
+## 2026-10-23 — Re-pin registration revision 20 with an accurate revision reason (review round 2, item 5)
+
+- **Why:** round-2 review: the revision reason said what is fetched is unchanged and listed schedules among the unchanged items, but this revision newly pauses TradingView daily history, Massive options and five unread macro series (`engine/signals.py`), adds the publish-on-change timer, changes the reader and storage paths and adds storage limits. This pass also changed registered files (the three forward runners, the backup tool and the publisher).
+- **What:** `revision_reason` states the collection changes, the schedule changes (the new timer; the TradingView timer stops), the reader and storage paths and the storage limits, and that frozen verdict rules, scores, labels, gates and valid-data outcomes are unchanged. Five registered file hashes re-pinned, `source_commit` dbb2f72d, `registration_sha256` `01126f87…`; the registration test pins the new reason. The checklist's re-pin section carries the new digests.
+- **Evidence:** `pytest tests/test_p15_registration.py tests/test_p16_registration.py tests/test_registration_identity.py` passes.
+- **Metrics:** registration 7 values; tests 1 assertion.
+- **Next:** mirrored-live rehearsal at the final head; both timezone suites.
+
+## 2026-10-23 — Do not fsync the scratch capture copy inside the capture window
+
+- **Why:** the mirrored-live rehearsal measured the capture window (producer locks plus the read-only handle that keeps API writers waiting) at 89 s and 154 s on the 12.8 GB copy, against 16-17 s before the child-process copy; the child fsynced the whole scratch copy inside the window. API writes wait at most 180 s.
+- **What:** the child no longer fsyncs. The copy is a scratch file that any failure discards, so durability buys nothing; it still hashes the bytes it reads and re-reads the copy to prove the same SHA-256.
+- **Evidence:** `pytest tests/test_publish_snapshot.py` passes. On the same disk at the same hour, the child copy of the 12.6 GB 02:54 copy took 142 s and a plain `cp` 137 s: the window is now bound by the disk's copy rate, not by the fsync.
+- **Metrics:** pinned tools/publish_snapshot.py 2 lines.
+- **Next:** re-pin; the capture window remains disk-bound (reported to the orchestrator).
+
+## 2026-10-23 — Re-pin after the capture-copy change; document merge sequencing and forward records after a rollback
+
+- **Why:** the fsync change touched registered `tools/publish_snapshot.py`. The rehearsal also showed two operational facts the checklist did not state: once the merge is on `origin/main`, a nightly pull or a `te-autopush` rebase would put revision-20 code on the unmigrated store before the deploy quiesces; and a rollback after the contract migrations leaves E1's checkpoint and the sector and XS reports with revision-20 digests, which the previous code refuses (fails closed), because `data/` is not reverted.
+- **What:** one registered hash re-pinned, `source_commit` 90f62b56, `registration_sha256` `dadb95b4…`; the reason is unchanged and the runtime-contract digests are at their fixed point. The checklist says to push the merge outside 22:15-23:59 UTC with no nightly running and to start the deploy at once, and it records the forward-record consequence of a rollback as an open orchestrator decision (accept INVALID until a fixed revision, or restore exactly those three artifacts from the pre-deploy commit through a data commit).
+- **Evidence:** `pytest tests/test_p15_registration.py tests/test_registration_identity.py tests/test_documentation_integrity.py` passes. In the rehearsal, after the rollback the previous code's `farm.experiment_runner --report-only` raised "E1 forward checkpoint is invalid" and both reviews wrote INVALID.
+- **Metrics:** registration 3 values; docs 2 paragraphs.
+- **Next:** in-sequence nightly rehearsal; report.
+
+## 2026-10-23 — Rehearse round 2 in mirrored-live sandboxes; record publication I/O
+
+- **Why:** round-2 review asked for a re-rehearsal at the final head in a sandbox that mirrors the live checkout (branch `main`, an origin remote, uncommitted `data/` outputs), covering a deploy with `main` moving, the fast-forward refusal, a rollback after a failed backup create, a rollback after release by a revert commit and one real nightly, and for publish-on-change's copy volume.
+- **What:** five sandboxes, each a `main` checkout tracking a local bare origin with the live checkout's uncommitted outputs and a hash-verified copy of a live snapshot, the approved merge pushed by an orchestrator clone; deploy and rollback from fresh shells; host steps stubbed, readers a real API. The checklist's rehearsal section is replaced by these results and gains a publication I/O section.
+- **Evidence:** fast-forward refusal before anything stopped; failed backup create left no `R20_BACKUP` and the rollback reverted on `main`, pushed, pulled, kept every output and left the store's identity unchanged (rerun a no-op); two deploys plus rollbacks after release restored the primary byte for byte; at the final head cd0892a8, a deploy from the 02:54 post-scoring copy and one real `run_daily.sh` (39 min, every stage exit 0, sector and XS ACCUMULATING, E1 13 observations under the re-pinned digests, its sync pushed to the sandbox origin), then a rollback after release kept the nightly's commit. One republication: 56.4 GB written net (120.6 GB dirtied, 64.1 GB cancelled), 31.3 GB read; about 0.9 TB written per weekday at most hourly against about 1.4 TB before. Both timezone suites pass (`pytest -n 6`, exit 0, no failures).
+- **Metrics:** docs: rehearsal and I/O sections rewritten.
+- **Next:** orchestrator decisions: forward records after a rollback past the contract migrations; whether the publication volume needs a further limit.
+
+## 2026-10-23 — Revision-20 code refuses to write an unmigrated store (round-2 decisions, item 2)
+
+- **Why:** orchestrator decision: if the nightly's pull (or a te-autopush rebase) puts revision-20 code on the unmigrated store anyway, it must refuse loudly and write nothing. The rehearsal showed it did not: a revision-20 nightly on an unmigrated copy ran its universe stage and appended rows.
+- **What:** `engine.lib.db.connect` refuses a writable open of an operational store (it holds `prices`, `portfolios` and `jobs`) that has no migration ledger and whose catalog is one of migration 0000's pre-images (pre-v2, v2, r15, deployed-2026-10), with `SchemaMigrationRequired` ("unmigrated operational store … nothing was written"), before any statement. Read-only opens, the migration itself (schema-change authority), fresh databases built by today's initializers and the pit and research databases are unaffected. `engine/lib/db.py` is in all three runtime contracts: digests re-pinned at a fixed point (E1 `2d5f04c2`, sector `71a5ed9e`, XS `cc596f13`).
+- **Evidence:** `pytest tests/test_schema_migrations.py`: for each of the four pre-images the writable open raises, a read-only open works, and the file's SHA-256 is unchanged with no WAL created; a fresh initialized store and a pit-shaped store still open for writing. The full suite (`-n 8`, 247 s) shows no other change.
+- **Metrics:** pinned engine/lib/db.py +35 lines; contract literals 3; tests +35 lines.
+- **Next:** deploy pauses the pullers first; rollback restores the forward records.
+
+## 2026-10-23 — Deploy pauses the pullers first; rollback restores the forward records (round-2 decisions, items 1 and 2)
+
+- **Why:** orchestrator decisions. (1) A rollback past the contract migrations left E1's checkpoint and the sector and XS reports with revision-20 digests, which the previous code refused (rehearsed: E1 "checkpoint is invalid", both reviews INVALID). (2) The merge is pushed and the deploy started in one sitting, so the deploy's first step must stop anything that could pull the merge before quiescence.
+- **What:** `deploy.sh` first captures the host state and pauses the nightly (crontab) and `te-autopush.timer`, refusing while a nightly runs; a refusal before quiescence resumes both at once. `rollback.sh`, after restoring the primary, restores the forward records (`P20_FORWARD_RECORDS` in `common.bash`: E1's checkpoint and pages, the sector and XS reports and pages) to the deployed commit's versions through a data commit, runs one normal forward refresh under the previous code, refuses to release unless none of E1, sector or XS is INVALID, and commits the refresh. The deployed commit (`P20_DEPLOYED_SHA`, recorded after the fast-forward) is the commit the verified backup was taken at; it equals the merge's first parent plus the data-only commits before the deploy, so the records match the restored primary even when data commits followed the merge.
+- **Evidence:** `pytest tests/test_storage_r20_ops.py` (6 passed): a refusal at the first check shows only capture, pause and resume; a rollback after release restores the store and the three records, commits and pushes, then releases; a refresh that finds the restored records unusable stops before readers and release with producers quiesced.
+- **Metrics:** ops +55 lines; docs: deploy step 1, rollback step 4 and the forward-records paragraph; tests +110 lines.
+- **Next:** publication cadence; re-pin; rehearse the post-release rollback once more.
+
+## 2026-10-23 — Publish after the nightly and the P15 jobs, otherwise at most every three hours in market hours (round-2 decisions, item 3)
+
+- **Why:** orchestrator decision: about 0.9 TB written per weekday on a shared disk is too much. Publish after the nightly, P15 scoring and P15 pre-open; otherwise at most once every 3 hours during US market hours when evidence inputs changed; no weekend publications beyond the job-driven ones; evidence staleness budget about 3.5 h.
+- **What:** `--if-changed` publishes only on weekdays 09:30-16:00 New York (13:30-20:00 UTC in summer time, 14:30-21:00 in winter) and skips while the newest generation is under 175 minutes old (once every three hours on the half-hour timer); the input checks are unchanged. P15 pre-open publishes after its run (`ExecStartPost`, timeout 40 min, schedule-contract runtime 40 min). P15 events no longer publish: a publication inside its 14-minute, every-15-minutes run would be killed by its own timeout or make it miss windows, and publish-on-change covers its evidence. The evidence budget is 210 minutes; responses still flag `pending_publication`. Settle's 07:45 and 11:55 UTC writes are published by the pre-open run. The checklist's I/O section carries the new volume and lists incremental capture as an open follow-up.
+- **Evidence:** `pytest tests/test_publish_snapshot.py tests/test_server_db.py tests/test_schedule_contract.py tests/test_service_units.py`: 07:00 and 20:00 New York and a Saturday skip as outside market hours, 11:00 New York publishes, and a change two hours later skips under the three-hour limit; the units and windows match. Expected: 5 publications per weekday (P15 scoring, pre-open, about 16:42 and 19:42 UTC, the nightly), about 0.28 TB written and 0.16 TB read, one on Saturday and none on Sunday: about 1.5 TB a week against about 4.7 TB at most hourly.
+- **Metrics:** pinned tools/publish_snapshot.py +15 lines; units and jobs 5 lines; server 4 lines; tests +30 lines.
+- **Next:** registration re-pin; rehearse the post-release rollback once more.
+
+## 2026-10-23 — Re-pin registration revision 20 after the round-2 decisions
+
+- **Why:** the decisions changed registered files (`engine/lib/db.py`, `tools/publish_snapshot.py`, the P15 pre-open and events units) and the runtime contracts that include `engine/lib/db.py`; the revision reason's schedule sentence was no longer true.
+- **What:** seven registered hashes re-pinned, `source_commit` cf870c41, `registration_sha256` `bf6964a2…`; the reason now says publish-on-change publishes at most every three hours in US market hours, pre-open publishes after its run while events no longer do, and producers refuse to write an unmigrated store. Contract digests E1 `2d5f04c2`, sector `71a5ed9e`, XS `cc596f13` (fixed point) are in the checklist.
+- **Evidence:** `pytest tests/test_p15_registration.py tests/test_p16_registration.py tests/test_registration_identity.py` passes.
+- **Metrics:** registration 9 values; tests 1 assertion; docs 2 lines.
+- **Next:** rehearse the post-release rollback; both timezone suites.
+
+## 2026-10-23 — Rehearse the post-release rollback with the forward-record restore
+
+- **Why:** orchestrator decision 1 asked for the post-release rollback to be re-run once with the record restore.
+- **What:** a mirrored-live sandbox at b939c275 (02:54 copy, `main` at the live dcc194b4, the live checkout's uncommitted output) ran from 07:50 UTC: deploy (its first step pausing the nightly and `te-autopush`, stubbed), an API write after release, then the rollback from a fresh shell.
+- **Evidence:** the deploy migrated E1, sector and XS to the re-pinned digests (all ACCUMULATING). The rollback restored the primary byte for byte (SHA-256 equal to the copy), committed the restored records (`storage_r20_rollback_records`, 5 files), and the previous code's refresh was valid: sector ACCUMULATING `bad25764`, XS ACCUMULATING `d00ee812`, E1 checkpoint `2c8ec5b0` with 13 observations, `--report-only` clean; the refresh was committed; `main` = `origin/main` and the code is the merge's first parent; the previous code's API answered 200. Both timezone suites pass at b939c275.
+- **Metrics:** docs: one rehearsal row.
+- **Next:** round-3 review.
+
+## 2026-10-23 — Refuse any unversioned operational store older code built, whatever its catalog hash (review round 3, item 2)
+
+- **Why:** round-3 review, reproduced: the refusal matched only the exact pre-image hashes, so the deployed store plus one lazily created table (no longer a supported hash) was still opened for writing — exactly the store pre-flight 7 refuses after a code switch.
+- **What:** a writable open of a store with no migration ledger that holds the core tables (`prices`, `portfolios`, `jobs`) is refused unless the store is fresh, meaning every baseline table it holds has exactly today's DDL (migration 0000's `drifted_tables` is empty). No hash is consulted. Every store older code built carries drifted tables (the deployed one six), and a table created since does not change that. Read-only opens, migration authority, fresh stores (today's initializers, including logical copies of them) and pit stores are unaffected. Tests that hand-build stand-ins for older stores to exercise the legacy one-off tools (`migrate_agent_*`, `initialize_agent_paper_book`) and two operation tests lift the refusal explicitly. Contract digests re-pinned (E1 `291fd25c`, sector `8c2998fa`, XS `2edb8b29`).
+- **Evidence:** `pytest tests/test_schema_migrations.py`: the repro case (deployed pre-image plus `lazily_created`, hash not supported) is refused with the file unchanged, read-only and authority opens still work; the four pre-images refuse; fresh and pit stores open. Full suite (`-n 8`) otherwise unchanged.
+- **Metrics:** pinned engine/lib/db.py net −2 lines; contract literals 3; tests +80 lines.
+- **Next:** stale capture sweep and SIGTERM cleanup.
+
+## 2026-10-23 — A killed publication no longer leaks its 12.7 GB capture (review round 3, item 1)
+
+- **Why:** round-3 review, reproduced: a publication stopped by SIGTERM (systemd's timeout or shutdown) left its `.capture-*.duckdb` in `store/snapshots`, and later publications never removed it; cleanup ran only in `finally`, which SIGTERM's default action and SIGKILL skip.
+- **What:** every publication, with the publication lock held, first removes stale `.capture-*.duckdb` (and WAL) and `.*.tmp` files in the generation directory: no other publication can own one under the lock. The CLI turns SIGTERM into `SystemExit`, so the `finally` cleanup runs (the copy child is killed by `subprocess.run` on the way out).
+- **Evidence:** `pytest tests/test_publish_snapshot.py`: a publication sent SIGTERM mid-capture leaves no capture or `.tmp` file (with the handler removed the same test fails); one sent SIGKILL leaves its capture, and the next publication removes it and publishes.
+- **Metrics:** pinned tools/publish_snapshot.py +30 lines; tests +55 lines.
+- **Next:** checklist items; projection code identity from the import graph.
+
+## 2026-10-23 — The projection's code identity covers its modules' transitive imports (review round 3, item 3)
+
+- **Why:** round-3 review: the evaluation projection's code identity hashed five hand-listed files, so a change in a library they import (for example `sim/nyse.py`, which dates maturity) left a persisted projection flagged current.
+- **What:** `tools.affected_tests.import_closure` resolves imports the way the affected-tests graph does (a module and the package `__init__` files its import executes), but walks only from the given roots. `server/main.py` hashes `EVALUATION_CODE_ROOTS` plus every repo-local module they import transitively (252 files today), computed once per process on first use (about 2 s) rather than at import.
+- **Evidence:** `pytest tests/test_agent_routes.py tests/test_affected_tests.py`: the identity covers the roots and transitive modules such as `engine/lib/db.py`, `engine/lib/provenance.py` and `sim/nyse.py`; changing a root or a transitively imported module changes it.
+- **Metrics:** tools +25 lines; server +10 lines; tests +15 lines.
+- **Next:** checklist: re-deploy after a rollback and the deploy plan.
+
+## 2026-10-23 — Checklist: the fixed deploy plan and re-deploy after a rollback (review round 3, item 3)
+
+- **Why:** round-3 review: the checklist did not say that a re-deploy after a rollback must first revert the rollback's revert commit (merging the branch again would bring in only later commits), and the orchestrator fixed the deploy plan.
+- **What:** the checklist states the plan (after trial 287's 2026-11-03 06:30 UTC epoch, merge and deploy in one sitting together with the alpha switch of `confirm_287.py` to `pin_latest_generation`, pre-flight 6, well before the 2026-12-03 epoch) and gives the exact re-deploy commands: revert `P20_REVERT_SHA` on a redeploy branch, merge any fixes there, merge it into `main` with `--no-ff` so the deploy again gets a merge commit.
+- **Evidence:** `pytest tests/test_documentation_integrity.py` passes.
+- **Metrics:** docs +20 lines.
+- **Next:** re-pin; both timezone suites.
+
+## 2026-10-23 — Re-pin registration revision 20 after the round-3 fixes
+
+- **Why:** round 3 changed registered `engine/lib/db.py` and `tools/publish_snapshot.py`; `engine/lib/db.py` is in all three runtime contracts.
+- **What:** five registered hashes re-pinned, `source_commit` 4d53dda5, `registration_sha256` `63a1c9d5…`; reason unchanged; contract digests E1 `291fd25c`, sector `8c2998fa`, XS `2edb8b29` (fixed point), in the checklist.
+- **Evidence:** both timezone suites at this commit (below in the report).
+- **Metrics:** registration 6 values; docs 2 lines.
+- **Next:** round-3 sign-off.
+
+## 2026-10-23 — Round-4 fixes: warning-clean kill tests, code identity at import, a wider stale sweep
+
+- **Why:** round-4 review. The two kill tests failed under CI's `-W error` (`ResourceWarning: unclosed file` from their Popen pipes); the projection code identity was computed on the first request, so a `git pull` before it could label the old code's projection with the new code; and the stale sweep missed a killed run's cold-part `.parquet.tmp` and blob temp files in subdirectories.
+- **What:** the kill tests send the child's output to `/dev/null`. `server/main.py` fixes `evaluation_code_sha256()` when the API process imports it. The sweep (under the publication lock) walks the generation directory: top-level `.capture-*.duckdb` and WAL, every `.*.tmp` at any depth (`.parts/.*.parquet.tmp`, `blobs/*/.*.tmp`, generation, manifest and pointer temps) and DuckDB's `.spill` files.
+- **Evidence:** both timezone suites exactly as CI runs them, plus the research tests (commands in the report); a publication removes planted stale files at the top level, in `.parts`, in `blobs` and in `.spill` and still publishes; the identity is cached after import.
+- **Metrics:** pinned tools/publish_snapshot.py +12 lines; server 3 lines; tests +35 lines.
+- **Next:** re-pin.
+
+## 2026-10-23 — Re-pin registration revision 20 after the round-4 sweep change
+
+- **Why:** the wider stale sweep changed registered `tools/publish_snapshot.py`; `server/main.py`, `tools/affected_tests.py` and the tests are not registered.
+- **What:** one registered hash re-pinned, `source_commit` 382f0af9, `registration_sha256` `9f14aac3…`; the runtime-contract digests are unchanged (fixed point); the checklist carries the new value.
+- **Evidence:** the CI-equivalent suites in the report.
+- **Metrics:** registration 3 values; docs 1 line.
+- **Next:** round-4 sign-off.
+
+## 2026-10-30 — Integrate the storage release after the revision-20 model amendment
+
+- **Why:** P24 post-epoch integration instruction: prepare registration revision 21 on current main.
+- **What:** merge the accepted storage branch without rewriting its history; keep main's GPT-6.1-Sol model amendment and prior GPT-5.6 identities. Resolve the registration and revision test for revision 21 and retain both BUILDLOG histories.
+  Rename ops/storage-r20 to ops/storage-r21, its release variables and tests, and the checklist to revision-21-storage-deploy-checklist.md; historical entries retain the old names.
+- **Evidence:** git diff origin/main -- sim/execution.py sim/nyse.py engine/verify_prices.py → empty; model client is identical to main.
+- **Metrics:** pending final integration snapshot.
+- **Next:** merge the four accepted defect fixes, then the reserve floor and rehearsal.
+## 2026-10-30 — Classify weekly liquid history outcomes
+
+- **Why:** reproduced defect: the recorded Yahoo fixture in `tests/test_liquid_history.py` rejects BGIG and MHD because batch index padding is treated as market observations; the live weekly log reported 24 backfill failures and 516 candidate failures.
+- **What:** discard only all-null batch index padding before price admission; real invalid bars and unverified price bases remain rejected. Missing names get a paced max-history re-ask, with explicit source absences separated from fetch failures.
+  Existing job metadata retains named outcomes and a 90-day absence cooldown, invalidated by directory identity changes. Weekly candidate evidence separates absences and suppressed retries from failures.
+- **Evidence:** `pytest tests/test_liquid_history.py tests/test_collect.py -q -W error` passes (35 tests). The recorded 25-name batch replay changes 24 failures to 3 (CHPT, GTE, IVA), preserving all 57,467 accepted rows; the 516 candidate failures split into 425 padding errors, 88 basis holds, SVA's invalid open and two confirmed source absences.
+- **Metrics:** server/tools unchanged; product +191 LOC.
+- **Next:** orchestrator re-pins the changed collection source and XS runtime identity before the green-suite acceptance and deployment; this lane preserves those gates.
+
+## 2026-10-30 — Skip terminal evaluation labels before computing outcomes
+
+- **Why:** P24 output-identical speed work, lane L1(c) fix 1. The unmodified `label_mature()` took 77.62 s on a disposable store copied from published snapshot tables, with zero inserts. The partial-pair and rerun tests reproduce unnecessary outcome calculation.
+- **What:** preload existing legacy and v2 label keys; select missing horizons before calendar and price work, preserving the missing-entry terminal basis and paired decisions.
+  Keep inserts and label bodies unchanged; add partial-pair, maturity, grace and exact old-code row-identity regression cases.
+- **Evidence:** `python benchmark.py after` (retained lane benchmark): terminal rerun median 85.36 s → 16.20 s (5.27×); all ten copied table hashes match. Old-code fixtures match all 36 newly inserted label rows; full suite 6,266 passed, with only the two expected source-pin failures.
+- **Metrics:** server +33 LOC; tools and product unchanged; budget passes (snapshot retained with lane evidence).
+- **Next:** orchestrator acceptance and the coordinated registration re-pin.
+
+## 2026-10-30 — Release opportunity observer writers during generation
+
+- **Why:** P24 lane L1(c), fix 3: hourly and four-hour observers held the store writer across news and model calls.
+- **What:** preparation retains detection and quote/cross-check receipts; a reopenable lease closes before news and reopens after the artifact is saved. The owner closes every acquired connection on success or failure.
+  Persistence checks live window identity and allocates IDs in its transaction; labels reread current sessions, prices, decisions and label keys. Fixed-clock fixtures preserve exact request bytes, artifacts and stored rows, including late quotes and unavailable news.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 tests/test_intraday_source.py tests/test_daily_opportunities.py tests/test_market_data_sources.py tests/test_live_store_paths.py tests/test_no_bare_connect.py` passes, including second-process writers during news/model calls and exception/replay recovery. Journal-matched model medians are 12.10/18.06 seconds per hourly/four-hour run, now writer-free, plus news waits whose full duration is unlogged.
+- **Metrics:** server +31 LOC; tools/product unchanged (session snapshot).
+- **Next:** orchestrator re-pin and acceptance; quote-loop narrowing deferred.
+
+## 2026-10-30 — Bound every pre-open lock acquisition by one deadline
+
+- **Why:** P24 lane L1(d) item 3; a separate process holding a temporary advisory lock leaves acquisition blocked beyond a 0.2 s observation, before the DuckDB wait starts. Positive DuckDB waits also inherit an environment-controlled floor.
+- **What:** pre-open shares one monotonic deadline across both advisory locks and DuckDB retries. Other callers retain their existing waits; the environment cannot extend an opted-in deadline.
+  Expiry with store access records late/keep evidence without news or model work; continued contention logs an unavailable reason and exits retry (75). Free-lock decisions and table definitions stay unchanged.
+- **Evidence:** `pytest tests/test_lock_deadlines.py tests/test_p15_preopen.py tests/test_resources.py -W error` passes the temporary-file contention, near-deadline release, legacy waits and late/keep checks. Full suite: 6,165 passed; 104 source-pin failures left unchanged for the orchestrator.
+- **Metrics:** server +27 LOC, tools unchanged, product +33 LOC (session snapshot).
+- **Next:** orchestrator acceptance and the single registration re-pin.
+
+## 2026-10-30 — Enforce the 70 GiB store reserve for revision 21
+
+- **Why:** post-epoch release instruction: every store operation must leave at least 70 GiB free and environment overrides may only raise that floor.
+- **What:** raise the default reserve to 70 GiB; refuse smaller and nonfinite environment values with a clear error. Backup and publication retain their existing copy-size accounting inside the exclusive window.
+- **Evidence:** pytest tests/test_store_limits.py -q -W error → default, raised/lowered overrides and publication copy-space refusal pass.
+- **Metrics:** final integration snapshot records the deltas.
+- **Next:** finish the runnable deployment order and rehearse on a published-snapshot copy.
+
+## 2026-10-30 — Prepare the revision-21 deployment order and API source restart
+
+- **Why:** integration instruction: install publish-on-change and restart an API whose source changed, after trial 287's closing epoch and outside excluded windows.
+- **What:** the installer restarts the API when the deployed source revision differs from its last successful apply, including the first apply; stage starts no service and does not record a source revision.
+  The reader phase explicitly restarts the API; the checklist supplies window, installation and post-deploy commands and drops the closed trial-287 consumer switch. Update current storage revision references and the renamed script fixtures.
+- **Evidence:** pytest tests/test_install_automation.py tests/test_storage_r21_ops.py tests/test_store_limits.py -q -W error → 87 passed.
+- **Metrics:** final integration snapshot records the deltas.
+- **Next:** freeze source pins, rehearse the copy and run both timezone suites.
+
+## 2026-10-30 — Pin the integrated P15 revision 21 and frozen runtime contracts
+
+- **Why:** coordinated revision-21 integration re-pin after the accepted source changes; the pre-open lane reported 104 source-pin failures.
+- **What:** hash the complete registration import closure and cite the last pinned-source commit; recompute its canonical document hash. E1 v8, sector v12 and XS v23 replace only runtime digests and retain the deployed predecessors and every frozen trial value.
+- **Evidence:** python -m tools.registration_identity --base origin/main → PASS; computed E1, sector and XS digests equal their literals.
+- **Metrics:** final integration snapshot records the deltas.
+- **Next:** disposable-store rehearsal and both timezone acceptance suites.
+
+## 2026-10-30 — Align integration fixtures with revision-21 storage
+
+- **Why:** the affected tier reproduced eight integration failures: a direct installer state write, three revision-20 assertions, two legacy pre-open fixtures, and two exec-child publications refused by the 70 GiB floor on test tmpfs.
+- **What:** publish the installer's source marker through the existing atomic helper. Cost-break fixtures expect revision 21; deadline scenarios explicitly admit their temporary legacy stand-ins; publication-kill children inherit the same deterministic scratch-volume capacity as pytest.
+  Production reserve checks and schema refusal remain intact; no pinned source file changed after the final re-pin.
+- **Evidence:** pytest tests/test_no_bare_connect.py tests/test_migrate_cost_profiles.py tests/test_p15_preopen.py tests/test_publish_snapshot.py tests/test_p22_round3.py -q -W error → passes after these fixture corrections.
+- **Metrics:** product unchanged; tools unchanged in LOC (atomic call replaces the direct call).
+- **Next:** run the required timezone suites and finish the disposable rehearsal.
+
+## 2026-10-30 — Leave source-based installer restarts to the separate restart lane
+
+- **Why:** orchestrator scope ruling: revision 21 must not edit tools/install_automation.py; the separate restart lane ships the installer change before the epoch.
+- **What:** revert this lane's installer change and its dedicated test. Keep an explicit API and UI restart in the deploy's reader phase and runnable checklist, followed by health and model-status checks; note the forthcoming installer behavior.
+- **Evidence:** git diff 726775d5 -- tools/install_automation.py → empty.
+- **Metrics:** the final integration snapshot records the installer LOC reversal.
+- **Next:** complete the disposable rehearsal under the 75 GB copy reserve and rerun both timezone suites.
+
+## 2026-10-30 — Record final revision-21 suite evidence and disk rehearsal rules
+
+- **Why:** integration acceptance checks and the orchestrator's copy-space ruling.
+- **What:** record both final timezone suites, the manual API/UI restart and model-status verification, and the disposable-copy method: canonical paths, owner-only recovery bytes, 75 GB remaining before every copy, immediate verified-copy deletion and at most two store-sized files.
+- **Evidence:** final UTC and Asia/Singapore pytest receipts → 6,525 passed each, zero failures and skips (259.22 s and 267.05 s).
+- **Metrics:** versus initial main snapshot: server +427, tools +2,390, product +2,864 LOC; budget passes.
+- **Next:** finish the storage rehearsal and record the deploy-gate receipt.
+
+## 2026-10-30 — Complete the revision-21 published-copy storage rehearsal
+
+- **Why:** revision-21 acceptance requires a disposable published-snapshot rehearsal and rollback, under the orchestrator's 75 GB copy reserve and two-store-file bound.
+- **What:** backup create/verify 1,049.69/278.97 s; migration 538.53 s; all 107 original tables equal by name; frozen-record migrations and refresh valid; publication 1,068.73 s with a 136.11 s capture window.
+  Rollback 583.86 s proved byte-identical original bytes, original catalog and valid previous-main E1/sector/XS records; all copies and generations deleted. Peak RSS 5,273,744 KiB; peak owned disk 48.97 GB; minimum free 83.03 GB, current free 126.17 GB.
+- **Evidence:** retained rehearsal receipts → 107 tables equal, publication verified 52,556,137 cold rows, rollback byte_equal true; both timezone suites 6,525 passed and all blocking deploy gates pass.
+- **Metrics:** versus initial main snapshot: server +427, tools +2,390, product +2,864 LOC; budget passes.
+- **Next:** orchestrator acceptance, merge and deployment after the closing epoch; no lane deployment.
 
 ## 2026-10-30 — Give hourly operations warnings a history
 
@@ -4831,6 +5396,34 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `TZ=UTC pytest -q -W error -n 8` and `TZ=Asia/Singapore pytest -q -W error -n 8` each pass all 6,370 tests; the live read-only dry run reports no source restart for either service.
 - **Metrics:** tools +250 LOC; server/product unchanged (session snapshot).
 - **Next:** orchestrator acceptance and deployment.
+
+## 2026-11-01 — Try the Nasdaq ETF route when the stock route has no data
+
+- **Why:** the issue-batch reproduction `pytest tests/test_verify_prices.py::test_stock_no_data_tries_etf_with_same_comparison_rules` fails: only the stocks route is called. Real BAR, DGP, FNGD and VXX requests return traded histories on the ETF route.
+- **What:** try the ETF route after an explicit empty stocks answer; retain both exact responses and preserve the original named gap when both routes are empty.
+  Apply the existing comparison and indicative-series rules to the fallback; no share-class alias or tolerance changes.
+- **Evidence:** `pytest -q -W error tests/test_verify_prices.py tests/test_tradingview_history_archive.py` exits 0 at `[100%]`; real BAR, DGP, FNGD and VXX agree over five sessions each. Required tiers report only the two expected P15 hash and registration-identity failures.
+- **Metrics:** product +19 LOC; server/tools unchanged (session snapshot).
+- **Next:** orchestrator acceptance after the post-r21 registration.
+
+## 2026-11-01 — Retry proven TradingView mappings with append-only attempts
+
+- **Why:** `pytest tests/test_tradingview_history_archive.py::test_corrected_provider_retries_refused_window_without_editing_cohort` fails with `assert 0 == 1`; a terminal original prefix blocks a proven corrected route.
+- **What:** use nine proven provider corrections while keeping frozen symbols and prior attempts; partition refusal retries by the requested provider symbol.
+  Retain the standard receipt and require overlapping valid closes within the verifier's existing bands before retaining corrected facts. A failed proof appends a refusal.
+- **Evidence:** `pytest -q -W error tests/test_verify_prices.py tests/test_tradingview_history_archive.py` exits 0 at `[100%]`; nine real corrected requests retain receipts and append attempts with all prior rows identical. Required tiers report only the two expected P15 hash and registration-identity failures.
+- **Metrics:** product +84 LOC; server/tools unchanged (session snapshot).
+- **Next:** orchestrator acceptance after the post-r21 registration.
+
+## 2026-11-01 — Wait for scoring store locks through the registered deadline
+
+- **Why:** P15 lock lane; reproduction: `.venv/bin/python -m pytest -q -W error tests/test_p15_scoring_locks.py -k waits_past_sixty` fails all four phases with a real writer held for 65 fake-clock seconds; a valid response becomes unavailable after the 60-second write wait expires.
+  The same test's `finalization-65` case also reproduces a completed run after a final store wait reaches noon.
+- **What:** Apply one monotonic budget ending at the unchanged 12:00 UTC deadline to scoring's advisory locks and store opens, including response retention and finalization.
+  Keep the registered 60-second retry floor, completed-sample replay and interrupted-sample refusal unchanged; no registration re-pin or unit change.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 8` has 6,653 passes; only the expected `test_p15_registered_file_hashes_match_checkout` and `test_registration_identity_holds_in_this_checkout` fail on the un-re-pinned scoring source. All eight lock cases pass, including no late finalization trace.
+- **Metrics:** server +19 LOC; tools/product unchanged; tests +159 LOC (session snapshot).
+- **Next:** orchestrator acceptance and the post-r21 registration revision.
 
 ## 2026-11-01 — Isolate operations digest tests from checkout receipts
 
@@ -4869,6 +5462,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged.
 - **Next:** orchestrator acceptance; evaluation disclosure and late-intent review are deferred.
 
+## 2026-11-03 — Release price moves backed by unchanged history and completed actions
+
+- **Why:** basis-release ruling; `.venv/bin/python -m pytest -q -W error -n 0 tests/test_basis_release.py` reproduces INTC and IOVA at `assert 0 == 22` and `assert 0 == 23`, despite twenty unchanged prior closes and completed action fetches.
+- **What:** release only consecutive-close holds with twenty unchanged stored sessions in incoming history, no nearby captured corporate action and an action fetch completed successfully on or after the break. Keep existing revision tolerance, split-factor bands, scalar admission and split-revision holds.
+  A split neither restated nor reported by its provider can pass this rule; `split_recorded_vs_restated` and `repair_integrity` remain the backstop. The source is stacked on the held revision 21 and is not deployed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_basis_release.py tests/test_price_admission.py` exits 0 at `[100%]`; recorded-history replay releases 68/163 candidate holds and 0/6 backfill holds, using the published action snapshot.
+- **Metrics:** product/engine +25 LOC; server/tools unchanged; tests +156 LOC against the branch base.
+- **Next:** orchestrator acceptance and revision-21 deployment.
+
 ## 2026-11-03 — Audit the historical walk-forward timeouts without rewriting failures
 
 - **Why:** P24 failure audit: the published snapshot and `/meta` still count 16 actionable jobs from October 19, each with `timeout: killed after 14400s`, after later weekly cohorts completed.
@@ -4888,6 +5490,25 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged.
 - **Next:** orchestrator admits the price-basis correction and its evidence-based release rule.
 
+## 2026-11-11 — Keep schema-1 price readers on the generation hot file
+
+- **Why:** the admitted revision-21 unblock; the new same-directory schema-1 reader test fails with `AssertionError: assert None == 1` because publication omits `schema_version`.
+- **What:** publish schema-1 compatibility fields in the authenticated schema-2 manifest, pointing at the existing hot file; accept only a complete, matching compatibility pair.
+  Keep generation byte verification, cold tables, lifetime pins and older schema-2 manifests working without another store copy.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_publish_snapshot.py -k 'schema_one or compatibility'` → nine tests passed; the opened file's hash matches both manifest identities.
+- **Metrics:** server unchanged; tools +3; product +9.
+- **Next:** merge the three admitted stacked fixes, then one integrated re-pin.
+
+## 2026-11-11 — Integrate and rehearse the revision-21 schema-1 unblock
+
+- **Why:** the orchestrator admitted the November 3 schema-1 unblock proposal and the three stacked fixes; the new reader test reproduced the missing manifest field before the fix.
+- **What:** merged current main and the P15 lock, ETF verifier/provider mapping and basis-release fixes, preserving their tests and log entries.
+  Re-pinned revision 21 once through the existing runtime-then-registration sequence; all 169 P15 source files and E1/sector/XS digests agree, with registered rules unchanged.
+  Published from a reduced real-data copy; the frozen reader accepted 59 latest-session rows and complete feature histories, and the opened hot file and generation hashes verified. Deleted the sandbox.
+  Corrected the checklist's monthly confirmation gate and recorded both its layout and frozen-client refusals, the deploy disk shortfall, and the wider-history/expired-order operator steps.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error -n 8` and the same command under `TZ=Asia/Singapore` → 6,700 passed each (270.42 s / 272.77 s); affected tests, Ruff, job audit and static schedule check pass.
+- **Metrics:** session snapshot: server +19 LOC, tools +3, product +137.
+- **Next:** orchestrator acceptance; before deploy, resolve the 44.49 GiB reserve shortfall and the separately disclosed confirmation dependency/reader amendment.
 ## 2026-11-12 — Continue minute capture after an invalid chunk
 
 - **Why:** demonstrated defect: `.venv/bin/python -m pytest -q -W error -n 0 tests/test_free_massive_minute.py::test_invalid_middle_chunk_preserves_evidence_and_allows_later_chunks` fails before the fix with `engine.free_sources.FreeSourceError: Massive minute open is invalid`; the middle chunk aborts the manifest.
@@ -4908,6 +5529,55 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server 0, tools 0, product +1 LOC; tests +5 LOC.
 - **Next:** nothing admitted.
 
+## 2026-11-12 — Merge current main into storage revision 21
+
+- **Why:** the orchestrator admits current main, including minute-capture recovery and no-bars split repair, into the undeployed revision 21.
+- **What:** merge both fixes and current data; retain both sides' BUILDLOG entries in date order.
+  Combine minute failure recovery with revision-21 raw-payload sealing; its inherited plain-file assertion fails with FileNotFoundError on a converted store, so read the preserved bytes through the payload reader.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_free_massive_minute.py tests/test_repair_integrity.py` → 26 passed.
+- **Metrics:** merge includes upstream deltas; integration adaptation unchanged in code LOC.
+- **Next:** archive capacity amendment and bounded no-bars split retry.
+
+## 2026-11-12 — Give archives a volume-sized cap and recovery reserve
+
+- **Why:** admitted revision-21 capacity amendment; the new dispatch tests reproduce a 90 GiB archive refusal and dispatch with one byte less than the store reserve plus two primary files; the warning still trips at 60 GiB.
+- **What:** raise the total archive hard cap to 120 GiB and the live-store soft warning to 90 GiB, preserving the former 60:80 proportion.
+  Before archive dispatch require 70 GiB plus twice the primary and WAL on their own filesystem; keep the root check and leave refused jobs pending with the reason logged.
+  These are operational capacity settings, disclosed with revision 21; no statistical registered value changes.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_queue_runner.py` → dispatch boundaries, pending state and volume/WAL accounting pass.
+- **Metrics:** final session snapshot: server 0, tools 0, product +59 LOC (both code fixes and runtime file-set additions).
+- **Next:** bounded nightly retry for no-bars split skips.
+
+## 2026-11-12 — Retry no-bars split skips after accepted bars arrive
+
+- **Why:** admitted revision-21 retry; `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py -k 'nightly_retries_no_bars or nightly_no_bars_source'` fails: proven history leaves `rows_restated=0`, and the retry source-call list is empty.
+- **What:** retry at most three recorded no-bars splits per reconciliation, only after accepted post-ex-date bars exist.
+  Reuse repair-integrity candidate, full-history proof and application helpers; mismatch, empty history or source failure keeps the skip and quarantine and logs the refusal. No outer provider retry loop.
+  Successful restatement resolves the split quarantine and preserves originals; later reconciliation is idempotent.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py tests/test_repair_integrity.py` → proof, refusal, no-post-bar, bound and idempotence cases pass.
+- **Metrics:** final session snapshot: server 0, tools 0, product +59 LOC (both code fixes and runtime file-set additions).
+- **Next:** correct the deploy checklist and re-pin the integrated revision once.
+
+## 2026-11-12 — Correct revision-21 capacity and consumer deploy gates
+
+- **Why:** orchestrator-admitted checklist corrections, backed by the capacity and private-consumer audits.
+- **What:** confirmation 287 is closed by the October 30 commitment on its November 3 PENDING epoch; its timer was disabled today and its frozen code is preserved.
+  Record live-287 compatibility and its diagnostic exception-name change, with read-only window checks; express the deploy reserve as primary plus WAL, and require a new pre-image after today's live split repair.
+  Add the parent-queue archive drain and earnings/Friday evidence verification; expose the TradingView pause as an explicit orchestrator yes/no sign-off.
+- **Evidence:** `git diff --check` → clean; the documented postflight command's help confirms read-only verification and the parent queue command retains normal admission.
+- **Metrics:** code unchanged.
+- **Next:** finalize the single runtime-then-P15 re-pin and repeat rehearsal and acceptance checks.
+
+## 2026-11-12 — Finish the revision-21 capacity and retry integration
+
+- **Why:** the orchestrator admits the capacity setting, source-proven nightly retry and checklist corrections into the undeployed revision-21 re-pin.
+- **What:** merge current main, retain both fixes and log histories, and freeze P15's complete 175-file import closure plus E1/sector/XS runtime identities with their deployed predecessors unchanged.
+  The new reduced real-data generation passes the unchanged T4 reader and exact file verification; its sandbox is deleted. Confirmation 287 remains closed and frozen; live-287 compatibility and post-deploy archive recovery are documented.
+  Record today's eight deploy pre-flights; the 70 GiB plus three-primary reserve guard now passes, while merge, quiescence and TradingView yes/no remain with the orchestrator.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error -n 8` and `TZ=Asia/Singapore .venv/bin/python -m pytest -q -W error -n 8` → 6,717 passed each (316.97 s / 306.79 s); required affected, lint, audit and identity checks pass.
+- **Metrics:** session server 0, tools 0, product +59 LOC; relative to the prior published snapshot, merged upstream adds tools +69 and product +1.
+- **Next:** orchestrator acceptance, main merge and deployment after the documented window pre-flights.
+
 ## 2026-11-12 — Finish minute capture with evidenced terminal rejections
 
 - **Why:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_free_massive_minute.py -k 'cooldown or identical_parser or changed_response or terminal_marker'` fails before the fix: cooldown returns exit 1 (`assert 1 == 75`), and repeated parser rejections never become terminal (five failing cases).
@@ -4918,6 +5588,82 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +118 LOC; server/product unchanged; tests +181 LOC (session snapshot).
 - **Next:** nothing admitted.
 
+## 2026-11-12 — Rotate and expire automatic no-bars split retries
+
+- **Why:** orchestrator round-two review; `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py -k 'rotates_past_permanent or ages_out_without'` reproduces starvation (`NEW` is absent from the source calls) and fetches for two 61-day-old skips; a 21-row fixture also exposes weekend starvation in a calendar-day rotation.
+- **What:** rotate three-candidate groups by a UTC weekday index, matching the Monday–Friday nightly; every member of a fixed eligible set gets its turn within ceil(count/3) scheduled nights while eligible.
+  Retry only ex-dates from today minus 60 days through today; older skips remain available to manual repair and count once in the run summary without individual age-out logs.
+  Keep the three-history bound, complete source proof, refusal watermark/quarantine and successful-restatement idempotence.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py tests/test_repair_integrity.py` → fairness, expiry, source-proof and existing action tests pass.
+- **Metrics:** round-two snapshot: server 0, tools 0, product/engine +22 LOC; tests +91.
+- **Next:** the single runtime-then-P15 re-pin, followed by all requested acceptance checks and reduced rehearsal.
+
+## 2026-11-12 — Finish revision-21 retry fairness acceptance
+
+- **Why:** the orchestrator's round-two starvation and infinite-retry defect is reproduced and admitted into the undeployed revision-21 re-pin.
+- **What:** verify that five permanent refusals cannot hide the provable sixth split, that every member of a 21-row fixed eligible set gets a weekday turn, and that aged-out skips produce no provider fetch or individual age-out log.
+  Re-pin sector/XS and the complete 175-file P15 closure once; E1's recomputed digest and all deployed predecessors stay unchanged. The same reduced real-data rehearsal passes with 122.9156 GiB minimum sampled free space; its sandbox is deleted.
+  Update the checklist's pins and evidence, with the deployment gates still owned by the orchestrator.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error -n 8` and `TZ=Asia/Singapore .venv/bin/python -m pytest -q -W error -n 8` → 6,728 passed each (317.32 s / 313.58 s); affected, Ruff, job/static schedule audits and identity checks pass.
+- **Metrics:** round-two server 0, tools 0, product +22 LOC; the supplied upstream merge also adds tools +118 and tests +181 versus the round-one snapshot.
+- **Next:** orchestrator acceptance and the documented merge/deploy window pre-flights.
+
+## 2026-11-13 — Restore TradingView collection through the deployment lifecycle
+
+- **Why:** owner collection decision and orchestrator revision-21 admission; `.venv/bin/python -m pytest -q -W error -n 0 tests/test_storage_r21_ops.py tests/test_schedule_contract.py tests/test_queue_runner.py tests/test_install_automation.py -k 'host_tradingview or host_accepts_active or schedule_state_follows or pending_job_1006 or stage_installs'` fails five cases: enabled release is skipped/refused, schedule and staging stay disabled, and job 1006 sees collection disabled.
+- **What:** restore the collection flag and revision-20 timer/service registration; schedule, staging and release follow the one flag.
+  Quiesce TradingView with every managed producer and resume it at release; preserve explicit pause tests and parent-queue dispatch for job 1006.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_storage_r21_ops.py tests/test_schedule_contract.py tests/test_install_automation.py tests/test_miner_monitor.py tests/test_tradingview_history_archive.py tests/test_stage_timings.py tests/test_service_units.py` → `[100%]`, exit 0; the corrected parent-queue suite also passes.
+- **Metrics:** server +14 LOC, tools -1 LOC, product unchanged; final snapshot follows acceptance.
+- **Next:** restore the retained option and macro collection flags.
+
+## 2026-11-13 — Retain revision-20 option and macro collection
+
+- **Why:** owner collection decision and orchestrator revision-21 admission; `.venv/bin/python -m pytest -q -W error -n 0 tests/test_signals.py tests/test_free_massive_options.py -k 'registered_config or unread_macro'` fails both cases with `assert False is True` before the flag changes.
+- **What:** turn on the existing Massive options switch and the five-series macro switch; retained readers, parsers and storage paths need no restoration.
+  Preserve explicit pause coverage and verify enabled collection through recorded-response option tests and macro parser fixtures.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_queue_runner.py tests/test_signals.py tests/test_free_massive_options.py` → `[100%]`, exit 0; all five macro parsers and recorded option responses pass.
+- **Metrics:** server/tools/product unchanged; tests add enabled and paused parser coverage.
+- **Next:** correct the checklist and perform the single revision-21 re-pin.
+
+## 2026-11-13 — Apply the owner collection decision to the revision-21 checklist
+
+- **Why:** owner decision at about 03:40 UTC: "why pause trading view? just get data as much as you need"; the orchestrator admits retaining all three revision-20 collection paths.
+- **What:** remove TradingView YES/NO sign-off while preserving every window rule; document TradingView quiescence and release plus normal parent-queue dispatch for job 1006.
+  Retain publish-on-change and its weekend rules; record the owner decision in feedback, product and scope, with the existing options timer hold unchanged.
+- **Evidence:** `git diff --check` → clean; static schedule check reports `schedule contract: ok (static)`.
+- **Metrics:** code unchanged.
+- **Next:** the single P15 revision-21 re-pin, then required acceptance checks.
+
+## 2026-11-13 — Re-pin revision 21 over the retained collection paths
+
+- **Why:** owner-directed collection amendment to undeployed revision 21; pre-pin registration identity fails because committed `engine/signals.py` differs from the previous closure.
+- **What:** hash the same 175-file P15 closure once, bind its last source change and rewrite collection/schedule disclosure with the November 13 owner decision.
+  E1 v8, sector v12 and XS v23 keep their prior digests, file sets and deployed predecessors because none of their pinned files changed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_p15_registration.py tests/test_registration_identity.py tests/test_experiment_runner.py tests/test_forward_review.py tests/test_xs_forward_review.py` → `[100%]`, exit 0.
+- **Metrics:** code unchanged.
+- **Next:** run affected tests, both full timezone suites and the remaining rehearsal/audit commands.
+
+## 2026-11-13 — Finish revision-21 collection acceptance
+
+- **Why:** the owner rejects all collection loss relative to revision 20; the orchestrator admits the retained flags, deploy lifecycle and single undeployed revision-21 re-pin.
+- **What:** verify normal TradingView parent dispatch, deploy quiescence/release, retained option capture and all five macro parser paths; preserve each pause switch and publish-on-change.
+  Record both full timezone suites and ten stub deploy/rollback cases; the disposable-home installer audit has no errors and proposes no TradingView stop/disable. The direct worktree context refusal is retained verbatim.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error -n 8` → 6,740 passed (279.61 s); Asia/Singapore also 6,740 passed (279.59 s), zero failures/errors/skips; affected, Ruff, job/schedule and identity checks pass.
+- **Metrics:** session server +14 LOC, tools -1 LOC, product unchanged; tests +193 LOC.
+- **Next:** orchestrator acceptance and the documented merge/deploy window pre-flights.
+
+## 2026-11-13 — Repair revision-21 predecessor migration and prove readers before release
+
+- **Why:** the orchestrator reproduced XS rejecting the deployed report because only `runtime_contract_files` differs; the sector closure differs the same way, and deploy omitted the checklist's pre-release reader proofs.
+- **What:** pin literal deployed sector/XS file lists independently, retaining the exact digest and every published-evidence comparison; migrate to the current closure and refuse added, missing or reordered predecessor files.
+  Copy deployed frozen-runtime fixture blocks and verify continuity on disposable databases; E1's deployed file list and recomputed digest already match, so its source is unchanged.
+  Run both unchanged read-only checklist proof blocks after reader verification, save their output and keep producers quiesced on either failure; all 13 deploy/rollback rehearsal cases pass.
+  Re-pin sector/XS and the same 175-file P15 closure once, preserving every frozen setting. The published reports pass their metadata guards; `con=None` then reaches database evidence evaluation and cannot return a migrated report.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 8 tests/test_forward_review.py tests/test_xs_forward_review.py tests/test_experiment_runner.py tests/test_forward_cost_break_continuity.py tests/test_r15_integration.py tests/test_sector_forward_status.py tests/test_xs_forward_status.py tests/test_storage_r21_ops.py` → 162 passed; Ruff, job/static schedule and registration identity pass. Full/affected gates remain incomplete at 99%; diagnostic stacks show generated account-delivery tests in DuckDB operations, and a one-thread standalone seed passes.
+- **Metrics:** server 0, tools 0, product +96 LOC; tests +210 LOC.
+- **Next:** blocked: orchestrator selects a permitted runner for the unfinished full/affected gates and clarifies the database-dependent published-report proof; merge/deploy gates remain closed.
+
 ## 2026-11-13 — Name the orchestrating setup without a model version
 
 - **Why:** owner feedback of 2026-11-13 (`docs/feedback.md`), after a prompt audit of the agent docs.
@@ -4926,5 +5672,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `.venv/bin/python -m pytest -q tests/test_operating_contract.py tests/test_public_hygiene.py` passes.
 - **Metrics:** unchanged.
 - **Next:** nothing admitted.
+
+## 2026-11-13 — Accept revision 21 and record the closed confirmation timer as disabled
+
+- **Why:** revision-21 deploy (owner, 2026-11-13: deploy without holding); reproduction: with this
+  branch `python -m tools.schedule_contract_check --live` reported `not-enabled: confirm-287.timer`,
+  which the deploy's before-release schedule gate refuses.
+- **What:** the orchestrator ran both timezone suites outside the writer's sandbox (green) and
+  replayed the sector and XS runtime migrations on the latest published snapshot against the live
+  published reports (both migrate). The schedule contract now lists the closed trial-287
+  confirmation timer and service as disabled, matching the host since 2026-11-12.
+- **Evidence:** `python -m tools.schedule_contract_check --live` → only `not-installed:
+  trading-engine-publish-on-change.timer`, which the deploy installs before its gate.
+- **Metrics:** unchanged.
+- **Next:** merge to main and deploy revision 21 by its checklist.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

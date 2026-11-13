@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 
 import duckdb
 import pandas as pd
+import pytest
 
 from engine.lib import db
 
@@ -47,8 +48,8 @@ def test_price_upsert_preserves_first_fetch_and_moves_latest(monkeypatch):
     )
 
 
-def test_schema_adds_first_fetch_column_to_an_existing_prices_table():
-    con = duckdb.connect()
+def test_schema_refuses_to_upgrade_an_existing_prices_table(tmp_path):
+    con = duckdb.connect(str(tmp_path / "legacy.duckdb"))
     try:
         con.execute(
             """CREATE TABLE prices (
@@ -56,7 +57,8 @@ def test_schema_adds_first_fetch_column_to_an_existing_prices_table():
             close DOUBLE, volume BIGINT, source VARCHAR, fetched_at TIMESTAMP,
             PRIMARY KEY (ticker, date))"""
         )
-        db.init_schema(con)
+        with pytest.raises(db.SchemaMigrationRequired, match="first_fetched_at"):
+            db.init_schema(con)
         columns = {
             row[0] for row in con.execute(
                 "SELECT column_name FROM information_schema.columns "
@@ -66,7 +68,7 @@ def test_schema_adds_first_fetch_column_to_an_existing_prices_table():
     finally:
         con.close()
 
-    assert "first_fetched_at" in columns
+    assert "first_fetched_at" not in columns
 
 
 def test_upsert_remains_compatible_with_a_minimal_legacy_prices_fixture():

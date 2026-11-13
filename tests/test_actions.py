@@ -14,11 +14,12 @@ import sys
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
+import duckdb
 import pandas as pd
 import pytest
 from conftest import SESSIONS, insert_bars
 
-from engine import actions, collect
+from engine import actions, collect, repair_integrity
 from engine.lib import db
 from sim import corp_actions_shakedown, portfolio
 from sim.schema import INITIAL_CASH, init_sim_schema
@@ -188,7 +189,8 @@ def test_action_and_fetch_log_checkpoint_roll_back_together(
     assert con.execute("SELECT COUNT(*) FROM actions_fetch_log").fetchone() == (0,)
 
 
-def test_legacy_fetch_log_schema_migrates_without_losing_rows(con):
+def test_legacy_fetch_log_schema_requires_explicit_migration(tmp_path):
+    con = duckdb.connect(str(tmp_path / "legacy.duckdb"))
     con.execute("DROP TABLE IF EXISTS actions_fetch_log")
     con.execute(
         "CREATE TABLE actions_fetch_log (ticker VARCHAR, fetched_on DATE, "
@@ -198,18 +200,18 @@ def test_legacy_fetch_log_schema_migrates_without_losing_rows(con):
     con.execute(
         "INSERT INTO actions_fetch_log VALUES ('AAA', '2026-09-07', 0, 0, 'failed')"
     )
-    db.init_actions_schema(con)
+    with pytest.raises(db.SchemaMigrationRequired, match="attempted_at"):
+        db.init_actions_schema(con)
     assert con.execute(
-        "SELECT ticker, fetched_on, n_splits, n_dividends, status, source, attempted_at "
+        "SELECT ticker, fetched_on, n_splits, n_dividends, status "
         "FROM actions_fetch_log"
-    ).fetchall() == [
-        ("AAA", datetime(2026, 9, 7).date(), 0, 0, "failed", "yfinance", None)
-    ]
+    ).fetchall() == [("AAA", datetime(2026, 9, 7).date(), 0, 0, "failed")]
     cols = {
         row[1]
         for row in con.execute("PRAGMA table_info('actions_fetch_log')").fetchall()
     }
-    assert {"source", "attempted_at"} <= cols
+    assert "source" not in cols and "attempted_at" not in cols
+    con.close()
 
 
 def test_connection_narrowed_run_releases_db_during_fetch(monkeypatch, tmp_path):
@@ -314,8 +316,10 @@ def _setup(con, closes: list[float], fetched: datetime | list[datetime]) -> None
     db.init_actions_schema(con)
     insert_bars(con, TK, SESSIONS, open_=closes, close=closes)
     fl = fetched if isinstance(fetched, list) else [fetched] * len(SESSIONS)
-    con.executemany("UPDATE prices SET fetched_at = ? WHERE ticker = ? AND date = ?",
-                    [[f, TK, d] for f, d in zip(fl, SESSIONS, strict=True)])
+    # The first-stored stamp is the provenance the reconciler judges (fixtures stamp 2000-01-01).
+    con.executemany("UPDATE prices SET fetched_at = ?, first_fetched_at = ? "
+                    "WHERE ticker = ? AND date = ?",
+                    [[f, f, TK, d] for f, d in zip(fl, SESSIONS, strict=True)])
     con.execute("INSERT INTO corporate_actions VALUES (?, ?, 'split', ?, 'yfinance', now())",
                 [TK, EX, RATIO])
 
@@ -821,3 +825,164 @@ def test_reconcile_restating_the_split_clears_the_scan_quarantine(con):
     assert con.execute("SELECT outcome FROM split_adjustments WHERE ticker = 'IESC'"
                        ).fetchone()[0] == "applied"
     assert _quarantine(con) == {}
+
+
+@pytest.mark.parametrize("source_result", ["proven", "mismatch", "missing", "exception", "no_post"])
+def test_nightly_retries_no_bars_skip_only_with_complete_source_proof(
+    con, monkeypatch, source_result,
+):
+    from engine import price_quarantine
+
+    _nightly_clock(monkeypatch, [EX + timedelta(days=1)])
+    db.init_schema(con)
+    db.init_actions_schema(con)
+    init_sim_schema(con)
+    dates = SESSIONS[:EX_IDX] if source_result == "no_post" else SESSIONS
+    insert_bars(con, TK, dates, close=[PRE if d < EX else POST for d in dates])
+    con.execute("INSERT INTO universe (ticker,yf_ticker,active,liquid) VALUES (?, ?, TRUE, TRUE)",
+                [TK, TK])
+    con.execute("INSERT INTO corporate_actions VALUES (?, ?, 'split', ?, 'yfinance', now())",
+                [TK, EX, RATIO])
+    con.execute("INSERT INTO split_adjustments VALUES (?, ?, ?, 'skipped_no_bars', NULL, NULL, 0, now())",
+                [TK, EX, RATIO])
+    price_quarantine.set_quarantine(con, TK, reason=actions.QUARANTINE_SPLIT,
+                                         evidence="recorded no-bars skip")
+    before = {table: con.execute(f"SELECT * FROM {table}").fetchall()
+              for table in ("prices", "split_adjustments", "price_quarantine", "audit_log")}
+    calls = []
+
+    def source(yf, ticker, start):
+        calls.append((yf, ticker, start))
+        if source_result == "exception":
+            raise RuntimeError("source unavailable")
+        if source_result == "missing":
+            return {}
+        history = dict.fromkeys(SESSIONS, POST)
+        if source_result == "mismatch":
+            history[SESSIONS[0]] = POST * 1.1
+        return history
+
+    monkeypatch.setattr(repair_integrity, "source_closes", source)
+    summary = actions.reconcile(con)
+    if source_result == "proven":
+        assert summary["rows_restated"] == EX_IDX
+        assert _verdict(con) == ("applied", EX, EX_IDX)
+        assert list(_closes(con).values()) == pytest.approx([POST] * len(SESSIONS))
+        assert _quarantine(con) == {}
+        assert con.execute("SELECT COUNT(*) FROM price_observation_rejects "
+                           "WHERE reason='split_restatement_predecessor'").fetchone() == (EX_IDX,)
+        after = {table: con.execute(f"SELECT * FROM {table}").fetchall() for table in before}
+        actions.reconcile(con)
+        assert len(calls) == 1
+        assert after == {table: con.execute(f"SELECT * FROM {table}").fetchall() for table in before}
+    else:
+        assert summary["rows_restated"] == 0
+        assert before == {table: con.execute(f"SELECT * FROM {table}").fetchall() for table in before}
+    assert len(calls) == (0 if source_result == "no_post" else 1)
+
+
+@pytest.mark.parametrize("candidate_count", [8, 21])
+def test_nightly_no_bars_source_retry_is_bounded(con, monkeypatch, candidate_count):
+    db.init_schema(con)
+    db.init_actions_schema(con)
+    for k in range(candidate_count):
+        ticker = f"NAME{k}"
+        insert_bars(con, ticker, SESSIONS, close=_step(EX_IDX, PRE, POST))
+        con.execute("INSERT INTO split_adjustments VALUES (?, ?, ?, 'skipped_no_bars', NULL, NULL, 0, now())",
+                    [ticker, EX, RATIO])
+    calls = []
+    monkeypatch.setattr(repair_integrity, "source_closes",
+                        lambda yf, ticker, start: calls.append(ticker) or {})
+    nights = [EX + timedelta(days=1)]
+    _nightly_clock(monkeypatch, nights)
+    for _ in range((candidate_count + 2) // 3):
+        before = len(calls)
+        actions.reconcile(con)
+        assert len(calls) - before <= 3
+        nights[0] += timedelta(days=1)
+        while nights[0].weekday() >= 5:
+            nights[0] += timedelta(days=1)
+    assert set(calls) == {f"NAME{k}" for k in range(candidate_count)}
+    assert len(calls) == candidate_count
+    assert con.execute("SELECT COUNT(*) FROM split_adjustments WHERE outcome='skipped_no_bars'"
+                       ).fetchone() == (candidate_count,)
+
+
+@pytest.mark.parametrize("refused_source", ["mismatch", "unavailable"])
+@pytest.mark.parametrize("first_night_offset", [1, 2])
+def test_no_bars_retry_rotates_past_permanent_refusals(
+    con, monkeypatch, refused_source, first_night_offset,
+):
+    db.init_schema(con)
+    db.init_actions_schema(con)
+    init_sim_schema(con)
+    refused = [f"OLD{k}" for k in range(5)]
+    for ticker in (*refused, "NEW"):
+        ex_idx = EX_IDX - 4 if ticker in refused else EX_IDX
+        ex = SESSIONS[ex_idx]
+        insert_bars(con, ticker, SESSIONS, close=_step(ex_idx, PRE, POST))
+        con.execute("INSERT INTO split_adjustments VALUES (?, ?, ?, 'skipped_no_bars', NULL, NULL, 0, now())",
+                    [ticker, ex, RATIO])
+    nights = [EX + timedelta(days=first_night_offset)]
+    _nightly_clock(monkeypatch, nights)
+    calls = []
+
+    def source(yf, ticker, start):
+        calls.append(ticker)
+        if ticker in refused and refused_source == "unavailable":
+            return {}
+        history = dict.fromkeys(SESSIONS, POST)
+        if ticker in refused:
+            history[SESSIONS[0]] *= 1.1
+        return history
+
+    monkeypatch.setattr(repair_integrity, "source_closes", source)
+    for _ in range(2):
+        before = len(calls)
+        actions.reconcile(con)
+        assert len(calls) - before <= 3
+        if con.execute("SELECT outcome FROM split_adjustments WHERE ticker='NEW'"
+                       ).fetchone() == ("applied",):
+            break
+        nights[0] += timedelta(days=1)
+    assert "NEW" in calls
+    assert con.execute("SELECT outcome, rows_restated FROM split_adjustments WHERE ticker='NEW'"
+                       ).fetchone() == ("applied", EX_IDX)
+    assert con.execute("SELECT COUNT(*) FROM split_adjustments WHERE ticker LIKE 'OLD%' "
+                       "AND outcome='skipped_no_bars'").fetchone() == (5,)
+
+
+def test_no_bars_retry_ages_out_without_fetch_or_row_logs(con, monkeypatch, caplog):
+    db.init_schema(con)
+    db.init_actions_schema(con)
+    init_sim_schema(con)
+    for ticker in ("AGED0", "AGED1"):
+        insert_bars(con, ticker, SESSIONS, close=_step(EX_IDX, PRE, POST))
+        con.execute("INSERT INTO split_adjustments VALUES (?, ?, ?, 'skipped_no_bars', NULL, NULL, 0, now())",
+                    [ticker, EX, RATIO])
+    before = con.execute("SELECT * FROM split_adjustments ORDER BY ticker").fetchall()
+
+    _nightly_clock(monkeypatch, [EX + timedelta(days=61)])
+    calls = []
+    monkeypatch.setattr(repair_integrity, "source_closes",
+                        lambda yf, ticker, start: calls.append(ticker) or {})
+    result = actions.reconcile(con)
+    assert calls == []
+    assert result["no_bars_retry"]["aged_out"] == 2
+    assert before == con.execute("SELECT * FROM split_adjustments ORDER BY ticker").fetchall()
+    assert sum("aged_out=2" in record.message for record in caplog.records) == 1
+    assert all("AGED0" not in record.message and "AGED1" not in record.message
+               for record in caplog.records)
+
+
+def _nightly_clock(monkeypatch, nights):
+    class ClockMeta(type):
+        def __instancecheck__(cls, instance):
+            return isinstance(instance, datetime)
+
+    class Clock(datetime, metaclass=ClockMeta):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.combine(nights[0], time(12), tzinfo=tz)
+
+    monkeypatch.setattr(actions, "datetime", Clock)

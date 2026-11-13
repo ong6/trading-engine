@@ -224,7 +224,9 @@ def test_only_the_reviewed_files_import_computed_names():
     graph = at.Graph()
     assert graph.computed == {}, f"unreviewed computed imports: {graph.computed}"
     assert set(at.REVIEWED_COMPUTED_IMPORTS) == {
-        "farm/research/worker.py", "tests/test_affected_tests.py", "tools/release_deploy.py"}
+        "farm/research/worker.py", "tests/test_affected_tests.py", "tools/release_deploy.py",
+        "engine/lib/snapshots.py", "engine/schema_migrations.py",
+        "tests/test_baseline_table_coverage.py"}
     for path in at.REVIEWED_COMPUTED_IMPORTS:  # an exemption that no longer applies goes
         assert at.python_facts(str(REPO_ROOT), path)[2], path
 

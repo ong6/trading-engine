@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 import duckdb
 import pandas as pd
 
+from engine import raw_payload
 from engine.free_sources import FreeSourceError
 from engine.lib import db
 
@@ -510,7 +511,8 @@ def load_submission_page(
     match = PAGE_FILE.fullmatch(name)
     if match is None or int(match.group("cik")) != cik:
         raise FreeSourceError("Submissions page identity is invalid")
-    source_sha256 = source_sha256 or _sha256(path)
+    body = raw_payload.read(path, expected_sha256=source_sha256)
+    source_sha256 = source_sha256 or hashlib.sha256(body).hexdigest()
     current = con.execute(
         "SELECT source_sha256 FROM sec_submission_pages WHERE name=?", [name]
     ).fetchone()
@@ -518,7 +520,7 @@ def load_submission_page(
         if current[0] != source_sha256:
             raise FreeSourceError("Submissions page changed after loading")
         return {"filings": 0, "inserted": 0, "events_inserted": 0, "resumed": True}
-    parsed_cik, rows, pages = parse_submissions_document(path.read_bytes(), expected_cik=cik)
+    parsed_cik, rows, pages = parse_submissions_document(body, expected_cik=cik)
     if pages:
         raise FreeSourceError("Paged submissions document references another page")
     additions = _insert_submission_rows(

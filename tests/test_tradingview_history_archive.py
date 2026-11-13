@@ -12,6 +12,11 @@ from engine.lib import db
 NOW = datetime(2026, 9, 25, 12, tzinfo=timezone.utc)
 
 
+@pytest.fixture(autouse=True)
+def enable_collection_for_archive_tests(monkeypatch):
+    monkeypatch.setattr(archive, "collection_enabled", lambda: True)
+
+
 def _database(path):
     con = db.connect(path)
     db.init_schema(con)
@@ -242,11 +247,58 @@ def test_exhausted_window_that_succeeds_after_cooldown_resolves(tmp_path):
 def test_queue_registers_bounded_archive_after_core_miners():
     spec = queue_runner.JOB_TYPES["tradingview_history"]
     assert spec["archive"] is True and spec["releases_writer"] is True
+    original = queue_runner._tradingview_history_collection_enabled
+    queue_runner._tradingview_history_collection_enabled = lambda: False
+    assert [kind for kind, _priority, _params in queue_runner.nightly_plan(weekday=2)] == [
+        "intraday", "signals", "earnings"]
+    queue_runner._tradingview_history_collection_enabled = lambda: True
     plan = queue_runner.nightly_plan(weekday=2)
     assert [kind for kind, _priority, _params in plan] == [
         "intraday", "signals", "earnings", "tradingview_history"]
     params = next(value for kind, _priority, value in plan if kind == "tradingview_history")
     assert queue_runner._parse_params(params)["max_chunks"] == 50
+    queue_runner._tradingview_history_collection_enabled = original
+
+
+def test_paused_collection_records_status_without_store_or_network(tmp_path, monkeypatch):
+    monkeypatch.setattr(archive, "collection_enabled", lambda: False)
+    path = tmp_path / "market.duckdb"
+    meta = tmp_path / "meta.json"
+    result = archive.run_connection_narrowed(
+        {"cohort_id": "liquid-current-v1", "start": "2022-01-01"},
+        path, meta, capture=lambda *_args, **_kwargs: pytest.fail("network capture called"),
+        clock=lambda: NOW,
+    )
+    assert result["status"] == "paused" and result["reason"] == "no_registered_reader"
+    assert not path.exists()
+    assert __import__("json").loads(meta.read_text())["tradingview_history"] == result
+
+
+def test_publish_paused_writes_monitorable_evidence_without_store(tmp_path, monkeypatch):
+    monkeypatch.setattr(archive, "collection_enabled", lambda: False)
+    meta = tmp_path / "meta.json"
+    result = archive.publish_paused(meta, clock=lambda: NOW)
+    assert result == {
+        "status": "paused", "reason": "no_registered_reader",
+        "collection_enabled": False, "cohort_id": "liquid-current-v1",
+        "last_run": NOW.isoformat(),
+    }
+    assert __import__("json").loads(meta.read_text())["tradingview_history"] == result
+
+
+def test_publish_paused_cli_writes_meta_without_opening_database(
+    tmp_path, monkeypatch, capsys,
+):
+    monkeypatch.setattr(archive, "collection_enabled", lambda: False)
+    meta = tmp_path / "meta.json"
+    database = tmp_path / "must-not-open.duckdb"
+    assert archive.main([
+        "--publish-paused", "--meta", str(meta), "--db", str(database),
+    ]) == 0
+    output = __import__("json").loads(capsys.readouterr().out)
+    assert output["status"] == "paused"
+    assert __import__("json").loads(meta.read_text())["tradingview_history"] == output
+    assert not database.exists()
 
 
 def test_production_cohort_cannot_be_accidentally_frozen_as_subset(tmp_path):
@@ -297,3 +349,76 @@ def test_failed_tail_window_resolves_when_a_wider_window_completes(tmp_path):
     assert result["completed_this_run"] == 1 and result["checkpoint_end"] == "2022-02-07"
     assert result["attempts"]["failed"] == 1
     assert result["unresolved_failed_windows"] == 0
+
+
+def test_corrected_provider_retries_refused_window_without_editing_cohort(tmp_path, monkeypatch):
+    path, run = _failing_window(tmp_path, 'TradingView provider unavailable: symbol_error')
+    run(32)
+    run(56)
+    con = db.connect(path)
+    before = con.execute('SELECT * FROM tradingview_history_attempts ORDER BY id').fetchall()
+    monkeypatch.setattr(archive, 'CORRECTED_PROVIDER_SYMBOLS', {'NYSE:IBM': 'AMEX:IBM'}, raising=False)
+    chunks = archive._pending_chunks(con, 'retry-v1', date(2022, 1, 31), 1, 3, NOW + timedelta(hours=80))
+    assert len(chunks) == 1
+    assert chunks[0]['provider_symbol'] == 'AMEX:IBM'
+    archive._record_attempt(con, cohort_id='retry-v1', chunk=chunks[0], status='complete',
+                            fact_count=1, receipt_sha256='corrected', error=None,
+                            started_at=NOW + timedelta(hours=80), completed_at=NOW + timedelta(hours=80))
+    assert con.execute('SELECT * FROM tradingview_history_attempts ORDER BY id').fetchall()[:-1] == before
+    assert con.execute('SELECT provider_symbol FROM tradingview_history_symbols').fetchone() == ('NYSE:IBM',)
+    assert archive._pending_chunks(con, 'retry-v1', date(2022, 1, 31), 1, 3, NOW + timedelta(hours=104)) == []
+    con.close()
+
+
+@pytest.mark.parametrize('stored,accepted', [(100.0, True), (100.5, False), (None, False)])
+def test_corrected_response_proof_precedes_facts_and_keeps_standard_receipt(tmp_path, stored, accepted):
+    import json
+
+    from server import official_quote_source
+    from server import tradingview_source as tv
+
+    day = date(2022, 1, 3)
+    event = int(datetime(2022, 1, 3, 14, 30, tzinfo=timezone.utc).timestamp())
+    packets = [
+        {'m': 'symbol_resolved', 'p': ['cs_fixture', 'ser_1', {'source_id': 'BATS', 'exchange': 'AMEX'}]},
+        {'m': 'timescale_update', 'p': ['cs_fixture', {'$prices': {'s': [{'v': [event, 100, 101, 99, 100, 1000]}]}}]},
+        {'m': 'series_completed', 'p': ['cs_fixture', '$prices']},
+    ]
+    body = json.dumps({'received': [tv._packet(p['m'], p['p']) for p in packets]}).encode()
+    transcript = tv.Transcript(body, NOW, NOW)
+    path = tmp_path / 'market.duckdb'
+    _database(path)
+    con = db.connect(path)
+    archive.init_schema(con)
+    archive.ensure_cohort(con, cohort_id='proof-v1', start=day, selected_at=NOW, symbols=['IBM'])
+    con.close()
+    calls = []
+
+    def fetch(symbol, **kwargs):
+        # The network call has no DuckDB lease; a separate writer can open here.
+        writer = db.connect(path, wait_s=0)
+        writer.close()
+        calls.append((symbol, kwargs))
+        return transcript
+
+    result = archive._capture_corrected_history('AMEX:IBM', day, day, database=path,
+                                                stored={day: stored}, fetch=fetch)
+    con = db.connect(path, read_only=True)
+    receipt = con.execute('SELECT request_payload,response_body FROM source_response_receipts').fetchone()
+    count = con.execute('SELECT COUNT(*) FROM bitemporal_facts').fetchone()[0]
+    con.close()
+    assert calls == [('AMEX:IBM', {'mode': 'history', 'bars': 10, 'reference': event + 34200})]
+    assert receipt[1] == body
+    assert json.loads(receipt[0])['provider_symbol'] == 'AMEX:IBM'
+    assert result['status'] == ('complete' if accepted else 'refused')
+    assert count == int(accepted)
+    # The unchanged standard collector creates exactly the same receipt identity.
+    standard = official_quote_source.capture_tradingview_history('AMEX:IBM', day, day,
+                                                                database=path, fetch=fetch)
+    assert result['receipt_sha256'] == standard['receipt_sha256']
+
+
+def test_close_proof_keeps_existing_absolute_floor_and_requires_overlap():
+    observations = [{'event_at': datetime(2022, 1, 3, tzinfo=timezone.utc), 'payload': {'close': 0.9925}}]
+    assert archive._close_proof(observations, {date(2022, 1, 3): 0.99}) is None
+    assert archive._close_proof(observations, {}) == 'corrected TradingView symbol has no overlapping stored closes'

@@ -43,6 +43,13 @@ def _same_request(first: dict, second: dict) -> bool:
     return first["kind"] == second["kind"] and first_params == second_params
 
 
+def init_schema(con) -> None:
+    """Create the append-only disposition table (part of the migration baseline)."""
+    con.execute("CREATE TABLE IF NOT EXISTS job_resolutions ("
+                "job_id BIGINT PRIMARY KEY, payload VARCHAR NOT NULL, "
+                "sha256 VARCHAR NOT NULL, recorded_at TIMESTAMP NOT NULL)")
+
+
 def record(con, *, job_id: int, kind: str, reason: str, evidence: str,
            replacement_job: int | None = None) -> dict:
     """Record one immutable disposition; an identical repeat is idempotent."""
@@ -66,9 +73,7 @@ def record(con, *, job_id: int, kind: str, reason: str, evidence: str,
             "replacement_sha256": _hash(replacement) if replacement else None}
     digest = _hash(body)
     with db.transaction(con):
-        con.execute("CREATE TABLE IF NOT EXISTS job_resolutions ("
-                    "job_id BIGINT PRIMARY KEY, payload VARCHAR NOT NULL, "
-                    "sha256 VARCHAR NOT NULL, recorded_at TIMESTAMP NOT NULL)")
+        init_schema(con)
         old = con.execute("SELECT sha256 FROM job_resolutions WHERE job_id=?", [job_id]).fetchone()
         if old is not None and old[0] != digest:
             raise ValueError("job already has a different immutable resolution")

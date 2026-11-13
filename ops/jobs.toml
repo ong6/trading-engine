@@ -605,10 +605,11 @@ description = "Trading engine P15 cancel-only pre-open reassessment"
 after = ["network-online.target", "trae-proxy.service"]
 wants = ["network-online.target", "trae-proxy.service"]
 exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "server.p15_preopen", "--run"] }]
+exec_start_post = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.publish_snapshot"], ignore_failure = true }]
 environment = ["PYTHONUNBUFFERED=1"]
 nice = 19
 io_scheduling_class = "idle"
-timeout_start = "20min"
+timeout_start = "40min"
 private_tmp = true
 protect_system = "full"
 protect_control_groups = true
@@ -650,7 +651,6 @@ description = "Trading engine P15 shadow event scoring"
 after = ["network-online.target", "trae-proxy.service"]
 wants = ["network-online.target", "trae-proxy.service"]
 exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "farm.p15_event_runner", "--run"] }]
-exec_start_post = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.publish_snapshot", "--min-age-minutes", "120"], ignore_failure = true }]
 environment = ["PYTHONUNBUFFERED=1"]
 nice = 19
 io_scheduling_class = "idle"
@@ -706,6 +706,45 @@ on_calendar = ["*-*-* *:08:00 UTC"]
 persistent = true
 accuracy_sec = "1min"
 service_unit = "trading-engine-ops-digest.service"
+
+
+[[jobs]]
+job_id = "trading-engine-publish-on-change"
+version = 1
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.publish_snapshot", "--if-changed"]
+schedules = ["*-*-* *:12,42:00 UTC"]
+locks = [
+  { name = "job:trading-engine-publish-on-change", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" },
+  { name = "market-reader", mode = "shared", wait_seconds = 0, timeout_status = "terminal_failure" },
+]
+
+[jobs.timeout]
+attempt_seconds = 1500
+overall_seconds = 1500
+
+[jobs.retry]
+deadline_seconds = 1500
+
+[jobs.legacy.service]
+unit = "trading-engine-publish-on-change.service"
+description = "Trading engine publish-on-change of the read-only store generation"
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.publish_snapshot", "--if-changed"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 19
+io_scheduling_class = "best-effort"
+timeout_start = "25min"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "trading-engine-publish-on-change.timer"
+description = "Publish a new store generation when the primary changed (minutes free of other starts)"
+on_calendar = ["*-*-* *:12,42:00 UTC"]
+persistent = false
+accuracy_sec = "1min"
+service_unit = "trading-engine-publish-on-change.service"
 
 
 [[jobs]]

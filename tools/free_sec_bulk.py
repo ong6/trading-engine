@@ -17,7 +17,7 @@ from pathlib import Path
 import duckdb
 import requests
 
-from engine import free_sec_bulk, free_sources
+from engine import free_sec_bulk, free_sources, raw_payload
 from engine.lib import db
 from engine.lib.resources import write_text_atomic
 from tools.free_sec import _load_contact
@@ -172,9 +172,13 @@ class BulkClient:
                     or receipt["size"] <= 0):
                 raise ValueError
             path = receipt_path.parent / f"{source_sha}{suffix}"
-            if path.is_symlink() or not path.is_file() or path.stat().st_size != receipt["size"]:
-                raise ValueError
-            if _file_sha256(path) != source_sha:
+            if suffix == ".json":
+                raw_payload.read(
+                    path, expected_sha256=source_sha, expected_size=receipt["size"],
+                )
+            elif (path.is_symlink() or not path.is_file()
+                  or path.stat().st_size != receipt["size"]
+                  or _file_sha256(path) != source_sha):
                 raise ValueError
         except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise free_sources.FreeSourceError("SEC bulk cache receipt is invalid") from exc
@@ -237,7 +241,11 @@ class BulkClient:
             raise free_sources.FreeSourceError("SEC bulk download ended before its declared length")
         source_sha = _file_sha256(partial)
         path = directory / f"{source_sha}{suffix}"
-        if path.exists():
+        if suffix == ".json":
+            body = partial.read_bytes()
+            raw_payload.seal(path, body, expected_sha256=source_sha)
+            partial.unlink()
+        elif path.exists():
             if path.is_symlink() or not path.is_file() or _file_sha256(path) != source_sha:
                 raise free_sources.FreeSourceError("SEC bulk content cache conflicts")
             partial.unlink()

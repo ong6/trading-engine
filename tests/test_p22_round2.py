@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import duckdb
 import pytest
 
+from engine import schema_migrations
 from engine.accounts import api, cli
 from engine.lib import db
 from server import accounts_routes as routes
@@ -25,6 +26,43 @@ from tests.test_account_entrypoints_e2e import (
     _spec,
 )
 from tests.test_accounts_settle import _historical_fill
+from tools import backup_database, publish_snapshot
+
+
+def _versioned_main_store(path):
+    """The P22 fixture store on the exact baseline catalog, so GETs can read a generation."""
+    migration = schema_migrations.migrations()[0]
+    rows = path.with_name("main-rows.duckdb")
+    _main_store(rows)
+    con = duckdb.connect(str(path))
+    try:
+        migration.module.bootstrap(con)
+        con.execute(f"ATTACH '{rows}' AS fixture_rows (READ_ONLY)")
+        for table in ("prices", "universe"):
+            columns = ", ".join(
+                name for (name,) in con.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE "
+                    "table_catalog='fixture_rows' AND table_name=? ORDER BY ordinal_position",
+                    [table],
+                ).fetchall()
+            )
+            con.execute(
+                f"INSERT INTO {table} ({columns}) SELECT {columns} FROM fixture_rows.{table}"
+            )
+        con.execute("DETACH fixture_rows")
+        catalog = schema_migrations.catalog_sha256(con)
+        con.execute(
+            "CREATE TABLE schema_migrations (migration_id INTEGER PRIMARY KEY, "
+            "migration_sha256 VARCHAR, source_commit VARCHAR, applied_at TIMESTAMPTZ, "
+            "pre_catalog_sha256 VARCHAR, post_catalog_sha256 VARCHAR, "
+            "recovery_manifest_sha256 VARCHAR)"
+        )
+        con.execute(
+            "INSERT INTO schema_migrations VALUES (0, ?, ?, now(), ?, ?, ?)",
+            [migration.sha256, "a" * 40, catalog, catalog, "b" * 64],
+        )
+    finally:
+        con.close()
 
 
 class Harness:
@@ -34,7 +72,7 @@ class Harness:
         self.daily = tmp_path / 'daily.duckdb'
         self.minute = tmp_path / 'minute.duckdb'
         self.short = tmp_path / 'short.duckdb'
-        for path, make in ((self.market, _main_store), (self.daily, _daily_store),
+        for path, make in ((self.market, _versioned_main_store), (self.daily, _daily_store),
                            (self.minute, _minute_store), (self.short, _short_store)):
             make(path)
         for key, path in (('TRADING_ENGINE_DB', self.market),
@@ -89,6 +127,17 @@ class Harness:
     def night(self, day=DAY, rerun=False):
         return league.run(str(self.market), self.root / 'reports', day.isoformat(), False, rerun)
 
+    def publish(self):
+        """Publish the generation the API's pinned readers serve."""
+        relatives = set(backup_database.EVIDENCE_FILES)
+        relatives.update(backup_database._operational_files(self.session.isoformat()))
+        for relative in relatives:
+            path = self.root / relative
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('{"fixture": true}\n')
+        publish_snapshot.publish_snapshot(self.root, self.market)
+
     def scalar(self, sql):
         with self.con() as con:
             return con.execute(sql).fetchone()[0]
@@ -125,6 +174,7 @@ def test_api_marks_massive_short_from_selected_source(h):
     with h.con(h.daily) as con:
         con.execute("UPDATE free_daily_bars SET c=10 WHERE ticker='SHORT'")
     assert h.night() == 0
+    h.publish()
     position = routes.get_positions('acct-a', h.auth)[0]
     account = routes.get_account('acct-a', h.auth)
     assert position['mark'] == 10
@@ -141,6 +191,7 @@ def test_nightly_maintenance_carries_fill_when_all_source_marks_are_missing(h):
         con.execute("DELETE FROM free_daily_bars WHERE ticker='SHORT'")
     assert h.night() == 0
     assert h.scalar("SELECT COUNT(*) FROM account_events WHERE kind='margin_call'") == 1
+    h.publish()
     position = routes.get_positions('acct-a', h.auth)[0]
     assert position['mark'] == 1
     assert position['stale'] is True
@@ -290,6 +341,7 @@ def test_captured_massive_split_updates_signed_lots_orders_and_replay(h):
     assert h.scalar("SELECT qty FROM sim_positions WHERE ticker='SHORT'") == -100
     assert h.scalar(f"SELECT qty FROM sim_fills WHERE order_id={cover['order_id']}") == 100
     assert h.scalar("SELECT qty FROM sim_position_lots WHERE instrument_id='SHORT'") == -100
+    h.publish()
     assert 49_900 < routes.get_account('acct-a', h.auth)['equity'] < 50_000
     assert cli.main(['verify', 'acct-a']) == 0
     assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == 0

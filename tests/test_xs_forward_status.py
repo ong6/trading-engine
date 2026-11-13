@@ -233,7 +233,7 @@ def test_real_early_kill_remains_visible_before_statistical_maturity(con, tmp_pa
 
 
 def test_migrated_xs_cost_clock_projects_before_and_after_d0(con, tmp_path):
-    from tests.test_xs_forward_review import _deployed_v21_result, _freeze, _setup, _transition
+    from tests.test_xs_forward_review import _deployed_amended_result, _freeze, _setup, _transition
     from tools.migrate_cost_profiles import migrate
 
     monitor = xs_forward_status.xs_forward_monitor
@@ -241,7 +241,8 @@ def test_migrated_xs_cost_clock_projects_before_and_after_d0(con, tmp_path):
     waiting = _freeze(con)
     _transition(con)
     prior = monitor.migrate_runtime_contract(
-        con, _deployed_v21_result(monitor.evaluate(con, prior_result=waiting)))
+        con, _deployed_amended_result(monitor.evaluate(con, prior_result=waiting),
+                                      monitor.AMENDED_RUNTIME_CONTRACT_SHA256))
     d0 = date(2026, 10, 19)
     assert migrate(con, d0)["routing_changes"] == []
     path = tmp_path / "xs.json"

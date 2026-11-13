@@ -25,7 +25,7 @@ from urllib.parse import quote, urlparse
 import requests
 
 from engine import free_massive_minute as minute
-from engine import free_sources
+from engine import free_sources, raw_payload
 from engine.lib import db
 from engine.lib.resources import write_text_atomic
 from tools import free_sources as daily_capture
@@ -200,9 +200,7 @@ def _read_progress(data_dir: Path, ticker: str, start: date, end: date) -> dict 
                     or datetime.fromisoformat(page["fetched_at"]).utcoffset() is None):
                 raise ValueError
             raw_path = data_dir / "raw" / f"{page['source_sha256']}.json"
-            body = raw_path.read_bytes()
-            if hashlib.sha256(body).hexdigest() != page["source_sha256"]:
-                raise ValueError
+            body = raw_payload.read(raw_path, expected_sha256=page["source_sha256"])
             minute.parse_page(body, ticker=ticker, start=start, end=end)
     except (KeyError, OSError, TypeError, ValueError) as exc:
         raise free_sources.FreeSourceError("Massive minute cache receipt is invalid") from exc
@@ -211,7 +209,10 @@ def _read_progress(data_dir: Path, ticker: str, start: date, end: date) -> dict 
 
 def _cached_pages(data_dir: Path, progress: dict) -> list[tuple[bytes, datetime]]:
     return [
-        ((data_dir / "raw" / f"{page['source_sha256']}.json").read_bytes(),
+        (raw_payload.read(
+            data_dir / "raw" / f"{page['source_sha256']}.json",
+            expected_sha256=page["source_sha256"],
+        ),
          datetime.fromisoformat(page["fetched_at"]))
         for page in progress["pages"]
     ]
@@ -332,7 +333,8 @@ def capture_chunk(
             body = bytes(response.content)
             if 0 < len(body) <= free_sources.MAX_RESPONSE_BYTES:
                 source_sha = hashlib.sha256(body).hexdigest()
-                daily_capture._write_private_atomic(data_dir / "raw" / f"{source_sha}.json", body)
+                raw_payload.seal(data_dir / "raw" / f"{source_sha}.json", body,
+                                 expected_sha256=source_sha)
             body = daily_capture._response_body(response, "Massive minute")
             parsing = True
             _, next_url = minute.parse_page(body, ticker=ticker, start=start, end=end)

@@ -273,18 +273,12 @@ def test_forward_review_status_fails_closed_for_deep_live_evaluation(monkeypatch
 
 def test_migrated_sector_cost_clock_projects_before_and_after_d0(con, tmp_path):
     from engine import forward_review as monitor
+    from tests.deployed_runtime_helpers import deployed_runtime
     from tools.migrate_cost_profiles import migrate
 
     _setup_live_sector_forward(con)
     prior = monitor.evaluate(con)
-    prior["frozen_runtime"].update(
-        runtime_contract_version=monitor.PRIOR_RUNTIME_CONTRACT_VERSION,
-        runtime_contract_sha256=monitor.PRIOR_RUNTIME_CONTRACT_SHA256,
-        superseded_runtime_contract_sha256=monitor.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256,
-        runtime_contract_migration=monitor.PRIOR_RUNTIME_CONTRACT_MIGRATION,
-        runtime_contract_files=list(monitor.PRIOR_RUNTIME_CONTRACT_FILES), fill_model="v4")
-    for field in ("evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions"):
-        del prior["observation"][field]
+    prior["frozen_runtime"].update(deployed_runtime("sector"))
     migrated = monitor.migrate_runtime_contract(con, prior)
     d0 = date(2026, 10, 19)
     assert migrate(con, d0)["routing_changes"] == []

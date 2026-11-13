@@ -9,7 +9,6 @@ import json
 import os
 import re
 import stat
-import tempfile
 import threading
 import time
 from collections import defaultdict
@@ -23,7 +22,7 @@ from urllib.parse import urljoin
 import duckdb
 import requests
 
-from engine import free_sec, free_sources
+from engine import free_sec, free_sources, raw_payload
 from engine.lib import db
 from engine.lib.resources import write_text_atomic
 from tools.free_sources import _network_permitted
@@ -87,28 +86,6 @@ def _load_contact(path: Path | None = None) -> str:
     return matches[0]
 
 
-def _private_write(path: Path, body: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    path.parent.chmod(0o700)
-    if path.exists():
-        if path.is_symlink() or not path.is_file() or path.read_bytes() != body:
-            raise free_sources.FreeSourceError("SEC cache conflicts with its content identity")
-        return
-    temporary_name = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", delete=False) as out:
-            temporary_name = out.name
-            out.write(body)
-            out.flush()
-            os.fsync(out.fileno())
-        Path(temporary_name).chmod(0o600)
-        os.replace(temporary_name, path)
-        temporary_name = None
-    finally:
-        if temporary_name:
-            Path(temporary_name).unlink(missing_ok=True)
-
-
 @dataclass(frozen=True)
 class CachedResponse:
     body: bytes
@@ -160,18 +137,16 @@ class SecClient:
             if fetched_at.utcoffset() is None:
                 raise ValueError
             body_path = directory / f"{source_sha}.raw"
-            if body_path.is_symlink() or not body_path.is_file():
-                raise ValueError
-            body = body_path.read_bytes()
-            if hashlib.sha256(body).hexdigest() != source_sha:
-                raise ValueError
+            body = raw_payload.read(body_path, expected_sha256=source_sha)
         except (OSError, TypeError, ValueError) as exc:
             raise free_sources.FreeSourceError("SEC URL cache is invalid") from exc
         return CachedResponse(body, fetched_at, True)
 
     def _retain(self, url: str, body: bytes, status: int, fetched_at: datetime) -> None:
         directory, source_sha = self._directory(url), hashlib.sha256(body).hexdigest()
-        _private_write(directory / f"{source_sha}.raw", body)
+        raw_payload.seal(
+            directory / f"{source_sha}.raw", body, expected_sha256=source_sha,
+        )
         receipt = {
             "url": url, "url_sha256": hashlib.sha256(url.encode()).hexdigest(),
             "source_sha256": source_sha, "fetched_at": fetched_at.isoformat(), "status": status,

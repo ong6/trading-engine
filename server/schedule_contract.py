@@ -84,7 +84,21 @@ Matcher = Callable[[datetime], bool]
 
 # --------------------------------------------------------------------------- manifest
 def load_manifest(path: Path = MANIFEST_PATH) -> dict:
-    return json.loads(path.read_text())
+    manifest = json.loads(path.read_text())
+    policy_path = path.with_name("collection-policy.json")
+    policy = json.loads(policy_path.read_text())
+    if (not isinstance(policy, dict)
+            or set(policy) != {"schema_version", "tradingview_history"}
+            or policy["schema_version"] != 1
+            or not isinstance(policy["tradingview_history"], bool)):
+        raise ValueError("collection policy is invalid")
+    if not policy["tradingview_history"]:
+        for entry in manifest["units"]:
+            if entry["unit"] in {"trading-engine-tradingview-history.timer",
+                                 "trading-engine-tradingview-history.service"}:
+                entry["state"] = "disabled"
+                entry["reason"] = "collection paused by server/collection-policy.json"
+    return manifest
 
 
 def _units(manifest: dict) -> dict[str, dict]:

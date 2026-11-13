@@ -12,9 +12,13 @@ import pytest
 import requests
 
 from engine import free_massive_minute as minute
-from engine import free_sources
+from engine import free_sources, raw_payload
 from tools import free_massive_minute as capture
 from tools import free_sources as daily_capture
+
+# These writers are tested on a converted store; tests/test_raw_payload_legacy.py covers
+# the legacy plain encoding they use until the conversion flag is set.
+pytestmark = pytest.mark.usefixtures("zstd_raw_payloads")
 
 ET = ZoneInfo("America/New_York")
 ALLOWED = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc)
@@ -99,6 +103,10 @@ def test_paginated_chunk_is_cached_loaded_and_key_stays_out_of_cache(tmp_path: P
     assert "fixture-secret" not in "".join(
         path.read_text(errors="ignore") for path in tmp_path.rglob("*") if path.is_file()
     )
+    sealed = list((tmp_path / "raw").glob("*.json.zst"))
+    assert len(sealed) == 2
+    assert not list((tmp_path / "raw").glob("*.json"))
+    assert all(raw_payload.decode(path.read_bytes()) for path in sealed)
 
 
 def test_interrupted_pagination_resumes_at_saved_next_url(tmp_path: Path):
@@ -505,7 +513,7 @@ def test_invalid_middle_chunk_preserves_evidence_and_allows_later_chunks(tmp_pat
     assert not receipt["complete"] and receipt["pages"] == []
     assert failure["reason"] == "Massive minute open is invalid"
     assert failure["manifest_sha256"] == MANIFEST_SHA
-    assert (data_dir / "raw" / f"{failure['source_sha256']}.json").read_bytes() == invalid
+    assert raw_payload.read(data_dir / "raw" / f"{failure['source_sha256']}.json") == invalid
     assert any(event.get("status") == "failed" and event["ticker"] == "BAD" for event in events)
     con = duckdb.connect(str(database), read_only=True)
     try:

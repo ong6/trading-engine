@@ -679,6 +679,7 @@ def test_refresh_keeps_failed_pending_backfill_resumable(monkeypatch, tmp_path):
     finally:
         con.close()
     monkeypatch.setattr(collect, "_download", lambda *_args, **_kwargs: pd.DataFrame())
+    monkeypatch.setattr(collect.liquid_history, "probe", lambda _ticker: ("fetch_error", None))
     monkeypatch.setattr(collect.time, "sleep", lambda _seconds: None)
 
     requested, failed, summary = collect.mode_refresh_liquid(db_path, None, False)

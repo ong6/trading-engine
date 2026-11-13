@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import time as monotonic_time
+from contextlib import ExitStack
 from dataclasses import asdict
 from datetime import date, datetime, time, timezone
 from pathlib import Path
@@ -13,8 +15,9 @@ from zoneinfo import ZoneInfo
 import duckdb
 
 from engine.lib import db
+from engine.lib.log import get_logger
 from engine.lib.provenance import canonical_sha256
-from engine.lib.resources import advisory_file_lock
+from engine.lib.resources import AdvisoryLockTimeout, advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from engine.lib.util import table_exists
 from engine.p15_calendar import observed_sessions
@@ -35,6 +38,8 @@ MISSED_REASON = "no pre-open run was recorded before the session opened"
 # proxy status checks and the model call (news retains its own per-ticker timeout).
 STORE_WAIT_RESERVE_S = (60.0 + 4 * agent_model_client.STATUS_TIMEOUT_SECONDS
                         + agent_model_client.GENERATION_TIMEOUT_SECONDS)
+log = get_logger("p15-preopen")
+LOCK_DEADLINE_REASON = "pre-open lock acquisition deadline reached"
 
 
 class PreopenError(ValueError):
@@ -442,10 +447,14 @@ def record_missed_sessions(
     return count
 
 
-def _preopen_decisions(started, cutoff, model_intents, payload, allowed, generate, clock):
+def _preopen_decisions(started, cutoff, model_intents, payload, allowed, generate, clock,
+                       late_reason=None):
     response, status, reason, model_decisions = None, "completed", None, []
     completed = started
-    if cutoff.astimezone(ET).timetz().replace(tzinfo=None) >= DEADLINE:
+    if late_reason:
+        status, reason = "late", late_reason
+        completed = _utc(clock())
+    elif cutoff.astimezone(ET).timetz().replace(tzinfo=None) >= DEADLINE:
         status, reason = "late", "pre-open deadline reached"
     elif model_intents:
         try:
@@ -480,6 +489,7 @@ def run(
     = agent_model_client.generate_p15_preopen_json,
     fetch_news=daily_opportunity_news._fetch,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    late_reason: str | None = None,
 ) -> dict:
     """Run one bounded pre-open decision; failures and lateness retain every intent."""
     started = _utc(now)
@@ -511,14 +521,14 @@ def run(
                 receipts=[], started=started,
             )
             return _finish_run(
-                con, run_id=run_id, status="no_pending_orders",
-                reason="no pending P15 entries", response=None,
+                con, run_id=run_id, status="late" if late_reason else "no_pending_orders",
+                reason=late_reason or "no pending P15 entries", response=None,
                 decisions=[], completed=started,
             )
     model_intents = [item for item in pending if item["portfolio_id"] in BOOK_IDS]
     news = daily_opportunity_news.capture(
         [item["ticker"] for item in model_intents], now=started, fetch=fetch_news,
-    ) if model_intents and local.timetz().replace(tzinfo=None) < DEADLINE else {
+    ) if model_intents and not late_reason and local.timetz().replace(tzinfo=None) < DEADLINE else {
         "status": "not_called", "receipts": [], "observations": [], "failures": [],
     }
     receipt_times = [
@@ -562,7 +572,7 @@ def run(
             receipts=news["receipts"], started=started,
         )
     response, status, reason, model_decisions, completed = _preopen_decisions(
-        started, cutoff, model_intents, payload, allowed, generate, clock,
+        started, cutoff, model_intents, payload, allowed, generate, clock, late_reason,
     )
     by_id = {item["intent_id"]: item for item in pending}
     decisions = [{**item, "portfolio_id": by_id[item["intent_id"]]["portfolio_id"],
@@ -575,7 +585,7 @@ def run(
 
 
 def store_wait_s(observed: datetime) -> float:
-    """Retry the store until the deadline less the model's reserve, at least the default."""
+    """Total acquisition budget before the deadline less the model's reserve."""
     local = observed.astimezone(ET)
     wait_until = datetime.combine(local.date(), DEADLINE, ET)
     return max(0.0, (wait_until - local).total_seconds() - STORE_WAIT_RESERVE_S)
@@ -583,13 +593,23 @@ def store_wait_s(observed: datetime) -> float:
 
 def run_database(database: Path = DEFAULT_DB, *, now: datetime | None = None, **kwargs) -> dict:
     observed = _utc(now or datetime.now(timezone.utc))
-    with advisory_file_lock(LOCK_PATH), advisory_file_lock(NIGHTLY_LOCK):
-        # A reader elsewhere refuses writers until it closes, and API reads can take
-        # minutes, so retry until the deadline less the model reserve (never below the
-        # default window). The run starts on the clock after the wait, so a long wait
-        # records a late run that keeps every intent rather than no run at all.
-        con = db.connect(database, wait_s=store_wait_s(observed) or None)
+    wait_s = store_wait_s(observed)
+    deadline = monotonic_time.monotonic() + wait_s
+    with ExitStack() as locks:
         try:
+            locks.enter_context(advisory_file_lock(LOCK_PATH, deadline=deadline))
+            locks.enter_context(advisory_file_lock(NIGHTLY_LOCK, deadline=deadline))
+        except AdvisoryLockTimeout as exc:
+            return _store_unavailable(exc)
+        try:
+            con = db.connect(database, wait_s=wait_s, deadline=deadline)
+        except Exception as exc:
+            if not db.is_lock_error(exc):
+                raise
+            return _store_unavailable(exc)
+        try:
+            if wait_s > 0 and monotonic_time.monotonic() >= deadline:
+                kwargs["late_reason"] = LOCK_DEADLINE_REASON
             if now is None:
                 observed = _utc(datetime.now(timezone.utc))
             p15_books.init_schema(con)
@@ -597,6 +617,12 @@ def run_database(database: Path = DEFAULT_DB, *, now: datetime | None = None, **
             return run(con, session_date=observed.astimezone(ET).date(), now=observed, **kwargs)
         finally:
             con.close()
+
+
+def _store_unavailable(exc: Exception) -> dict:
+    reason = f"{LOCK_DEADLINE_REASON}: store unavailable ({exc})"
+    log.warning(reason)
+    return {"status": "retry", "reason": reason, "decision_count": 0, "cancelled": 0}
 
 
 def capture_after_open(
@@ -736,8 +762,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database", type=Path, default=DEFAULT_DB)
     parser.add_argument("--run", action="store_true", required=True)
     args = parser.parse_args(argv)
-    print(json.dumps(run_database(args.database), sort_keys=True, default=str))
-    return 0
+    result = run_database(args.database)
+    print(json.dumps(result, sort_keys=True, default=str))
+    return 75 if result["status"] == "retry" else 0
 
 
 if __name__ == "__main__":

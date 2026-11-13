@@ -867,6 +867,44 @@ would breach the 70 GiB reserve. `r21/integrate` stays merged with main and gree
 stacked fixes (`fix/p15-lock`, `fix/tv-verify-pinned`) wait with it. Owner-level questions from
 orchestrator sessions go to the delegate session as plain text, not through a question dialog.
 
+## 2026-11-12 — Share and expire automatic no-bars split retries
+
+**Verdict.** The orchestrator accepts the revision-21 capacity integration except its retry
+selection: three permanently refused rows can starve later repairable splits and fetch forever.
+
+**Rule change.** The undeployed revision-21 amendment rotates three-candidate groups by the UTC
+weekday reconciliation index, matching the scheduled nightly, and restricts automatic retries
+to ex-dates at most 60 days old. Older skips remain available to manual repair and are counted
+once per run in the summary. Complete source proof, retained refusal evidence, statistical
+values and the three-history per-night bound stay unchanged. Re-pin the runtime identities and
+P15 once, then repeat both timezone suites and the reduced rehearsal before acceptance.
+
+## 2026-11-13 — Preserve collection in the undeployed storage revision
+
+**Verdict.** At about 03:40 UTC the owner said: "why pause trading view? just get data as much as you need."
+
+**Rule change.** The orchestrator applies this decision to all three collection pauses proposed
+by undeployed revision 21: TradingView daily history, Massive options and the five macro series
+(gex, pc_total, aaii_bull, free_credit, cot_es_lev_net). Revision 21 pauses no collection relative
+to deployed revision 20; retained one-flag switches stay enabled. TradingView is quiesced only
+for deploy and resumes at release through the normal parent queue. The existing options timer
+hold for provider responses, storage/publication controls and window rules remain as deployed.
+Remove the TradingView-pause sign-off; re-pin revision 21 once and verify both timezone suites
+and the stub deploy/rollback rehearsal before acceptance. → `revision-21-storage-deploy-checklist.md`.
+
+
+## 2026-11-13 — Require exact deployed predecessor metadata and reader proof before release
+
+**Verdict.** The revision-21 independent review rejected sector/XS migrations comparing the
+published predecessor with the current file list, and deploy releasing producers before the
+checklist's frozen-reader and live-287 import proofs.
+
+**Rule change.** Pin the deployed digest and file list separately, retaining every evidence
+comparison; execute both existing read-only proof blocks after first publication and before
+release, retain their outputs, and keep producers quiesced on failure. Re-pin once and verify
+both timezone suites. This lane commits only in its clone; merge and deployment remain with
+the orchestrator. → revision-21 deploy checklist and script.
+
 ## 2026-11-13 — The orchestrator directs Codex sessions
 
 **Verdict.** "ok we can change to claude prompting codex"; the owner leaves the choice of worker

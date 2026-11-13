@@ -493,14 +493,21 @@ def _options_capture(fixtures: Path, work: Path, *, contracts_only: bool):
         return daily if parsed.path.startswith(f"/v2/aggs/ticker/O:{occ}/") else None
 
     closes = {page["underlying"]: page["close"] for page in spec["contracts"]}
-    return capture.capture(
-        database=work / "options.duckdb", data_dir=work / "raw",
-        daily_database=work / "unused.duckdb", api_key="fixture-key",
-        session=_FixtureSession(route), now=lambda: _instant(spec["now"]),
-        as_of=date.fromisoformat(spec["as_of"]), selected_underlyings=underlyings,
-        contracts_only=contracts_only, rate_limit=lambda: None,
-        close_overrides={key: closes[key] for key in underlyings},
-    ), spec
+    # The contract is the recorded responses' parse, not the schedule: collection is paused
+    # for live runs until a registered reader exists, so the offline replay lifts the pause.
+    paused, capture.COLLECTION_ENABLED = capture.COLLECTION_ENABLED, True
+    try:
+        result = capture.capture(
+            database=work / "options.duckdb", data_dir=work / "raw",
+            daily_database=work / "unused.duckdb", api_key="fixture-key",
+            session=_FixtureSession(route), now=lambda: _instant(spec["now"]),
+            as_of=date.fromisoformat(spec["as_of"]), selected_underlyings=underlyings,
+            contracts_only=contracts_only, rate_limit=lambda: None,
+            close_overrides={key: closes[key] for key in underlyings},
+        )
+    finally:
+        capture.COLLECTION_ENABLED = paused
+    return result, spec
 
 
 def case_massive_option_contracts(fixtures: Path, work: Path) -> str:

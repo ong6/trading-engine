@@ -21,13 +21,18 @@ REAL_VERIFY_HEALTH = install_automation.service_deploy.verify_health
 
 @pytest.fixture(autouse=True)
 def healthy_service_states(monkeypatch):
+    def state(action, unit):
+        if unit in install_automation.PAUSED_UNITS:
+            return "disabled" if action == "is-enabled" else "inactive"
+        return "enabled" if action == "is-enabled" else "active"
+
     # Legacy installer tests use filesystem fixtures, not git checkouts. Exercise
     # source deployment separately with an injected systemd runner below.
     monkeypatch.setattr(install_automation.service_deploy, "plan", lambda *args: {})
     monkeypatch.setattr(
         install_automation,
         "_service_state",
-        lambda action, _unit: "enabled" if action == "is-enabled" else "active",
+        state,
     )
     monkeypatch.setattr(install_automation, "_linger_state", lambda: "yes")
     monkeypatch.setattr(
@@ -64,6 +69,9 @@ def _repo(tmp_path: Path) -> tuple[Path, Path]:
     verifier = root / "tools" / "verify_friday_postflight.py"
     verifier.parent.mkdir()
     verifier.write_text("")
+    policy = root / install_automation.COLLECTION_POLICY_RELATIVE
+    policy.parent.mkdir(parents=True, exist_ok=True)
+    policy.write_bytes((install_automation.REPO_ROOT / install_automation.COLLECTION_POLICY_RELATIVE).read_bytes())
     return root, home
 
 
@@ -459,6 +467,19 @@ def test_p22_data_and_account_units_are_registered_with_required_schedules():
     assert "OnCalendar=Tue..Sat *-*-* 11:55:00 UTC" in account_timer
 
 
+def test_plan_fails_closed_when_raw_codec_preflight_fails(tmp_path, monkeypatch):
+    root, home = _repo(tmp_path)
+    monkeypatch.setattr(
+        install_automation.raw_payload,
+        "codec_version_number",
+        lambda: (_ for _ in ()).throw(RuntimeError("codec unavailable")),
+    )
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: "")
+    summary, _desired = install_automation.plan(root, home)
+    assert summary["status"] == "invalid"
+    assert any("raw-zstd-codec-unavailable" in item for item in summary["errors"])
+
+
 def test_plan_is_ok_when_units_and_managed_cron_match(tmp_path, monkeypatch):
     root, home = _repo(tmp_path)
     unit_dir = home / ".config" / "systemd" / "user"
@@ -476,6 +497,8 @@ def test_plan_is_ok_when_units_and_managed_cron_match(tmp_path, monkeypatch):
         "service_units": [],
         "enable_units": [],
         "start_units": [],
+        "disable_units": [],
+        "stop_units": [],
         "enable_linger": False,
         "restart_services": {},
         "restarted_services": {},
@@ -487,6 +510,93 @@ def test_plan_is_ok_when_units_and_managed_cron_match(tmp_path, monkeypatch):
         for unit in install_automation.AUTOSTART_UNITS
     )
     assert desired == current
+
+
+def test_paused_tradingview_timer_is_removed_from_expected_schedule_and_converged(
+    tmp_path, monkeypatch,
+):
+    root, home = _repo(tmp_path)
+    timer = install_automation.TRADINGVIEW_HISTORY_TIMER
+    (root / install_automation.COLLECTION_POLICY_RELATIVE).write_text(
+        '{"schema_version":1,"tradingview_history":false}\n'
+    )
+    autostart, paused = install_automation._desired_unit_sets(root)
+    assert timer not in autostart
+    assert timer in paused
+    unit_dir = home / ".config/systemd/user"
+    unit_dir.mkdir(parents=True)
+    for unit, relative in install_automation.UNIT_SOURCES.items():
+        (unit_dir / unit).write_bytes((root / relative).read_bytes())
+    current = install_automation.render_crontab("", root)
+    states = {
+        unit: {"enabled": "enabled", "active": "active"}
+        for unit in install_automation.UNIT_SOURCES
+    }
+
+    def state(action, unit):
+        return states[unit]["enabled" if action == "is-enabled" else "active"]
+
+    calls = []
+
+    def checked(args, *, input_text=None):
+        calls.append((args, input_text))
+        if args[:3] == ["systemctl", "--user", "stop"]:
+            for unit in args[3:]:
+                states[unit]["active"] = "inactive"
+        if args[:3] == ["systemctl", "--user", "disable"]:
+            for unit in args[3:]:
+                states[unit]["enabled"] = "disabled"
+
+    monkeypatch.setattr(install_automation, "_service_state", state)
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: current)
+    monkeypatch.setattr(install_automation, "_checked", checked)
+    monkeypatch.setattr(
+        install_automation.scheduler_monitor, "status", lambda **_kwargs: {"status": "ok"},
+    )
+    summary, desired = install_automation.plan(root, home)
+    assert summary["changes"]["disable_units"] == [timer]
+    assert summary["changes"]["stop_units"] == [timer]
+    result = install_automation.apply(summary, desired, root, home)
+    assert result["status"] == "ok"
+    assert (["systemctl", "--user", "stop", timer], None) in calls
+    assert (["systemctl", "--user", "disable", timer], None) in calls
+    assert states[timer] == {"enabled": "disabled", "active": "inactive"}
+
+
+def test_reenabled_policy_restores_tradingview_timer_to_autostart(tmp_path):
+    root, _home = _repo(tmp_path)
+    (root / install_automation.COLLECTION_POLICY_RELATIVE).write_text(
+        '{"schema_version":1,"tradingview_history":true}\n'
+    )
+    autostart, paused = install_automation._desired_unit_sets(root)
+    assert install_automation.TRADINGVIEW_HISTORY_TIMER in autostart
+    assert paused == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("enabled_state", "active_state"),
+    (("enabled-runtime", "activating"), ("static", "failed"), ("masked", "deactivating")),
+)
+def test_paused_timer_treats_every_non_disabled_non_inactive_state_as_drift(
+    tmp_path, monkeypatch, enabled_state, active_state,
+):
+    root, home = _repo(tmp_path)
+    timer = install_automation.TRADINGVIEW_HISTORY_TIMER
+    (root / install_automation.COLLECTION_POLICY_RELATIVE).write_text(
+        '{"schema_version":1,"tradingview_history":false}\n'
+    )
+    current = install_automation.render_crontab("", root)
+
+    def state(action, unit):
+        if unit == timer:
+            return enabled_state if action == "is-enabled" else active_state
+        return "enabled" if action == "is-enabled" else "active"
+
+    monkeypatch.setattr(install_automation, "_service_state", state)
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: current)
+    summary, _desired = install_automation.plan(root, home)
+    assert summary["changes"]["disable_units"] == [timer]
+    assert summary["changes"]["stop_units"] == [timer]
 
 
 def test_plan_reports_disabled_and_inactive_units_as_drift(tmp_path, monkeypatch):
@@ -532,7 +642,7 @@ def test_plan_leaves_a_disabled_held_timer_alone(tmp_path, monkeypatch):
     held = "massive-options-daily.timer"
 
     def state(action, unit):
-        if unit == held:
+        if unit == held or unit in install_automation.PAUSED_UNITS:
             return "disabled" if action == "is-enabled" else "inactive"
         return "enabled" if action == "is-enabled" else "active"
 
@@ -559,7 +669,7 @@ def test_apply_installs_but_never_enables_or_starts_a_held_timer(tmp_path, monke
     current = install_automation.render_crontab("", root)
 
     def state(action, unit):
-        if unit == held:
+        if unit == held or unit in install_automation.PAUSED_UNITS:
             return "disabled" if action == "is-enabled" else "inactive"
         return "enabled" if action == "is-enabled" else "active"
 
@@ -1107,6 +1217,12 @@ def test_apply_repairs_service_state_without_reinstall_or_restart(tmp_path, monk
         if args[:3] == ["systemctl", "--user", "start"]:
             for unit in args[3:]:
                 states[unit]["active"] = "active"
+        if args[:3] == ["systemctl", "--user", "disable"]:
+            for unit in args[3:]:
+                states[unit]["enabled"] = "disabled"
+        if args[:3] == ["systemctl", "--user", "stop"]:
+            for unit in args[3:]:
+                states[unit]["active"] = "inactive"
 
     monkeypatch.setattr(install_automation, "_service_state", state)
     monkeypatch.setattr(install_automation, "_read_crontab", lambda: current)
@@ -1168,6 +1284,12 @@ def test_apply_repairs_service_state_changed_after_matching_replan(tmp_path, mon
         if args[:3] == ["systemctl", "--user", "start"]:
             for unit in args[3:]:
                 states[unit]["active"] = "active"
+        if args[:3] == ["systemctl", "--user", "disable"]:
+            for unit in args[3:]:
+                states[unit]["enabled"] = "disabled"
+        if args[:3] == ["systemctl", "--user", "stop"]:
+            for unit in args[3:]:
+                states[unit]["active"] = "inactive"
 
     monkeypatch.setattr(install_automation, "_reconcile_units", reconcile_then_disable)
     monkeypatch.setattr(install_automation, "_checked", checked)
@@ -1790,3 +1912,36 @@ def test_apply_fails_if_installed_state_does_not_converge(tmp_path, monkeypatch)
 
     with pytest.raises(RuntimeError, match="installed service units do not match"):
         install_automation.apply(summary, desired, root, home)
+
+
+def test_stage_installs_and_enables_but_starts_nothing_and_keeps_the_crontab(
+    tmp_path, monkeypatch,
+):
+    root, home = _repo(tmp_path)
+    tradingview = install_automation.TRADINGVIEW_HISTORY_TIMER
+
+    def state(action, unit):  # quiesced producers: every timer stopped and disabled
+        if action == "is-active":
+            return "inactive"
+        return "disabled"
+
+    calls = []
+    monkeypatch.setattr(install_automation, "_service_state", state)
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: "")
+    monkeypatch.setattr(
+        install_automation, "_checked", lambda args, *, input_text=None: calls.append(args),
+    )
+
+    result = install_automation.stage(root, home)
+
+    assert result["status"] == "ok" and result["staged"] is True
+    assert ["systemctl", "--user", "daemon-reload"] in calls
+    enable = next(args for args in calls if args[:3] == ["systemctl", "--user", "enable"])
+    assert "trading-engine-publish-on-change.timer" in enable
+    assert tradingview in enable
+    assert not any(args[:3] == ["systemctl", "--user", "disable"] for args in calls)
+    assert not any(args[:3] in (["systemctl", "--user", "start"],
+                                ["systemctl", "--user", "restart"]) for args in calls)
+    assert not any(args[:1] == ["crontab"] for args in calls)
+    unit_dir = home / ".config" / "systemd" / "user"
+    assert (unit_dir / "trading-engine-publish-on-change.timer").is_file()

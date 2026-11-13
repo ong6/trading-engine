@@ -599,6 +599,22 @@ def _label_outcome_when_ready(
     return outcome if later_ticker_bar or attempts_confirm else None
 
 
+def _terminal_v2_bases(label_basis: str) -> tuple[str, ...]:
+    if label_basis in {COMMON_ENTRY_BASIS, NEXT_SESSION_OPEN_BASIS}:
+        return label_basis, "missing_entry_last_available_close"
+    return (label_basis,)
+
+
+def _missing_v2_horizons(
+    existing_labels: set[tuple[int, int, str]], decision_ids: tuple[int, ...], label_basis: str,
+) -> list[int]:
+    bases = _terminal_v2_bases(label_basis)
+    return [horizon for horizon in HORIZONS if any(
+        not any((decision_id, horizon, basis) in existing_labels for basis in bases)
+        for decision_id in decision_ids
+    )]
+
+
 def _insert_v2_label(
     con: duckdb.DuckDBPyConnection,
     decision_id: int,
@@ -608,9 +624,7 @@ def _insert_v2_label(
     label_basis: str = COMMON_ENTRY_BASIS,
 ) -> bool:
     stored_basis = outcome.get("label_basis_override", label_basis)
-    terminal_bases = [label_basis]
-    if label_basis in {COMMON_ENTRY_BASIS, NEXT_SESSION_OPEN_BASIS}:
-        terminal_bases.append("missing_entry_last_available_close")
+    terminal_bases = _terminal_v2_bases(label_basis)
     if con.execute(
         "SELECT 1 FROM agent_evaluation_labels_v2 "
         f"WHERE decision_id=? AND horizon_sessions=? AND label_basis IN "
@@ -671,6 +685,7 @@ def _label_common_entries(
     *,
     latest: date,
     labeled_at: datetime,
+    existing_labels: set[tuple[int, int, str]],
 ) -> int:
     intraday = [policy for policy, cadence in POLICIES.items() if cadence != "nightly"]
     rows = con.execute(
@@ -688,10 +703,14 @@ def _label_common_entries(
     for nightly_id, intraday_id, ticker, market_date, observed_at, policy_id in rows:
         if not in_evaluation_cohort(policy_id, observed_at):
             continue
+        decision_ids = (int(nightly_id), int(intraday_id))
+        horizons = _missing_v2_horizons(existing_labels, decision_ids, COMMON_ENTRY_BASIS)
+        if not horizons:
+            continue
         boundary = max(market_date, observed_at.date())
         sessions = observed_sessions(con, after=boundary, through=latest,
                                      known_at=labeled_at, limit=20)
-        for horizon in HORIZONS:
+        for horizon in horizons:
             if len(sessions) < horizon:
                 continue
             outcome = _label_outcome_when_ready(
@@ -699,10 +718,13 @@ def _label_common_entries(
             )
             if outcome is None:
                 continue
-            for decision_id in (int(nightly_id), int(intraday_id)):
-                inserted += _insert_v2_label(
+            for decision_id in decision_ids:
+                if _insert_v2_label(
                     con, decision_id, horizon, outcome, labeled_at
-                )
+                ):
+                    inserted += 1
+                    existing_labels.add((decision_id, horizon,
+                                         outcome.get("label_basis_override", COMMON_ENTRY_BASIS)))
     return inserted
 
 
@@ -711,6 +733,7 @@ def _label_p15_entries(
     *,
     latest: date,
     labeled_at: datetime,
+    existing_labels: set[tuple[int, int, str]],
 ) -> int:
     rows = con.execute(
         "SELECT d.id,d.ticker,t.market_date FROM agent_evaluation_decisions d "
@@ -719,9 +742,12 @@ def _label_p15_entries(
     ).fetchall()
     inserted = 0
     for decision_id, ticker, market_date in rows:
+        horizons = _missing_v2_horizons(existing_labels, (int(decision_id),), NEXT_SESSION_OPEN_BASIS)
+        if not horizons:
+            continue
         sessions = observed_sessions(con, after=market_date, through=latest,
                                      known_at=labeled_at, limit=20)
-        for horizon in HORIZONS:
+        for horizon in horizons:
             if len(sessions) < horizon:
                 continue
             outcome = _label_outcome_when_ready(
@@ -729,10 +755,13 @@ def _label_p15_entries(
             )
             if outcome is None:
                 continue
-            inserted += _insert_v2_label(
+            if _insert_v2_label(
                 con, int(decision_id), horizon, outcome, labeled_at,
                 label_basis=NEXT_SESSION_OPEN_BASIS,
-            )
+            ):
+                inserted += 1
+                existing_labels.add((int(decision_id), horizon,
+                                     outcome.get("label_basis_override", NEXT_SESSION_OPEN_BASIS)))
     return inserted
 
 
@@ -744,6 +773,9 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
     latest = dates[-1] if dates else None
     if latest is None:
         return {"inserted": 0, "latest_market_date": None}
+    existing_labels = set(con.execute(
+        "SELECT decision_id,horizon_sessions FROM agent_evaluation_labels"
+    ).fetchall())
     rows = con.execute(
         "SELECT d.id,d.ticker,t.market_date,t.cadence,t.observed_at,d.decision,t.policy_id "
         "FROM agent_evaluation_decisions d "
@@ -756,15 +788,13 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
             or not in_evaluation_cohort(policy_id, observed_at)
         ):
             continue
+        horizons = [horizon for horizon in HORIZONS if (decision_id, horizon) not in existing_labels]
+        if not horizons:
+            continue
         label_after = market_date if cadence == "nightly" else observed_at.date()
         sessions = observed_sessions(con, after=label_after, through=latest, limit=20)
-        for horizon in HORIZONS:
+        for horizon in horizons:
             if len(sessions) < horizon:
-                continue
-            if con.execute(
-                "SELECT 1 FROM agent_evaluation_labels WHERE decision_id=? AND horizon_sessions=?",
-                [decision_id, horizon],
-            ).fetchone():
                 continue
             entry_date, exit_date = sessions[0], sessions[horizon - 1]
             asset = con.execute(
@@ -815,11 +845,14 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
     ).fetchone()[0]
     v2_inserted = 0
     if v2_latest is not None:
+        existing_v2_labels = set(con.execute(
+            "SELECT decision_id,horizon_sessions,label_basis FROM agent_evaluation_labels_v2"
+        ).fetchall())
         v2_inserted = _label_common_entries(
-            con, latest=v2_latest, labeled_at=labeled_at
+            con, latest=v2_latest, labeled_at=labeled_at, existing_labels=existing_v2_labels
         )
         v2_inserted += _label_p15_entries(
-            con, latest=v2_latest, labeled_at=labeled_at
+            con, latest=v2_latest, labeled_at=labeled_at, existing_labels=existing_v2_labels
         )
     return {
         "inserted": inserted,

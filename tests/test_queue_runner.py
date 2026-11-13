@@ -5,16 +5,18 @@ store/ is never opened.
 """
 from __future__ import annotations
 
+import builtins
 import subprocess
 import sys
 import time
 from datetime import date
+from types import SimpleNamespace
 
 import duckdb
 import pytest
 
 from engine import queue_runner as qr
-from engine.lib import db
+from engine.lib import db, store_limits
 
 
 @pytest.fixture
@@ -54,7 +56,7 @@ def test_main_closes_connection_on_schema_failure(monkeypatch):
 # --------------------------------------------------------------------------- #
 # nightly plan
 # --------------------------------------------------------------------------- #
-def test_nightly_plan_monday_has_three_mining_jobs():
+def test_nightly_plan_monday_includes_enabled_collection():
     plan = qr.nightly_plan(date(2026, 8, 31))  # a Monday
     assert [(k, p) for k, p, _ in plan] == [
         ("intraday", 100), ("signals", 105), ("earnings", 110),
@@ -78,11 +80,27 @@ def test_nightly_plan_weekday_override_non_friday(wd):
 def test_nightly_plan_weekday_override_beats_date():
     plan = qr.nightly_plan(date(2026, 8, 31), weekday=5)   # Monday date, forced Friday
     assert plan[-1][0] == "fundamentals"
+    assert plan[-2][0] == "tradingview_history"
 
 
 def test_nightly_plan_rejects_bad_weekday():
     with pytest.raises(ValueError):
         qr.nightly_plan(weekday=0)
+
+
+def test_paused_nightly_plan_does_not_import_tradingview_collector(monkeypatch):
+    monkeypatch.setattr(qr, "_tradingview_history_collection_enabled", lambda: False)
+    original_import = builtins.__import__
+
+    def refuse_collector(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "engine" and "tradingview_history_archive" in fromlist:
+            raise ImportError("injected stopped collector import failure")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", refuse_collector)
+    assert [kind for kind, _priority, _params in qr.nightly_plan(weekday=2)] == [
+        "intraday", "signals", "earnings",
+    ]
 
 
 def test_nightly_plan_priorities_precede_every_research_kind():
@@ -178,8 +196,13 @@ def test_param_identity_preserves_json_types_and_rejects_nonfinite(qcon):
 # --------------------------------------------------------------------------- #
 def test_ensure_schema_adds_timeout_column_idempotently():
     c = duckdb.connect()
-    db.init_schema(c)
-    db.init_queue_schema(c)
+    # A pre-2026-09-03 jobs table; fresh stores now create the column themselves.
+    c.execute(
+        "CREATE TABLE jobs (id INTEGER PRIMARY KEY, kind VARCHAR, params VARCHAR, "
+        "state VARCHAR DEFAULT 'queued', progress VARCHAR, created_at TIMESTAMP, "
+        "updated_at TIMESTAMP, priority INTEGER DEFAULT 100, mem_mb INTEGER DEFAULT 0, "
+        "last_error VARCHAR)"
+    )
     cols = {r[0] for r in c.execute("DESCRIBE jobs").fetchall()}
     assert "timeout_s" not in cols
     qr.ensure_schema(c)
@@ -701,6 +724,59 @@ def sequential_kind(monkeypatch):
     return ran
 
 
+@pytest.mark.parametrize("total_gib,spare_bytes,root_gib,archive,refusal", [
+    (90, 0, 100, True, None),
+    (120, 0, 100, True, None),
+    (121, 0, 100, True, "121.0 GiB > 120 hard"),
+    (40, -1, 100, True, "filesystem of"),
+    (40, 0, 9, True, "root free"),
+    (121, -1, 9, False, None),
+])
+def test_archive_dispatch_preserves_store_recovery_space(
+    qcon, sequential_kind, monkeypatch, tmp_path, capsys,
+    total_gib, spare_bytes, root_gib, archive, refusal,
+):
+    primary = tmp_path / "volume" / "market.duckdb"
+    primary.parent.mkdir()
+    primary.write_bytes(b"primary bytes")
+    primary.with_suffix(".duckdb.wal").write_bytes(b"wal bytes")
+    required = 70 * 1024**3 + 2 * (len(b"primary bytes") + len(b"wal bytes"))
+    checked = []
+
+    def usage(path):
+        checked.append(path)
+        return SimpleNamespace(free=required + spare_bytes)
+
+    monkeypatch.setitem(store_limits.require_free_space.__kwdefaults__, "disk_usage", usage)
+    monkeypatch.setitem(qr.JOB_TYPES["seqfake"], "archive", archive)
+    monkeypatch.setattr(qr.rsc, "live_store_gb", lambda _path: total_gib - 30)
+    monkeypatch.setattr(qr.rsc, "snapshots_gb", lambda _path: 30)
+    monkeypatch.setattr(qr.rsc, "root_free_gb", lambda path: root_gib if path == "/" else 999)
+    qr.cmd_enqueue(qcon, "seqfake", "{}", 100, None)
+    before = _rows(qcon)
+    assert qr._drain(qcon, tmp_path / "meta.json", db_path=primary) == 0
+    output = capsys.readouterr().out
+    if refusal:
+        assert _rows(qcon) == before
+        assert sequential_kind == []
+        assert refusal in output and "leaving it pending" in output
+    else:
+        assert _rows(qcon, "state") == [("done",)]
+        assert sequential_kind == [{}]
+    if archive and total_gib <= 120 and root_gib >= 10:
+        assert checked == [primary.parent]
+    else:
+        assert checked == []
+
+
+def test_operational_soft_warning_at_ninety_gib(tmp_path):
+    meta = tmp_path / "meta.json"
+    qr.rsc.update_disk_warning(meta, 89)
+    assert qr.rsc.read_meta(meta)["disk_warning"] is None
+    qr.rsc.update_disk_warning(meta, 91)
+    assert qr.rsc.read_meta(meta)["disk_warning"]["soft_cap_gb"] == 90
+
+
 def test_nightly_drain_leaves_research_rows_pending(
     qcon, sequential_kind, monkeypatch, tmp_path, capsys
 ):
@@ -980,3 +1056,34 @@ def test_parallel_child_falls_back_to_live_without_a_fresh_snapshot(
     assert seen == ["live", "live"]
     out = capsys.readouterr().out
     assert "no valid published snapshot" in out and "h old" in out
+
+
+def test_registered_collection_dispatches_pending_job_1006_through_parent(
+    qcon, monkeypatch, tmp_path, capsys,
+):
+    from engine import tradingview_history_archive
+
+    assert qr._tradingview_history_collection_enabled() is True
+    assert tradingview_history_archive.collection_enabled() is True
+    qr.cmd_enqueue(qcon, "tradingview_history", '{}', 130, None)
+    qcon.execute("UPDATE jobs SET id=1006")
+    dispatched = []
+
+    def child(job, database, meta, con):
+        dispatched.append(job)
+        qr._set_state(con, job[0], "done", progress="complete")
+        return 0, con
+
+    monkeypatch.setattr(qr, "_run_releasing_job", child)
+    monkeypatch.setattr(qr, "_DRAIN_LOCK_FD", 1)
+    monkeypatch.setattr(qr.rsc, "load_5min", lambda: 0.0)
+    monkeypatch.setattr(qr.rsc, "free_ram_gb", lambda: 100.0)
+    monkeypatch.setattr(qr.rsc, "live_store_gb", lambda _path: 0.0)
+    monkeypatch.setattr(qr.rsc, "snapshots_gb", lambda _path: 0.0)
+    monkeypatch.setattr(qr.rsc, "root_free_gb", lambda _path: 100.0)
+    monkeypatch.setattr(qr.store_limits, "require_free_space", lambda *_args, **_kw: {})
+    assert qr.cmd_run(qcon, tmp_path / "meta.json", db_path=tmp_path / "market.duckdb",
+                      kinds={"tradingview_history"}, report_partial=True) == 0
+    assert len(dispatched) == 1 and dispatched[0][:2] == (1006, "tradingview_history")
+    assert qcon.execute("SELECT state FROM jobs WHERE id=1006").fetchone() == ("done",)
+    assert "1 done, 0 timed out, 0 failed, 0 left pending" in capsys.readouterr().out

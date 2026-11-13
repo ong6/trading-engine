@@ -489,7 +489,7 @@ backfill, sweep, walk-forward, intraday archiving — goes through **one job que
 | Workers | **≤ 8 parallel-safe jobs**, `nice 19` + `ionice -c3`; all other kinds remain single-worker | Excess jobs wait in queue |
 | Load | 5-min load average > ~28, or free RAM < 8 GB | Runner pauses dequeuing; jobs are resumable, so pausing is always safe |
 | RAM | Engine processes ≤ **48 GB combined**; each job config declares its memory need | Runner won't start a job that would exceed the budget |
-| Disk (`store/`) | Soft cap **60 GB** → warn in `_meta.json`; hard cap **80 GB** | Intraday archiving pauses first; EOD collection is the last thing to stop (119 GB root disk is the real constraint — checked every run) |
+| Disk (`store/`, revision 21 operational amendment) | Live-store soft warning **90 GiB**, total-store archive hard cap **120 GiB**; store filesystem free ≥ **70 GiB + 2× primary including WAL**, root free ≥ **10 GiB** | Refused archive jobs stay pending with the reason logged; EOD collection remains the last thing to stop. The July 60/80 caps were sized for the old 119 GB root disk; the store now uses a 492 GiB volume. |
 | Priority | Nightly loop (collect → screen → league → sync) preempts the farm | Farm drains/pauses during the nightly window |
 
 ---
