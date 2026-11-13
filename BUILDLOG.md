@@ -5710,6 +5710,7 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **What:** select history for unresolved basis holds from twenty stored sessions before the
   earliest held date; admit it through the unchanged proof, then retry exact labels.
   Context requests share the existing twenty-request label budget and run once per ticker.
+  XS accepts the literal deployed revision-21 predecessor; revision-22 expectations and release index updated.
 - **Evidence:** `pytest -q tests/test_basis_recovery.py` passes five cases; retained replay
   releases 0/34 nightly names and XP (five exact dates); SGRY lacks successful action evidence.
 - **Metrics:** server +29, tools unchanged, product +39 LOC.
