@@ -23,7 +23,7 @@ corners (owner, 2026-09-25).
 
 ## Decisions: technical vs product
 
-When the owner runs this repo through an orchestrating agent (Claude Opus directing Trae or
+When the owner runs this repo through an orchestrating agent (Claude directing Codex or
 other sessions), **the orchestrator owns technical decisions**: design, placement, registered
 values, statistical tests, acceptance, and process fixes. It records them in the plan, in
 `docs/feedback.md`, or in an `ORCHESTRATOR-*.md` input. A session blocked on a technical question
@@ -148,7 +148,7 @@ findings and results reports go to the owner's private alpha repo**, never here.
 Reusable infrastructure a strategy needs still lands here, kept generic. If unsure whether a
 change is infrastructure or alpha, treat it as alpha and ask the orchestrator.
 
-## Absolute rules (unchanged)
+## Absolute rules
 
 The repo is public: no employer, devbox, or internal-tool identifiers in files or commit messages, and commit dates are never rewritten. Never fabricate a price or bar. Point-in-time tables are append-only. Orders fill next-open,
 never same-bar. One DuckDB writer at a time. Every strategy is pre-registered with a kill

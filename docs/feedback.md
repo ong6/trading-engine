@@ -904,3 +904,12 @@ comparison; execute both existing read-only proof blocks after first publication
 release, retain their outputs, and keep producers quiesced on failure. Re-pin once and verify
 both timezone suites. This lane commits only in its clone; merge and deployment remain with
 the orchestrator. → revision-21 deploy checklist and script.
+
+## 2026-11-13 — The orchestrator directs Codex sessions
+
+**Verdict.** "ok we can change to claude prompting codex"; the owner leaves the choice of worker
+model to the orchestrator ("use the best model you deem needed").
+
+**Rule change.** `AGENTS.md` names the orchestrating setup as Claude directing Codex or other
+sessions, without a model version, and its closing heading reads "Absolute rules". Decision rights
+are unchanged: the orchestrator owns technical decisions and the owner owns product questions.
