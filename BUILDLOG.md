@@ -5635,4 +5635,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** code unchanged.
 - **Next:** the single P15 revision-21 re-pin, then required acceptance checks.
 
+## 2026-11-13 — Re-pin revision 21 over the retained collection paths
+
+- **Why:** owner-directed collection amendment to undeployed revision 21; pre-pin registration identity fails because committed `engine/signals.py` differs from the previous closure.
+- **What:** hash the same 175-file P15 closure once, bind its last source change and rewrite collection/schedule disclosure with the November 13 owner decision.
+  E1 v8, sector v12 and XS v23 keep their prior digests, file sets and deployed predecessors because none of their pinned files changed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_p15_registration.py tests/test_registration_identity.py tests/test_experiment_runner.py tests/test_forward_review.py tests/test_xs_forward_review.py` → `[100%]`, exit 0.
+- **Metrics:** code unchanged.
+- **Next:** run affected tests, both full timezone suites and the remaining rehearsal/audit commands.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

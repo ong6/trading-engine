@@ -104,15 +104,15 @@ closure; `registration_sha256` uses `canonical_sha256` over the document with th
 and XS v23 retain every frozen value and migrate only their deployed digests. Any later pinned-source edit requires
 all affected hashes, source commit and the registration self-hash to be recomputed before acceptance.
 
-The round-two integrated re-pin follows the existing two-commit sequence: freeze runtime
-literals and disclosure (`41da99c1`), then hash that committed closure into P15 (`c9f3d4a2`). No later registered
-source edit is included. Final pins: 175 source files;
-`source_commit` `41da99c1169bf124894dcd433942a046076713d5`;
-`registration_sha256` `028159ed70b4bd94982f805cd703ed9445638138a1e2eb8a0deebb7540538d17`.
-The full P15 import closure includes the repair helper and five invariant support modules;
-sector and XS pin the repair helper reached by reconciliation. Their digests change for the fair
-retry selection; E1's freshly recomputed digest is unchanged. Frozen versions and accepted deployed
-predecessors remain unchanged.
+The owner collection amendment re-pins P15 once after both collection commits and checklist
+corrections. Final pins: 175 source files;
+`source_commit` `064957d5c13c917155ec5a46345f81a3cc3bdf1e`;
+`registration_sha256` `456c7b401e0bbf4806bba4fc432c2091321a9dbfcf546e6e804b0baa5c5f1a09`.
+Only `engine/signals.py` changes within P15's imported closure. E1 v8, sector v12 and XS v23
+keep the r21-cap versions, digests, file sets and exact accepted deployed predecessors below;
+the collection files changed here do not occur in their pinned file sets. No runtime re-pin is
+needed. The collection and schedule sentences disclose all enabled flags and TradingView's
+revision-20 cadence; the appended owner sentence states that revision 21 pauses no collection.
 
 | Contract | Version | New digest | Accepted deployed predecessor (unchanged by the revision-20 model amendment) |
 |---|---|---|---|
