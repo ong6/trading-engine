@@ -440,6 +440,25 @@ archive.
 
 ## Revision-21 acceptance checks
 
+The November 13 owner collection amendment, on re-pinned source `98a82fac`, passes
+**6,740 tests** per full suite, zero failures/errors/skips: UTC **279.61 s**,
+Asia/Singapore **279.59 s**, warnings as errors and eight workers each. The affected
+tier, Ruff, job audit (22 jobs, no differences), static schedule and registration identity pass.
+All ten stub deploy/rollback and host lifecycle cases pass: TradingView quiesces with producers,
+staging starts nothing, and release follows its flag. The parent queue regression dispatches
+job 1006 normally. Option recorded-response and all five macro parser tests pass with enabled
+collection; explicit pause coverage remains.
+
+The direct worktree installer audit returns `invalid` with `service-working-directory-mismatch`
+and `log-directory-not-writable`, because deployed units use the service checkout. A second audit
+uses a disposable home pointing at the exact worktree and an empty temporary lane log directory:
+`changes-required`, `errors: []`, `applied: false`, with no TradingView stop/disable action and
+publish-on-change in the plan. The CLI returns 1 for a valid pending plan as well as for the
+context refusal; neither audit applies anything. Both receipts are retained; the temporary
+layout and log directory are removed. Only documentation and metrics follow the fully tested
+source. Live window exclusion, disk/backup checks and the real post-release drain remain
+orchestrator gates.
+
 Round two, on the fair-retry re-pin `c9f3d4a2`, passed **6,728 tests** per full suite,
 zero failures/errors/skips: UTC **317.32 s**, Asia/Singapore **313.58 s**, with warnings
 as errors and eight workers. The affected tier, Ruff, job audit, static schedule and

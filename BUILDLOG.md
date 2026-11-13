@@ -5644,4 +5644,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** code unchanged.
 - **Next:** run affected tests, both full timezone suites and the remaining rehearsal/audit commands.
 
+## 2026-11-13 — Finish revision-21 collection acceptance
+
+- **Why:** the owner rejects all collection loss relative to revision 20; the orchestrator admits the retained flags, deploy lifecycle and single undeployed revision-21 re-pin.
+- **What:** verify normal TradingView parent dispatch, deploy quiescence/release, retained option capture and all five macro parser paths; preserve each pause switch and publish-on-change.
+  Record both full timezone suites and ten stub deploy/rollback cases; the disposable-home installer audit has no errors and proposes no TradingView stop/disable. The direct worktree context refusal is retained verbatim.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error -n 8` → 6,740 passed (279.61 s); Asia/Singapore also 6,740 passed (279.59 s), zero failures/errors/skips; affected, Ruff, job/schedule and identity checks pass.
+- **Metrics:** session server +14 LOC, tools -1 LOC, product unchanged; tests +193 LOC.
+- **Next:** orchestrator acceptance and the documented merge/deploy window pre-flights.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
