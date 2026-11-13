@@ -150,23 +150,23 @@
     }
   },
   "intraday": {
-    "last_run": "2026-10-30T23:18:39.447332+00:00",
-    "tickers_requested": 946,
-    "tickers_with_data": 946,
-    "new_rows_1m": 351944,
-    "new_rows_5m": 118032,
+    "last_run": "2026-11-13T08:16:57.697729+00:00",
+    "tickers_requested": 922,
+    "tickers_with_data": 922,
+    "new_rows_1m": 2143859,
+    "new_rows_5m": 950797,
     "failed_tickers": 0,
     "failed_batches": 0,
-    "store_gb": 47.55,
+    "store_gb": 53.93,
     "coverage_report": {
       "path": "reports/producer-detail/intraday-coverage.json",
       "tickers": {
-        "1m": 946,
-        "5m": 946
+        "1m": 922,
+        "5m": 922
       }
     },
-    "fetched_rows": 4188366,
-    "payload_bytes": 634390434
+    "fetched_rows": 4889820,
+    "payload_bytes": 740558466
   },
   "signals_incremental": {
     "mode": "incremental",
@@ -291,28 +291,28 @@
     "store_gb": 53.76
   },
   "earnings": {
-    "last_run": "2026-10-30T23:52:42.038688+00:00",
-    "as_of": "2026-10-30",
-    "universe": 2863,
+    "last_run": "2026-11-13T08:37:56.481288+00:00",
+    "as_of": "2026-11-13",
+    "universe": 2851,
     "universe_source": "fundamentals-coverage \u222a screen-passers",
     "selection": {
       "mode": "nightly-bounded",
       "near_sessions": 21,
       "stale_after_days": 7,
-      "unknown": 923,
-      "near": 1636,
-      "stale": 0,
-      "deferred": 304
+      "unknown": 2324,
+      "near": 0,
+      "stale": 527,
+      "deferred": 0
     },
-    "selected_for_refresh": 2559,
-    "deferred_this_run": 304,
-    "pulled_this_run": 2559,
-    "with_upcoming_date": 2490,
-    "no_upcoming_date": 69,
+    "selected_for_refresh": 2851,
+    "deferred_this_run": 0,
+    "pulled_this_run": 2851,
+    "with_upcoming_date": 2777,
+    "no_upcoming_date": 74,
     "failed_tickers": 0,
-    "rows_inserted_this_run": 2490,
-    "rows_for_as_of": 2490,
-    "store_gb": 47.57
+    "rows_inserted_this_run": 2777,
+    "rows_for_as_of": 2777,
+    "store_gb": 53.93
   },
   "screen_date": "2026-11-12",
   "last_screen": "2026-11-12T22:55:24.213487+00:00",
@@ -326,16 +326,16 @@
   "excluded_leveraged": 0,
   "screen_metadata_source": "fresh-run",
   "fundamentals": {
-    "last_run": "2026-10-31T00:59:27.770359+00:00",
-    "as_of": "2026-10-30",
-    "universe": 4050,
-    "pulled_this_run": 4050,
-    "with_data": 4050,
-    "with_market_cap": 2814,
+    "last_run": "2026-11-13T09:26:04.059681+00:00",
+    "as_of": "2026-11-13",
+    "universe": 4040,
+    "pulled_this_run": 4040,
+    "with_data": 4040,
+    "with_market_cap": 2804,
     "failed_tickers": 0,
-    "rows_inserted_this_run": 4050,
-    "rows_for_as_of": 4050,
-    "store_gb": 47.62
+    "rows_inserted_this_run": 4040,
+    "rows_for_as_of": 4040,
+    "store_gb": 53.94
   },
   "liquid_refresh": {
     "admitted": [
@@ -449,20 +449,20 @@
     "target_symbols": 4063,
     "limitation": "current-liquid-universe snapshot; survivor-biased and retrieval-time-only; not historical membership or promotion-quality stock-selection evidence",
     "attempts": {
-      "complete": 9357,
+      "complete": 9405,
       "empty": 887,
-      "failed": 112,
+      "failed": 114,
       "refused": 19
     },
     "unresolved_failed_windows": 1,
     "refused_windows": 19,
-    "fact_count": 3422200,
-    "symbols_with_facts": 3883,
-    "symbols_checkpointed": 4058,
-    "symbols_unstarted": 5,
+    "fact_count": 3438293,
+    "symbols_with_facts": 3893,
+    "symbols_checkpointed": 4060,
+    "symbols_unstarted": 3,
     "checkpoint_start": "2023-07-05",
     "checkpoint_end": "2026-07-11",
-    "target_through": "2026-10-30",
+    "target_through": "2026-11-12",
     "symbols_caught_up": 0,
     "symbols_pending": 4063,
     "fact_start": "2022-01-03",
@@ -471,12 +471,12 @@
     "execution_authority": "none",
     "operational_price_mutation": false,
     "attempted_this_run": 50,
-    "completed_this_run": 50,
+    "completed_this_run": 48,
     "empty_this_run": 0,
-    "failed_this_run": 0,
+    "failed_this_run": 2,
     "refused_this_run": 0,
-    "through": "2026-10-30",
-    "last_run": "2026-11-01T12:00:26.349736+00:00"
+    "through": "2026-11-12",
+    "last_run": "2026-11-13T09:32:40.590960+00:00"
   },
   "price_verify_full": {
     "last_run": "2026-11-07T02:40:35.572492+00:00",
@@ -766,10 +766,5 @@
       "sha256": "900ea3ad7c5eb3675a4c29efd979f81f39490d5078e40dc90239416279b9102e"
     }
   },
-  "snapshot_disk_warning": {
-    "snapshots_gb": 35.35,
-    "soft_cap_gb": 35.0,
-    "flagged_at": "2026-11-13T03:48:55.681761+00:00",
-    "message": "store/snapshots/ is 35.4 GiB, over the 35 GiB snapshot cap"
-  }
+  "snapshot_disk_warning": null
 }
