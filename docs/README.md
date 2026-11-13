@@ -82,6 +82,7 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   paper-league, agent-service, UI/API, and authority-boundary reference.
 - [`settlement-runbook.md`](settlement-runbook.md) — manual adjudication of dead or
   untradeable positions.
+- [`revision-22-basis-recovery.md`](revision-22-basis-recovery.md) — basis recovery and the XS migration at release.
 - [`revision-21-storage-deploy-checklist.md`](revision-21-storage-deploy-checklist.md) — storage
   revision deploy and rollback checklist with its store-copy rehearsal (blocked).
 - [`../BUILDLOG.md`](../BUILDLOG.md) — v2 implementation log since 2026-09-18; earlier entries

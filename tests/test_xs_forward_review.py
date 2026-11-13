@@ -640,6 +640,25 @@ def test_runtime_contract_migration_refuses_older_forms_and_invalid_reports(con)
         review.migrate_runtime_contract(con, invalid)
 
 
+def test_revision22_migration_requires_literal_revision21_predecessor(con):
+    _setup(con)
+    waiting = _freeze(con)
+    _transition(con)
+    current = review.evaluate(con, prior_result=waiting)
+    predecessor = _deployed_amended_result(current, review.AMENDED_RUNTIME_CONTRACT_SHA256)
+    assert predecessor["frozen_runtime"]["runtime_contract_sha256"] == (
+        "8d54dfbec5db3ee4d077931d9941113f4fd5d5e11e1fe3f005369c91bf9df45c")
+    assert review.migrate_runtime_contract(con, predecessor) == current
+    wrong_files = copy.deepcopy(predecessor)
+    wrong_files["frozen_runtime"]["runtime_contract_files"].remove("engine/repair_integrity.py")
+    with pytest.raises(ValueError, match="not the exact migration checkpoint"):
+        review.migrate_runtime_contract(con, wrong_files)
+    predecessor["frozen_runtime"]["runtime_contract_sha256"] = (
+        "d00ee8124b254daed00e01846fe909f9e29606b8247a49c3e6bdfa46dd50d8c6")
+    with pytest.raises(ValueError, match="not the exact migration checkpoint"):
+        review.migrate_runtime_contract(con, predecessor)
+
+
 def test_invalid_result_is_safe():
     result = review._invalid_result(ValueError("private detail"))
     assert result["status"] == "INVALID"

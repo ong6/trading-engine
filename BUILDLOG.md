@@ -5703,4 +5703,39 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged since the merge snapshot.
 - **Next:** drain archive jobs 1006/1007/1009/1014; fix the proof path and the crontab release defect.
 
+## 2026-11-13 — Recover basis-held history before nightly and exact-label retries
+
+- **Why:** retained XP gap reproduction on deployed main: `pytest -q tests/test_basis_recovery.py`
+  fails all five cases; five-day and exact-day requests cannot supply the required prior overlap.
+- **What:** select history for unresolved basis holds from twenty stored sessions before the
+  earliest held date; admit it through the unchanged proof, then retry exact labels.
+  Context requests share the existing twenty-request label budget and run once per ticker.
+  XS accepts the literal deployed revision-21 predecessor; revision-22 expectations and release index updated.
+- **Evidence:** `pytest -q tests/test_basis_recovery.py` passes five cases; retained replay
+  releases 0/34 nightly names and XP (five exact dates); SGRY lacks successful action evidence.
+- **Metrics:** server +29, tools unchanged, product +39 LOC.
+- **Next:** orchestrator deploys revision 22 with the explicit XS runtime migration.
+
+## 2026-11-13 — Preserve external cron entries at automation release
+
+- **Why:** `pytest -q tests/test_install_automation.py::test_release_preserves_external_lines_inside_the_managed_block`
+  fails on deployed main: both news-scraper lines inside the managed markers disappear.
+- **What:** replace only installer-owned entries and generated comments; retain external lines
+  even when they were inserted inside the old managed block.
+- **Evidence:** `pytest -q tests/test_install_automation.py` passes, including preservation at
+  the release mutation boundary and idempotence after rendering the retained external lines.
+- **Metrics:** server unchanged, tools +7, product unchanged LOC.
+- **Next:** orchestrator deploys revision 22 with the explicit XS runtime migration.
+
+## 2026-11-13 — Use the supported yfinance exception setting
+
+- **Why:** `pytest -q tests/test_incremental_history.py` reproduces the installed provider's
+  deprecated argument warning in both prior debug states and the unscoped exception setting.
+- **What:** scope the provider's supported hide-exceptions setting to each exact history call
+  and restore it on success or error; keep the request arguments and bounded retry unchanged.
+- **Evidence:** `pytest -q -W error tests/test_incremental_history.py` passes four cases using
+  installed yfinance: no deprecated warning, errors raise, one retry, both settings restored.
+- **Metrics:** server +7, tools unchanged, product unchanged LOC.
+- **Next:** orchestrator deploys revision 22 with the explicit XS runtime migration.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
