@@ -5738,4 +5738,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +7, tools unchanged, product unchanged LOC.
 - **Next:** orchestrator deploys revision 22 with the explicit XS runtime migration.
 
+## 2026-11-13 — Revision 22 deployed
+
+- **Why:** the revision 22 release note (`docs/revision-22-basis-recovery.md`) asks for a
+  deploy in a release window with producers idle; the archive queue drain had finished.
+- **What:** merged revision 22 to main, pulled it into the live checkout, ran the XS runtime
+  contract migration (now v23, verdict still `REVIEW-KILL`) and re-applied the installer.
+  Both external news-scraper cron lines survived beside the six engine lines.
+- **Evidence:** `python -m tools.check_invariants --snapshot latest` exits 0; `/health` is 200
+  and `/meta` shows no `INVALID` forward record. `tools.schedule_contract_check --live` still
+  reports one violation that predates the deploy: the 07:42 UTC TradingView history run
+  failed while the queue drain held the store.
+- **Metrics:** unchanged.
+- **Next:** nothing admitted; the next scheduled incremental and label run performs recovery.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
