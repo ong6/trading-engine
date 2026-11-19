@@ -5767,4 +5767,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +1 module (`tools/driver_watchdog.py`); production otherwise unchanged.
 - **Next:** deploy, run the three runtime migrations, then a catch-up nightly before 14:05 UTC.
 
+## 2026-11-19 — Revision 24: keep the league and the P15 window on one session
+
+- **Why:** reproduced on the live store. After the stalled nightly was terminated, P15
+  scoring ran first and marked the P15 books for 2026-11-13; the catch-up nightly then stopped
+  at market-date (`active portfolio checkpoints disagree: 2026-11-12, 2026-11-13`), and the
+  league step treated those P15 marks as 11-13 being stepped for every book.
+- **What:** outside a rerun the league's done-guard ignores P15 marks; the P15 window waits
+  (`waiting_for_league`) until every active league book has stepped the session; the watchdog
+  starts P15 scoring after a finished catch-up. Sector and XS re-pinned for migration.
+- **Evidence:** store-copy rehearsal: P15 book rows identical across the 11-13 league step;
+  13, 16, 17 and 18 Nov stepped; market-date `2026-11-18`.
+- **Metrics:** unchanged.
+- **Next:** deploy, migrate, replay 13–18 Nov on the live store, then the nightly stages.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

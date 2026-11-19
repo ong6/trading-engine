@@ -189,8 +189,15 @@ def test_a_started_catch_up_is_watched_retried_and_bounded(tmp_path, monkeypatch
     assert state["catch_up"] == {"day": "2026-11-19", "status": "started", "attempts": 2}
     _, actions = _advance(tmp_path, monkeypatch, state, shown="")
     assert actions == [] and state["catch_up"]["status"] == "started"  # unreadable: wait
-    _, actions = _advance(tmp_path, monkeypatch, state, shown="ActiveState=inactive\n")
-    assert actions == ["catch-up-finished"] and state["catch_up"]["status"] == "done"
+    calls = []
+    monkeypatch.setattr(driver_watchdog, "_systemctl",
+                        lambda *args: calls.append(args)
+                        or subprocess.CompletedProcess(args, 0, "ActiveState=inactive\n", ""))
+    receipts = []
+    driver_watchdog.advance_catch_up(tmp_path, THURSDAY, state, lambda: False, receipts.append)
+    assert [r["action"] for r in receipts] == ["catch-up-finished"]
+    assert receipts[0]["p15_scoring_started"] is True and state["catch_up"]["status"] == "done"
+    assert ("start", "--no-block", driver_watchdog.P15_SCORING_UNIT) in calls
     exhausted = _owed(attempts=driver_watchdog.CATCH_UP_ATTEMPTS)
     calls, actions = _advance(tmp_path, monkeypatch, exhausted)
     assert calls == [] and actions == ["catch-up-gave-up"]

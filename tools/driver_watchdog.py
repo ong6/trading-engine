@@ -14,7 +14,8 @@ or has outlived `HARD_LIMIT_FACTOR` times that runtime; it is recovered only whe
 passes find the same run a candidate. Recovery records the run's Python stacks, terminates the
 run, clears failed units this repository installs and, for the nightly, owes one transient
 `trading-engine-nightly-catch-up.service` that later passes start once the lock is free, inside
-a window that ends before the pre-open. It never opens a database. Every decision is one JSON
+a window that ends before the pre-open, and then runs the P15 scoring unit again so the P15
+window steps its books to the same session. It never opens a database. Every decision is one JSON
 line in `logs/driver-watchdog.jsonl`, which the hourly digest reads (`"status": "failed"` is a
 FAIL), written before the action it describes.
 
@@ -47,6 +48,9 @@ STACK_BUDGET_SECONDS = 120.0
 CATCH_UP_DRIVER = "run_daily"
 CATCH_UP_UNIT = "trading-engine-nightly-catch-up.service"  # transient, via systemd-run
 CATCH_UP_ATTEMPTS = 3
+# The P15 window steps the P15 books only once the league has stepped the session, so a
+# finished catch-up starts the scoring unit again; it refuses on its own after 12:00 UTC.
+P15_SCORING_UNIT = "trading-engine-p15-scoring.service"
 # A catch-up nightly usually takes under two hours. Starting by 12:00 UTC and bounding the run
 # at 13:45 UTC keeps the store free for the 14:05 UTC pre-open. Tuesday to Friday only:
 # weekend mornings belong to the weekly drivers, and Monday has no missed weekday nightly.
@@ -315,8 +319,11 @@ def advance_catch_up(engine: Path, now: datetime, state: dict, locks_held: Calla
                   "action": "catch-up-failed", "attempts": owed.get("attempts", 0)})
         else:
             owed["status"] = "done"
+            _systemctl("reset-failed", P15_SCORING_UNIT)
+            started = _systemctl("start", "--no-block", P15_SCORING_UNIT)
             emit({"at": now.isoformat(), "driver": CATCH_UP_DRIVER, "status": "ok",
-                  "action": "catch-up-finished"})
+                  "action": "catch-up-finished",
+                  "p15_scoring_started": bool(started and started.returncode == 0)})
             return
     if owed.get("status") != "owed":
         return

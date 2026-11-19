@@ -172,7 +172,8 @@ Python stacks under `logs/driver-watchdog/`, terminates it, and clears failed un
 repository installs. A stalled nightly also owes one transient
 `trading-engine-nightly-catch-up.service`, started by a later pass once no driver lock is held,
 Tuesday to Friday before 12:00 UTC, bounded to end by 13:45 UTC and retried at most three times
-that day. A busy overdue run is only reported. Each decision is a line in
+that day; once it finishes, the watchdog starts the P15 scoring unit so the P15 window steps its
+books to the same session (the window never steps past the league books). A busy overdue run is only reported. Each decision is a line in
 `logs/driver-watchdog.jsonl`, written before the action; a termination reads FAIL in the digest.
 `.venv/bin/python -m tools.driver_watchdog --dry-run` shows what it would do;
 `touch .driver-watchdog.disabled` in the live checkout pauses it for maintenance.
