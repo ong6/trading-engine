@@ -913,3 +913,14 @@ model to the orchestrator ("use the best model you deem needed").
 **Rule change.** `AGENTS.md` names the orchestrating setup as Claude directing Codex or other
 sessions, without a model version, and its closing heading reads "Absolute rules". Decision rights
 are unchanged: the orchestrator owns technical decisions and the owner owns product questions.
+
+## 2026-11-19 — The engine recovers from a stalled run by itself
+
+**Verdict.** The 2026-11-13 nightly hung for five days and nobody saw it. "make sure that the
+trading engine is running well and that it stops randomly stopping", and "make sure that we
+also have some self recovery in place that auto fixes when it breaks".
+
+**Rule change.** Scheduled work may now be restarted automatically: the driver watchdog
+terminates a cron driver that is idle past its declared runtime, clears failed engine units and
+runs one catch-up nightly when it can end before the pre-open. Diagnoses stay read-only
+everywhere else. → `tools/driver_watchdog.py`, `docs/how-it-works.md` (Scheduled work).

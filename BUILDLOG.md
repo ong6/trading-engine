@@ -5752,4 +5752,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** nothing admitted; the next scheduled incremental and label run performs recovery.
 
+## 2026-11-19 — Revision 23: unblock the nightly and recover stalled drivers
+
+- **Why:** reproduced defects. The 2026-11-13 nightly hung in `server.p15_incremental_collect`
+  for five days holding the store (stack: `_basis_unverified`, DuckDB workers idle); the same
+  run on a store copy hung at the same statement within four minutes. Massive daily capture
+  has failed since 11-17 on a `DELAYED` envelope. Owner asked for self-recovery.
+- **What:** the basis-hold query runs as two statements instead of one UNION ALL over the
+  registered frame; Massive grouped-daily accepts `DELAYED`; a ten-minute driver watchdog
+  terminates idle overdue cron drivers and starts one catch-up nightly. P15 revision 23; E1,
+  sector and XS accept their published revision-22 digests for an explicit migration.
+- **Evidence:** the fixed collector on the same store copy finished (`market_date 2026-11-18`).
+- **Metrics:** tools +1 module (`tools/driver_watchdog.py`); production otherwise unchanged.
+- **Next:** deploy, run the three runtime migrations, then a catch-up nightly before 14:05 UTC.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
