@@ -288,8 +288,8 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 23
-    assert registration["revision_reason"] == "Revision 23 after deployed revision 22: the basis-hold check in the price upsert reads stored rows with two statements over the incoming frame instead of one UNION ALL that deadlocked DuckDB 1.5.5 and hung the 2026-11-13 nightly; the rows it reads are identical. Massive grouped-daily parsing accepts the free tier's DELAYED status beside OK for completed sessions, as option aggregates already do. E1 v8, sector v12 and XS v23 keep their contract versions and migrate only the literal deployed revision-22 digests. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 and revision-22 collection and storage behavior remain in force."
+    assert registration["registration_revision"] == 24
+    assert registration["revision_reason"] == "Revision 24 after deployed revision 23: the league step no longer treats P15 window marks for a session as that session being stepped, outside a rerun, and the P15 window waits until every active league book has stepped the session, so a missed or stalled nightly can no longer leave the books on divergent checkpoints. Sector v12 and XS v23 keep their contract versions and migrate only the literal deployed revision-23 digests; E1 v8 is unchanged. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 to revision-23 collection, storage and recovery behavior remain in force."
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
     assert recorded == canonical_sha256(registration)
