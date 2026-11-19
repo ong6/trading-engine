@@ -64,15 +64,15 @@
       "engine/collect.py": "79dc44768556b635e25f031edbe0cb318f9b5e680f876e58ffc1a766f571e038",
       "engine/daily_opportunities.py": "a1ea689abd2ab365dd2ac2aedf31e17bd021a7eecd4e9a0fc303a42f00075d43",
       "engine/earnings.py": "cb53840084c637f4e49f22ac27adbfdd8eeab1b3c22aa3abb8c1293be89a8b0d",
-      "engine/forward_review.py": "f92da7eaa42e40bb686b1fd1635f8f5da5e6441a7767b5480088e64cc1175ab7",
+      "engine/forward_review.py": "9b4cc05afe73f1a5cf25467e0592fd1a420b16c0872f690192b5c3a2e441d245",
       "engine/free_massive_minute.py": "ee1bc0120836e264b52fc016dbc446233f7bff160b7976ee2c697c69e02a1b1d",
-      "engine/free_sources.py": "414af6dcd99bba91ea96cd2340f40680a74b39d0dab31aed194aaaca93a49126",
+      "engine/free_sources.py": "8dbdd78cf922884bb21bc7998de6371a783c64d648f278fde04fa58ca82eec2b",
       "engine/fundamentals.py": "98c023b658ee13e247b649e0fd12dd8332f48878a11b188a41e0cfcce9df642a",
       "engine/instruments.py": "94e2e4ab711f2ead51e2aeecda11e4c7da659170bbfadb07ea45cda33520b506",
       "engine/intraday.py": "baf545f0f81c7f6bc6542c54cc99baf2da1f34a2d0c40f5f74425cb3372c8108",
       "engine/lib/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "engine/lib/data_quality.py": "8025ff4323d1e6698bbb4be9858d2b33289b1981f05cf311ccc10a1e4c0c1299",
-      "engine/lib/db.py": "426f9eba20e0965e7ae5fbb46f47bb33c10640d0629b4ef2c3fb4307fc560cec",
+      "engine/lib/db.py": "6c836322a5d5b2cb96db8cd76cfa1a85aeb18d28bd7586a41aa0104487ca6542",
       "engine/lib/driver.sh": "3aa594fc39982ce5b085848d0d459cbf2a1d092a10518574df4eec209e08b4e2",
       "engine/lib/leverage.py": "12295fc760792e5026dc7dbd6b2f3ccd8610a4e4038f5b9699764e14fe3fea68",
       "engine/lib/log.py": "02fd05ba4da797ec62bb467a6bcce93e07929029cdfde21db302fece2ce79bd3",
@@ -103,7 +103,7 @@
       "engine/tradingview_history_archive.py": "d2aecc6267410883719aec42a6d2720187a876c9aef4782631f256bf32d6e019",
       "engine/universe.py": "ad3cf5f62730767081ee7718006ce4f78f4c6bfdbb80ab90caeef118abc276a7",
       "engine/verify_prices.py": "2e25f18b9c6f3e93fd5f219e0684932a4c16a544e95cf2b8a1b9d40ec152f799",
-      "engine/xs_forward_review.py": "37ae57794c21e54ff04869b1b9807e84303257b0cda03688c93d6e9145dbe020",
+      "engine/xs_forward_review.py": "9a83bcc4de4e1d360912be89d12ccf8b489606062f5521085287f028e26b08dd",
       "farm/__init__.py": "bf84aec09336388f858d7c1e7c28cab3da1d8d18096ed36ef460ea49114f11e0",
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
       "farm/backtest/__init__.py": "b65d882bc9e7d1ba6e704fc93be8aa4188775ead4cf4028a3da7141c298427b7",
@@ -113,7 +113,7 @@
       "farm/backtest/stats.py": "994e2147b30fad6c061888f51e6b22238500e185424f007ae96a408df3cdf3c8",
       "farm/capital_sensitivity.py": "90119096f6c31e53427ea8ffa61b8af558b131c0f78ff0841183baa024958244",
       "farm/experiment.py": "bf588f503d4bcec829c8083d5dad3fca0846fa80c726301535cf11a854c82abb",
-      "farm/experiment_runner.py": "0fa12e583a8c5ff85ab2af6b47e274df5d701614f2432c4a1e5f20a599ea1638",
+      "farm/experiment_runner.py": "f6bc2cc2c86cd8921e2c64b74b026d6893796fd58b9f91e76c6f1c026cb0d0c7",
       "farm/p15_event_runner.py": "9b854aa624e46d6bca8125bbf9e9c69567d0133470d1f4a240490cf43a60d56a",
       "farm/stats/__init__.py": "a7e26e929b2d925fd3060ac1af6e20c228479c6552f75dcfcd629b5ff0470b65",
       "farm/stats/equity.py": "e1ffaa2768ff7abed75c053b2273bda215adf6be44c1c60844ed509cbc9bdd1e",
@@ -227,7 +227,7 @@
       "tools/sec_edgar_capture.py": "8e7a705262f44532d2c812ed22ccd66c9b35d9633c0f89288d1347fe2a52ea6d",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "92b61e426a7979ebc9b5d62005a8fb198c4e8986"
+    "source_commit": "7851c875626ad7a32922b0353bf904e8b7f15e2c"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -409,9 +409,9 @@
   },
   "registered_at": "2026-10-03T02:52:40Z",
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registration_revision": 22,
-  "registration_sha256": "fa68b49ff87887c7cfcf6317459ec1735857dcbcdbb0c3a50eae8835f82bc065",
-  "revision_reason": "Revision 22 after deployed revision 21: unresolved basis holds fetch history from twenty stored sessions before the earliest held date and pass through the existing admission proof before exact-label retries. Context requests share the unchanged twenty-request label budget and run once per ticker. The automation installer preserves external cron lines, including lines inside its old managed block. Exact history calls use the supported scoped yfinance hide_exceptions setting with the prior setting restored on success and error; exception and retry behavior is unchanged. XS v23 migrates only the literal deployed revision-21 digest and predecessor file list, retaining every published-evidence comparison; E1 v8 and sector v12 closures and pins are unchanged. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 collection and storage behavior remain in force.",
+  "registration_revision": 23,
+  "registration_sha256": "98aa036ecc8af69ef3d648c23ee184a98331c67672f276721d9c959241d21acc",
+  "revision_reason": "Revision 23 after deployed revision 22: the basis-hold check in the price upsert reads stored rows with two statements over the incoming frame instead of one UNION ALL that deadlocked DuckDB 1.5.5 and hung the 2026-11-13 nightly; the rows it reads are identical. Massive grouped-daily parsing accepts the free tier's DELAYED status beside OK for completed sessions, as option aggregates already do. E1 v8, sector v12 and XS v23 keep their contract versions and migrate only the literal deployed revision-22 digests. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 and revision-22 collection and storage behavior remain in force.",
   "schema_version": 1,
   "scoring": {
     "actions": [
