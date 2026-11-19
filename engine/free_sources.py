@@ -329,6 +329,9 @@ def _massive_reject(index: int, item: object, reason: str) -> dict:
 
 
 MASSIVE_MAX_REJECTED_SHARE = 0.05
+# From the 2026-11-16 session the free tier labels grouped-daily responses DELAYED, as it
+# already does for option aggregates; the capture fetches a closed session the next morning.
+MASSIVE_DAILY_STATUSES = frozenset({"OK", "DELAYED"})
 
 
 def parse_massive_grouped_daily_with_rejects(
@@ -348,10 +351,10 @@ def parse_massive_grouped_daily_with_rejects(
         raise FreeSourceError("Massive response is not valid JSON") from exc
     results = payload.get("results") if isinstance(payload, dict) else None
     count = payload.get("resultsCount") if isinstance(payload, dict) else None
-    if isinstance(payload, dict) and payload.get("status") == "OK" and count == 0 \
-            and results is None:
+    if isinstance(payload, dict) and payload.get("status") in MASSIVE_DAILY_STATUSES \
+            and count == 0 and results is None:
         results = []
-    if (payload.get("status") != "OK" or payload.get("adjusted") is not True
+    if (payload.get("status") not in MASSIVE_DAILY_STATUSES or payload.get("adjusted") is not True
             or isinstance(count, bool) or not isinstance(count, int) or count < 0
             or not isinstance(results, list) or count != len(results)):
         raise FreeSourceError("Massive response envelope is invalid")

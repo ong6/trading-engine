@@ -437,6 +437,20 @@ def test_massive_accepts_an_empty_holiday_response():
     assert free_sources.parse_massive_grouped_daily(body, MASSIVE_DATE) == []
 
 
+def test_massive_accepts_the_free_tier_delayed_status():
+    body = json.loads(_massive_body([_bar("AAPL")]))
+    body["status"] = "DELAYED"
+    rows = free_sources.parse_massive_grouped_daily(json.dumps(body).encode(), MASSIVE_DATE)
+    assert [row["ticker"] for row in rows] == ["AAPL"]
+
+
+def test_massive_rejects_an_unknown_status():
+    body = json.loads(_massive_body([_bar("AAPL")]))
+    body["status"] = "ERROR"
+    with pytest.raises(free_sources.FreeSourceError, match="envelope is invalid"):
+        free_sources.parse_massive_grouped_daily(json.dumps(body).encode(), MASSIVE_DATE)
+
+
 def test_massive_schema_widens_integer_volume_tables():
     con = duckdb.connect()
     try:
