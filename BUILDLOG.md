@@ -5760,8 +5760,9 @@ the 42-entry 2026-09-19 C90 complexity series is in
   has failed since 11-17 on a `DELAYED` envelope. Owner asked for self-recovery.
 - **What:** the basis-hold query runs as two statements instead of one UNION ALL over the
   registered frame; Massive grouped-daily accepts `DELAYED`; a ten-minute driver watchdog
-  terminates idle overdue cron drivers and starts one catch-up nightly. P15 revision 23; E1,
-  sector and XS accept their published revision-22 digests for an explicit migration.
+  terminates a cron run idle past its runtime on two passes (never lock waiters) and starts a
+  bounded catch-up nightly. P15 revision 23; E1, sector and XS accept their published
+  revision-22 digests for an explicit migration (rehearsed on a store copy: digest-only diff).
 - **Evidence:** the fixed collector on the same store copy finished (`market_date 2026-11-18`).
 - **Metrics:** tools +1 module (`tools/driver_watchdog.py`); production otherwise unchanged.
 - **Next:** deploy, run the three runtime migrations, then a catch-up nightly before 14:05 UTC.

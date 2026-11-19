@@ -163,15 +163,18 @@ lock is held; otherwise it is `interrupted`. A held lock past the driver's grace
 read-only diagnoses: they do not restart a process or alter a queue.
 
 Recovery is separate. `trading-engine-driver-watchdog.timer` runs `tools.driver_watchdog` at
-:03, :13, … :53 UTC (owner request 2026-11-19, after a nightly hung for five days). It finds each
-driver lock's holders through /proc and acts only on a run of the driver script itself: once the
-run is past its contract `max_runtime` and its process group used under 2% of one CPU over a
-60-second sample, or is past twice that runtime, it saves the group's Python stacks under
-`logs/driver-watchdog/`, terminates the group, clears failed engine units, and after a stalled
-nightly starts one transient `trading-engine-nightly-catch-up.service` (Tuesday to Friday,
-before 12:00 UTC, no other driver running, once per UTC day). A busy overdue run is only
-reported. Each decision is a line in `logs/driver-watchdog.jsonl`; a termination reads FAIL in
-the digest. `.venv/bin/python -m tools.driver_watchdog --dry-run` shows what it would do;
+:03, :13, … :53 UTC (owner request 2026-11-19, after a nightly hung for five days). A run is the
+driver script's own process (lock open, script path on its command line), its descendants and
+cron's launching shell; services waiting for the lock and API probes are never signalled. A run
+past its contract `max_runtime` that used under 2% of one CPU over a 60-second sample, or is past
+twice that runtime, is recovered when two consecutive passes agree: the watchdog saves the run's
+Python stacks under `logs/driver-watchdog/`, terminates it, and clears failed units this
+repository installs. A stalled nightly also owes one transient
+`trading-engine-nightly-catch-up.service`, started by a later pass once no driver lock is held,
+Tuesday to Friday before 12:00 UTC, bounded to end by 13:45 UTC and retried at most three times
+that day. A busy overdue run is only reported. Each decision is a line in
+`logs/driver-watchdog.jsonl`, written before the action; a termination reads FAIL in the digest.
+`.venv/bin/python -m tools.driver_watchdog --dry-run` shows what it would do;
 `touch .driver-watchdog.disabled` in the live checkout pauses it for maintenance.
 
 Every driver stage writes start, end, duration, and exit status to its normal log and appends the

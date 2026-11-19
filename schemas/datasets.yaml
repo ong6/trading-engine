@@ -805,6 +805,9 @@ datasets:
   - {<<: *log_file, id: files.four_hour_observer_log, kind: file_set, location: "logs/four_hour_opportunity_review_v5.jsonl", semantics: append_only_evidence, registration: [P9 four-hour observer evidence]}
   - {<<: *log_file, id: files.stage_timings_log, kind: file_set, location: "logs/stage-timings.jsonl", semantics: append_only_evidence, registration: [driver stage timing evidence]}
   - {<<: *log_file, id: files.friday_postflight, kind: file_set, location: "logs/friday-postflight.json", semantics: append_only_evidence, registration: [Friday postflight evidence]}
+  - {<<: *log_file, id: files.driver_watchdog_log, kind: file_set, location: "logs/driver-watchdog.jsonl", semantics: append_only_evidence, registration: [driver watchdog decisions]}
+  - {<<: *log_file, id: files.driver_watchdog_stacks, kind: file_set, location: "logs/driver-watchdog/**", semantics: append_only_evidence, registration: [stalled driver stacks]}
+  - {<<: *log_file, id: files.driver_watchdog_state, kind: file_set, location: "logs/.driver-watchdog-state.json", semantics: current_state, registration: [driver watchdog catch-up state]}
   - {<<: *log_file, id: files.driver_stage_state, kind: file_set, location: "logs/.last_stage*", semantics: current_state, registration: [driver restart state]}
   - {<<: *log_file, id: files.driver_stage_flow, kind: file_set, location: "logs/.stage-flow.*", semantics: cache, registration: [driver in-progress state]}
   - {<<: *ops_database_file, id: files.ops_digest, kind: file_set, location: "logs/ops/ops.sqlite"}
