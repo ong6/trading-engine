@@ -640,14 +640,14 @@ def test_runtime_contract_migration_refuses_older_forms_and_invalid_reports(con)
         review.migrate_runtime_contract(con, invalid)
 
 
-def test_revision23_migration_requires_literal_revision22_predecessor(con):
+def test_revision24_migration_requires_literal_revision23_predecessor(con):
     _setup(con)
     waiting = _freeze(con)
     _transition(con)
     current = review.evaluate(con, prior_result=waiting)
     predecessor = _deployed_amended_result(current, review.AMENDED_RUNTIME_CONTRACT_SHA256)
     assert predecessor["frozen_runtime"]["runtime_contract_sha256"] == (
-        "3134fc574b562c5dc1e0eadc4d79bf4cb1ed652d5c13215fe74b8bacf6bdb3d0")
+        "d32401a2da299c03ad7c4d988ae837e88823ab97f5acc7ea681c5e0d2970f13c")
     assert review.migrate_runtime_contract(con, predecessor) == current
     wrong_files = copy.deepcopy(predecessor)
     wrong_files["frozen_runtime"]["runtime_contract_files"].remove("engine/repair_integrity.py")
