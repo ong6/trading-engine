@@ -87,12 +87,13 @@ RUNTIME_CONTRACT_FILES = (
 # Filled after the dependency list was frozen. The self-file digest normalizes
 # this literal so the contract can cover its own validation and verdict code.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "a024cca811e9e185a04ab5306601b1cdb16c261172a33e86aa5a1ad80166fe9d"
+    "062c81d415762f012f960a4ac13ddcbedd081832fc740b09a38a69a6e03d0414"
 )
-# The deployed code identity of this same contract version (revision 19, installed
-# 2026-10-22). Revision 21 changed pinned bytes but not what E1 selects, prices, stores
-# or judges, so the version stays and an explicit migration replaces only this digest.
-AMENDED_RUNTIME_CONTRACT_SHA256 = '2c8ec5b06a93edbca6104569c1bb5c66514cd6476f209169ca1f6041cd470538'
+# The deployed code identity of this same contract version (revision 22, installed
+# 2026-11-13). Revision 23 splits one store query in two so it cannot deadlock DuckDB;
+# it does not change what E1 selects, prices, stores or judges, so the version stays and an
+# explicit migration replaces only this digest.
+AMENDED_RUNTIME_CONTRACT_SHA256 = 'a024cca811e9e185a04ab5306601b1cdb16c261172a33e86aa5a1ad80166fe9d'
 PRIOR_V7_FORWARD_CONFIG_SHA256 = "6d0006f70558813b9376619682d9684f9943d1d4be8c4a4c8b2b1acc83897408"
 PRIOR_FORWARD_CONFIG_SHA256 = (
     "399ce03bee8bab4ec592bca71438c6041766311f9610b73ee86921c4930f93b3"

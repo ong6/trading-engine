@@ -1599,19 +1599,22 @@ def _basis_unverified(con, frame) -> set[str]:
     """Hold unexplained revisions; release market moves only with action/overlap evidence."""
     if frame.empty:
         return set()
+    # Two statements, each scanning the registered frame once. One statement whose UNION ALL
+    # branches both read the frame never finished on DuckDB 1.5.5: its workers went idle while
+    # the caller waited, which hung the 2026-11-13 nightly for five days holding the store lock.
+    bounds = """WITH bounds AS (SELECT ticker, MIN(date) lo, MAX(date) hi
+                                FROM _basis_incoming GROUP BY ticker) """
     with registered_frame(con, "_basis_incoming", frame[["ticker", "date", "close"]]):
-        stored = con.execute("""
-            WITH bounds AS (SELECT ticker, MIN(date) lo, MAX(date) hi
-                            FROM _basis_incoming GROUP BY ticker),
-            prior AS (
-                SELECT p.ticker, p.date, p.close FROM prices p JOIN bounds b USING(ticker)
-                WHERE p.date < b.lo
-                QUALIFY ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.date DESC) <= 20)
+        stored = con.execute(bounds + """
             SELECT p.ticker, p.date, p.close FROM prices p JOIN bounds b USING(ticker)
             WHERE p.date BETWEEN b.lo AND b.hi
                OR p.date = (SELECT MIN(q.date) FROM prices q
                             WHERE q.ticker=b.ticker AND q.date > b.hi)
-            UNION ALL SELECT ticker, date, close FROM prior
+        """).fetchall()
+        stored += con.execute(bounds + """
+            SELECT p.ticker, p.date, p.close FROM prices p JOIN bounds b USING(ticker)
+            WHERE p.date < b.lo
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.date DESC) <= 20
         """).fetchall()
     actions = {}
     captured = {}
