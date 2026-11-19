@@ -191,3 +191,13 @@ def test_p15_window_waits_until_the_league_has_stepped_the_session(con, monkeypa
                 "VALUES ('league_book', DATE '2024-06-04', 1, 1)")
     result = runner._run_with_books(lock_deadline=0.0)
     assert windows == [date(2024, 6, 4)] and result["books"] == {"status": "skipped"}
+
+
+def test_waiting_for_the_league_exits_tempfail(monkeypatch):
+    monkeypatch.setattr(runner, "run", lambda **kwargs: {
+        "status": "completed", "market_date": "2024-06-04",
+        "books": {"status": "waiting_for_league", "league_through": "2024-06-03"}})
+    assert runner.main(["--run"]) == 75
+    monkeypatch.setattr(runner, "run", lambda **kwargs: {"status": "completed"})
+    assert runner.main(["--run"]) == 0
+

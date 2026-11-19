@@ -816,6 +816,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.dry_run else run(database=args.database)
     )
     print(json.dumps(result, sort_keys=True))
+    if (result.get("books") or {}).get("status") == "waiting_for_league":
+        # Temporary failure: the wrapper must stop before its league re-render, which would
+        # otherwise step the league books for this session without the nightly screen.
+        return 75
     return 0
 
 
