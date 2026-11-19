@@ -212,7 +212,7 @@ def test_the_catch_up_run_ends_before_the_pre_open(tmp_path, monkeypatch):
     [command] = [c for c in commands if c[0] == "systemd-run"]
     assert commands[0][-2:] == ["reset-failed", driver_watchdog.CATCH_UP_UNIT]
     assert command[:3] == ["systemd-run", "--user", f"--unit={driver_watchdog.CATCH_UP_UNIT}"]
-    assert "--property=RuntimeMaxSec=7200s" in command
+    assert "--property=RuntimeMaxSec=3600s" in command
 
 
 def test_reset_failed_touches_only_this_repositorys_units(monkeypatch):

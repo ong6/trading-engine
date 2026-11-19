@@ -171,9 +171,12 @@ twice that runtime, is recovered when two consecutive passes agree: the watchdog
 Python stacks under `logs/driver-watchdog/`, terminates it, and clears failed units this
 repository installs. A stalled nightly also owes one transient
 `trading-engine-nightly-catch-up.service`, started by a later pass once no driver lock is held,
-Tuesday to Friday before 12:00 UTC, bounded to end by 13:45 UTC and retried at most three times
-that day; once it finishes, the watchdog starts the P15 scoring unit so the P15 window steps its
-books to the same session (the window never steps past the league books). A busy overdue run is only reported. Each decision is a line in
+Tuesday to Friday before 11:00 UTC, bounded to end by 12:45 UTC (clear of the 09:05 New York
+pre-open in either season) and retried at most three times that day; once it finishes before
+12:45 UTC, the watchdog starts the P15 scoring unit so the P15 window steps its books to the same
+session. The P15 window never steps past the league books: until they reach the session, scoring
+exits 75 (`waiting_for_league`). After any league step made outside the nightly, start
+`trading-engine-p15-scoring.service` by hand so the P15 books follow before the next nightly. A busy overdue run is only reported. Each decision is a line in
 `logs/driver-watchdog.jsonl`, written before the action; a termination reads FAIL in the digest.
 `.venv/bin/python -m tools.driver_watchdog --dry-run` shows what it would do;
 `touch .driver-watchdog.disabled` in the live checkout pauses it for maintenance.

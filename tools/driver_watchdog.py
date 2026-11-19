@@ -49,14 +49,15 @@ CATCH_UP_DRIVER = "run_daily"
 CATCH_UP_UNIT = "trading-engine-nightly-catch-up.service"  # transient, via systemd-run
 CATCH_UP_ATTEMPTS = 3
 # The P15 window steps the P15 books only once the league has stepped the session, so a
-# finished catch-up starts the scoring unit again; it refuses on its own after 12:00 UTC.
+# catch-up that finishes before CATCH_UP_END_UTC starts the scoring unit again.
 P15_SCORING_UNIT = "trading-engine-p15-scoring.service"
-# A catch-up nightly usually takes under two hours. Starting by 12:00 UTC and bounding the run
-# at 13:45 UTC keeps the store free for the 14:05 UTC pre-open. Tuesday to Friday only:
+# A catch-up nightly usually takes under two hours. Starting by 11:00 UTC and bounding the run
+# at 12:45 UTC keeps the store free for the pre-open, 09:05 New York (13:05 UTC in summer,
+# 14:05 UTC in winter). Tuesday to Friday only:
 # weekend mornings belong to the weekly drivers, and Monday has no missed weekday nightly.
-CATCH_UP_HOURS_UTC = range(0, 12)
+CATCH_UP_HOURS_UTC = range(0, 11)
 CATCH_UP_WEEKDAYS = {1, 2, 3, 4}
-CATCH_UP_END_UTC = (13, 45)
+CATCH_UP_END_UTC = (12, 45)
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 
 
@@ -319,8 +320,12 @@ def advance_catch_up(engine: Path, now: datetime, state: dict, locks_held: Calla
                   "action": "catch-up-failed", "attempts": owed.get("attempts", 0)})
         else:
             owed["status"] = "done"
-            _systemctl("reset-failed", P15_SCORING_UNIT)
-            started = _systemctl("start", "--no-block", P15_SCORING_UNIT)
+            started = None
+            end = now.replace(hour=CATCH_UP_END_UTC[0], minute=CATCH_UP_END_UTC[1], second=0,
+                              microsecond=0)
+            if now < end:  # never step the P15 window into the pre-open
+                _systemctl("reset-failed", P15_SCORING_UNIT)
+                started = _systemctl("start", "--no-block", P15_SCORING_UNIT)
             emit({"at": now.isoformat(), "driver": CATCH_UP_DRIVER, "status": "ok",
                   "action": "catch-up-finished",
                   "p15_scoring_started": bool(started and started.returncode == 0)})
