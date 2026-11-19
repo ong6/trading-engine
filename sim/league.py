@@ -854,6 +854,16 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
     existing = con.execute(
         "SELECT COUNT(*) FROM sim_equity WHERE date = ?", [d]
     ).fetchone()[0]
+    if existing and not rerun:
+        # P15 books are marked only by their own window, which runs before this step when
+        # a nightly was missed; their rows never mean the league stepped d, so they must not
+        # turn this step into a no-op for every other book. A rerun still clears them all.
+        p15_marks = ",".join("?" for _ in p15_books.BOOK_IDS)
+        existing = con.execute(
+            f"SELECT COUNT(*) FROM sim_equity WHERE date = ? "
+            f"AND portfolio_id NOT IN ({p15_marks})",
+            [d, *p15_books.BOOK_IDS],
+        ).fetchone()[0]
     if existing and rerun:
         later = con.execute(
             "SELECT COUNT(DISTINCT date) FROM sim_equity WHERE date > ?", [d]

@@ -688,6 +688,21 @@ def _run(
                                      for item in aggregates), "replayed": False}
 
 
+def _league_through(con: duckdb.DuckDBPyConnection) -> date | None:
+    """The last session every active league book has stepped; None without league books."""
+    if not (table_exists(con, "portfolios") and table_exists(con, "sim_equity")):
+        return None
+    marks = ",".join("?" for _ in p15_books.BOOK_IDS)
+    rows = con.execute(
+        "SELECT MAX(e.date) FROM portfolios p LEFT JOIN sim_equity e ON e.portfolio_id = p.id "
+        f"WHERE p.active AND p.id NOT IN ({marks}) GROUP BY p.id",
+        list(p15_books.BOOK_IDS),
+    ).fetchall()
+    if not rows:
+        return None
+    return date.min if any(row[0] is None for row in rows) else min(row[0] for row in rows)
+
+
 def _run_with_books(
     *, database: Path = DEFAULT_DB, now: datetime | None = None,
     generate: Callable[[dict], agent_model_client.ConnectorResult]
@@ -705,8 +720,17 @@ def _run_with_books(
     if "market_date" in result:
         con = _connect(database, lock_deadline)
         try:
+            market_date = date.fromisoformat(result["market_date"])
+            through = _league_through(con)
+            if through is not None and through < market_date:
+                # A missed or stalled nightly has not stepped the league to this session.
+                # Stepping the P15 books ahead would leave the books on different
+                # checkpoints, which the next nightly refuses; the window waits instead.
+                return {**result, "preopen_evidence": None,
+                        "books": {"status": "waiting_for_league",
+                                  "league_through": through.isoformat()}}
             books = p15_books.run_window(
-                con, date.fromisoformat(result["market_date"]), observed_at=clock()
+                con, market_date, observed_at=clock()
             )
             post_open = None
             if books["status"] == "completed":

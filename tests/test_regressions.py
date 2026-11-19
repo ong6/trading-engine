@@ -116,6 +116,23 @@ def test_league_skip_if_done_restores_reports_without_rewriting_ledger(con, tmp_
     )
 
 
+def test_a_p15_window_mark_does_not_make_the_league_skip_a_session(con, tmp_path):
+    # After a missed nightly the P15 window can mark its books for a session before
+    # the league steps it; that mark must not turn the league step into a no-op.
+    _book(con)
+    con.execute("UPDATE portfolios SET strategy = 'spy_benchmark', config = '{}'")
+    insert_bars(con, "SPY", [D1])
+    con.execute(
+        "INSERT INTO sim_equity (portfolio_id, date, equity, cash) VALUES (?, ?, ?, ?)",
+        ["p15_ai_ranked", D1, 10_000.0, 10_000.0],
+    )
+    assert league.step(con, D1, tmp_path, False, skip_if_done=True) == 0
+    marks = con.execute(
+        "SELECT portfolio_id, equity FROM sim_equity WHERE date = ? ORDER BY portfolio_id", [D1]
+    ).fetchall()
+    assert marks == [("b", INITIAL_CASH), ("p15_ai_ranked", 10_000.0)]
+
+
 # 1. dividends -----------------------------------------------------------------
 def test_dividend_published_day_after_ex_date_is_still_credited(con):
     pf = _book(con)

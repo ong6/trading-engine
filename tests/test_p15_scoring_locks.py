@@ -154,3 +154,40 @@ def test_scoring_advisory_locks_share_the_noon_budget(tmp_path, monkeypatch):
         with pytest.raises(resources.AdvisoryLockTimeout, match="nightly.lock"):
             runner.run(database=tmp_path / "unused.duckdb", now=started, clock=lambda: started)
         assert elapsed == pytest.approx(1.0) and calls == []
+
+
+class _Borrowed:
+    def __init__(self, con):
+        self._con = con
+
+    def __getattr__(self, name):
+        return getattr(self._con, name)
+
+    def close(self):
+        pass
+
+
+def test_p15_window_waits_until_the_league_has_stepped_the_session(con, monkeypatch):
+    from datetime import date
+
+    from sim import p15_books
+
+    con.execute("INSERT INTO portfolios (id, name, strategy, created, active, cash) "
+                "VALUES ('league_book', 'league_book', 'x', DATE '2024-06-03', TRUE, 1)")
+    con.execute("INSERT INTO sim_equity (portfolio_id, date, equity, cash) "
+                "VALUES ('league_book', DATE '2024-06-03', 1, 1)")
+    windows = []
+    monkeypatch.setattr(runner, "_run", lambda **kwargs: {"status": "completed",
+                                                          "market_date": "2024-06-04"})
+    monkeypatch.setattr(runner, "_connect", lambda *args, **kwargs: _Borrowed(con))
+    monkeypatch.setattr(p15_books, "run_window",
+                        lambda con, day, observed_at: windows.append(day)
+                        or {"status": "skipped"})
+    result = runner._run_with_books(lock_deadline=0.0)
+    assert windows == []
+    assert result["books"] == {"status": "waiting_for_league", "league_through": "2024-06-03"}
+
+    con.execute("INSERT INTO sim_equity (portfolio_id, date, equity, cash) "
+                "VALUES ('league_book', DATE '2024-06-04', 1, 1)")
+    result = runner._run_with_books(lock_deadline=0.0)
+    assert windows == [date(2024, 6, 4)] and result["books"] == {"status": "skipped"}
