@@ -1,0 +1,11 @@
+[Unit]
+Description=Recover a cron driver stalled past its declared run time
+
+[Timer]
+OnCalendar=*-*-* *:03,13,23,33,43,53:00 UTC
+Persistent=false
+AccuracySec=1min
+Unit=trading-engine-driver-watchdog.service
+
+[Install]
+WantedBy=timers.target

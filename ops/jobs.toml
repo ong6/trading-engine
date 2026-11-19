@@ -960,6 +960,32 @@ service_unit = "trading-engine-accounts-settle.service"
 
 
 [[jobs]]
+job_id = "trading-engine-driver-watchdog"
+version = 1
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.driver_watchdog"]
+schedules = ["*-*-* *:03,13,23,33,43,53:00 UTC"]
+
+[jobs.legacy.service]
+unit = "trading-engine-driver-watchdog.service"
+description = "Trading engine cron driver watchdog"
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.driver_watchdog"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+timeout_start = "10min"
+private_tmp = true
+protect_system = "full"
+protect_control_groups = true
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "trading-engine-driver-watchdog.timer"
+description = "Recover a cron driver stalled past its declared run time"
+on_calendar = ["*-*-* *:03,13,23,33,43,53:00 UTC"]
+persistent = false
+accuracy_sec = "1min"
+service_unit = "trading-engine-driver-watchdog.service"
+
+
+[[jobs]]
 job_id = "registry-audit"
 version = 1
 runner_enabled = true
