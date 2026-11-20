@@ -5796,4 +5796,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** obtain current source history, rehearse EMBJ's existing evidence-gated repair and
   adjudicate the six remaining split-sized moves before deployment.
 
+## 2026-11-20 — Accept six source-confirmed market moves in the split baseline
+
+- **Why:** R25 round-two orchestrator adjudication: fresh Yahoo/yfinance history agrees
+  with the stored closes and reports no splits since September 1 for the six flagged names.
+- **What:** accept only NVEC October 22, AMUU/KORU/MUU/UVXY November 5 and APPS November 10
+  under `split_recorded_vs_restated` / `unrecorded`, expiring January 20, 2027.
+  Each reason records the provider check and unchanged retained observations, with no nearby
+  split row or rewrite audit. The supplied table is retained in lane output as
+  `provider-check-2026-11-20.md`; the invariant rule and all prices are unchanged.
+- **Evidence:** `python -m tools.check_invariants --snapshot store/snapshots/market-20261120T074859716512Z.duckdb --engine-root .`
+  reports 1 regression (EMBJ), down from 7; `split_recorded_vs_restated` has 0 regressions.
+- **Metrics:** server/tools/product LOC unchanged.
+- **Next:** EMBJ is expected to clear through the bounded source-proven retry after the
+  2026-11-20 nightly; the orchestrator will verify the newly published snapshot. No EMBJ exception.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

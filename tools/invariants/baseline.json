@@ -52,6 +52,60 @@
    "ref": "2026-11-01 split-data SEC offering and provider-history comparison"
   },
   {
+   "invariant": "split_recorded_vs_restated",
+   "class": "unrecorded",
+   "subjects": ["NVEC 2026-10-22"],
+   "owner": "orchestrator",
+   "reason": "Real market move adjudicated by the orchestrator: the Yahoo/yfinance check on 2026-11-20 at approximately 13:35 UTC (auto_adjust=False) reports no splits since 2026-09-01 and closes of 103.07, 68.36 and 72.64 on October 21-23, matching the stored series. The closes before and on the flag equal every retained observation for those sessions; no nearby split row or split-like rewrite audit exists.",
+   "expires": "2027-01-20",
+   "ref": "r25/integrity provider-check-2026-11-20.md and snapshot-probe.json"
+  },
+  {
+   "invariant": "split_recorded_vs_restated",
+   "class": "unrecorded",
+   "subjects": ["AMUU 2026-11-05"],
+   "owner": "orchestrator",
+   "reason": "Real market move adjudicated by the orchestrator: the Yahoo/yfinance check on 2026-11-20 at approximately 13:35 UTC (auto_adjust=False) reports no splits since 2026-09-01 and closes of 167.99, 109.61 and 133.46 on November 4-6, matching the stored series. The closes before and on the flag equal every retained observation for those sessions; no nearby split row or split-like rewrite audit exists.",
+   "expires": "2027-01-20",
+   "ref": "r25/integrity provider-check-2026-11-20.md and snapshot-probe.json"
+  },
+  {
+   "invariant": "split_recorded_vs_restated",
+   "class": "unrecorded",
+   "subjects": ["KORU 2026-11-05"],
+   "owner": "orchestrator",
+   "reason": "Real market move adjudicated by the orchestrator: the Yahoo/yfinance check on 2026-11-20 at approximately 13:35 UTC (auto_adjust=False) reports no splits since 2026-09-01 and closes of 10.43, 6.53 and 6.91 on November 4-6, matching the stored series. The closes before and on the flag equal every retained observation for those sessions; no nearby split row or split-like rewrite audit exists.",
+   "expires": "2027-01-20",
+   "ref": "r25/integrity provider-check-2026-11-20.md and snapshot-probe.json"
+  },
+  {
+   "invariant": "split_recorded_vs_restated",
+   "class": "unrecorded",
+   "subjects": ["MUU 2026-11-05"],
+   "owner": "orchestrator",
+   "reason": "Real market move adjudicated by the orchestrator: the Yahoo/yfinance check on 2026-11-20 at approximately 13:35 UTC (auto_adjust=False) reports no splits since 2026-09-01 and closes of 19.23, 12.62 and 13.78 on November 4-6, matching the stored series. The closes before and on the flag equal every retained observation for those sessions; no nearby split row or split-like rewrite audit exists.",
+   "expires": "2027-01-20",
+   "ref": "r25/integrity provider-check-2026-11-20.md and snapshot-probe.json"
+  },
+  {
+   "invariant": "split_recorded_vs_restated",
+   "class": "unrecorded",
+   "subjects": ["UVXY 2026-11-05"],
+   "owner": "orchestrator",
+   "reason": "Real market move adjudicated by the orchestrator: the Yahoo/yfinance check on 2026-11-20 at approximately 13:35 UTC (auto_adjust=False) reports no splits since 2026-09-01 and closes of 16.24, 23.61 and 23.08 on November 4-6, matching the stored series. The closes before and on the flag equal every retained observation for those sessions; no nearby split row or split-like rewrite audit exists.",
+   "expires": "2027-01-20",
+   "ref": "r25/integrity provider-check-2026-11-20.md and snapshot-probe.json"
+  },
+  {
+   "invariant": "split_recorded_vs_restated",
+   "class": "unrecorded",
+   "subjects": ["APPS 2026-11-10"],
+   "owner": "orchestrator",
+   "reason": "Real market move adjudicated by the orchestrator: the Yahoo/yfinance check on 2026-11-20 at approximately 13:35 UTC (auto_adjust=False) reports no splits since 2026-09-01 and closes of 11.30, 7.25 and 7.76 on November 9-11, matching the stored series. The closes before and on the flag equal every retained observation for those sessions; no nearby split row or split-like rewrite audit exists.",
+   "expires": "2027-01-20",
+   "ref": "r25/integrity provider-check-2026-11-20.md and snapshot-probe.json"
+  },
+  {
    "invariant": "preopen_not_voided",
    "class": "voided",
    "through": "2026-10-20",
