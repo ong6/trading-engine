@@ -5781,4 +5781,21 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** deploy, migrate, replay 13–18 Nov on the live store, then the nightly stages.
 
+## 2026-11-20 — Scope hourly operations findings to the engine
+
+- **Why:** owner-directed digest repair; four regression tests on the unchanged source fail:
+  unrelated services fail the digest/contract, expected off-hours publication warns, and old
+  noise returns as a daily chronic reminder.
+- **What:** share engine ownership between the schedule check and digest; retain declared
+  dependencies, engine commands and every store-holder check. Exclude expected off-hours
+  publication from warning counts and remove its old chronic reminders.
+  Replay the captured hour: five contract violations become zero, warnings 29 become 27;
+  WARN remains for settlement retries and TradingView failures. Weekend receipts replace old
+  failures; the two unchecked held names correctly keep price verification partial.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_ops_digest.py tests/test_schedule_contract.py`
+  → 207 pass. Both timezone suites: 6,762 pass, 27 fail; baseline reproduces six watchdog
+  lock failures and a representative API hang. Full acceptance remains blocked.
+- **Metrics:** session server +36, tools +63, product unchanged LOC; snapshot budget passes.
+- **Next:** orchestrator verifies full acceptance in its runner, then merges and deploys.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

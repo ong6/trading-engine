@@ -220,6 +220,30 @@ def test_healthy_host_matches_the_manifest(tmp_path):
     assert result["violations"] == []
 
 
+def test_unrelated_projects_do_not_violate_the_engine_contract(tmp_path):
+    home = tmp_path / "home"
+    blocks = _healthy_blocks(MANIFEST)
+    for stem in ("botmux-watchdog", "bpug-prd-bot-sync"):
+        blocks[stem + ".timer"] = {
+            "Id": stem + ".timer", "LoadState": "loaded", "ActiveState": "active",
+            "SubState": "waiting", "UnitFileState": "enabled", "Triggers": stem + ".service"}
+        blocks[stem + ".service"] = {
+            "Id": stem + ".service", "LoadState": "loaded", "ActiveState": "failed",
+            "SubState": "failed", "UnitFileState": "static", "Type": "oneshot",
+            "TimeoutStartUSec": "infinity", "WorkingDirectory": "/srv/another-project"}
+    blocks["botmux.service"] = {
+        "Id": "botmux.service", "LoadState": "loaded", "ActiveState": "active",
+        "SubState": "running", "UnitFileState": "enabled", "Type": "simple"}
+    cron = _crontab(home / "trading-engine", home)
+    result = _live(tmp_path, blocks, cron + "*/5 * * * * /srv/another-project/sync.sh\n")
+    assert result["violations"] == []
+    # The explicitly declared news dependency is still mandatory.
+    result = _live(tmp_path, blocks, "\n".join(
+        line for line in cron.splitlines() if "news-scraper" not in line))
+    assert _pairs(result) == {("missing-cron", "cron:news_scraper_boot"),
+                              ("missing-cron", "cron:news_scraper_watchdog")}
+
+
 @pytest.mark.parametrize("mode", ["static", "live"])
 @pytest.mark.parametrize("restart, runtime, interval, activation, fires", [
     # 2026-10-28/29: three 15-minute attempts escape the 30-minute start limit.
@@ -313,7 +337,7 @@ def test_live_unit_state_drift_failures_and_lane_units_are_violations(tmp_path):
         "Conflicts": "trading-engine-api.service shutdown.target", "ExecStart": "{ }"}
     crontab = _crontab(home / "trading-engine", home).replace("30 22 * * 1-5", "30 23 * * 1-5")
 
-    result = _live(tmp_path, blocks, crontab + "*/5 * * * * /opt/lane/run.sh\n")
+    result = _live(tmp_path, blocks, crontab + "*/5 * * * * /srv/engine-lanes/test/run.sh\n")
 
     assert _pairs(result) == {
         ("not-enabled", "trading-engine-p15-events.timer"),
@@ -427,6 +451,14 @@ def test_reader_holding_a_store_for_write_is_an_undeclared_writer():
         ("undeclared-writer", "trading-data-backup.service")]
 
 
+def test_unrelated_service_holding_the_engine_store_is_still_foreign():
+    holder = {"pid": 7, "database": "store/market.duckdb", "mode": "read", "cmdline": "sync",
+              "cgroup": "", "unit": "botmux.service", "ancestors": []}
+    found = sc.holder_violations(MANIFEST, [holder], now=BEFORE_PREOPEN,
+                                engine_root=Path("/e"), home=Path("/h"))
+    assert _pairs({"violations": found}) == {("foreign-holder", "botmux.service")}
+
+
 def test_windows_follow_the_timer_zone_and_runtime():
     units = {entry["unit"]: entry for entry in MANIFEST["units"]}
     preopen = units["trading-engine-p15-preopen.service"]
@@ -523,9 +555,7 @@ def _check_live(tmp_path, overlay_path):
 def test_host_local_overlay_declares_another_projects_units(tmp_path):
     without = _check_live(tmp_path, tmp_path / "absent.json")
     assert without["overlay"]["status"] == "absent"
-    assert _pairs(without) == {("off-manifest-unit", "study_run.timer"),
-                               ("lane-path", "study_run.service"),
-                               ("unbounded", "study_run.service")}
+    assert _pairs(without) == set()
 
     result = _check_live(tmp_path, _overlay(tmp_path, STUDY_OVERLAY))
 
@@ -558,7 +588,7 @@ def test_invalid_overlay_is_ignored_whole_and_reported(tmp_path, change, message
 
     assert result["status"] == "error"
     assert result["overlay"]["status"] == "invalid" and message in result["overlay"]["error"]
-    assert ("off-manifest-unit", "study_run.timer") in _pairs(result)
+    assert not _pairs(result)  # Invalid overlays grant no authority and opt in no units.
     assert result["exceptions"] == []
 
 

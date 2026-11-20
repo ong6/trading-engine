@@ -2,7 +2,8 @@
 """Check the host and schedule contract in ``server/schedule-contract.json``.
 
 ``--static`` checks this checkout's unit files, installer autostart set and managed cron
-block against the manifest. ``--live`` checks the host read-only: user units, crontab, and
+block against the manifest. ``--live`` checks engine units and declared dependencies,
+engine cron entries and declared external cron, and
 every process holding a live store database (found by reading ``/proc/*/fd`` links, so the
 check never opens a database). Exit 0 when clean, 2 on violations, 3 when a probe failed.
 The hourly ops digest runs the live check and publishes it to ``/meta``.
@@ -52,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--engine-root", type=Path, default=None,
                         help="live checkout whose store is audited (default ~/trading-engine)")
     parser.add_argument("--overlay", type=Path, default=schedule_contract.OVERLAY_PATH,
-                        help="host-local overlay of units other projects own (live only; "
+                        help="opt extra external dependencies into checks (live only; "
                              "default ~/.config/trading-engine/schedule-contract.local.json)")
     args = parser.parse_args(argv)
     static = args.static or not args.live

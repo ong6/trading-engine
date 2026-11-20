@@ -1,7 +1,7 @@
 """Host and schedule contract: what may run on the engine host, and which live store it may hold.
 
-``server/schedule-contract.json`` lists every user unit, timer and cron line on the host,
-including ones other repositories install, with its state (enabled, held or disabled, with a
+``server/schedule-contract.json`` lists engine units, timers, cron and declared dependencies,
+including dependencies other repositories install, with their state (enabled, held or disabled, with a
 reason), its declared store access and the windows in which it may hold a live database. Two
 checks read it:
 
@@ -103,6 +103,39 @@ def load_manifest(path: Path = MANIFEST_PATH) -> dict:
 
 def _units(manifest: dict) -> dict[str, dict]:
     return {entry["unit"]: entry for entry in manifest["units"]}
+
+
+def unit_in_scope(name: str, manifest: dict) -> bool:
+    """Declared dependencies plus the engine namespace, including undeclared engine units."""
+    return name in _units(manifest) or name.startswith("trading-engine-")
+
+
+def engine_command(text: str, engine_root: Path) -> bool:
+    """Recognise live-checkout commands and engine lane commands under another unit name."""
+    return "/engine-lanes/" in text or any(
+        re.search(re.escape(root) + r"(?=/|\s|['\";]|$)", text)
+        for root in _root_forms(engine_root))
+
+
+def scoped_units(manifest: dict, blocks: dict[str, dict[str, list[str]]],
+                 engine_root: Path) -> set[str]:
+    """Share ownership between contract checks and digest collection.
+
+    A foreign unit that stops an engine unit is relevant too. Timer/service links carry
+    ownership in either direction. Database holders are audited separately, without filtering.
+    """
+    declared = _units(manifest)
+    scoped = {name for name, block in blocks.items() if unit_in_scope(name, manifest)
+              or any(engine_command(value, engine_root)
+                     for key in EXEC_KEYS for value in block.get(key, []))
+              or _stops(block, _protected(declared, name))}
+    links = [(name, target) for name, block in blocks.items()
+             for value in block.get("Triggers", []) for target in value.split()]
+    while True:
+        linked = {unit for pair in links if scoped.intersection(pair) for unit in pair}
+        if linked <= scoped:
+            return scoped
+        scoped.update(linked)
 
 
 def _installable(entry: dict) -> bool:
@@ -732,8 +765,9 @@ def _unit_violations(manifest: dict, blocks: dict[str, dict[str, list[str]]],
                 violations.append(_violation("not-active", name, active_state=active))
     triggered = {target for block in blocks.values() if _prop(block, "Id").endswith(".timer")
                  for value in block.get("Triggers", []) for target in value.split()}
+    scoped = scoped_units(manifest, blocks, engine_root)
     for name, block in sorted(blocks.items()):
-        if _host_unit(manifest, name):
+        if _host_unit(manifest, name) or name not in scoped:
             continue
         entry = units.get(name)
         active = _prop(block, "ActiveState")
@@ -790,7 +824,9 @@ def _cron_violations(manifest: dict, crontab: str, engine_root: Path, home: Path
                   and _cron_matches(entry, command, engine_root, home)]
         for entry in owners:
             counts[entry["name"]] += 1
-        if not owners:
+        relevant = engine_command(command, engine_root) or any(
+            _cron_matches(entry, command, engine_root, home) for entry in manifest.get("cron", []))
+        if not owners and relevant:
             program = Path(command.split()[0]).name if command else "?"
             violations.append(_violation("off-manifest-cron", f"cron:{schedule} {program}",
                                          line=f"{schedule} {command}"))

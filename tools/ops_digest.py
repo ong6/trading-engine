@@ -12,7 +12,7 @@ left behind and writes two things under ``logs/ops/``:
   line signatures, probe latency, ``/meta`` section statuses, disk footprint). Raw log text
   stays in the digests and the source logs; SQLite never stores it.
 
-Sources: the user journal of every timer-activated or running user service, new bytes of the
+Sources: the user journal of engine services and declared dependencies, new bytes of the
 text logs in ``logs/`` (plus host-private globs listed in ``logs/ops/sources.txt``), the
 nightly ``stage-timings.jsonl``, dated work receipts from one immutable published snapshot and
 observer JSONL files, and the local API. It never opens the primary DuckDB store,
@@ -122,7 +122,7 @@ HOST_LOG_GLOBS = (
     "~/.local/state/te-autopush.log", "~/.local/state/store-sync.log",
     "~/news-scraper/logs/ensure_scraper.log", "~/news-scraper/logs/*.log",
 )
-IGNORED_UNIT_RE = re.compile(r"^(at-spi|dbus|gvfs|pulseaudio|xdg-|app-)")
+OFF_HOURS_PUBLICATION = "outside weekday US market hours: publish-on-change publishes only "
 SYSTEMD_START_RE = re.compile(r"^Starting .*\.\.\.$")
 SYSTEMD_OK_RE = re.compile(r"^(?P<unit>\S+): Succeeded\.$")
 SYSTEMD_EXIT_RE = re.compile(
@@ -196,6 +196,13 @@ def floor_hour(moment: datetime) -> datetime:
     return moment.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
 
 
+def _unit_manifest() -> dict:
+    """Include dependencies explicitly opted into the live contract's local overlay."""
+    manifest, _ = schedule_contract.apply_overlay(
+        schedule_contract.load_manifest(), schedule_contract.OVERLAY_PATH)
+    return manifest
+
+
 def classify(line: str) -> str | None:
     head = line[:CLASSIFY_CHARS]
     if "[ops-digest]" in head:
@@ -209,7 +216,7 @@ def classify(line: str) -> str | None:
     if isinstance(payload, dict) and payload.get("status") == "skipped" and any(
             phrase in str(payload.get("reason", "")).lower() for phrase in (
                 "latest snapshot is", "already successfully", "already successful",
-                "not a trading session", "no session")):
+                "not a trading session", "no session", OFF_HOURS_PUBLICATION.lower())):
         return None
     if isinstance(payload, dict):
         return structured_level(payload)
@@ -321,6 +328,19 @@ def findings(data: dict) -> list[dict]:
     return list(result.values())
 
 
+def _relevant_finding(source: str, message: str, manifest: dict) -> bool:
+    kind, _, subject = source.partition(":")
+    if (subject == "trading-engine-publish-on-change.service"
+            and OFF_HOURS_PUBLICATION in message):
+        return False
+    # A foreign store holder or a unit stopping the engine is still an engine problem.
+    if kind == "contract" and message not in {
+            "off-manifest-unit", "unbounded", "failed", "lane-path", "restart-loop-unbounded"}:
+        return True
+    return kind not in {"unit", "contract"} or not subject.endswith(
+        schedule_contract.UNIT_SUFFIXES) or schedule_contract.unit_in_scope(subject, manifest)
+
+
 def classify_findings(hour: datetime, items: list[dict], state_path: Path) -> tuple[list[dict], str | None]:
     """Stable consecutive or recurring observations establish chronic.
 
@@ -370,6 +390,10 @@ def classify_findings(hour: datetime, items: list[dict], state_path: Path) -> tu
         old = {key: {**row, "seen_hours": [h for h in row["seen_hours"] if _utc(h) >= cutoff]}
                for key, row in state["items"].items()
                if cutoff <= _utc(row["last_seen"]) <= hour}
+        manifest = _unit_manifest()
+        observed = {item["key"] for item in items}
+        old = {key: row for key, row in old.items() if key in observed
+               or _relevant_finding(row["source"], row["message"], manifest)}
         state_error = None
     except (OSError, ValueError, KeyError, TypeError, RecursionError):
         old = {}
@@ -510,14 +534,17 @@ def _fetch(url: str, timeout: float) -> tuple[int, int, bytes]:
 
 
 def discover_units(run: Runner) -> list[str]:
-    """This user's installed, timer-activated and running services."""
+    """Engine services and declared dependencies among installed/running services."""
     units: set[str] = {path.name for path in USER_UNIT_DIR.glob("*.service")
                        if "@" not in path.name}
+    links = {}
     timers = run(["systemctl", "--user", "list-timers", "--all", "--no-legend"], 30) or ""
     for line in timers.splitlines():
         parts = line.split()
         if parts and parts[-1].endswith(".service"):
             units.add(parts[-1])
+            if len(parts) > 1 and parts[-2].endswith(".timer"):
+                links[parts[-2]] = {"Triggers": [parts[-1]]}
     running = run(
         ["systemctl", "--user", "list-units", "--type=service", "--state=running",
          "--no-legend", "--plain"], 30) or ""
@@ -525,7 +552,14 @@ def discover_units(run: Runner) -> list[str]:
         parts = line.split()
         if parts and parts[0].endswith(".service"):
             units.add(parts[0])
-    return sorted(unit for unit in units if not IGNORED_UNIT_RE.match(unit))
+    blocks = {**{name: {} for name in units}, **links}
+    if units:
+        args = ["systemctl", "--user", "show", *sorted(units)]
+        for prop in ("Id", "Triggers", "Conflicts", *schedule_contract.EXEC_KEYS):
+            args += ["-p", prop]
+        blocks.update(schedule_contract._show_blocks(run(args, 30) or ""))
+    return sorted(units & schedule_contract.scoped_units(
+        _unit_manifest(), blocks, Path.home() / "trading-engine"))
 
 
 def parse_journal(
@@ -1730,7 +1764,7 @@ def _show_blocks(text: str) -> list[dict[str, list[str]]]:
 
 def _timer_schedule(block: dict[str, list[str]]) -> Schedule | None:
     unit = (block.get("Unit") or [""])[0]
-    if not unit or IGNORED_UNIT_RE.match(unit):
+    if not unit:
         return None
     specs = [spec for value in block.get("TimersCalendar", [])
              for spec in re.findall(r"OnCalendar=(.+?) ;", value)]
@@ -1757,17 +1791,26 @@ def timer_schedules(run: Runner) -> list[Schedule]:
     shown = run(["systemctl", "--user", "show", *timers, "-p", "Unit", "-p", "TimersCalendar",
                  "-p", "TimersMonotonic", "-p", "AccuracyUSec", "-p", "RandomizedDelayUSec"],
                 30) or ""
-    return [item for item in map(_timer_schedule, _show_blocks(shown)) if item is not None]
+    manifest = _unit_manifest()
+    observed = set(discover_units(run))
+    return [item for item in map(_timer_schedule, _show_blocks(shown)) if item is not None
+            and (item.unit in observed or schedule_contract.unit_in_scope(item.unit, manifest))]
 
 
 def cron_schedules(run: Runner) -> list[Schedule]:
     schedules = []
+    manifest = _unit_manifest()
+    home = Path.home()
     for raw in (run(["crontab", "-l"], 30) or "").splitlines():
         line = raw.strip()
         match = CRON_LINE_RE.match(line)
         if match is None or line.startswith(("#", "@")) or "=" in line.split()[0]:
             continue
         *fields, command = match.groups()
+        if not (schedule_contract.engine_command(command, home / "trading-engine") or any(
+                schedule_contract._cron_matches(entry, command, home / "trading-engine", home)
+                for entry in manifest["cron"])):
+            continue
         driver = DRIVER_RE.search(command)
         output = REDIRECT_RE.search(command)
         try:
@@ -1951,14 +1994,23 @@ def runs_lines(db: sqlite3.Connection, run: Runner, start: datetime,
     """Missing-run bullets, then the per-job run table and every driver's stages."""
     since, until = _iso(start), _iso(end)
     schedules = timer_schedules(run) + cron_schedules(run)
+    manifest = _unit_manifest()
+    observed = {item.unit for item in schedules if item.unit}
+
+    def relevant(unit: str) -> bool:
+        return unit in observed or schedule_contract.unit_in_scope(unit, manifest)
+
     for sample in _meta_json(db, "schedule_samples", []):
         for item in sample["items"]:
+            if item.get("unit") and not relevant(item["unit"]):
+                continue
             if item not in [_schedule_data(s) for s in schedules]:
                 schedules.append(_saved_schedule(item))
     known = {item.unit for item in schedules if item.unit}
     schedules += [Schedule(unit.removesuffix(".service"), "—", None, unit=unit) for (unit,) in
                   db.execute("SELECT DISTINCT unit FROM unit_runs WHERE COALESCE(started, ended)>=? "
-                             "AND COALESCE(started, ended)<?", (since, until)) if unit not in known]
+                             "AND COALESCE(started, ended)<?", (since, until))
+                  if unit not in known and relevant(unit)]
     drivers = _driver_runs(db, since, until)
     grouped: dict[str, list[Schedule]] = defaultdict(list)
     for schedule in schedules:
@@ -2066,6 +2118,8 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
     since = _hour_key(floor_hour(now) - timedelta(hours=hours))
     since_iso = _iso(floor_hour(now) - timedelta(hours=hours))
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    manifest = _unit_manifest()
+    observed = set(discover_units(run))
     try:
         rows = db.execute("SELECT hour, status, failed_runs, error_lines, warn_lines, digest "
                           "FROM hours WHERE hour>=? ORDER BY hour", (since,)).fetchall()
@@ -2078,6 +2132,8 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
         missing_hours = max(0, hours - len(rows))
         out.append(f"{missing_hours} requested hour(s) have no digest coverage; their outcomes "
                    "are unknown. Log history before each file's first offset is unknown.")
+        out.append("Hour statuses are the original recorded outcomes; unit details below "
+                   "cover the engine and its declared dependencies.")
         bad = [row for row in rows if row[1] != "OK"]
         if bad:
             out += ["", "| hour | status | failed | errors | warns | digest |",
@@ -2088,6 +2144,8 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
             "WHERE COALESCE(started, ended)>=? "
             "AND result NOT IN ('success','running','unknown') ORDER BY started",
             (since_iso,)).fetchall()
+        failed = [row for row in failed if row[0] in observed
+                  or schedule_contract.unit_in_scope(row[0], manifest)]
         failed += db.execute(
             "SELECT driver || ':' || stage, started, seconds, exit_code, 'failed' FROM stage_runs "
             "WHERE ended>=? AND exit_code<>0", (since_iso,)).fetchall()
@@ -2140,6 +2198,8 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
                           "AND result='success' AND seconds IS NOT NULL", (since_iso,)).fetchall()
         slow = []
         for unit, started, seconds in runs:
+            if unit not in observed and not schedule_contract.unit_in_scope(unit, manifest):
+                continue
             typical = typical_seconds(db, unit, started)
             if typical and seconds > SLOW_FACTOR * typical:
                 slow.append(f"- {unit} at {started}: {_duration(seconds)} vs typical "
@@ -2148,14 +2208,16 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
             out += ["", "## Slow runs (over 3× the 14-day median)", "", *slow]
         sigs = db.execute(
             "SELECT source, level, signature, SUM(count) AS n FROM signatures WHERE hour>=? "
-            "GROUP BY source, level, signature ORDER BY level='warn', n DESC LIMIT 15",
+            "GROUP BY source, level, signature ORDER BY level='warn', n DESC",
             (since,)).fetchall()
+        sigs = [row for row in sigs if _relevant_finding(row[0], row[2], manifest)][:15]
         if sigs:
             out += ["", "## Loudest signals", ""]
             out += [f"- [{lvl}] ×{n} {src}: `{sig}`" for src, lvl, sig, n in sigs]
         volume = db.execute(
             "SELECT source, SUM(bytes) AS b, SUM(lines) FROM log_counts WHERE hour>=? "
-            "GROUP BY source ORDER BY b DESC LIMIT 5", (since,)).fetchall()
+            "GROUP BY source ORDER BY b DESC", (since,)).fetchall()
+        volume = [row for row in volume if _relevant_finding(row[0], "", manifest)][:5]
         if volume and volume[0][1]:
             out += ["", "## Log growth", ""]
             out += [f"- {src}: +{_mb(b)}, {n:,} lines" for src, b, n in volume if b]
