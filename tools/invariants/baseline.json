@@ -95,6 +95,18 @@
    "reason": "The gap is real and scoring evidence was lost: store contention from the daily-opportunity restart loop interrupted run 22, which ended deadline_start_refusal. All 66 aggregate candidate decisions are absent; seven completed samples are orphaned and two responses lack durable payload and usage. The October 29 manual run wrote the October 28 window and retained prior-order fills with a reconciled mark, but only two deterministic time exits, with their intents written after the open, survive for October 29. No backfill or invariant change is accepted.",
    "expires": "2027-04-20",
    "ref": "fix/window-gap BUILDLOG 2026-11-01"
+  },
+  {
+   "invariant": "publication_order",
+   "class": "window_without_scoring_run",
+   "subjects": ["p15_ai_ranked 2026-11-13", "p15_hybrid_veto 2026-11-13", "p15_rule_control 2026-11-13",
+                "p15_ai_ranked 2026-11-16", "p15_hybrid_veto 2026-11-16", "p15_rule_control 2026-11-16",
+                "p15_ai_ranked 2026-11-17", "p15_hybrid_veto 2026-11-17", "p15_rule_control 2026-11-17",
+                "p15_ai_ranked 2026-11-18", "p15_hybrid_veto 2026-11-18", "p15_rule_control 2026-11-18"],
+   "owner": "orchestrator",
+   "reason": "Permanent scoring loss during the November 13-19 nightly hang and catch-up recorded in BUILDLOG revisions 23 and 24. Run 34 for November 13 failed outside_admissible_window; November 16 and 17 have no scoring run; run 35 for November 18 failed deadline_start_refusal at 12:01 UTC on November 19. Catch-up book windows and marks exist for all three books on these four dates, but no completed scoring evidence exists. The decision windows have closed: no retrospective scoring or evidence backfill is accepted. This exception covers only these twelve book/date pairs; other gaps remain regressions.",
+   "expires": "2027-04-20",
+   "ref": "r25/integrity; BUILDLOG revisions 23 and 24, 2026-11-19"
   }
  ]
 }

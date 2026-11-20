@@ -5781,4 +5781,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** deploy, migrate, replay 13–18 Nov on the live store, then the nightly stages.
 
+## 2026-11-20 — Record the twelve lost November P15 scoring windows
+
+- **Why:** R25 integrity reproduction: the November 20 snapshot reports 19 regressions;
+  revisions 23 and 24 explain the irrecoverable November 13, 16, 17 and 18 scoring loss.
+- **What:** accept only those four dates for the three named P15 books, under the existing
+  `window_without_scoring_run` class. No scoring backfill or invariant rule changed.
+  The six unrecorded-split alerts retain identical fetched closes on both sides of their moves.
+  EMBJ's recorded 4:1 split has post-ex bars now; the bounded retry selects it on November 20.
+  Split alerts remain visible: current source history is unavailable for the repair proof.
+- **Evidence:** `python -m tools.check_invariants --snapshot store/snapshots/market-20261120T074859716512Z.duckdb --engine-root .`
+  reports 7 regressions, down from 19; publication order has 0 regressions and 15 baselined rows.
+- **Metrics:** server/tools/product LOC unchanged.
+- **Next:** obtain current source history, rehearse EMBJ's existing evidence-gated repair and
+  adjudicate the six remaining split-sized moves before deployment.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
