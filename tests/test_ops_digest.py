@@ -75,6 +75,9 @@ def _fake_run(journal: dict[str, str]):
             return "".join(f"x x x x x x x {u[:-8]}.timer {u}\n" for u in journal)
         if args[:3] == ["systemctl", "--user", "list-units"]:
             return "dbus.service loaded active running D-Bus\n"
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return "\n\n".join("Id=" + name for name in args
+                                  if name.endswith((".service", ".timer"))) + "\n"
         if args[0] == "journalctl":
             if "--list-boots" in args:
                 return "0 boot Sat 2026-10-10 00:00:00 UTC—Sat 2026-10-10 03:00:00 UTC"
@@ -135,7 +138,7 @@ def test_unrelated_project_failure_does_not_fail_the_digest(tmp_path):
     unit = "botmux-watchdog.service"
     [hour] = _collect(tmp_path, {unit: _journal(unit, exit_code=1)})
     assert hour["status"] == "OK"
-    assert unit not in hour["text"]
+    assert "| botmux-watchdog |" not in hour["text"]
     with sqlite3.connect(tmp_path / "logs/ops/ops.sqlite") as db:
         assert db.execute("SELECT COUNT(*) FROM unit_runs").fetchone()[0] == 0
 
@@ -188,6 +191,99 @@ def test_discovery_keeps_an_engine_command_under_an_unfamiliar_unit_name(tmp_pat
         return ""
 
     assert ops_digest.discover_units(run) == ["scratch-capture.service"]
+
+
+def _workspace_run(unit, journal):
+    ordinary = _fake_run(journal)
+
+    def run(args, timeout):
+        if args[:3] == ["systemctl", "--user", "show"]:
+            names = [name for name in args if name.endswith((".service", ".timer"))]
+            return "\n\n".join("Id=" + name + (
+                "\nWorkingDirectory=/srv/engine-lanes/study" if name == unit else "")
+                for name in names) + "\n"
+        return ordinary(args, timeout)
+
+    return run
+
+
+def test_command_owned_unit_keeps_chronic_history_in_silent_hours_and_reports(tmp_path, monkeypatch):
+    unit = "study_run.service"
+    units = tmp_path / "units"
+    units.mkdir()
+    (units / unit).write_text("[Service]\n")
+    monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", units)
+    logs = tmp_path / "logs"
+    paths = dict(logs_dir=logs, ops_dir=logs / "ops", db_path=tmp_path / "absent.duckdb")
+    for h in range(6):
+        moment = NOW + timedelta(hours=h)
+        raw = _entry((moment - timedelta(minutes=50)).isoformat(), "WARN: study data unavailable")
+        ops_digest.collect(now=moment, run=_workspace_run(unit, {unit: raw}), fetch=_fetch, **paths)
+    ops_digest.collect(now=NOW + timedelta(hours=6), run=_workspace_run(unit, {}), fetch=_fetch,
+                       **paths)
+    state = json.loads((logs / "ops" / ops_digest.FINDING_STATE).read_text())
+    assert any(row["source"] == "unit:" + unit for row in state["items"].values())
+    report = ops_digest.report(24, logs / "ops", now=NOW + timedelta(hours=7),
+                               run=_workspace_run(unit, {}), db_path=paths["db_path"])
+    assert "unit:study_run.service: `WARN: study data unavailable`" in report
+
+
+def test_failed_unit_metadata_probe_always_warns_in_the_digest(tmp_path):
+    unit = "trading-engine-sample.service"
+    ordinary = _fake_run({unit: ""})
+
+    def failed_show(args, timeout):
+        return None if args[:3] == ["systemctl", "--user", "show"] else ordinary(args, timeout)
+
+    logs = tmp_path / "logs"
+    for h in range(8):
+        [hour] = ops_digest.collect(now=NOW + timedelta(hours=h), run=failed_show, fetch=_fetch,
+                                   logs_dir=logs, ops_dir=logs / "ops",
+                                   db_path=tmp_path / "absent.duckdb")
+        assert hour["status"] == "WARN"
+        assert "unit discovery" in hour["text"].lower()
+        assert "systemctl show" in hour["text"]
+
+
+def test_ignored_wrapper_units_are_named_in_the_digest(tmp_path):
+    unit = "new-wrapper.service"
+    [hour] = _collect(tmp_path, {unit: ""})
+    assert "Ignored units:" in hour["text"]
+    assert unit in hour["text"].split("Ignored units:", 1)[1].split("\n", 1)[0]
+
+
+def test_loaded_overlay_dependencies_are_visible_and_removed_declarations_stop_monitoring(
+        tmp_path, monkeypatch):
+    path = tmp_path / "overlay.json"
+    entry = {"unit": "notes-sync.service", "owner": "operator", "reason": "monitored sync",
+             "state": "enabled", "activation": "manual", "max_runtime": "5min",
+             "store": {"access": "none"}}
+    path.write_text(json.dumps({"version": 1, "units": [entry]}))
+    path.chmod(0o600)
+    monkeypatch.setattr(ops_digest.schedule_contract, "OVERLAY_PATH", path)
+    [hour] = _collect(tmp_path, {entry["unit"]: _journal(entry["unit"], exit_code=1)})
+    assert hour["status"] == "FAIL"
+    assert "Local overlay dependencies: notes-sync.service" in hour["text"]
+    path.write_text(json.dumps({"version": 1, "units": []}))
+    [hour] = _collect(tmp_path, {entry["unit"]: ""}, now=NOW + timedelta(hours=1))
+    assert "Local overlay dependencies:" not in hour["text"]
+    assert entry["unit"] in hour["text"].split("Ignored units:", 1)[1].split("\n", 1)[0]
+
+
+def test_partial_unit_metadata_response_warns(tmp_path):
+    unit = "trading-engine-sample.service"
+    ordinary = _fake_run({unit: ""})
+
+    def incomplete(args, timeout):
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return "Id=dbus.service\n"
+        return ordinary(args, timeout)
+
+    logs = tmp_path / "logs"
+    [hour] = ops_digest.collect(now=NOW, run=incomplete, fetch=_fetch, logs_dir=logs,
+                               ops_dir=logs / "ops", db_path=tmp_path / "absent.duckdb")
+    assert hour["status"] == "WARN"
+    assert "systemctl show omitted units" in hour["text"]
 
 
 def test_off_hours_publish_is_informational_but_a_busy_producer_still_warns():
@@ -308,7 +404,7 @@ def test_collect_writes_digest_and_metrics(tmp_path):
     assert "| run_daily | collect | 02:02:30 | 2m30s | 0 |" in text
     assert "10 → 0 | 2.0KiB → 0B | 1.250s → 0s" in text
     assert "price_verification=issues" in text
-    assert "dbus" not in text
+    assert "| dbus |" not in text
     with closing(sqlite3.connect(logs / "ops" / "ops.sqlite")) as db:
         _check_metrics(db)
     report = ops_digest.report(24, logs / "ops", now=NOW, run=_fake_run({}),

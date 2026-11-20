@@ -84,12 +84,20 @@ unit or cron line missing from the manifest, a failed unit, or a process holding
 line and cgroup in `logs/ops/schedule-contract.json`). Change the manifest in the same commit
 as the unit; the installer reads its autostart and held sets from it.
 
-Units another project installs on this host (a private study's timer, a notes sync) are declared
-in an optional owner-only overlay, `~/.config/trading-engine/schedule-contract.local.json`
+The contract covers declared dependencies, engine unit names, commands in the live checkout or
+any manifest `lane_path_markers` workspace, units in a declared slice, and units stopping engine
+services. The digest uses that same ownership for collection, warning history and reports; it
+names ignored units and warns when discovery is incomplete.
+
+An optional owner-only overlay, `~/.config/trading-engine/schedule-contract.local.json`, declares
+additional monitored dependencies and workspace exceptions
 (`{"version": 1, "units": [...]}`; each entry names the unit, an `owner` and a `reason`, and may
 `acknowledge` only `lane-path` or `unbounded` for its own unit; a service declares
 `"store": {"access": "none"}`, so an overlay can never excuse a process holding the store). The
-live check lists those units as host-local and their acknowledged rules as exceptions. The overlay
+live check lists those units as host-local and their acknowledged rules as exceptions; the digest
+also monitors their runs and names the loaded declarations. An unrelated project's unit needs
+no overlay entry; remove obsolete declarations to stop monitoring that dependency. Workspace
+units remain subject to the contract without an overlay. The overlay
 may not name a unit of this repository, and a link, a FIFO, another owner, an open mode, a
 duplicate key or a malformed entry makes the check report an error and ignore the whole overlay.
 `--overlay PATH` checks a proposed file first.

@@ -33,8 +33,8 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 MANIFEST_PATH = Path(__file__).resolve().with_name("schedule-contract.json")
-# Optional host-local overlay for units another project installs on this host. It may only
-# add external units; it never redeclares or silences a unit of this repository.
+# Optional declarations of monitored external dependencies and workspace exceptions.
+# It adds external units to both audits; it never redeclares or silences a repository unit.
 OVERLAY_PATH = Path.home() / ".config" / "trading-engine" / "schedule-contract.local.json"
 OVERLAY_MAX_BYTES = 65_536
 OVERLAY_KEYS = frozenset({"unit", "owner", "reason", "state", "activation", "timer", "service",
@@ -71,7 +71,7 @@ STOP_VERBS = frozenset({"stop", "kill", "disable", "mask", "isolate", "restart",
 SHOW_PROPERTIES = ("Id", "LoadState", "ActiveState", "SubState", "UnitFileState", "Type",
                    "ConditionResult", "Result",
                    "TimeoutStartUSec", "RuntimeMaxUSec", "Restart", "RestartUSec",
-                   "StartLimitBurst", "StartLimitIntervalUSec", "Conflicts", "Triggers",
+                   "StartLimitBurst", "StartLimitIntervalUSec", "Conflicts", "Triggers", "Slice",
                    *EXEC_KEYS)
 _SPAN_UNITS = {"": 1.0, "us": 1e-6, "usec": 1e-6, "ms": 1e-3, "msec": 1e-3, "s": 1.0,
                "sec": 1.0, "m": 60.0, "min": 60.0, "h": 3600.0, "hr": 3600.0, "d": 86400.0,
@@ -110,9 +110,9 @@ def unit_in_scope(name: str, manifest: dict) -> bool:
     return name in _units(manifest) or name.startswith("trading-engine-")
 
 
-def engine_command(text: str, engine_root: Path) -> bool:
-    """Recognise live-checkout commands and engine lane commands under another unit name."""
-    return "/engine-lanes/" in text or any(
+def engine_command(text: str, engine_root: Path, manifest: dict) -> bool:
+    """Recognise the live checkout and every declared agent workspace marker."""
+    return any(marker in text for marker in manifest["lane_path_markers"]) or any(
         re.search(re.escape(root) + r"(?=/|\s|['\";]|$)", text)
         for root in _root_forms(engine_root))
 
@@ -126,8 +126,9 @@ def scoped_units(manifest: dict, blocks: dict[str, dict[str, list[str]]],
     """
     declared = _units(manifest)
     scoped = {name for name, block in blocks.items() if unit_in_scope(name, manifest)
-              or any(engine_command(value, engine_root)
+              or any(engine_command(value, engine_root, manifest)
                      for key in EXEC_KEYS for value in block.get(key, []))
+              or _prop(block, "Slice") in {unit for unit in declared if unit.endswith(".slice")}
               or _stops(block, _protected(declared, name))}
     links = [(name, target) for name, block in blocks.items()
              for value in block.get("Triggers", []) for target in value.split()]
@@ -824,7 +825,7 @@ def _cron_violations(manifest: dict, crontab: str, engine_root: Path, home: Path
                   and _cron_matches(entry, command, engine_root, home)]
         for entry in owners:
             counts[entry["name"]] += 1
-        relevant = engine_command(command, engine_root) or any(
+        relevant = engine_command(command, engine_root, manifest) or any(
             _cron_matches(entry, command, engine_root, home) for entry in manifest.get("cron", []))
         if not owners and relevant:
             program = Path(command.split()[0]).name if command else "?"

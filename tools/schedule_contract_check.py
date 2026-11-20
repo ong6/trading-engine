@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--engine-root", type=Path, default=None,
                         help="live checkout whose store is audited (default ~/trading-engine)")
     parser.add_argument("--overlay", type=Path, default=schedule_contract.OVERLAY_PATH,
-                        help="opt extra external dependencies into checks (live only; "
+                        help="declare monitored dependencies and workspace exceptions (live only; "
                              "default ~/.config/trading-engine/schedule-contract.local.json)")
     args = parser.parse_args(argv)
     static = args.static or not args.live

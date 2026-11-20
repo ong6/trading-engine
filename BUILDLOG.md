@@ -5798,4 +5798,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** session server +36, tools +63, product unchanged LOC; snapshot budget passes.
 - **Next:** orchestrator verifies full acceptance in its runner, then merges and deploys.
 
+## 2026-11-20 — Restore workspace ownership in the hourly digest
+
+- **Why:** orchestrator round 2; the current head fails restored workspace/overlay checks,
+  loses command-owned warning history, hides ignored wrappers and silently degrades discovery.
+- **What:** use every declared workspace marker and slice, restore strict overlay assertions,
+  and carry observed command/stop/timer ownership into history and reports.
+  Name ignored units and loaded overlay dependencies; failed or incomplete discovery keeps WARN.
+  Render the same metrics with the actual overlay: 23 runs, 27 warnings, no contract violations;
+  prepare removal of the unrelated notes-sync declarations for the orchestrator.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_ops_digest.py tests/test_schedule_contract.py tests/test_operating_contract.py tests/test_public_hygiene.py`
+  → 252 pass; restored/new checks fail on the preceding head. Ruff and metrics budget pass.
+- **Metrics:** session server +1, tools +54, product unchanged LOC.
+- **Next:** orchestrator updates the local overlay and runs full acceptance before deployment.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

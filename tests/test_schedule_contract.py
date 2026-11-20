@@ -555,7 +555,9 @@ def _check_live(tmp_path, overlay_path):
 def test_host_local_overlay_declares_another_projects_units(tmp_path):
     without = _check_live(tmp_path, tmp_path / "absent.json")
     assert without["overlay"]["status"] == "absent"
-    assert _pairs(without) == set()
+    assert _pairs(without) == {("off-manifest-unit", "study_run.timer"),
+                               ("lane-path", "study_run.service"),
+                               ("unbounded", "study_run.service")}
 
     result = _check_live(tmp_path, _overlay(tmp_path, STUDY_OVERLAY))
 
@@ -588,8 +590,47 @@ def test_invalid_overlay_is_ignored_whole_and_reported(tmp_path, change, message
 
     assert result["status"] == "error"
     assert result["overlay"]["status"] == "invalid" and message in result["overlay"]["error"]
-    assert not _pairs(result)  # Invalid overlays grant no authority and opt in no units.
+    assert _pairs(result) == {("off-manifest-unit", "study_run.timer"),
+                              ("lane-path", "study_run.service"),
+                              ("unbounded", "study_run.service")}
     assert result["exceptions"] == []
+
+
+@pytest.mark.parametrize("marker", MANIFEST["lane_path_markers"] + ["/custom-agent-area/"])
+def test_every_manifest_workspace_marker_keeps_unbounded_studies_in_scope(tmp_path, marker):
+    manifest = json.loads(json.dumps(MANIFEST))
+    if marker not in manifest["lane_path_markers"]:
+        manifest["lane_path_markers"].append(marker)
+    host = _study_host(tmp_path)
+    blocks = _healthy_blocks(manifest)
+    blocks.update({
+        "study_run.timer": {"Id": "study_run.timer", "LoadState": "loaded",
+                            "ActiveState": "active", "UnitFileState": "enabled",
+                            "Triggers": "study_run.service"},
+        "study_run.service": {"Id": "study_run.service", "LoadState": "loaded",
+                              "ActiveState": "inactive", "Type": "oneshot",
+                              "TimeoutStartUSec": "infinity",
+                              "WorkingDirectory": "/srv" + marker + "study"}})
+    blocks = {name: {key: [value] for key, value in block.items()} for name, block in blocks.items()}
+    result = sc._unit_violations(manifest, blocks, host["engine_root"])
+    assert _pairs({"violations": result}) == {("off-manifest-unit", "study_run.timer"),
+                                              ("lane-path", "study_run.service"),
+                                              ("unbounded", "study_run.service")}
+
+
+def test_a_study_in_the_declared_alpha_slice_remains_in_scope(tmp_path):
+    host = _study_host(tmp_path)
+    blocks = _healthy_blocks(MANIFEST)
+    blocks["study_run.timer"] = {"Id": "study_run.timer", "LoadState": "loaded",
+                                  "ActiveState": "active", "UnitFileState": "enabled",
+                                  "Triggers": "study_run.service"}
+    blocks["study_run.service"] = {"Id": "study_run.service", "LoadState": "loaded",
+                                    "Type": "oneshot", "Slice": "alpha.slice",
+                                    "TimeoutStartUSec": "infinity"}
+    blocks = {name: {key: [value] for key, value in block.items()} for name, block in blocks.items()}
+    result = sc._unit_violations(MANIFEST, blocks, host["engine_root"])
+    assert _pairs({"violations": result}) == {("off-manifest-unit", "study_run.timer"),
+                                              ("unbounded", "study_run.service")}
 
 
 def test_overlay_must_be_an_owner_only_regular_file(tmp_path):
