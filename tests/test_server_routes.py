@@ -545,6 +545,7 @@ def test_locked_get_uses_snapshot_header_and_evidence_after_a_write_reports_pend
     _snapshot_cohort(root)
     publish_snapshot.publish_snapshot(root, source)
     monkeypatch.setattr(server_db, "DEFAULT_DB", source)
+    assert main._warm_generation()
     writer = duckdb.connect(str(source))
     try:
         snapshot_messages = asyncio.run(_request_messages("/league"))
@@ -604,6 +605,7 @@ def test_board_past_its_budget_reports_staleness_while_health_stays_live(monkeyp
     _snapshot_cohort(root)
     publish_snapshot.publish_snapshot(root, source)
     monkeypatch.setattr(server_db, "DEFAULT_DB", source)
+    assert main._warm_generation()
     # A weekend clock past the board budget, with a write the publisher has not caught up with.
     monkeypatch.setitem(server_db.DATASET_GENERATION_MAX_AGE, "board", timedelta(0))
     writer = duckdb.connect(str(source))

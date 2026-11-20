@@ -304,8 +304,9 @@ def findings(data: dict) -> list[dict]:
     for probe in data["probes"]:
         if probe["ms"] > SLOW_PROBE_MS:
             add("probe:" + probe["target"], "response over 10 seconds")
-        if probe["target"] == "/health" and probe["http_status"] != 200:
-            add("probe:/health", "health unavailable", severity=3)
+        if probe["target"] in {"/health", "/ready"} and probe["http_status"] != 200:
+            message = "health unavailable" if probe["target"] == "/health" else "database not ready"
+            add("probe:" + probe["target"], message, severity=3)
     contract = data.get("contract")
     if contract and contract["status"] != "ok":
         for item in contract["violations"]:
@@ -1010,7 +1011,7 @@ def typical_seconds(db: sqlite3.Connection, unit: str, before: str) -> float | N
 
 def probe(fetch: Fetch) -> tuple[list[dict], dict[str, str]]:
     probes, sections = [], {}
-    for target, timeout in (("/health", 5), ("/meta", 30)):
+    for target, timeout in (("/health", 5), ("/ready", 5), ("/meta", 30)):
         status, ms, body = fetch(API_URL + target, timeout)
         probes.append({"target": target, "http_status": status, "ms": ms})
         if target == "/meta" and status == 200:
@@ -1394,10 +1395,11 @@ def collect_hour(
     failed_stages = [row for row in stages if row["exit"] != 0]
     errors = sum(sig.counts["error"] for sig in signals.values())
     warns = sum(sig.counts["warn"] for sig in signals.values())
-    health = next((p for p in probes if p["target"] == "/health"), None)
+    api_unavailable = any(p["target"] in {"/health", "/ready"} and p["http_status"] != 200
+                          for p in probes)
     gateway_status = gateway_report["status"] if gateway_report else "ok"
     if (failed or failed_stages or failed_job_receipts or config_errors
-            or (health and health["http_status"] != 200) or gateway_status == "fail"):
+            or api_unavailable or gateway_status == "fail"):
         status = "FAIL"
     elif errors or warns or degraded or warned_job_receipts or receipt_projection_gaps or (
             gateway_status == "warn") or any(

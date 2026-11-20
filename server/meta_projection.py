@@ -10,7 +10,6 @@ from typing import TypeVar
 
 import duckdb
 
-from engine.lib.snapshots import latest_snapshot
 from engine.lib.util import table_exists
 
 from . import (
@@ -209,7 +208,7 @@ def _price_quarantines(con: duckdb.DuckDBPyConnection) -> dict:
     }
 
 
-def _host_status(data_dir: Path) -> dict:
+def _host_status(data_dir: Path, snapshot_sha256: str | None = None) -> dict:
     return {
         "scheduler": _optional(
             "scheduler",
@@ -239,16 +238,11 @@ def _host_status(data_dir: Path) -> dict:
             "invariants",
             lambda: invariants_status.public_status(
                 data_dir.parent / "logs" / "ops" / "invariants.json",
-                current_sha256=_published_snapshot_sha256(),
+                current_sha256=snapshot_sha256,
             ),
             invariants_status.invalid_status(),
         ),
     }
-
-
-def _published_snapshot_sha256() -> str | None:
-    snapshot = latest_snapshot()
-    return snapshot.sha256 if snapshot is not None else None
 
 
 def _nightly_evidence(
@@ -358,7 +352,7 @@ def project(con: duckdb.DuckDBPyConnection, *, meta_path: Path, data_dir: Path) 
         **_nightly_evidence(con, meta_json, drivers, latest),
         "stale_exposure": exposure_monitor.status(con, latest),
         **_price_quarantines(con),
-        **_host_status(data_dir),
+        **_host_status(data_dir, getattr(getattr(con, "generation_info", None), "sha256", None)),
         "nightly": _public_driver(drivers["nightly"]),
         "weekly_verify": _public_driver(drivers["weekly_verify"]),
         "weekly_sweeps": _public_driver(drivers["weekly_sweeps"]),

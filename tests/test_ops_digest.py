@@ -123,6 +123,41 @@ def _collect(tmp_path, journal, now=NOW):
                               ops_dir=logs / "ops", db_path=tmp_path / "store.duckdb")
 
 
+def test_api_probe_keeps_liveness_and_readiness_separate():
+    calls = []
+
+    def fetch(url, timeout):
+        calls.append((url.removeprefix(ops_digest.API_URL), timeout))
+        return (503, 1, b'{"status":"not ready"}') if url.endswith("/ready") else _fetch(url, timeout)
+
+    probes, sections = ops_digest.probe(fetch)
+    assert calls == [("/health", 5), ("/ready", 5), ("/meta", 30)]
+    assert [p["http_status"] for p in probes] == [200, 503, 200]
+    assert sections["nightly"] == "ok"
+
+
+@pytest.mark.parametrize("http_status", [0, 503])
+def test_database_not_ready_is_a_digest_failure(tmp_path, monkeypatch, http_status):
+    original = _fetch
+
+    def fetch(url, timeout):
+        if url.endswith("/ready"):
+            return http_status, 1, b'{"status":"not ready"}'
+        return original(url, timeout)
+
+    monkeypatch.setitem(globals(), "_fetch", fetch)
+    monkeypatch.setattr(ops_digest, "latest_snapshot", lambda *_a, **_k: None)
+    [hour] = _collect(tmp_path, {})
+    assert hour["status"] == "FAIL"
+    findings = ops_digest.findings({
+        "signals": {}, "runs": [], "failed_runs": 0,
+        "probes": [{"target": "/ready", "http_status": http_status, "ms": 1}],
+    })
+    assert [(item["source"], item["severity"]) for item in findings] == [("probe:/ready", 3)]
+    report = (tmp_path / "logs" / "ops" / "latest.md").read_text()
+    assert "database not ready" in report
+
+
 def test_classify_and_signature():
     assert ops_digest.classify("Traceback (most recent call last):") == "error"
     assert ops_digest.classify("TODO: run_daily failed (stage=collect exit 1)") == "error"

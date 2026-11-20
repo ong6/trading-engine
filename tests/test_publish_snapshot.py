@@ -666,6 +666,7 @@ def test_eight_generation_readers_do_not_contend_with_primary_writer(tmp_path, m
     writer = duckdb.connect(str(source))
     from server import db as server_db  # the API's read path pins generations
     monkeypatch.setattr(server_db, "DEFAULT_DB", source)
+    assert server_db.refresh_generation()
 
     def read_generation(_index):
         with server_db.read_con() as con:

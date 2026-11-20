@@ -386,7 +386,7 @@ def test_meta_uses_complete_snapshot_internally_but_returns_only_summary(
     monkeypatch.setattr(
         meta_projection,
         "_host_status",
-        lambda data_dir: {
+        lambda data_dir, snapshot_sha256=None: {
             "scheduler": {},
             "friday_postflight": {},
             "source_control": {},

@@ -5858,4 +5858,20 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** blocked: orchestrator acceptance needs normal process-lock visibility and a
   decision on the metadata latency boundary during publication verification.
 
+## 2026-11-20 — Serve verified generations while publication verification runs
+
+- **Why:** revision-25 round-two decision; the round-one snapshot-copy race took 10.83 s
+  because request readers still verified inline, and liveness alone hid database readiness.
+- **What:** retain a verified connection and lifetime pin, with independent request cursors;
+  switch only after background verification and keep prior requests pinned until close.
+  Cold data reads return not ready immediately; `/ready` reports the worker's readability
+  result, and its failure gives the digest the same severity as unavailable liveness.
+  Metadata retains every original value and adds served-generation pending fields; its
+  snapshot-copy publication race takes 2.01 s, with health/readiness below 1 ms.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 8` under UTC and Asia/Singapore
+  → 6,783 passed each; the six sandbox-only watchdog failures are accepted by the orchestrator.
+  Focused: 290 passed; corrected accounting/concurrent-reader fixtures: 32 passed per zone.
+- **Metrics:** server +154, tools +2, product 0 LOC versus the round-two initial snapshot.
+- **Next:** orchestrator acceptance and API restart.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

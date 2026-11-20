@@ -215,42 +215,30 @@ class DataSourceHeaderMiddleware:
 GENERATION_POLL_SECONDS = 1.0
 
 
-def _generation_marker() -> tuple | None:
-    """The publisher atomically replaces this symlink when a generation is ready."""
-    try:
-        value = (server_db.db_path().parent / "snapshots" / "market-latest.duckdb").lstat()
-    except OSError:
-        return None
-    return value.st_ino, value.st_mtime_ns, value.st_ctime_ns
-
-
 def _warm_generation() -> bool:
-    """Populate the existing byte-verification cache without changing any read gate."""
+    """Verify and select a readable generation independently of request workers."""
     try:
-        with _connection(read_con):
-            pass
+        return server_db.refresh_generation()
     except Exception:  # A missing/unreadable store must not stop API liveness.
         logging.getLogger(__name__).debug("generation warm failed", exc_info=True)
         return False
-    return True
 
 
-def _warm_generations(stop: Event, verified: tuple | None) -> None:
-    while not stop.wait(GENERATION_POLL_SECONDS):
-        marker = _generation_marker()
-        if marker != verified and _warm_generation():
-            verified = marker
+def _warm_generations(stop: Event) -> None:
+    try:
+        while not stop.is_set():
+            _warm_generation()
+            stop.wait(GENERATION_POLL_SECONDS)
+    finally:
+        server_db.close_generation_reader()
 
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    # The first generation is verified before serving metadata. Later publications are
-    # warmed independently of requests; a request racing verification still validates
-    # normally, so neither incomplete nor previously verified older data is substituted.
-    marker = _generation_marker()
-    warmed = await asyncio.to_thread(_warm_generation)
+    # Start serving liveness immediately. Readers return not ready until the worker
+    # selects a fully verified generation, then retain it during later verification.
     stop = Event()
-    worker = Thread(target=_warm_generations, args=(stop, marker if warmed else None),
+    worker = Thread(target=_warm_generations, args=(stop,),
                     name="generation-warmer", daemon=True)
     worker.start()
     try:
@@ -539,6 +527,10 @@ def _reset_evaluation_cache() -> None:
 
 @app.exception_handler(DBBusyError)
 async def _busy_handler(_request: Request, _exc: DBBusyError):
+    if isinstance(_exc, server_db.DBNotReadyError):
+        return JSONResponse(status_code=503, content={
+            "status": "not ready", "detail": "database not ready: no verified readable generation",
+        })
     return JSONResponse(
         status_code=503,
         content={"detail": "database busy (nightly run?) — retry later"},
@@ -556,6 +548,13 @@ async def health():
     thread pool, snapshot verification or a store lock must leave liveness available.
     """
     return {"ok": True, "status": "ok"}
+
+
+@app.get("/ready")
+async def ready():
+    """Database readiness last observed by the independent generation worker."""
+    state = server_db.readiness()
+    return state if state["ok"] else JSONResponse(status_code=503, content=state)
 
 
 @app.get("/meta")
