@@ -1,10 +1,10 @@
 {
-  "last_run": "2026-11-19T22:34:13.476430+00:00",
+  "last_run": "2026-11-20T22:34:08.003692+00:00",
   "mode": "incremental",
-  "universe_size": 12949,
-  "active_count": 11922,
+  "universe_size": 12954,
+  "active_count": 11924,
   "liquid_count": 4046,
-  "prices_rows": 21576328,
+  "prices_rows": 21580307,
   "tickers_with_data": 12755,
   "stale_tickers": {
     "count": 50,
@@ -61,7 +61,7 @@
       "TCBI"
     ]
   },
-  "failed_this_run": 47,
+  "failed_this_run": 56,
   "sources": {
     "stooq": "blocked",
     "yfinance": "ok"
@@ -69,35 +69,35 @@
   "regime": "risk-off",
   "actions_incremental": {
     "mode": "incremental",
-    "universe": 1317,
+    "universe": 1281,
     "universe_source": "active-held \u222a active-pending \u222a core-ETFs \u222a screen-top-N \u222a split-like-rewrites \u222a liquid-rolling-slice",
-    "pulled_this_run": 1317,
-    "with_actions": 945,
-    "no_actions": 372,
+    "pulled_this_run": 1281,
+    "with_actions": 905,
+    "no_actions": 376,
     "failed_tickers": 0,
-    "rows_written_this_run": 51710,
-    "total_splits": 8903,
-    "total_dividends": 405893,
-    "last_run": "2026-11-19T22:46:20.506067+00:00",
-    "store_gb": 55.94
+    "rows_written_this_run": 48637,
+    "total_splits": 8912,
+    "total_dividends": 406023,
+    "last_run": "2026-11-20T22:45:59.851888+00:00",
+    "store_gb": 56.61
   },
   "disk_warning": null,
   "actions_reconcile": {
-    "candidates": 1,
+    "candidates": 9,
     "rows_restated": 0,
     "outcomes": {
-      "noop_pre_history": 1
+      "skipped_no_bars": 9
     },
-    "warnings": 4,
+    "warnings": 13,
     "no_bars_retry": {
       "eligible": 4,
       "aged_out": 0,
-      "attempted": 3,
+      "attempted": 1,
       "applied": 0,
       "rows_restated": 0
     },
-    "last_run": "2026-11-19T22:46:24.851897+00:00",
-    "store_gb": 55.94
+    "last_run": "2026-11-20T22:46:04.529793+00:00",
+    "store_gb": 56.61
   },
   "price_verify": {
     "last_run": "2026-11-19T22:49:37.402119+00:00",
@@ -361,14 +361,14 @@
     "rows_for_as_of": 2099,
     "store_gb": 55.93
   },
-  "screen_date": "2026-11-19",
-  "last_screen": "2026-11-19T22:46:31.535510+00:00",
-  "passing_count": 320,
-  "new_today_count": 9,
-  "screened": 3842,
+  "screen_date": "2026-11-20",
+  "last_screen": "2026-11-20T22:46:11.068494+00:00",
+  "passing_count": 266,
+  "new_today_count": 10,
+  "screened": 3843,
   "skipped_stale": 38,
   "skipped_phantom": 0,
-  "skipped_short": 154,
+  "skipped_short": 152,
   "universe_policy": "all",
   "excluded_leveraged": 0,
   "screen_metadata_source": "fresh-run",
@@ -496,15 +496,15 @@
     "target_symbols": 4063,
     "limitation": "current-liquid-universe snapshot; survivor-biased and retrieval-time-only; not historical membership or promotion-quality stock-selection evidence",
     "attempts": {
-      "complete": 9596,
-      "empty": 890,
-      "failed": 120,
+      "complete": 9790,
+      "empty": 892,
+      "failed": 124,
       "refused": 19
     },
-    "unresolved_failed_windows": 1,
+    "unresolved_failed_windows": 3,
     "refused_windows": 19,
-    "fact_count": 3506616,
-    "symbols_with_facts": 3908,
+    "fact_count": 3575916,
+    "symbols_with_facts": 3927,
     "symbols_checkpointed": 4060,
     "symbols_unstarted": 3,
     "checkpoint_start": "2023-07-05",
@@ -518,12 +518,12 @@
     "execution_authority": "none",
     "operational_price_mutation": false,
     "attempted_this_run": 50,
-    "completed_this_run": 50,
-    "empty_this_run": 0,
-    "failed_this_run": 0,
+    "completed_this_run": 48,
+    "empty_this_run": 1,
+    "failed_this_run": 1,
     "refused_this_run": 0,
     "through": "2026-11-19",
-    "last_run": "2026-11-19T23:51:01.968491+00:00"
+    "last_run": "2026-11-20T21:48:13.175013+00:00"
   },
   "price_verify_full": {
     "last_run": "2026-11-07T02:40:35.572492+00:00",
