@@ -1023,7 +1023,9 @@ def _api_probe_severity(probe: dict) -> int:
         return 0
     readiness = probe.get("readiness")
     if probe["target"] == "/ready" and readiness is not None:
-        if readiness.get("status") == "pending" and readiness.get("reason") == "pending_timeout":
+        if readiness.get("reason") == "generation_stale" and readiness.get("ok") is True:
+            return 0  # normal outside market hours; the served as_of is reported on /meta
+        if readiness.get("reason") == "pending_timeout" and readiness.get("ok") is True:
             return 1
         if (type(readiness.get("ok")) is not bool or readiness["ok"] is False
                 or readiness.get("status") not in {"current", "ready", "pending"}):

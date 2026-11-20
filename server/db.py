@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from threading import Lock
+from threading import Lock, RLock
 from typing import Iterator
 from weakref import finalize
 
@@ -59,6 +59,12 @@ _WRITE_RETRY_S = 0.25
 # already indicates a stalled worker. A quiet, unchanged primary keeps the existing
 # evidence-budget exception; otherwise the 210-minute evidence budget applies.
 VERIFICATION_PENDING_LIMIT = timedelta(minutes=15)
+# A served generation older than its evidence budget is normal overnight and at weekends
+# (publish-on-change runs only in US market hours), and overdue verification is a warning:
+# both keep readiness ok (HTTP 200) and say so, instead of reporting the database down.
+WARNING_REASONS = frozenset({"generation_stale", "pending_timeout"})
+# One transient verification error retries (with backoff) before readiness fails.
+VERIFICATION_FAILURES_TO_FAIL = 2
 WORKER_HEARTBEAT_LIMIT = timedelta(minutes=5)
 READ_ERROR_WINDOW = timedelta(minutes=5)
 READ_ERROR_LIMIT = 3
@@ -189,7 +195,9 @@ class _GenerationReader:
     """Atomically select verified connections without holding locks during I/O."""
 
     def __init__(self):
-        self._lock = Lock()
+        # Reentrant: a leaked lease's finalizer may run _release on a thread that already
+        # holds the selector lock (garbage collection can run anywhere).
+        self._lock = RLock()
         self._refresh_lock = Lock()
         self._current: _VerifiedGeneration | None = None
         self._pending_id: str | None = None
@@ -331,7 +339,8 @@ class _GenerationReader:
             self._heartbeat_at) else None
         errors = self._recent_errors(generation, now) if generation else 0
         status, reason = ("pending" if pending else "current"), None
-        if self._error_active and self._error_id == self._observed_id:
+        if (self._error_active and self._error_id == self._observed_id
+                and self._failure_count >= VERIFICATION_FAILURES_TO_FAIL):
             status, reason = "verification_failed", "verification_failed"
         elif not generation or not generation.readable:
             status, reason = ("stale" if generation else "not ready"), "not_ready"
@@ -372,7 +381,8 @@ class _GenerationReader:
             state = self._status(current, datetime.now(timezone.utc),
                                  current.pending_publication if current else None)
             info = current.pin.info if current else None
-            return {"ok": state["reason"] is None, **state,
+            return {"ok": state["reason"] is None or state["reason"] in WARNING_REASONS,
+                    "warning": state["reason"] in WARNING_REASONS, **state,
                     "generation_id": info.generation_id if info else None,
                     "as_of": info.as_of.isoformat() if info else None}
 

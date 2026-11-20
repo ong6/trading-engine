@@ -236,6 +236,13 @@ def test_corrupt_publication_degrades_readiness_while_previous_remains_readable(
     with newest.open("r+b") as damaged:
         damaged.write(b"damaged")
     assert main._warm_generation() is False
+    # One failure retries with backoff before readiness fails: still ok, previous served.
+    state = server_db.readiness()
+    assert state["ok"] is True and state["generation_id"] == first_id
+    assert state["status"] == "pending" and state["last_refresh_error"]
+    assert state["pending_verification"] is True
+    server_db._generation_reader._retry_at = None  # skip the backoff wait
+    assert main._warm_generation() is False
     state = server_db.readiness()
     assert state["ok"] is False and state["generation_id"] == first_id
     assert state["status"] == "verification_failed"
@@ -256,7 +263,9 @@ def test_readiness_fails_when_selected_generation_becomes_unreadable(monkeypatch
     newest = (source.parent / "snapshots" / "market-latest.duckdb").resolve()
     newest.rename(newest.with_suffix(".removed"))
     assert main._warm_generation() is False
-    assert server_db.readiness()["ok"] is False
+    assert server_db.readiness()["ok"] is False  # the served generation itself is unreadable
+    server_db._generation_reader._retry_at = None  # skip the backoff wait
+    assert main._warm_generation() is False
 
     async def requests():
         for path in ("/meta", "/ready"):
@@ -270,3 +279,26 @@ def test_readiness_fails_when_selected_generation_becomes_unreadable(monkeypatch
         assert response["status"] == 200 and body["ok"] is True
 
     asyncio.run(requests())
+
+
+def test_stale_and_overdue_generations_warn_without_reporting_the_database_down():
+    reader = server_db._GenerationReader()
+    for reason in ("generation_stale", "pending_timeout"):
+        reader._status = lambda *args, _r=reason, **kw: {"status": "stale" if _r == "generation_stale"
+                                                         else "pending", "reason": _r}
+        state = reader.readiness()
+        assert state["ok"] is True and state["warning"] is True and state["reason"] == reason
+    reader._status = lambda *args, **kw: {"status": "verification_failed",
+                                          "reason": "verification_failed"}
+    state = reader.readiness()
+    assert state["ok"] is False and state["warning"] is False
+
+
+def test_selector_lock_is_reentrant_for_lease_finalizers():
+    reader = server_db._GenerationReader()
+    assert reader._lock.acquire(timeout=1)
+    try:
+        assert reader._lock.acquire(timeout=1)  # a finalizer on the same thread must not deadlock
+        reader._lock.release()
+    finally:
+        reader._lock.release()

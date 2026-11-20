@@ -1700,3 +1700,16 @@ def test_remembered_fail_does_not_invent_a_failure_in_a_silent_hour(tmp_path):
         assert item['alert']
     items, _ = ops_digest.classify_findings(start + timedelta(hours=24), [], state)
     assert items == []
+
+
+@pytest.mark.parametrize("readiness, severity", [
+    ({"ok": True, "status": "stale", "reason": "generation_stale"}, 0),
+    ({"ok": True, "status": "pending", "reason": "pending_timeout"}, 1),
+    ({"ok": True, "status": "pending", "reason": None}, 0),
+    ({"ok": False, "status": "verification_failed", "reason": "verification_failed"}, 3),
+    ({"ok": False, "status": "stale", "reason": "worker_stalled"}, 3),
+])
+def test_ready_probe_severity_follows_readiness_semantics(readiness, severity):
+    probe = {"target": "/ready", "http_status": 200 if readiness["ok"] else 503,
+             "ms": 1, "readiness": readiness}
+    assert ops_digest._api_probe_severity(probe) == severity

@@ -5890,4 +5890,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +180, tools +29, product 0 LOC versus the round-three initial snapshot.
 - **Next:** orchestrator full-suite acceptance and API restart.
 
+## 2026-11-20 — Readiness warns on normal staleness and retries one verification failure
+
+- **Why:** independent review of round 3: a served generation older than the 3.5 h evidence budget is
+  normal overnight and at weekends (publish-on-change runs only in US market hours; 3h53m and 4h05m
+  gaps on 2026-11-20), but readiness returned 503 and the digest would FAIL every night. A single
+  transient verification error also failed readiness at once, and a leased connection's finalizer could
+  deadlock on the non-reentrant selector lock.
+- **What:** `generation_stale` and `pending_timeout` keep `/ready` at 200 with `warning: true`; the
+  digest ignores `generation_stale` (the served `as_of` stays on `/meta`) and warns on `pending_timeout`.
+  `verification_failed` needs two consecutive failures (the retry backoff spaces them by at least 60 s).
+  The selector lock is reentrant.
+- **Evidence:** focused API, database, route, meta and digest tests pass under UTC and Asia/Singapore;
+  new tests pin the warning states, the probe severities and lock reentrancy.
+- **Next:** orchestrator full suite, then deploy with the revision-25 batch.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
