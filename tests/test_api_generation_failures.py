@@ -94,7 +94,7 @@ def test_failed_verification_is_visible_and_warns(generations, caplog):
     assert any(record.levelno >= logging.WARNING for record in caplog.records)
     state = _generation_state()
     assert state["generation_id"] == "generation1"
-    assert state["status"] == "verification_failed"
+    assert state["status"] == "pending"  # one failure retries before readiness fails
     assert state["last_refresh_error"] == "GenerationError"
     assert state["refresh_error_first_at"] == NOW.isoformat()
     assert state["refresh_error_last_at"] == NOW.isoformat()
@@ -105,6 +105,7 @@ def test_failed_verification_is_visible_and_warns(generations, caplog):
     assert state["refresh_error_first_at"] == NOW.isoformat()
     assert state["refresh_error_last_at"] == g.clock.value.isoformat()
     assert state["pending_seconds"] == 60
+    assert state["status"] == "verification_failed"  # second consecutive failure
     response, body = asyncio.run(_get("/ready"))
     assert response["status"] == 503 and body["ok"] is False
     assert body["reason"] == "verification_failed"
@@ -167,6 +168,8 @@ def test_recovered_selected_generation_clears_active_refresh_failure(generations
     monkeypatch.setattr(db, "verified_snapshot_file", lambda _path: None)
     generations.target["fail"] = True
     assert main._warm_generation() is False
+    generations.clock.value += timedelta(minutes=1)  # past the first retry backoff
+    assert main._warm_generation() is False
     assert db.readiness()["status"] == "verification_failed"
     monkeypatch.setattr(db, "verified_snapshot_file", lambda _path: True)
     generations.target["fail"] = False
@@ -185,7 +188,8 @@ def test_pending_timeout_and_worker_heartbeat_degrade_readiness(generations):
     g.clock.value += timedelta(minutes=15, seconds=1)
     g.reader.heartbeat()
     ready = db.readiness()
-    assert ready["ok"] is False and ready["reason"] == "pending_timeout"
+    assert ready["ok"] is True and ready["warning"] is True  # overdue verification warns
+    assert ready["reason"] == "pending_timeout"
     assert ready["status"] == "pending"
     assert ready["pending_seconds"] == 901
 
@@ -206,8 +210,18 @@ def test_existing_evidence_stale_budget_degrades_readiness(generations, monkeypa
     g.clock.value += timedelta(minutes=210, seconds=1)
     assert main._warm_generation()
     state = db.readiness()
-    assert state["ok"] is False and state["reason"] == "generation_stale"
-    assert state["status"] == "stale"
+    # Normal overnight and at weekends: a warning, not the database down.
+    assert state["ok"] is True and state["warning"] is True
+    assert state["reason"] == "generation_stale" and state["status"] == "stale"
+
+
+def test_dead_worker_is_not_masked_by_a_stale_generation(generations, monkeypatch):
+    g = generations
+    monkeypatch.setattr(db, "source_storage_identity", lambda _path: {"source": 2})
+    assert main._warm_generation()
+    g.clock.value += timedelta(minutes=210, seconds=1)  # stale and no heartbeat since
+    state = db.readiness()
+    assert state["ok"] is False and state["reason"] == "worker_stalled"
 
 
 def test_unchanged_primary_keeps_the_existing_quiet_market_exception(generations):
@@ -369,19 +383,20 @@ def test_continuous_readers_see_one_complete_utc_generation(generations, monkeyp
         time.tzset()
 
 
-@pytest.mark.parametrize("status,reason,expected,severity", [
-    ("pending", "pending_timeout", "WARN", 1),
-    ("verification_failed", "verification_failed", "FAIL", 3),
-    ("stale", "generation_stale", "FAIL", 3),
-    ("stale", "worker_stalled", "FAIL", 3),
-    ("stale", "read_errors", "FAIL", 3),
+@pytest.mark.parametrize("ok,status,reason,expected,severity", [
+    (True, "pending", "pending_timeout", "WARN", 1),
+    (False, "verification_failed", "verification_failed", "FAIL", 3),
+    (False, "stale", "worker_stalled", "FAIL", 3),
+    (False, "stale", "read_errors", "FAIL", 3),
+    # An intermediary-mangled warning (ok false) is still treated as a failure.
+    (False, "pending", "pending_timeout", "FAIL", 3),
 ])
-def test_digest_classifies_readiness_status_not_just_http(tmp_path, monkeypatch, status, reason,
-                                                        expected, severity):
+def test_digest_classifies_readiness_status_not_just_http(tmp_path, monkeypatch, ok, status,
+                                                        reason, expected, severity):
     def fetch(url, timeout):
         if url.endswith("/ready"):
             # Semantic failure must be noticed even if an intermediary returns HTTP 200.
-            return 200, 1, json.dumps({"ok": False, "status": status, "reason": reason}).encode()
+            return 200, 1, json.dumps({"ok": ok, "status": status, "reason": reason}).encode()
         return _fetch(url, timeout)
 
     monkeypatch.setattr(ops_digest, "latest_snapshot", lambda *_a, **_k: None)
@@ -392,3 +407,15 @@ def test_digest_classifies_readiness_status_not_just_http(tmp_path, monkeypatch,
     findings = ops_digest.findings({"signals": {}, "runs": [], "failed_runs": 0, "probes": probes})
     ready = next(item for item in findings if item["source"] == "probe:/ready")
     assert ready["severity"] == severity
+
+
+def test_digest_ignores_a_healthy_stale_generation(tmp_path, monkeypatch):
+    def fetch(url, timeout):
+        if url.endswith("/ready"):
+            return 200, 1, json.dumps({"ok": True, "warning": True, "status": "stale",
+                                       "reason": "generation_stale"}).encode()
+        return _fetch(url, timeout)
+
+    probes, _sections = ops_digest.probe(fetch)
+    findings = ops_digest.findings({"signals": {}, "runs": [], "failed_runs": 0, "probes": probes})
+    assert not [item for item in findings if item["source"] == "probe:/ready"]

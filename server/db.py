@@ -344,15 +344,17 @@ class _GenerationReader:
             status, reason = "verification_failed", "verification_failed"
         elif not generation or not generation.readable:
             status, reason = ("stale" if generation else "not ready"), "not_ready"
-        elif (now - generation.pin.info.as_of > DATASET_GENERATION_MAX_AGE["evidence"]
-              and primary_pending is not False):
-            status, reason = "stale", "generation_stale"
         elif heartbeat_age is None or heartbeat_age > WORKER_HEARTBEAT_LIMIT.total_seconds():
             status, reason = "stale", "worker_stalled"
         elif errors >= READ_ERROR_LIMIT:
             status, reason = "stale", "read_errors"
         elif pending_seconds > VERIFICATION_PENDING_LIMIT.total_seconds():
             reason = "pending_timeout"
+        # Last: a stale-but-healthy generation is only a warning, so it must never mask a dead
+        # worker, read failures or overdue verification above.
+        elif (now - generation.pin.info.as_of > DATASET_GENERATION_MAX_AGE["evidence"]
+              and primary_pending is not False):
+            status, reason = "stale", "generation_stale"
         return {
             "status": status, "reason": reason,
             "pending_verification": pending is not None, "pending_generation_id": pending,

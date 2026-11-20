@@ -5900,7 +5900,8 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **What:** `generation_stale` and `pending_timeout` keep `/ready` at 200 with `warning: true`; the
   digest ignores `generation_stale` (the served `as_of` stays on `/meta`) and warns on `pending_timeout`.
   `verification_failed` needs two consecutive failures (the retry backoff spaces them by at least 60 s).
-  The selector lock is reentrant.
+  The selector lock is reentrant. The stale check runs last, so a dead worker, read errors or
+  overdue verification are never masked by the stale warning (follow-up review).
 - **Evidence:** focused API, database, route, meta and digest tests pass under UTC and Asia/Singapore;
   new tests pin the warning states, the probe severities and lock reentrancy.
 - **Next:** orchestrator full suite, then deploy with the revision-25 batch.
