@@ -12,11 +12,16 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import selectors
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+from server import driver_log
+from tools import driver_watchdog
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DRIVERS = sorted(p.name for p in (REPO_ROOT / "engine").glob("run_*.sh"))
@@ -404,3 +409,90 @@ def test_appended_logs_vs_truncated_nightly(fake_repo):
     daily = next((fake_repo / "logs").glob("run-*.log")).read_text()
     assert liquid.count("=== run_weekly_liquid ") == 2  # tee -a
     assert daily.count("=== run_daily ") == 1  # tee (truncate)
+
+
+@pytest.mark.parametrize("observe_status", [False, True], ids=["locks", "digest"])
+def test_snapshot_releases_producer_lock_after_capture_keeps_run_guard(
+    fake_repo, monkeypatch, observe_status,
+):
+    """Parent shell and tee inherit fd 9: closing only the body fd cannot unlock it."""
+    ready_read, ready_write = os.pipe()
+    command_read, command_write = os.pipe()
+    publisher = fake_repo / "publisher.py"
+    publisher.write_text('''import fcntl, os, sys
+from pathlib import Path
+lock = Path('.nightly.lock').open('a')
+if '--held-lock' not in sys.argv:
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+ready = int(os.environ['READY_FD'])
+command = int(os.environ['COMMAND_FD'])
+os.write(ready, b'C')
+assert os.read(command, 1) == b'C'
+lock.close()
+os.write(ready, b'T')
+assert os.read(command, 1) == b'T'
+''')
+    py = fake_repo / ".venv/bin/python"
+    py.write_text(FAKE_PY.replace('echo "$*" >>', '''if [[ "$*" == *tools.publish_snapshot* ]]; then
+  exec "${REAL_PY}" "${PUBLISHER}" "$@"
+fi
+echo "$*" >>'''))
+    env = dict(os.environ, FAKE_ARGV_LOG=str(fake_repo / "argv.log"),
+               REAL_PY=sys.executable, PUBLISHER=str(publisher),
+               READY_FD=str(ready_write), COMMAND_FD=str(command_read))
+    process = subprocess.Popen(
+        ["bash", str(fake_repo / "engine/run_daily.sh")], cwd=fake_repo,
+        env=env, pass_fds=(ready_write, command_read), stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True,
+    )
+    os.close(ready_write)
+    os.close(command_read)
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(ready_read, selectors.EVENT_READ)
+            assert selector.select(15), "publisher did not enter capture"
+            assert os.read(ready_read, 1) == b"C"
+            with (fake_repo / ".nightly.lock").open("a") as taker:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(taker, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                os.write(command_write, b"C")
+                assert selector.select(15), "publisher did not finish capture"
+                assert os.read(ready_read, 1) == b"T"
+                fcntl.flock(taker, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(taker, fcntl.LOCK_UN)
+            rc, out, argv = run_driver(fake_repo, "run_daily.sh")
+            assert rc == 1 and "lock held" in out and not argv
+            manifest = {"cron": [{"name": "run_daily", "state": "enabled",
+                                  "match": "{engine}/engine/run_daily.sh",
+                                  "max_runtime": "6h"}]}
+            driver = driver_watchdog.drivers(manifest, fake_repo)[0]
+            assert driver["run_lock"] == fake_repo / ".nightly.running.lock"
+            with driver["run_lock"].open("a") as guard:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                metadata = os.fstat(guard.fileno())
+                guard_identity = (f"{os.major(metadata.st_dev):02x}:"
+                                  f"{os.minor(metadata.st_dev):02x}:{metadata.st_ino}")
+            # Model the kernel record here; PID-sandbox /proc omits inherited shell locks.
+            monkeypatch.setattr(driver_log, "_lock_table_contains",
+                                lambda identity: identity == guard_identity)
+            if observe_status:
+                status = driver_log.driver_status(
+                    next((fake_repo / "logs").glob("run-*.log")),
+                    lock_path=fake_repo / ".nightly.lock",
+                )
+                assert status["status"] == "running"
+            os.write(command_write, b"T")
+        output, _ = process.communicate(timeout=15)
+        assert process.returncode == 0 and "=== done " in output
+        status = driver_log.driver_status(next((fake_repo / "logs").glob("run-*.log")),
+                                          lock_path=fake_repo / ".nightly.lock")
+        assert status["status"] == "ok"
+        with driver["run_lock"].open("a") as guard:
+            fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        os.close(command_write)
+        os.close(ready_read)
+        if process.poll() is None:
+            process.kill()
+        process.communicate(timeout=15)

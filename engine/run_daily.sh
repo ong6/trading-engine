@@ -205,7 +205,11 @@ body() {
   fi
 
   stage snapshot
-  "${PY}" -m tools.publish_snapshot --held-lock .nightly.lock \
+  # Unlock the shared open-file description: the parent and tee also have fd 9.
+  # The publisher owns all producer locks only during capture; fd 6 keeps this
+  # driver running through publication, verification, retention and === done.
+  flock -u 9
+  "${PY}" -m tools.publish_snapshot \
     || echo "WARN: read-only snapshot publication failed; nightly outputs remain complete"
 
 }

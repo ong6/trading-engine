@@ -86,6 +86,37 @@ def test_an_orphan_keeping_the_lock_is_terminated_with_its_run(engine):
     assert not driver_watchdog.lock_holders(PROC, engine / ".test.lock")
 
 
+def test_watchdog_observes_snapshot_tail_and_defers_catch_up(engine, monkeypatch):
+    """An unlocked producer lock does not make a driver with its run guard idle."""
+    script = engine / "engine/run_test.sh"
+    script.write_text("DRIVER_LOCK=.test.lock\n")
+    guard = engine / ".test.running.lock"
+    guard.touch()
+    (engine / ".test.lock").touch()
+    proc = engine / "proc"
+    pid = 123456789
+    (proc / str(pid) / "fd").mkdir(parents=True)
+    (proc / str(pid) / "fd/6").symlink_to(guard)
+    (proc / str(pid) / "cmdline").write_bytes(f"bash\0{script}\0".encode())
+    fields = ["S", "0", str(pid), str(pid)] + ["0"] * 18
+    (proc / str(pid) / "stat").write_text(f"{pid} (bash) " + " ".join(fields))
+    now = datetime.now(UTC)
+    (proc / "stat").write_text(f"btime {int((now - LATER).timestamp())}\n")
+    import os
+    info = guard.stat()
+    identity = f"{os.major(info.st_dev):02x}:{os.minor(info.st_dev):02x}:{info.st_ino}"
+    (proc / "locks").write_text(f"1: FLOCK ADVISORY WRITE {pid} {identity} 0 EOF\n")
+    receipts = driver_watchdog.check(engine, proc=proc, now=now, act=False,
+                                     sample_seconds=0, sleep=lambda _seconds: None)
+    assert receipts[0]["root"] == pid and receipts[0]["action"] == "dry-run"
+    assert not driver_watchdog.lock_is_held(proc, engine / ".test.lock")
+    checks = []
+    monkeypatch.setattr(driver_watchdog, "advance_catch_up",
+                        lambda _engine, _now, _state, busy, _record: checks.append(busy()))
+    driver_watchdog.check(engine, proc=proc, now=now - LATER, act=True)
+    assert checks == [True]
+
+
 def test_an_unconfirmed_stall_expires(engine):
     process = _start(engine, STALLED)
     try:

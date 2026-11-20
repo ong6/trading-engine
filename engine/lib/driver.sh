@@ -16,8 +16,8 @@
 #
 # Sourcing performs, in this order and exactly as the drivers used to inline:
 #   1. REPO_ROOT resolved from THIS file's location (engine/lib -> repo), cd there.
-#   2. Overlap guard: non-blocking flock on fd 9 over ${REPO_ROOT}/${DRIVER_LOCK};
-#      held -> print DRIVER_LOCK_MSG, exit 1.
+#   2. Run overlap guard on fd 6 (${DRIVER_LOCK%.lock}.running.lock), then the producer
+#      lock on fd 9 (${DRIVER_LOCK}); held -> print DRIVER_LOCK_MSG, exit 1.
 #   3. PY=<repo>/.venv/bin/python, PYTHONUNBUFFERED=1 (keeps the tee'd log and
 #      cron.log live), mkdir -p logs, LOG=logs/<prefix>-$(date +%F).log.
 #   4. Stage breadcrumb state file (when DRIVER_STAGE_FILE is set): the tee'd
@@ -50,8 +50,17 @@ DRIVER_TIMINGS_FILE="${DRIVER_TIMINGS_FILE:-logs/stage-timings.jsonl}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-# Overlap guard: refuse to start if a prior run of this driver is still alive.
-# Non-blocking flock on fd 9 covers the whole script body.
+# The run guard lasts through the snapshot tail and the done/failure marker. It
+# never joins the publisher's capture locks: a second driver cannot overwrite
+# logs/stage state while P15 and other writers may use the captured store.
+exec 6>"${REPO_ROOT}/${DRIVER_LOCK%.lock}.running.lock"
+if ! flock -n 6; then
+  echo "ERROR: ${DRIVER_LOCK_MSG}"
+  exit 1
+fi
+
+# Producer lock: publishing drivers explicitly unlock fd 9 before capture.
+# The run guard above still covers the whole script body.
 exec 9>"${REPO_ROOT}/${DRIVER_LOCK}"
 if ! flock -n 9; then
   echo "ERROR: ${DRIVER_LOCK_MSG}"

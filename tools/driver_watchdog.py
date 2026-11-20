@@ -6,7 +6,7 @@ store for five days; every later nightly aborted and the timers that need the st
 
 `trading-engine-driver-watchdog.timer` runs this every ten minutes. For each enabled driver in
 the schedule contract it finds the driver script's own process (an open descriptor on the
-driver lock and the script path on its command line) and the processes descended from it. Other
+driver run guard and the script path on its command line) and the processes descended from it. Other
 processes that merely have the lock open, such as services waiting for it or the API probing
 it, are never part of a run and are never signalled. A run is a candidate when it has outlived
 its contract `max_runtime` and used under `STALL_CPU_SHARE` of one CPU over a sampling interval,
@@ -179,8 +179,12 @@ def drivers(manifest: dict, engine: Path) -> list[dict]:
         script = engine / match.group(1)
         lock = re.search(r"^DRIVER_LOCK=(\S+)$", script.read_text(), re.MULTILINE)
         if lock:
+            producer_lock = engine / lock.group(1)
+            run_lock = producer_lock.with_suffix(".running.lock")
             found.append({"name": entry["name"], "script": script,
-                          "lock": engine / lock.group(1), "limit": limit})
+                          "lock": producer_lock,
+                          "run_lock": run_lock if run_lock.exists() else producer_lock,
+                          "limit": limit})
     return found
 
 
@@ -370,7 +374,7 @@ def check(engine: Path, *, proc: Path = Path("/proc"), now: datetime | None = No
     found = drivers(manifest, engine)
     for driver in found:
         forms = _forms(driver["script"])
-        roots = [pid for pid in lock_holders(proc, driver["lock"])
+        roots = [pid for pid in lock_holders(proc, driver["run_lock"])
                  if pid not in me and any(form in _cmdline(proc, pid) for form in forms)]
         roots = [pid for pid in roots if _alive(proc, pid)]
         if not roots:  # idle, or a deploy or tool holds the lock: never a run to touch
@@ -423,7 +427,7 @@ def check(engine: Path, *, proc: Path = Path("/proc"), now: datetime | None = No
         receipt["stacks"] = _stacks(proc, sorted(members), engine / "logs/driver-watchdog"
                                     / f"{stamp}-{driver['name']}.txt")
         record({**receipt, "status": "failed", "action": "terminating", "reason": reason})
-        survivors = _terminate(proc, root, forms, members, int(fields[3]), driver["lock"],
+        survivors = _terminate(proc, root, forms, members, int(fields[3]), driver["run_lock"],
                                sleep=sleep)
         stalls.pop(driver["name"], None)
         if driver["name"] == CATCH_UP_DRIVER:
@@ -436,10 +440,11 @@ def check(engine: Path, *, proc: Path = Path("/proc"), now: datetime | None = No
         record({"at": now.isoformat(), "driver": driver["name"], "root": root,
                 "status": "failed", "action": "terminated", "survivors": survivors,
                 "reset_failed": cleared,
-                "lock_still_held": lock_is_held(proc, driver["lock"])})
+                "lock_still_held": any(lock_is_held(proc, driver[key])
+                                       for key in ("lock", "run_lock"))})
 
     if act:
-        locks = [driver["lock"] for driver in found]
+        locks = {driver[key] for driver in found for key in ("lock", "run_lock")}
         advance_catch_up(engine, now, state,
                          lambda: any(lock_is_held(proc, lock) for lock in locks), record)
         _save_state(state_path, state)

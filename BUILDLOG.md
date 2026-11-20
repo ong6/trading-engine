@@ -5841,5 +5841,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
   → 252 pass; restored/new checks fail on the preceding head. Ruff and metrics budget pass.
 - **Metrics:** session server +1, tools +54, product unchanged LOC.
 - **Next:** orchestrator updates the local overlay and runs full acceptance before deployment.
+## 2026-11-20 — Hand snapshot capture lock ownership to the publisher
+
+- **Why:** revision-25 snapshot brief; `pytest -q -n 0 tests/test_drivers.py::test_snapshot_releases_producer_lock_after_capture_keeps_run_guard` fails on main with `BlockingIOError` after capture: the driver parent and tee still hold fd 9.
+- **What:** explicitly unlock the shared fd 9 before publishing; the publisher acquires producer locks only for capture. A separate running lock excludes overlapping drivers through the done marker, and the watchdog observes that guard and defers catch-up.
+  The digest reader is outside the authorized scope and still reports the tail interrupted; its proposed guard-reader change remains blocked on scope approval. Weekly drivers have no held-lock publisher invocation.
+- **Evidence:** `pytest -q -n 0 'tests/test_drivers.py::test_snapshot_releases_producer_lock_after_capture_keeps_run_guard[locks]' tests/test_driver_watchdog.py::test_watchdog_observes_snapshot_tail_and_defers_catch_up` → two passed; the digest variant fails until its reader changes.
+- **Metrics:** lane delta: server 0, tools +5, product 0 LOC; tests +123.
+- **Next:** orchestrator admits the status-reader change and completes capture rehearsal with enough free space.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
