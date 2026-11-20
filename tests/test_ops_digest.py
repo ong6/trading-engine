@@ -35,6 +35,7 @@ REAL_INVARIANTS_PROBE = ops_digest.invariants_probe
 @pytest.fixture(autouse=True)
 def _no_host_units(tmp_path, monkeypatch):
     monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", tmp_path / "no-units")
+    monkeypatch.setattr(ops_digest.schedule_contract, "OVERLAY_PATH", tmp_path / "no-overlay")
     monkeypatch.setattr(ops_digest, "HOST_LOG_GLOBS", ())
     monkeypatch.setattr(ops_digest, "contract_probe", lambda _now: CONTRACT_OK)
     monkeypatch.setattr(ops_digest, "invariants_probe", lambda _ops_dir: INVARIANTS_IDLE)
@@ -74,6 +75,9 @@ def _fake_run(journal: dict[str, str]):
             return "".join(f"x x x x x x x {u[:-8]}.timer {u}\n" for u in journal)
         if args[:3] == ["systemctl", "--user", "list-units"]:
             return "dbus.service loaded active running D-Bus\n"
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return "\n\n".join("Id=" + name for name in args
+                                  if name.endswith((".service", ".timer"))) + "\n"
         if args[0] == "journalctl":
             if "--list-boots" in args:
                 return "0 boot Sat 2026-10-10 00:00:00 UTC—Sat 2026-10-10 03:00:00 UTC"
@@ -130,6 +134,190 @@ def test_classify_and_signature():
         "job # took #.#s at <hex>")
 
 
+def test_unrelated_project_failure_does_not_fail_the_digest(tmp_path):
+    unit = "botmux-watchdog.service"
+    [hour] = _collect(tmp_path, {unit: _journal(unit, exit_code=1)})
+    assert hour["status"] == "OK"
+    assert "| botmux-watchdog |" not in hour["text"]
+    with sqlite3.connect(tmp_path / "logs/ops/ops.sqlite") as db:
+        assert db.execute("SELECT COUNT(*) FROM unit_runs").fetchone()[0] == 0
+
+
+def test_declared_local_dependency_failure_still_fails_the_digest(tmp_path, monkeypatch):
+    path = tmp_path / "overlay.json"
+    unit = "extra-backup.service"
+    path.write_text(json.dumps({"version": 1, "units": [{
+        "unit": unit, "owner": "operator", "reason": "engine backup dependency",
+        "state": "enabled", "activation": "manual", "max_runtime": "5min",
+        "store": {"access": "none"}}]}))
+    path.chmod(0o600)
+    monkeypatch.setattr(ops_digest.schedule_contract, "OVERLAY_PATH", path)
+    [hour] = _collect(tmp_path, {unit: _journal(unit, exit_code=1)})
+    assert hour["status"] == "FAIL"
+    assert unit.removesuffix(".service") in hour["text"]
+
+
+def test_history_report_excludes_foreign_units_and_keeps_engine_failures(tmp_path):
+    with closing(ops_digest.open_db(tmp_path)) as db:
+        for unit in ("botmux-watchdog.service", "trading-engine-p15-scoring.service"):
+            db.execute("INSERT INTO unit_runs (unit,started,ended,seconds,exit_code,result) "
+                       "VALUES (?, '2026-10-10T02:30:00Z', '2026-10-10T02:40:00Z',600,1,"
+                       "'exit-code')", (unit,))
+            db.execute("INSERT INTO signatures VALUES ('2026-10-10T02',?,'error','failed',1)",
+                       ("unit:" + unit,))
+        foreign = ops_digest.Schedule("botmux-watchdog", "timer interval", None,
+                                      unit="botmux-watchdog.service")
+        db.execute("INSERT INTO meta VALUES ('schedule_samples', ?)", (json.dumps([
+            {"at": "2026-10-10T02:00:00Z", "items": [ops_digest._schedule_data(foreign)]}]),))
+        db.commit()
+    report = ops_digest.report(24, tmp_path, now=NOW, run=_fake_run({}),
+                               db_path=tmp_path / "absent.duckdb")
+    assert "botmux" not in report
+    assert "trading-engine-p15-scoring.service at 2026-10-10T02:30:00Z" in report
+    assert "exit-code, exit 1" in report
+
+
+def test_discovery_keeps_an_engine_command_under_an_unfamiliar_unit_name(tmp_path, monkeypatch):
+    units = tmp_path / "units"
+    units.mkdir()
+    for name in ("scratch-capture.service", "another-project.service"):
+        (units / name).write_text("[Service]\n")
+    monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", units)
+
+    def run(args, _timeout):
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return ("Id=scratch-capture.service\nWorkingDirectory=/srv/engine-lanes/test\n\n"
+                    "Id=another-project.service\nWorkingDirectory=/srv/another-project\n")
+        return ""
+
+    assert ops_digest.discover_units(run) == ["scratch-capture.service"]
+
+
+def _workspace_run(unit, journal):
+    ordinary = _fake_run(journal)
+
+    def run(args, timeout):
+        if args[:3] == ["systemctl", "--user", "show"]:
+            names = [name for name in args if name.endswith((".service", ".timer"))]
+            return "\n\n".join("Id=" + name + (
+                "\nWorkingDirectory=/srv/engine-lanes/study" if name == unit else "")
+                for name in names) + "\n"
+        return ordinary(args, timeout)
+
+    return run
+
+
+def test_command_owned_unit_keeps_chronic_history_in_silent_hours_and_reports(tmp_path, monkeypatch):
+    unit = "study_run.service"
+    units = tmp_path / "units"
+    units.mkdir()
+    (units / unit).write_text("[Service]\n")
+    monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", units)
+    logs = tmp_path / "logs"
+    paths = dict(logs_dir=logs, ops_dir=logs / "ops", db_path=tmp_path / "absent.duckdb")
+    for h in range(6):
+        moment = NOW + timedelta(hours=h)
+        raw = _entry((moment - timedelta(minutes=50)).isoformat(), "WARN: study data unavailable")
+        ops_digest.collect(now=moment, run=_workspace_run(unit, {unit: raw}), fetch=_fetch, **paths)
+    ops_digest.collect(now=NOW + timedelta(hours=6), run=_workspace_run(unit, {}), fetch=_fetch,
+                       **paths)
+    state = json.loads((logs / "ops" / ops_digest.FINDING_STATE).read_text())
+    assert any(row["source"] == "unit:" + unit for row in state["items"].values())
+    report = ops_digest.report(24, logs / "ops", now=NOW + timedelta(hours=7),
+                               run=_workspace_run(unit, {}), db_path=paths["db_path"])
+    assert "unit:study_run.service: `WARN: study data unavailable`" in report
+
+
+def test_failed_unit_metadata_probe_always_warns_in_the_digest(tmp_path):
+    unit = "trading-engine-sample.service"
+    ordinary = _fake_run({unit: ""})
+
+    def failed_show(args, timeout):
+        return None if args[:3] == ["systemctl", "--user", "show"] else ordinary(args, timeout)
+
+    logs = tmp_path / "logs"
+    for h in range(8):
+        [hour] = ops_digest.collect(now=NOW + timedelta(hours=h), run=failed_show, fetch=_fetch,
+                                   logs_dir=logs, ops_dir=logs / "ops",
+                                   db_path=tmp_path / "absent.duckdb")
+        assert hour["status"] == "WARN"
+        assert "unit discovery" in hour["text"].lower()
+        assert "systemctl show" in hour["text"]
+
+
+def test_ignored_wrapper_units_are_named_in_the_digest(tmp_path):
+    unit = "new-wrapper.service"
+    [hour] = _collect(tmp_path, {unit: ""})
+    assert "Ignored units:" in hour["text"]
+    assert unit in hour["text"].split("Ignored units:", 1)[1].split("\n", 1)[0]
+
+
+def test_loaded_overlay_dependencies_are_visible_and_removed_declarations_stop_monitoring(
+        tmp_path, monkeypatch):
+    path = tmp_path / "overlay.json"
+    entry = {"unit": "notes-sync.service", "owner": "operator", "reason": "monitored sync",
+             "state": "enabled", "activation": "manual", "max_runtime": "5min",
+             "store": {"access": "none"}}
+    path.write_text(json.dumps({"version": 1, "units": [entry]}))
+    path.chmod(0o600)
+    monkeypatch.setattr(ops_digest.schedule_contract, "OVERLAY_PATH", path)
+    [hour] = _collect(tmp_path, {entry["unit"]: _journal(entry["unit"], exit_code=1)})
+    assert hour["status"] == "FAIL"
+    assert "Local overlay dependencies: notes-sync.service" in hour["text"]
+    path.write_text(json.dumps({"version": 1, "units": []}))
+    [hour] = _collect(tmp_path, {entry["unit"]: ""}, now=NOW + timedelta(hours=1))
+    assert "Local overlay dependencies:" not in hour["text"]
+    assert entry["unit"] in hour["text"].split("Ignored units:", 1)[1].split("\n", 1)[0]
+
+
+def test_partial_unit_metadata_response_warns(tmp_path):
+    unit = "trading-engine-sample.service"
+    ordinary = _fake_run({unit: ""})
+
+    def incomplete(args, timeout):
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return "Id=dbus.service\n"
+        return ordinary(args, timeout)
+
+    logs = tmp_path / "logs"
+    [hour] = ops_digest.collect(now=NOW, run=incomplete, fetch=_fetch, logs_dir=logs,
+                               ops_dir=logs / "ops", db_path=tmp_path / "absent.duckdb")
+    assert hour["status"] == "WARN"
+    assert "systemctl show omitted units" in hour["text"]
+
+
+def test_off_hours_publish_is_informational_but_a_busy_producer_still_warns():
+    payload = {"status": "skipped", "snapshot": "market-20261120.duckdb",
+               "as_of": "2026-11-20T07:52:03+00:00", "reason": (
+                   "outside weekday US market hours: publish-on-change publishes only "
+                   "09:30-16:00 New York; the nightly and the P15 jobs publish themselves")}
+    assert ops_digest.classify(json.dumps(payload)) is None
+    payload["reason"] = "producer active: database is locked"
+    assert ops_digest.classify(json.dumps(payload)) == "warn"
+
+
+def test_fixed_noise_does_not_return_as_a_daily_chronic_reminder(tmp_path):
+    state = tmp_path / "finding-state.json"
+    messages = [("unit:botmux-watchdog.service", "run over 3 times typical duration"),
+                ("contract:botmux-watchdog.service", "unbounded"),
+                ("unit:trading-engine-publish-on-change.service", '{"reason": "outside '
+                 'weekday US market hours: publish-on-change publishes only #:#-#:#", '
+                 '"status": "skipped"}')]
+    items = [{"key": json.dumps([source, message]), "source": source, "message": message,
+              "count": 1, "severity": 1} for source, message in messages]
+    # Seed the state written by the previous code, including its chronic flags.
+    rows = {i["key"]: {**i, "first_seen": "2026-10-09T00:00:00Z",
+            "last_seen": "2026-10-09T06:00:00Z", "stable_since": "2026-10-09T00:00:00Z",
+            "reminded_day": "2026-10-09", "seen_hours": ["2026-10-09T06:00:00Z"],
+            "chronic": True} for i in items}
+    state.write_text(json.dumps({"version": 2, "items": rows}))
+    data = {"status": "OK", "signals": {}, "runs": [], "probes": [], "failed_runs": 0,
+            "gaps": []}
+    ops_digest.apply_finding_history(NOW, data, state)
+    assert data["status"] == "OK"
+    assert data["findings"] == []
+
+
 def test_parse_journal_pairs_runs_and_classifies_output():
     unit = "trading-engine-p15-scoring.service"
     signals = ops_digest.SourceSignals()
@@ -155,7 +343,7 @@ def test_parse_journal_closes_run_started_in_earlier_hour():
     ("killed", 15, "success"), ("killed", 15, "signal"),
     ("exited", 1, "exit-code"), ("exited", 75, "success")])
 def test_systemd_result_and_termination_survive_storage(tmp_path, kind, code, result):
-    unit = "sample.service"
+    unit = "trading-engine-sample.service"
     finish = (f"{unit}: Succeeded." if result == "success" else
               f"{unit}: Failed with result '{result}'.")
     raw = "\n".join([
@@ -216,7 +404,7 @@ def test_collect_writes_digest_and_metrics(tmp_path):
     assert "| run_daily | collect | 02:02:30 | 2m30s | 0 |" in text
     assert "10 → 0 | 2.0KiB → 0B | 1.250s → 0s" in text
     assert "price_verification=issues" in text
-    assert "dbus" not in text
+    assert "| dbus |" not in text
     with closing(sqlite3.connect(logs / "ops" / "ops.sqlite")) as db:
         _check_metrics(db)
     report = ops_digest.report(24, logs / "ops", now=NOW, run=_fake_run({}),
@@ -614,17 +802,17 @@ def _schedule_run(tmp_path):
     shown = (
         f"Unit={preopen}.service\nTimersCalendar={{ OnCalendar=Mon..Fri *-*-* 09:05:00 "
         "America/New_York ; next_elapse=Mon 2026-10-19 13:05:00 UTC }\nAccuracyUSec=1min\n"
-        "RandomizedDelayUSec=0\n\nUnit=store-sync.service\nTimersMonotonic={ "
+        "RandomizedDelayUSec=0\n\nUnit=te-autopush.service\nTimersMonotonic={ "
         "OnUnitActiveUSec=15min ; next_elapse=5min }\nAccuracyUSec=1min\nRandomizedDelayUSec=0\n")
     crontab = (
         "MAILTO=nobody\n@reboot /x/ensure.sh\n"
-        "30 22 * * 1-5 /x/engine/run_daily.sh >> /x/logs/cron.log 2>&1\n"
-        f"15 5 * * 6 cd /x && python -m tools.postflight > {tmp_path}/friday-postflight.log 2>&1\n")
+        f"30 22 * * 1-5 {Path.home()}/trading-engine/engine/run_daily.sh >> /x/logs/cron.log 2>&1\n"
+        f"15 5 * * 6 cd {Path.home()}/trading-engine && python -m tools.postflight > {tmp_path}/friday-postflight.log 2>&1\n")
 
     def run(args, _timeout):
         if args[:3] == ["systemctl", "--user", "list-timers"]:
             return (f"n/a n/a n/a n/a {preopen}.timer {preopen}.service\n"
-                    "n/a n/a n/a n/a store-sync.timer store-sync.service\n")
+                    "n/a n/a n/a n/a te-autopush.timer te-autopush.service\n")
         if args[:3] == ["systemctl", "--user", "show"]:
             return shown
         return crontab if args == ["crontab", "-l"] else None
@@ -648,7 +836,7 @@ def test_report_lists_every_run_and_stage_against_the_schedules(tmp_path):
              "2026-10-14T13:05:59Z", 1.0, 1, "exit-code"),
             ("trading-engine-p15-preopen.service", "2026-10-16T13:05:07Z",
              "2026-10-16T13:05:17Z", 10.0, 0, "success"),
-            ("store-sync.service", "2026-10-16T13:00:00Z", "2026-10-16T13:00:03Z", 3.0, 0,
+            ("te-autopush.service", "2026-10-16T13:00:00Z", "2026-10-16T13:00:03Z", 3.0, 0,
              "success")])
         db.executemany(
             "INSERT INTO stage_runs (run_id, stage, driver, started, ended, seconds, exit_code) "
@@ -677,7 +865,7 @@ def test_report_lists_every_run_and_stage_against_the_schedules(tmp_path):
     assert "| run_daily | `cron 30 22 * * 1-5` | 3 | 2 | 1 | 0 | 1 | 0 |" in report
     assert ("| friday-postflight | `cron 15 5 * * 6` | 1 | 1 | 0 | 0 | 0 | "
             "0 | 10-17 05:16Z output written |") in report
-    assert "| store-sync | `timer OnUnitActiveUSec=15min` | ? | 1 | 0 | 0 | ? | schedule unknown |" in report
+    assert "| te-autopush | `timer OnUnitActiveUSec=15min` | ? | 1 | 0 | 0 | ? | schedule unknown |" in report
     assert "- run_daily 10-14 22:30Z, 53m00s: collect 4m00s · snapshot 1m00s" in report
     assert "- run_daily 10-16 22:30Z, 1m02s: collect 1m00s exit 1" in report
 
@@ -685,11 +873,11 @@ def test_report_lists_every_run_and_stage_against_the_schedules(tmp_path):
 def test_installed_services_are_discovered_without_a_timer(tmp_path, monkeypatch):
     units = tmp_path / "units"
     units.mkdir()
-    (units / "report-after-settle.service").write_text("[Service]\n")
+    (units / "trading-engine-report-after-settle.service").write_text("[Service]\n")
     (units / "template@.service").write_text("[Service]\n")
     monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", units)
 
-    assert ops_digest.discover_units(_fake_run({})) == ["report-after-settle.service"]
+    assert ops_digest.discover_units(_fake_run({})) == ["trading-engine-report-after-settle.service"]
 
 
 def test_current_schedule_does_not_invent_missing_unobserved_history(tmp_path):
@@ -705,17 +893,18 @@ def test_registry_schedule_audit_flags_only_undocumented_engine_schedules():
     def run(args, _timeout):
         if args[:3] == ["systemctl", "--user", "list-timers"]:
             return ("x trading-engine-rogue.timer trading-engine-rogue.service\n"
-                    "x store-sync.timer store-sync.service\n")
+                    "x te-autopush.timer te-autopush.service\n")
         if args[:3] == ["systemctl", "--user", "show"]:
             return (
                 "Unit=trading-engine-rogue.service\n"
                 "TimersCalendar={ OnCalendar=*-*-* 00:00:00 UTC ; }\n"
                 "AccuracyUSec=1min\nRandomizedDelayUSec=0\n\n"
-                "Unit=store-sync.service\nTimersMonotonic={ OnUnitActiveUSec=15min ; }\n"
+                "Unit=te-autopush.service\nTimersMonotonic={ OnUnitActiveUSec=15min ; }\n"
                 "AccuracyUSec=1min\nRandomizedDelayUSec=0\n"
             )
         if args == ["crontab", "-l"]:
-            return "0 0 * * * /x/engine/run_rogue.sh >> /x/logs/rogue.log 2>&1\n"
+            return (f"0 0 * * * {Path.home()}/trading-engine/engine/run_rogue.sh "
+                    ">> /x/logs/rogue.log 2>&1\n")
         return ""
 
     assert ops_digest.registry_schedule_audit(run) == [
@@ -889,7 +1078,7 @@ def test_structured_snapshot_throttle_is_a_valid_noop():
 
 @pytest.mark.parametrize("code,kind", [(15, "killed"), (75, "exited")])
 def test_success_in_next_hour_preserves_actual_termination(tmp_path, code, kind):
-    unit = "sample.service"
+    unit = "trading-engine-sample.service"
     with closing(ops_digest.open_db(tmp_path)) as db:
         ops_digest.store_runs(db, [ops_digest.UnitRun(unit, "2026-10-10T02:01:00Z",
                                                     exit_code=code, termination_kind=kind)])
@@ -903,13 +1092,13 @@ def test_host_sources_expand_home_globs_and_are_counted_once(tmp_path, monkeypat
     host = tmp_path / "host"
     state = host / ".local" / "state"
     state.mkdir(parents=True)
-    log = state / "store-sync.log"
+    log = state / "te-autopush.log"
     log.write_text("old history\n")
     logs = tmp_path / "logs"
     ops = logs / "ops"
     ops.mkdir(parents=True)
     (ops / "sources.txt").write_text("# existing sources\n$HOME/.local/state/*.log\n"
-                                     "~/.local/state/store-sync.log\n")
+                                     "~/.local/state/te-autopush.log\n")
     monkeypatch.setenv("HOME", str(host))
     monkeypatch.setattr(ops_digest, "HOST_LOG_GLOBS", ("~/.local/state/*.log",))
     assert ops_digest._log_sources(logs, ops) == [log]
@@ -922,11 +1111,11 @@ def test_host_sources_expand_home_globs_and_are_counted_once(tmp_path, monkeypat
 
 
 def test_warning_only_hour_is_degraded_and_noops_stay_ok(tmp_path):
-    journal = {"sample.service": _entry("2026-10-10T02:10:00Z",
+    journal = {"trading-engine-sample.service": _entry("2026-10-10T02:10:00Z",
                 "[backfill] processed=20 with_data=19 failed=1")}
     [hour] = _collect(tmp_path, journal)
     assert hour["status"] == "WARN" and "1 warning line(s)" in hour["text"]
-    journal = {"sample.service": _entry("2026-10-10T03:10:00Z", "no open recurring sweep grids")}
+    journal = {"trading-engine-sample.service": _entry("2026-10-10T03:10:00Z", "no open recurring sweep grids")}
     [hour] = _collect(tmp_path, journal, now=NOW + timedelta(hours=1))
     assert hour["status"] == "OK"
 
@@ -1315,7 +1504,7 @@ def test_collection_reports_chronic_contract_and_preserves_failures(tmp_path, mo
     (tmp_path / 'logs/ops' / ops_digest.FINDING_STATE).unlink()
     [hour] = _collect(tmp_path, {}, NOW + timedelta(hours=6))
     assert hour['status'] == 'WARN'
-    [hour] = _collect(tmp_path, {'failed.service': _journal('failed.service', exit_code=1)},
+    [hour] = _collect(tmp_path, {'trading-engine-failed.service': _journal('trading-engine-failed.service', exit_code=1)},
                      NOW + timedelta(hours=7))
     assert hour['status'] == 'FAIL'
 

@@ -12,7 +12,7 @@ left behind and writes two things under ``logs/ops/``:
   line signatures, probe latency, ``/meta`` section statuses, disk footprint). Raw log text
   stays in the digests and the source logs; SQLite never stores it.
 
-Sources: the user journal of every timer-activated or running user service, new bytes of the
+Sources: the user journal of engine services and declared dependencies, new bytes of the
 text logs in ``logs/`` (plus host-private globs listed in ``logs/ops/sources.txt``), the
 nightly ``stage-timings.jsonl``, dated work receipts from one immutable published snapshot and
 observer JSONL files, and the local API. It never opens the primary DuckDB store,
@@ -122,7 +122,7 @@ HOST_LOG_GLOBS = (
     "~/.local/state/te-autopush.log", "~/.local/state/store-sync.log",
     "~/news-scraper/logs/ensure_scraper.log", "~/news-scraper/logs/*.log",
 )
-IGNORED_UNIT_RE = re.compile(r"^(at-spi|dbus|gvfs|pulseaudio|xdg-|app-)")
+OFF_HOURS_PUBLICATION = "outside weekday US market hours: publish-on-change publishes only "
 SYSTEMD_START_RE = re.compile(r"^Starting .*\.\.\.$")
 SYSTEMD_OK_RE = re.compile(r"^(?P<unit>\S+): Succeeded\.$")
 SYSTEMD_EXIT_RE = re.compile(
@@ -196,6 +196,13 @@ def floor_hour(moment: datetime) -> datetime:
     return moment.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
 
 
+def _unit_manifest() -> dict:
+    """Include the live overlay's declared monitored dependencies and workspace exceptions."""
+    manifest, _ = schedule_contract.apply_overlay(
+        schedule_contract.load_manifest(), schedule_contract.OVERLAY_PATH)
+    return manifest
+
+
 def classify(line: str) -> str | None:
     head = line[:CLASSIFY_CHARS]
     if "[ops-digest]" in head:
@@ -209,7 +216,7 @@ def classify(line: str) -> str | None:
     if isinstance(payload, dict) and payload.get("status") == "skipped" and any(
             phrase in str(payload.get("reason", "")).lower() for phrase in (
                 "latest snapshot is", "already successfully", "already successful",
-                "not a trading session", "no session")):
+                "not a trading session", "no session", OFF_HOURS_PUBLICATION.lower())):
         return None
     if isinstance(payload, dict):
         return structured_level(payload)
@@ -318,10 +325,31 @@ def findings(data: dict) -> list[dict]:
             add(source, message, severity=3 if check["severity"] == "fail" else 1)
     if data["failed_runs"]:
         add("runs", "failed run", data["failed_runs"], severity=3)
+    for error in data.get("discovery_errors", []):
+        add("unit discovery", error, severity=2)
     return list(result.values())
 
 
-def classify_findings(hour: datetime, items: list[dict], state_path: Path) -> tuple[list[dict], str | None]:
+def _relevant_finding(source: str, message: str, manifest: dict,
+                      unit_scope: set[str] | None = None) -> bool:
+    kind, _, subject = source.partition(":")
+    if (subject == "trading-engine-publish-on-change.service"
+            and OFF_HOURS_PUBLICATION in message):
+        return False
+    # A foreign store holder or a unit stopping the engine is still an engine problem.
+    if kind == "contract" and message not in {
+            "off-manifest-unit", "unbounded", "failed", "lane-path", "restart-loop-unbounded"}:
+        return True
+    if kind not in {"unit", "contract"} or not subject.endswith(schedule_contract.UNIT_SUFFIXES):
+        return True
+    scope = (unit_scope or set()) | schedule_contract.scoped_units(
+        manifest, {subject: {}}, Path.home() / "trading-engine")
+    return subject in scope
+
+
+def classify_findings(hour: datetime, items: list[dict], state_path: Path, *,
+                      unit_scope: set[str] | None = None,
+                      discovery_degraded: bool = False) -> tuple[list[dict], str | None]:
     """Stable consecutive or recurring observations establish chronic.
 
     Compare increases with the last observation, even across silent hours. A UTC-day
@@ -370,6 +398,10 @@ def classify_findings(hour: datetime, items: list[dict], state_path: Path) -> tu
         old = {key: {**row, "seen_hours": [h for h in row["seen_hours"] if _utc(h) >= cutoff]}
                for key, row in state["items"].items()
                if cutoff <= _utc(row["last_seen"]) <= hour}
+        manifest = _unit_manifest()
+        observed = {item["key"] for item in items}
+        old = {key: row for key, row in old.items() if discovery_degraded or key in observed
+               or _relevant_finding(row["source"], row["message"], manifest, unit_scope)}
         state_error = None
     except (OSError, ValueError, KeyError, TypeError, RecursionError):
         old = {}
@@ -443,14 +475,17 @@ def classify_findings(hour: datetime, items: list[dict], state_path: Path) -> tu
 
 
 def apply_finding_history(hour: datetime, data: dict, state_path: Path) -> None:
-    items, error = classify_findings(hour, findings(data), state_path)
+    items, error = classify_findings(hour, findings(data), state_path,
+                                     unit_scope=data.get("unit_scope"),
+                                     discovery_degraded=bool(data.get("discovery_errors")))
     data["findings"] = items
     if error:
         data["gaps"].append(error)
     # Keep the original FAIL decision, including any unrepresented failure input.
     if data["status"] == "FAIL" or any(i["severity"] == 3 for i in items):
         data["status"] = "FAIL"
-    elif any(i["alert"] for i in items) or (error and data["status"] == "WARN"):
+    elif data.get("discovery_errors") or any(i["alert"] for i in items) or (
+            error and data["status"] == "WARN"):
         data["status"] = "WARN"
     else:
         data["status"] = "OK"
@@ -509,23 +544,64 @@ def _fetch(url: str, timeout: float) -> tuple[int, int, bytes]:
     return status, int((time.monotonic() - start) * 1000), body
 
 
-def discover_units(run: Runner) -> list[str]:
-    """This user's installed, timer-activated and running services."""
+@dataclass
+class UnitDiscovery:
+    units: list[str]
+    scope: set[str]
+    ignored: list[str]
+    errors: list[str]
+
+
+def discover_unit_scope(run: Runner) -> UnitDiscovery:
+    """Observe ownership once, retaining ignored names and incomplete probe evidence."""
+    errors = []
+
+    def output(args: list[str]) -> str:
+        result = run(args, 30)
+        if result is None:
+            errors.append("systemctl " + args[2] + " failed; unit discovery incomplete")
+        return result or ""
+
     units: set[str] = {path.name for path in USER_UNIT_DIR.glob("*.service")
                        if "@" not in path.name}
-    timers = run(["systemctl", "--user", "list-timers", "--all", "--no-legend"], 30) or ""
+    links = {}
+    timers = output(["systemctl", "--user", "list-timers", "--all", "--no-legend"])
     for line in timers.splitlines():
         parts = line.split()
         if parts and parts[-1].endswith(".service"):
             units.add(parts[-1])
-    running = run(
+            if len(parts) > 1 and parts[-2].endswith(".timer"):
+                links[parts[-2]] = {"Triggers": [parts[-1]]}
+    running = output(
         ["systemctl", "--user", "list-units", "--type=service", "--state=running",
-         "--no-legend", "--plain"], 30) or ""
+         "--no-legend", "--plain"])
     for line in running.splitlines():
         parts = line.split()
         if parts and parts[0].endswith(".service"):
             units.add(parts[0])
-    return sorted(unit for unit in units if not IGNORED_UNIT_RE.match(unit))
+    manifest = _unit_manifest()
+    names = units | set(links)
+    blocks = {**{entry["unit"]: {} for entry in manifest["units"]},
+              **{name: {} for name in units}, **links}
+    if names:
+        args = ["systemctl", "--user", "show", *sorted(names)]
+        for prop in ("Id", "Triggers", "Conflicts", "Slice", *schedule_contract.EXEC_KEYS):
+            args += ["-p", prop]
+        shown = output(args)
+        parsed = schedule_contract._show_blocks(shown)
+        if shown and names - parsed.keys():
+            errors.append("systemctl show omitted units; unit discovery incomplete: "
+                          + ", ".join(sorted(names - parsed.keys())))
+        elif not shown and not errors:
+            errors.append("systemctl show returned no units; unit discovery incomplete")
+        for name, block in parsed.items():
+            blocks.setdefault(name, {}).update(block)
+    scope = schedule_contract.scoped_units(manifest, blocks, Path.home() / "trading-engine")
+    return UnitDiscovery(sorted(units & scope), scope, sorted(names - scope), errors)
+
+
+def discover_units(run: Runner) -> list[str]:
+    return discover_unit_scope(run).units
 
 
 def parse_journal(
@@ -1125,6 +1201,10 @@ def render(hour: datetime, data: dict) -> str:
     ]
     if data["gaps"]:
         lines += ["", "**Collection gaps:** " + "; ".join(data["gaps"])]
+    if data.get("ignored_units"):
+        lines += ["", "Ignored units: " + ", ".join(data["ignored_units"])]
+    if data.get("overlay_units"):
+        lines += ["", "Local overlay dependencies: " + ", ".join(data["overlay_units"])]
     for title, items in (
         ("New or worsening findings", [i for i in data.get("findings", []) if i["alert"]]),
         ("Chronic findings", chronic),
@@ -1248,8 +1328,10 @@ def collect_hour(
     end = hour + timedelta(hours=1)
     key = _hour_key(hour)
     signals: dict[str, SourceSignals] = defaultdict(SourceSignals)
-    units = discover_units(run)
+    discovery = discover_unit_scope(run)
+    units = discovery.units
     raw_runs, gaps = journal_runs(run, units, hour, end, signals)
+    gaps.extend(discovery.errors)
     if not units:
         gaps.append("no user units discovered")
     runs = store_runs(db, raw_runs)
@@ -1336,6 +1418,10 @@ def collect_hour(
         "job_receipts": job_receipts,
         "warned_job_receipts": warned_job_receipts,
         "receipt_projection_gaps": receipt_projection_gaps,
+        "unit_scope": discovery.scope, "ignored_units": discovery.ignored,
+        "discovery_errors": discovery.errors,
+        "overlay_units": [entry["unit"] for entry in _unit_manifest()["units"]
+                          if entry.get("local_overlay")],
     }
     apply_finding_history(hour, data, ops_dir / FINDING_STATE)
     status = data["status"]
@@ -1730,7 +1816,7 @@ def _show_blocks(text: str) -> list[dict[str, list[str]]]:
 
 def _timer_schedule(block: dict[str, list[str]]) -> Schedule | None:
     unit = (block.get("Unit") or [""])[0]
-    if not unit or IGNORED_UNIT_RE.match(unit):
+    if not unit:
         return None
     specs = [spec for value in block.get("TimersCalendar", [])
              for spec in re.findall(r"OnCalendar=(.+?) ;", value)]
@@ -1757,17 +1843,26 @@ def timer_schedules(run: Runner) -> list[Schedule]:
     shown = run(["systemctl", "--user", "show", *timers, "-p", "Unit", "-p", "TimersCalendar",
                  "-p", "TimersMonotonic", "-p", "AccuracyUSec", "-p", "RandomizedDelayUSec"],
                 30) or ""
-    return [item for item in map(_timer_schedule, _show_blocks(shown)) if item is not None]
+    manifest = _unit_manifest()
+    observed = discover_unit_scope(run).scope
+    return [item for item in map(_timer_schedule, _show_blocks(shown)) if item is not None
+            and _relevant_finding("unit:" + item.unit, "", manifest, observed)]
 
 
 def cron_schedules(run: Runner) -> list[Schedule]:
     schedules = []
+    manifest = _unit_manifest()
+    home = Path.home()
     for raw in (run(["crontab", "-l"], 30) or "").splitlines():
         line = raw.strip()
         match = CRON_LINE_RE.match(line)
         if match is None or line.startswith(("#", "@")) or "=" in line.split()[0]:
             continue
         *fields, command = match.groups()
+        if not (schedule_contract.engine_command(command, home / "trading-engine", manifest) or any(
+                schedule_contract._cron_matches(entry, command, home / "trading-engine", home)
+                for entry in manifest["cron"])):
+            continue
         driver = DRIVER_RE.search(command)
         output = REDIRECT_RE.search(command)
         try:
@@ -1951,14 +2046,23 @@ def runs_lines(db: sqlite3.Connection, run: Runner, start: datetime,
     """Missing-run bullets, then the per-job run table and every driver's stages."""
     since, until = _iso(start), _iso(end)
     schedules = timer_schedules(run) + cron_schedules(run)
+    manifest = _unit_manifest()
+    observed = discover_unit_scope(run).scope
+
+    def relevant(unit: str) -> bool:
+        return _relevant_finding("unit:" + unit, "", manifest, observed)
+
     for sample in _meta_json(db, "schedule_samples", []):
         for item in sample["items"]:
+            if item.get("unit") and not relevant(item["unit"]):
+                continue
             if item not in [_schedule_data(s) for s in schedules]:
                 schedules.append(_saved_schedule(item))
     known = {item.unit for item in schedules if item.unit}
     schedules += [Schedule(unit.removesuffix(".service"), "—", None, unit=unit) for (unit,) in
                   db.execute("SELECT DISTINCT unit FROM unit_runs WHERE COALESCE(started, ended)>=? "
-                             "AND COALESCE(started, ended)<?", (since, until)) if unit not in known]
+                             "AND COALESCE(started, ended)<?", (since, until))
+                  if unit not in known and relevant(unit)]
     drivers = _driver_runs(db, since, until)
     grouped: dict[str, list[Schedule]] = defaultdict(list)
     for schedule in schedules:
@@ -2066,10 +2170,15 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
     since = _hour_key(floor_hour(now) - timedelta(hours=hours))
     since_iso = _iso(floor_hour(now) - timedelta(hours=hours))
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    manifest = _unit_manifest()
+    discovery = discover_unit_scope(run)
+    observed = discovery.scope
     try:
         rows = db.execute("SELECT hour, status, failed_runs, error_lines, warn_lines, digest "
                           "FROM hours WHERE hour>=? ORDER BY hour", (since,)).fetchall()
         out = [f"# Ops report: last {hours} h (from {since}:00Z)", ""]
+        if discovery.errors:
+            out += ["Unit discovery degraded: " + "; ".join(discovery.errors), ""]
         tally = defaultdict(int)
         for row in rows:
             tally[row[1]] += 1
@@ -2078,6 +2187,8 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
         missing_hours = max(0, hours - len(rows))
         out.append(f"{missing_hours} requested hour(s) have no digest coverage; their outcomes "
                    "are unknown. Log history before each file's first offset is unknown.")
+        out.append("Hour statuses are the original recorded outcomes; unit details below "
+                   "cover the engine and its declared dependencies.")
         bad = [row for row in rows if row[1] != "OK"]
         if bad:
             out += ["", "| hour | status | failed | errors | warns | digest |",
@@ -2088,6 +2199,7 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
             "WHERE COALESCE(started, ended)>=? "
             "AND result NOT IN ('success','running','unknown') ORDER BY started",
             (since_iso,)).fetchall()
+        failed = [row for row in failed if _relevant_finding("unit:" + row[0], "", manifest, observed)]
         failed += db.execute(
             "SELECT driver || ':' || stage, started, seconds, exit_code, 'failed' FROM stage_runs "
             "WHERE ended>=? AND exit_code<>0", (since_iso,)).fetchall()
@@ -2140,6 +2252,8 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
                           "AND result='success' AND seconds IS NOT NULL", (since_iso,)).fetchall()
         slow = []
         for unit, started, seconds in runs:
+            if not _relevant_finding("unit:" + unit, "", manifest, observed):
+                continue
             typical = typical_seconds(db, unit, started)
             if typical and seconds > SLOW_FACTOR * typical:
                 slow.append(f"- {unit} at {started}: {_duration(seconds)} vs typical "
@@ -2148,14 +2262,16 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
             out += ["", "## Slow runs (over 3× the 14-day median)", "", *slow]
         sigs = db.execute(
             "SELECT source, level, signature, SUM(count) AS n FROM signatures WHERE hour>=? "
-            "GROUP BY source, level, signature ORDER BY level='warn', n DESC LIMIT 15",
+            "GROUP BY source, level, signature ORDER BY level='warn', n DESC",
             (since,)).fetchall()
+        sigs = [row for row in sigs if _relevant_finding(row[0], row[2], manifest, observed)][:15]
         if sigs:
             out += ["", "## Loudest signals", ""]
             out += [f"- [{lvl}] ×{n} {src}: `{sig}`" for src, lvl, sig, n in sigs]
         volume = db.execute(
             "SELECT source, SUM(bytes) AS b, SUM(lines) FROM log_counts WHERE hour>=? "
-            "GROUP BY source ORDER BY b DESC LIMIT 5", (since,)).fetchall()
+            "GROUP BY source ORDER BY b DESC", (since,)).fetchall()
+        volume = [row for row in volume if _relevant_finding(row[0], "", manifest, observed)][:5]
         if volume and volume[0][1]:
             out += ["", "## Log growth", ""]
             out += [f"- {src}: +{_mb(b)}, {n:,} lines" for src, b, n in volume if b]

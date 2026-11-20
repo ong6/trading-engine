@@ -220,6 +220,30 @@ def test_healthy_host_matches_the_manifest(tmp_path):
     assert result["violations"] == []
 
 
+def test_unrelated_projects_do_not_violate_the_engine_contract(tmp_path):
+    home = tmp_path / "home"
+    blocks = _healthy_blocks(MANIFEST)
+    for stem in ("botmux-watchdog", "bpug-prd-bot-sync"):
+        blocks[stem + ".timer"] = {
+            "Id": stem + ".timer", "LoadState": "loaded", "ActiveState": "active",
+            "SubState": "waiting", "UnitFileState": "enabled", "Triggers": stem + ".service"}
+        blocks[stem + ".service"] = {
+            "Id": stem + ".service", "LoadState": "loaded", "ActiveState": "failed",
+            "SubState": "failed", "UnitFileState": "static", "Type": "oneshot",
+            "TimeoutStartUSec": "infinity", "WorkingDirectory": "/srv/another-project"}
+    blocks["botmux.service"] = {
+        "Id": "botmux.service", "LoadState": "loaded", "ActiveState": "active",
+        "SubState": "running", "UnitFileState": "enabled", "Type": "simple"}
+    cron = _crontab(home / "trading-engine", home)
+    result = _live(tmp_path, blocks, cron + "*/5 * * * * /srv/another-project/sync.sh\n")
+    assert result["violations"] == []
+    # The explicitly declared news dependency is still mandatory.
+    result = _live(tmp_path, blocks, "\n".join(
+        line for line in cron.splitlines() if "news-scraper" not in line))
+    assert _pairs(result) == {("missing-cron", "cron:news_scraper_boot"),
+                              ("missing-cron", "cron:news_scraper_watchdog")}
+
+
 @pytest.mark.parametrize("mode", ["static", "live"])
 @pytest.mark.parametrize("restart, runtime, interval, activation, fires", [
     # 2026-10-28/29: three 15-minute attempts escape the 30-minute start limit.
@@ -313,7 +337,7 @@ def test_live_unit_state_drift_failures_and_lane_units_are_violations(tmp_path):
         "Conflicts": "trading-engine-api.service shutdown.target", "ExecStart": "{ }"}
     crontab = _crontab(home / "trading-engine", home).replace("30 22 * * 1-5", "30 23 * * 1-5")
 
-    result = _live(tmp_path, blocks, crontab + "*/5 * * * * /opt/lane/run.sh\n")
+    result = _live(tmp_path, blocks, crontab + "*/5 * * * * /srv/engine-lanes/test/run.sh\n")
 
     assert _pairs(result) == {
         ("not-enabled", "trading-engine-p15-events.timer"),
@@ -425,6 +449,14 @@ def test_reader_holding_a_store_for_write_is_an_undeclared_writer():
                                  engine_root=Path("/e"), home=Path("/h"))
     assert [(item["rule"], item["subject"]) for item in found] == [
         ("undeclared-writer", "trading-data-backup.service")]
+
+
+def test_unrelated_service_holding_the_engine_store_is_still_foreign():
+    holder = {"pid": 7, "database": "store/market.duckdb", "mode": "read", "cmdline": "sync",
+              "cgroup": "", "unit": "botmux.service", "ancestors": []}
+    found = sc.holder_violations(MANIFEST, [holder], now=BEFORE_PREOPEN,
+                                engine_root=Path("/e"), home=Path("/h"))
+    assert _pairs({"violations": found}) == {("foreign-holder", "botmux.service")}
 
 
 def test_windows_follow_the_timer_zone_and_runtime():
@@ -558,8 +590,47 @@ def test_invalid_overlay_is_ignored_whole_and_reported(tmp_path, change, message
 
     assert result["status"] == "error"
     assert result["overlay"]["status"] == "invalid" and message in result["overlay"]["error"]
-    assert ("off-manifest-unit", "study_run.timer") in _pairs(result)
+    assert _pairs(result) == {("off-manifest-unit", "study_run.timer"),
+                              ("lane-path", "study_run.service"),
+                              ("unbounded", "study_run.service")}
     assert result["exceptions"] == []
+
+
+@pytest.mark.parametrize("marker", MANIFEST["lane_path_markers"] + ["/custom-agent-area/"])
+def test_every_manifest_workspace_marker_keeps_unbounded_studies_in_scope(tmp_path, marker):
+    manifest = json.loads(json.dumps(MANIFEST))
+    if marker not in manifest["lane_path_markers"]:
+        manifest["lane_path_markers"].append(marker)
+    host = _study_host(tmp_path)
+    blocks = _healthy_blocks(manifest)
+    blocks.update({
+        "study_run.timer": {"Id": "study_run.timer", "LoadState": "loaded",
+                            "ActiveState": "active", "UnitFileState": "enabled",
+                            "Triggers": "study_run.service"},
+        "study_run.service": {"Id": "study_run.service", "LoadState": "loaded",
+                              "ActiveState": "inactive", "Type": "oneshot",
+                              "TimeoutStartUSec": "infinity",
+                              "WorkingDirectory": "/srv" + marker + "study"}})
+    blocks = {name: {key: [value] for key, value in block.items()} for name, block in blocks.items()}
+    result = sc._unit_violations(manifest, blocks, host["engine_root"])
+    assert _pairs({"violations": result}) == {("off-manifest-unit", "study_run.timer"),
+                                              ("lane-path", "study_run.service"),
+                                              ("unbounded", "study_run.service")}
+
+
+def test_a_study_in_the_declared_alpha_slice_remains_in_scope(tmp_path):
+    host = _study_host(tmp_path)
+    blocks = _healthy_blocks(MANIFEST)
+    blocks["study_run.timer"] = {"Id": "study_run.timer", "LoadState": "loaded",
+                                  "ActiveState": "active", "UnitFileState": "enabled",
+                                  "Triggers": "study_run.service"}
+    blocks["study_run.service"] = {"Id": "study_run.service", "LoadState": "loaded",
+                                    "Type": "oneshot", "Slice": "alpha.slice",
+                                    "TimeoutStartUSec": "infinity"}
+    blocks = {name: {key: [value] for key, value in block.items()} for name, block in blocks.items()}
+    result = sc._unit_violations(MANIFEST, blocks, host["engine_root"])
+    assert _pairs({"violations": result}) == {("off-manifest-unit", "study_run.timer"),
+                                              ("unbounded", "study_run.service")}
 
 
 def test_overlay_must_be_an_owner_only_regular_file(tmp_path):
