@@ -5850,4 +5850,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** lane delta: server 0, tools +5, product 0 LOC; tests +123.
 - **Next:** orchestrator admits the status-reader change and completes capture rehearsal with enough free space.
 
+## 2026-11-20 — Verify snapshot multisets with counts and one containment pass
+
+- **Why:** P24 nightly-speed and the revision-25 snapshot brief admit an output-identical removal of the reverse EXCEPT ALL pass.
+- **What:** count both relations exactly and retain source EXCEPT ALL generation; equal cardinality plus containment proves multiset equality. Count verified cold rows from the actual source.
+  Document the schema-v2 metric names: cold_verification_seconds covers all tables, while cold_verification_rows reports only cold rows.
+- **Evidence:** `pytest -q -n 0 tests/test_publish_snapshot.py::test_semantic_equality_multiset_property` → 105 multiset cases pass, including duplicates, NULLs and empty relations; final focused five-test runs pass under both timezones.
+  Both checks pass on the same verified 160-table, 99,904,744-row generation copies: 1,000.94 → 552.24 seconds (44.8% less). Both cold sides are Parquet views, so this is not a full publication-stage timing.
+  Full capture refused its unchanged 70 GiB reserve (67.1 GiB free, 33.7 GiB additional need); both full suites and the affected tier stalled at 98% and were interrupted, with failures observed.
+- **Metrics:** lane delta: server 0, tools +12, product 0 LOC; tests +72; the combined metrics snapshot passes budget.
+- **Next:** orchestrator resolves the reader scope and completes full capture, publication timing and timezone suites before the shared re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

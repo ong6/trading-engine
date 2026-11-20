@@ -8,9 +8,11 @@ import subprocess
 import sys
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from random import Random
 
 import duckdb
 import pandas as pd
@@ -27,6 +29,76 @@ NOW = datetime(2026, 10, 2, 12, tzinfo=timezone.utc)
 def test_publisher_has_no_logical_whole_database_copy_path():
     source = inspect.getsource(publish_snapshot)
     assert "backup_database._copy_database(source" not in source
+
+
+@pytest.mark.slow
+def test_semantic_equality_multiset_property(tmp_path):
+    """COUNT plus one EXCEPT ALL agrees with the exact multiset oracle."""
+    capture, hot = tmp_path / "capture.duckdb", tmp_path / "hot.duckdb"
+    rng = Random(25)
+    domain = [(None, None), (1, None), (None, "x"), (1, "x"), (2, "y")]
+    cases = [([], []), ([], domain), (domain, []),
+             ([domain[0]] * 2, [domain[0]]),
+             ([domain[1], domain[1]], [domain[1], domain[2]])]
+    for _ in range(100):
+        source = rng.choices(domain, k=rng.randrange(12))
+        generated = list(source) if rng.randrange(2) else rng.choices(
+            domain, k=rng.randrange(12),
+        )
+        rng.shuffle(generated)
+        cases.append((source, generated))
+    for path, side in ((capture, 0), (hot, 1)):
+        with duckdb.connect(str(path)) as con:
+            for index, case in enumerate(cases):
+                con.execute(f"CREATE TABLE t{index}(i INTEGER, s VARCHAR)")
+                if case[side]:
+                    con.executemany(f"INSERT INTO t{index} VALUES (?, ?)", case[side])
+    for index, (source, generated) in enumerate(cases):
+        # The supplied census is deliberately wrong: actual COUNT(*) must prove cardinality.
+        counts = {f"main.t{index}": len(source) + 7}
+        if Counter(source) == Counter(generated):
+            metrics = publish_snapshot._verify_semantic_equality(capture, hot, counts, set(counts))
+            assert metrics["rows"] == len(source)
+        else:
+            with pytest.raises(publish_snapshot.SnapshotError, match="differs from source"):
+                publish_snapshot._verify_semantic_equality(capture, hot, counts, set(counts))
+
+
+def test_writer_wins_lock_before_capture_keeps_previous_generation(tmp_path):
+    import fcntl
+
+    root, source = _repo(tmp_path)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    with (root / ".nightly.lock").open("a") as writer:
+        fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(publish_snapshot.SnapshotError, match="active process holds"):
+            publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=1))
+    assert os.readlink(source.parent / "snapshots" / snapshots.LATEST_NAME) == first["snapshot"]
+
+
+def test_publication_tail_allows_writer_and_keeps_generation_lock(tmp_path, monkeypatch):
+    import fcntl
+
+    root, source = _repo(tmp_path)
+    build = publish_snapshot._build_hot_database
+
+    def build_after_write(*args):
+        with (root / ".nightly.lock").open("a") as writer_lock:
+            fcntl.flock(writer_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with duckdb.connect(str(source)) as writer:
+                writer.execute("INSERT INTO jobs (id,state) VALUES (99,'done')")
+        with (source.parent / "snapshots/.generation-publish.lock").open("a") as publication:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(publication, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        build(*args)
+
+    monkeypatch.setattr(publish_snapshot, "_build_hot_database", build_after_write)
+    manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    assert manifest["row_counts"]["main.jobs"] == 0
+    pin = snapshots.pin_latest_generation(source)
+    pin.close()
+    with pytest.raises(snapshots.GenerationError, match="stale for evidence reads"):
+        snapshots.pin_latest_generation(source, newer_than_database=True)
 
 
 def _database(path: Path, *, cold: bool = False) -> None:

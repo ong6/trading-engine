@@ -720,7 +720,14 @@ def _build_hot_database(
 def _verify_semantic_equality(
     capture: Path, hot: Path, row_counts: dict[str, int], cold_tables: set[str],
 ) -> dict[str, float | int]:
+    """Verify every hot and cold relation, including duplicate and NULL multiplicities.
+
+    The manifest's legacy cold_verification_seconds times ALL tables; its
+    cold_verification_rows counts only cold rows. Keep those schema-v2 keys compatible
+    with existing readers; the row counter is not the number of rows this check visits.
+    """
     started = time.monotonic()
+    verified_rows = 0
     connection = _bounded(duckdb.connect(), hot.parent)
     try:
         connection.execute(
@@ -733,23 +740,28 @@ def _verify_semantic_equality(
             schema, table = qualified_name.split(".", 1)
             original = _qualified(schema, table, database="original")
             generation = _qualified(schema, table, database="generation")
+            source_count = connection.execute(f"SELECT COUNT(*) FROM {original}").fetchone()[0]
+            generation_count = connection.execute(
+                f"SELECT COUNT(*) FROM {generation}"
+            ).fetchone()[0]
+            if source_count != generation_count:
+                raise SnapshotError(f"generation differs from source table: {qualified_name}")
+            # Equal cardinality plus multiset containment proves equality in both directions.
             missing = connection.execute(
                 f"SELECT COUNT(*) FROM ((SELECT * FROM {original}) EXCEPT ALL "
                 f"(SELECT * FROM {generation}))"
             ).fetchone()[0]
-            extra = connection.execute(
-                f"SELECT COUNT(*) FROM ((SELECT * FROM {generation}) EXCEPT ALL "
-                f"(SELECT * FROM {original}))"
-            ).fetchone()[0]
-            if missing or extra:
+            if missing:
                 raise SnapshotError(f"generation differs from source table: {qualified_name}")
+            if qualified_name in cold_tables:
+                verified_rows += source_count
     except duckdb.Error as exc:
         raise SnapshotError(f"generation equality verification failed: {exc}") from exc
     finally:
         connection.close()
     return {
         "seconds": time.monotonic() - started,
-        "rows": sum(row_counts[name] for name in cold_tables),
+        "rows": verified_rows,
     }
 
 
