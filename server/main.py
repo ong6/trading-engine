@@ -1,6 +1,6 @@
 """FastAPI backend for the local mock-trading and research dashboard.
 
-Binds 127.0.0.1 only, no auth (mock system). GET endpoints open the DB read-only
+Binds 127.0.0.1 only, no auth (mock system). Data GET endpoints open the DB read-only
 per request; write endpoints open read-write and map a contended write lock to
 HTTP 503 (the nightly league run holds it). This server never fills orders or
 steps the league — a submitted ticket becomes a *pending* sim_orders row that the
@@ -11,14 +11,16 @@ Run from repo root:  .venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import hashlib
 import json
+import logging
 import os
 import pathlib
 import time
 from collections.abc import Awaitable, Callable
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import asdict
@@ -88,8 +90,6 @@ OrderStatus = Literal["pending", "filled", "rejected", "cancelled"]
 AgentProposalStatus = Literal["shadow_accepted", "shadow_rejected"]
 NONBLANK_PATTERN = r".*\S.*"
 ALLOWED_HOSTNAMES = frozenset({"127.0.0.1", "localhost"})
-HEALTH_FIELDS = frozenset({"ok", "status", "db_readable"})
-HEALTH_STATUSES = frozenset({"ok", "degraded", "busy", "unreadable"})
 AsgiReceive: TypeAlias = Callable[[], Awaitable[dict[str, Any]]]
 AsgiSend: TypeAlias = Callable[[dict[str, Any]], Awaitable[None]]
 AsgiApp: TypeAlias = Callable[[dict[str, Any], AsgiReceive, AsgiSend], Awaitable[None]]
@@ -212,7 +212,55 @@ class DataSourceHeaderMiddleware:
             await self.app(scope, receive, send_with_source)
 
 
-app = FastAPI(title="trading-engine paper backend", version="0.1.0")
+GENERATION_POLL_SECONDS = 1.0
+
+
+def _generation_marker() -> tuple | None:
+    """The publisher atomically replaces this symlink when a generation is ready."""
+    try:
+        value = (server_db.db_path().parent / "snapshots" / "market-latest.duckdb").lstat()
+    except OSError:
+        return None
+    return value.st_ino, value.st_mtime_ns, value.st_ctime_ns
+
+
+def _warm_generation() -> bool:
+    """Populate the existing byte-verification cache without changing any read gate."""
+    try:
+        with _connection(read_con):
+            pass
+    except Exception:  # A missing/unreadable store must not stop API liveness.
+        logging.getLogger(__name__).debug("generation warm failed", exc_info=True)
+        return False
+    return True
+
+
+def _warm_generations(stop: Event, verified: tuple | None) -> None:
+    while not stop.wait(GENERATION_POLL_SECONDS):
+        marker = _generation_marker()
+        if marker != verified and _warm_generation():
+            verified = marker
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # The first generation is verified before serving metadata. Later publications are
+    # warmed independently of requests; a request racing verification still validates
+    # normally, so neither incomplete nor previously verified older data is substituted.
+    marker = _generation_marker()
+    warmed = await asyncio.to_thread(_warm_generation)
+    stop = Event()
+    worker = Thread(target=_warm_generations, args=(stop, marker if warmed else None),
+                    name="generation-warmer", daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        await asyncio.to_thread(worker.join, 1.0)
+
+
+app = FastAPI(title="trading-engine paper backend", version="0.1.0", lifespan=_lifespan)
 app.add_middleware(ExactHostMiddleware)
 app.add_middleware(DataSourceHeaderMiddleware)
 app.include_router(accounts_routes.router)
@@ -500,42 +548,14 @@ async def _busy_handler(_request: Request, _exc: DBBusyError):
 # --------------------------------------------------------------------------- #
 # health / meta
 # --------------------------------------------------------------------------- #
-def _validate_health_payload(payload: dict) -> None:
-    if not isinstance(payload, dict) or set(payload) != HEALTH_FIELDS:
-        raise ValueError("public health projection shape is invalid")
-    status = payload["status"]
-    readable = status in {"ok", "degraded"}
-    if (
-        status not in HEALTH_STATUSES
-        or type(payload["ok"]) is not bool
-        or type(payload["db_readable"]) is not bool
-        or payload["ok"] != readable
-        or payload["db_readable"] != readable
-    ):
-        raise ValueError("public health projection is inconsistent")
-
-
 @app.get("/health")
-def health():
-    status = "ok"
-    try:
-        with _connection(read_con) as con:
-            con.execute("SELECT 1")
-            served = server_db.served_generation()
-            if served is not None and served["stale"]:
-                status = "degraded"  # readable, but the newest generation is past its budget
-    except DBBusyError:
-        status = "busy"
-    except Exception:  # noqa: BLE001 - health must fail closed for any unreadable store
-        status = "unreadable"
-    readable = status in {"ok", "degraded"}
-    payload = {
-        "ok": readable,
-        "status": status,
-        "db_readable": readable,
-    }
-    _validate_health_payload(payload)
-    return payload if readable else JSONResponse(status_code=503, content=payload)
+async def health():
+    """Process liveness only; `/meta` reports database readiness and generation state.
+
+    Keep this on the event loop, with no I/O or sync dependencies: even a full request
+    thread pool, snapshot verification or a store lock must leave liveness available.
+    """
+    return {"ok": True, "status": "ok"}
 
 
 @app.get("/meta")

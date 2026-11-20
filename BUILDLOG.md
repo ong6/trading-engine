@@ -5841,5 +5841,21 @@ the 42-entry 2026-09-19 C90 complexity series is in
   → 252 pass; restored/new checks fail on the preceding head. Ruff and metrics budget pass.
 - **Metrics:** session server +1, tools +54, product unchanged LOC.
 - **Next:** orchestrator updates the local overlay and runs full acceptance before deployment.
+## 2026-11-20 — Keep API liveness independent of snapshot verification
+
+- **Why:** revision-25 API latency reproduction on a published snapshot copy: cold
+  `server.main.health()` takes 10.13 s, including 9.97 s hashing 7.31 GiB of generation files;
+  the digest times out after 5 s. A verified generation's `/meta` takes 1.12 s.
+- **What:** make liveness an async, in-memory response; verify the first generation at
+  startup and pre-verify publications in a separate worker through the unchanged read gate.
+  Metadata is identical before/after and matches the captured JSON shape; normal requests
+  take 1.57 s, but a request racing publication verification still takes 10.83 s.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_api_latency.py tests/test_server_routes.py tests/test_meta_projection.py tests/test_server_db.py`
+  → 130 passed with a runner-only asyncio wakeup workaround; three regressions fail on main.
+  Both full timezone suites: 6,778 passed, six unchanged watchdog failures because the runner
+  hides inherited shell locks from `/proc/locks`; one failure also reproduced on main.
+- **Metrics:** server +20, tools 0, product 0 LOC versus the session's initial snapshot.
+- **Next:** blocked: orchestrator acceptance needs normal process-lock visibility and a
+  decision on the metadata latency boundary during publication verification.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
