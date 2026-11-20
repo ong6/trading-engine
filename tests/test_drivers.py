@@ -421,6 +421,10 @@ def test_snapshot_releases_producer_lock_after_capture_keeps_run_guard(
     publisher = fake_repo / "publisher.py"
     publisher.write_text('''import fcntl, os, sys
 from pathlib import Path
+assert '--held-lock' in sys.argv
+assert '--release-lock-fd' in sys.argv
+release_fd = int(sys.argv[sys.argv.index('--release-lock-fd') + 1])
+assert release_fd == 9
 lock = Path('.nightly.lock').open('a')
 if '--held-lock' not in sys.argv:
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -428,6 +432,7 @@ ready = int(os.environ['READY_FD'])
 command = int(os.environ['COMMAND_FD'])
 os.write(ready, b'C')
 assert os.read(command, 1) == b'C'
+fcntl.flock(release_fd, fcntl.LOCK_UN)
 lock.close()
 os.write(ready, b'T')
 assert os.read(command, 1) == b'T'

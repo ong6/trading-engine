@@ -5872,4 +5872,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** round-two delta: server +23, tools +60, product 0 LOC; tests +165.
 - **Next:** orchestrator runs the full source-copy rehearsal and suite, then performs the shared registration revision.
 
+## 2026-11-20 — Revision-25 final round: inherited capture lock and retention guard
+
+- **Why:** orchestrator round-three review; regressions on b1d050ac fail for the missing inherited-fd hand-off, corrupt/non-UTC backoff markers, and quiet snapshot-tail retention. The current real producer-lock error path already passes its new PublicationBusy test.
+- **What:** retain the inherited nightly descriptor through capture and explicitly unlock its shared open description afterward, including parent/tee aliases; all early exits unlock it too. The running guard still covers the tail.
+  Invalid backoff state expires with a warning. Retention uses the shared running-guard reader; the repo audit found no other missed nightly-liveness reader. The rehearsal reports wall time at verified nice 19 and margin against 45 minutes.
+  Real kernel/queued-writer and DuckDB lock-error tests close the coverage gaps. Watchdog fixtures acquire their flock before exec so the real holder stays visible in a PID namespace and test-owned children are cleaned up.
+- **Evidence:** `pytest -W error -n 0 tests/test_publish_snapshot.py` → all 85 publication cases pass (UTC 84 plus the added real-DuckDB case; Singapore 85); another 349 focused cases pass in each timezone. Ruff, rehearsal compilation/real priority helper and metrics budget pass; full suite stays with the orchestrator.
+- **Metrics:** final-round delta: server 0, tools +34, product 0 LOC; tests +198.
+- **Next:** orchestrator runs the quiet-window full-store rehearsal and full suite, then performs the shared re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

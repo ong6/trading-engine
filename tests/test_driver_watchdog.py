@@ -1,5 +1,8 @@
 import json
+import os
+import signal
 import subprocess
+import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -30,8 +33,21 @@ def engine(tmp_path, monkeypatch):
 
 def _start(engine: Path, body: str) -> subprocess.Popen:
     script = engine / "engine/run_test.sh"
-    script.write_text("#!/usr/bin/env bash\nDRIVER_LOCK=.test.lock\n" + body)
-    process = subprocess.Popen(["bash", str(script)], start_new_session=True)
+    preamble = 'exec 9>"$(dirname "$0")/../.test.lock"\nflock 9\n'
+    script.write_text("#!/usr/bin/env bash\nDRIVER_LOCK=.test.lock\n" + body.removeprefix(preamble))
+    # Own the flock before exec: a dead flock child's PID is omitted by /proc/locks
+    # in a PID namespace, although its inherited open description still holds the lock.
+    launcher = '''import fcntl, os, sys
+fd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR, 0o600)
+if fd != 9:
+    os.dup2(fd, 9)
+    os.close(fd)
+os.set_inheritable(9, True)
+fcntl.flock(9, fcntl.LOCK_EX)
+os.execvp('bash', ['bash', sys.argv[2]])
+'''
+    process = subprocess.Popen([sys.executable, "-c", launcher,
+                                str(engine / ".test.lock"), str(script)], start_new_session=True)
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         if driver_watchdog.lock_is_held(PROC, engine / ".test.lock"):
@@ -42,8 +58,10 @@ def _start(engine: Path, body: str) -> subprocess.Popen:
 
 
 def _stop(process: subprocess.Popen) -> None:
-    if process.poll() is None:
-        process.kill()
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
     process.wait()
 
 
@@ -102,7 +120,6 @@ def test_watchdog_observes_snapshot_tail_and_defers_catch_up(engine, monkeypatch
     (proc / str(pid) / "stat").write_text(f"{pid} (bash) " + " ".join(fields))
     now = datetime.now(UTC)
     (proc / "stat").write_text(f"btime {int((now - LATER).timestamp())}\n")
-    import os
     info = guard.stat()
     identity = f"{os.major(info.st_dev):02x}:{os.minor(info.st_dev):02x}:{info.st_ino}"
     (proc / "locks").write_text(f"1: FLOCK ADVISORY WRITE {pid} {identity} 0 EOF\n")

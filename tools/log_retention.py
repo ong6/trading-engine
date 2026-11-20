@@ -119,7 +119,7 @@ def _driver_locks() -> dict[str, str]:
 def _lock_held(lock_path: Path) -> bool | None:
     from server import driver_log
 
-    return driver_log._lock_held(lock_path)  # observes /proc/locks; never takes the lock
+    return driver_log._driver_lock_held(lock_path)  # running guard survives capture; no lock taken
 
 
 def referenced_logs(repo_root: Path, run: Runner | None = None) -> set[str] | None:
