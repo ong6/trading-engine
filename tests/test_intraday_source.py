@@ -315,7 +315,8 @@ def test_observer_uses_two_waiting_database_leases_per_run(
     )
 
     assert result["status"] == "completed"
-    assert len(calls) == 2 and all(call[1]["wait_s"] == 60 for call in calls)
+    assert len(calls) == 2 and all(call[1]["wait_s"] == 300 for call in calls)
+    assert calls[0][1]["deadline"] == calls[1][1]["deadline"]
 
 
 def test_admitted_cross_check_reaches_prompt_artifact_and_trace(monkeypatch, tmp_path):
@@ -681,3 +682,43 @@ def test_saved_artifact_recovers_failed_index_without_external_calls(monkeypatch
         )
     finally:
         con.close()
+
+
+def test_observer_leases_wait_out_capture_and_share_deadline(monkeypatch, tmp_path):
+    calls = []
+
+    class Connection:
+        def close(self):
+            pass
+
+    def connect(_path, **kwargs):
+        calls.append(kwargs)
+        if kwargs['wait_s'] < 121:
+            raise RuntimeError('capture still holds the store after 60 seconds')
+        return Connection()
+
+    monkeypatch.setattr(hourly_opportunity_observer.db, 'connect', connect)
+    lease = hourly_opportunity_observer._DatabaseLease(tmp_path / 'market.duckdb')
+    lease.close()
+    lease.reacquire()
+    lease.close()
+    assert calls[0]['wait_s'] == calls[1]['wait_s'] == 300
+    assert calls[0]['deadline'] == calls[1]['deadline']
+    hourly_opportunity_observer._capture_quotes([], database=tmp_path / 'market.duckdb',
+                                                observed_at=NOW)
+    assert calls[2]['wait_s'] == 300
+
+
+def test_observer_wait_deadline_does_not_reset_after_model(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(hourly_opportunity_observer, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(hourly_opportunity_observer.db, "connect",
+                        lambda _path, **kwargs: calls.append(kwargs) or type(
+                            "Connection", (), {"close": lambda self: None})())
+    lease = hourly_opportunity_observer._DatabaseLease(tmp_path / "market.duckdb")
+    assert calls[0]["deadline"] == 680.0
+    lease.close()
+    monkeypatch.setattr(hourly_opportunity_observer, "monotonic", lambda: 650.0)
+    lease.reacquire()
+    lease.close()
+    assert calls[1]["deadline"] == 680.0

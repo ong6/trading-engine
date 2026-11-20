@@ -345,6 +345,11 @@ def test_event_runner_releases_database_during_model_call(tmp_path, monkeypatch)
     observed_call_states = []
 
     def generate(payload):
+        # Source capture needs this same guard, even while the event lease is released.
+        import fcntl
+        with p15_event_runner.NIGHTLY_LOCK.open("a") as capture_guard:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(capture_guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
         reader = db.connect(database, read_only=True, wait_s=0)
         try:
             observed_call_states.append(

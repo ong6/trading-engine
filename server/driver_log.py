@@ -78,6 +78,18 @@ def _lock_held(lock_path: Path) -> bool | None:
         return None
 
 
+def _driver_lock_held(lock_path: Path) -> bool | None:
+    """Prefer the run guard; legacy drivers retain their producer lock throughout."""
+    running = lock_path.with_suffix(".running.lock")
+    try:
+        running.lstat()
+    except FileNotFoundError:
+        return _lock_held(lock_path)
+    except OSError:
+        return None
+    return _lock_held(running)
+
+
 def as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
@@ -171,7 +183,7 @@ def _unterminated_fields(
     stale_after: timedelta,
 ) -> dict:
     elapsed = checked_at - started_at
-    lock_after = _lock_held(lock_path) if lock_path is not None else None
+    lock_after = _driver_lock_held(lock_path) if lock_path is not None else None
     lock_held = True if True in (lock_before, lock_after) else lock_after
     if lock_held is True:
         result = {"status": "running", "lock_held": True}
@@ -359,14 +371,15 @@ def driver_status(
 ) -> dict | None:
     """Parse the final run and distinguish live work from an abandoned start.
 
-    Current drivers hold ``lock_path`` for their entire process lifetime, so a
-    held lock is authoritative. If a historical deployment has no readable
-    lock, a conservative age limit prevents an unterminated marker from being
+    Current drivers hold the adjacent ``.running.lock`` guard through their
+    done/failure marker; legacy drivers hold ``lock_path`` for the whole run.
+    If a historical deployment has no readable lock, a conservative age limit
+    prevents an unterminated marker from being
     reported as running forever.
     """
     # Sample liveness before parsing. Unterminated runs sample it again after
     # the log read so either observation can establish a live execution.
-    lock_before = _lock_held(lock_path) if lock_path is not None else None
+    lock_before = _driver_lock_held(lock_path) if lock_path is not None else None
     # Search backwards: successful jobs can emit multi-megabyte logs, but their
     # terminal marker is always at the end. This keeps request-time memory flat.
     checked_at = as_utc(now or datetime.now(timezone.utc))

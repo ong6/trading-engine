@@ -1143,6 +1143,110 @@ def test_publish_on_change_skips_unchanged_busy_and_running_publications(tmp_pat
     assert changed["row_counts"]["main.jobs"] == 1
 
 
+def test_publish_on_change_backs_off_after_failure_and_recovers(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    source = root / "store/market.duckdb"
+    source.parent.mkdir(parents=True)
+    source.touch()
+    monkeypatch.setattr(publish_snapshot, "_unchanged_generation", lambda *_args: None)
+    attempts = []
+
+    def fail(*_args, **_kwargs):
+        attempts.append(1)
+        raise publish_snapshot.SnapshotError("failure after capture")
+
+    monkeypatch.setattr(publish_snapshot, "_publish_locked", fail)
+    with pytest.raises(publish_snapshot.SnapshotError, match="failure after capture"):
+        publish_snapshot.publish_snapshot(root, source, if_changed=True, now=NOW)
+    skipped = publish_snapshot.publish_snapshot(
+        root, source, if_changed=True, now=NOW + timedelta(minutes=30),
+    )
+    assert skipped["status"] == "skipped" and "backoff" in skipped["reason"]
+    assert len(attempts) == 1
+    monkeypatch.setattr(publish_snapshot, "_publish_locked", lambda *_args, **_kwargs: {"ok": 1})
+    assert publish_snapshot.publish_snapshot(
+        root, source, if_changed=True, now=NOW + timedelta(hours=1),
+    ) == {"ok": 1}
+    # A successful later publication clears failure state.
+    assert publish_snapshot.publish_snapshot(
+        root, source, if_changed=True, now=NOW + timedelta(hours=1, minutes=1),
+    ) == {"ok": 1}
+
+
+def test_publish_on_change_detects_killed_attempt_before_recapturing(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    source = root / "store/market.duckdb"
+    source.parent.mkdir(parents=True)
+    source.touch()
+    child = r'''
+import os, signal, sys
+from datetime import datetime
+from pathlib import Path
+from tools import publish_snapshot as pub
+pub._unchanged_generation = lambda *_args: None
+def killed(*_args, **_kwargs):
+    os.kill(os.getpid(), signal.SIGKILL)
+pub._publish_locked = killed
+pub.publish_snapshot(Path(sys.argv[1]), Path(sys.argv[2]), if_changed=True,
+                     now=datetime.fromisoformat(sys.argv[3]))
+'''
+    process = subprocess.run([sys.executable, "-c", child, str(root), str(source),
+                              NOW.isoformat()], timeout=20)
+    assert process.returncode == -9
+    state = source.parent / "snapshots" / publish_snapshot.PUBLISH_ON_CHANGE_ATTEMPT_FILE
+    assert json.loads(state.read_text())["failed_at"] is None
+    monkeypatch.setattr(publish_snapshot, "_unchanged_generation", lambda *_args: None)
+    calls = []
+    monkeypatch.setattr(publish_snapshot, "_publish_locked",
+                        lambda *_args, **_kwargs: calls.append(1) or {"ok": 1})
+    for minutes in (30, 60, 89):
+        result = publish_snapshot.publish_snapshot(
+            root, source, if_changed=True, now=NOW + timedelta(minutes=minutes),
+        )
+        assert result["status"] == "skipped" and "backoff" in result["reason"]
+    assert not calls
+    assert publish_snapshot.publish_snapshot(
+        root, source, if_changed=True, now=NOW + timedelta(minutes=90),
+    ) == {"ok": 1}
+    assert not state.exists()
+
+
+def test_publish_on_change_contention_is_a_skip_without_failure_backoff(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    source = root / "store/market.duckdb"
+    source.parent.mkdir(parents=True)
+    source.touch()
+    monkeypatch.setattr(publish_snapshot, "_unchanged_generation", lambda *_args: None)
+    monkeypatch.setattr(publish_snapshot, "_publish_locked", lambda *_args, **_kwargs:
+                        (_ for _ in ()).throw(publish_snapshot.PublicationBusy("producer active")))
+    result = publish_snapshot.publish_snapshot(root, source, if_changed=True, now=NOW)
+    assert result == {"status": "skipped", "reason": "producer active"}
+    assert not (source.parent / "snapshots" / publish_snapshot.PUBLISH_ON_CHANGE_ATTEMPT_FILE).exists()
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("Query interrupted"),
+                                      duckdb.Error("Could not set lock after capture")])
+def test_publish_on_change_failure_after_capture_preserves_previous_and_backs_off(
+    tmp_path, monkeypatch, failure,
+):
+    root, source = _repo(tmp_path)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    monkeypatch.setattr(publish_snapshot, "_unchanged_generation", lambda *_args: None)
+
+    def interrupted(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(publish_snapshot, "_verify_append_only_prefix", interrupted)
+    with pytest.raises((RuntimeError, publish_snapshot.SnapshotError)):
+        publish_snapshot.publish_snapshot(root, source, if_changed=True, now=NOW)
+    assert os.readlink(source.parent / "snapshots" / snapshots.LATEST_NAME) == first["snapshot"]
+    assert not list((source.parent / "snapshots").glob(".capture-*"))
+    retry = publish_snapshot.publish_snapshot(
+        root, source, if_changed=True, now=NOW + timedelta(minutes=30),
+    )
+    assert retry["status"] == "skipped" and "backoff" in retry["reason"]
+
+
 def test_publish_on_change_publishes_in_market_hours_at_most_every_three_hours(tmp_path):
     root, source = _repo(tmp_path)
     first = publish_snapshot.publish_snapshot(root, source, now=NOW)

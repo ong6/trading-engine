@@ -5861,4 +5861,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** lane delta: server 0, tools +12, product 0 LOC; tests +72; the combined metrics snapshot passes budget.
 - **Next:** orchestrator resolves the reader scope and completes full capture, publication timing and timezone suites before the shared re-pin.
 
+## 2026-11-20 — Revision-25 round two: publication retries and observer capture waits
+
+- **Why:** orchestrator journal evidence shows every daytime capture timing out at 25 minutes; the 17:15 hourly observer gives up after 60 seconds inside a roughly 120-second capture.
+  `pytest -q -n 0` on the new timeout, failure-backoff, observer-lease and digest regression cases fails before the fix: 25-minute timeout, immediate second failure, 60-second lease, and interrupted digest status.
+- **What:** the digest reads the running guard through the done marker. Publish-on-change gets 45 minutes (16 minutes above the recorded 29-minute stage); its single oneshot and publication mutex prevent timer overlap.
+  Durable attempt state backs off an hour after failure, or an hour after detecting a killed attempt; ordinary producer contention remains a skip. Both P9 cadences wait up to 300 seconds with one shared store deadline inside the ten-minute unit.
+  P15 pre-open already has a sufficient deadline-bound wait; events exclude capture with the nightly guard across lease releases. The out-folder rehearsal checks the reserve, full publication, concurrent writer access and post-capture failure preserving the served generation.
+- **Evidence:** `pytest -W error -n 0 tests/test_publish_snapshot.py -k 'publish_on_change or semantic_equality or writer_wins or publication_tail'` → 12 passed; another 320 focused tests pass in each timezone. Ruff and metrics budget pass; full suite and full-store rehearsal stay with the orchestrator.
+- **Metrics:** round-two delta: server +23, tools +60, product 0 LOC; tests +165.
+- **Next:** orchestrator runs the full source-copy rehearsal and suite, then performs the shared registration revision.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
