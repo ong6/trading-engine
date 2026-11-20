@@ -5874,4 +5874,20 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +154, tools +2, product 0 LOC versus the round-two initial snapshot.
 - **Next:** orchestrator acceptance and API restart.
 
+## 2026-11-20 — Report generation failures and bound verification retries
+
+- **Why:** revision-25 round-three review; tests on the round-two head reproduce silent
+  failed verification, per-poll retries, cursor timezone loss and missing health/lifetime guards.
+- **What:** report refresh errors/times, pending age and generation status; warn on actual
+  failures and retry after 60 seconds, doubling to a ten-minute cap or retrying a changed identity.
+  Readiness degrades for failure, pending past 15 minutes, the existing 3.5-hour stale budget,
+  a five-minute heartbeat gap or three query I/O errors in five minutes; digest severity follows it.
+  Reapply UTC/resource settings on cursors and finalize leaked leases; preserve coherent
+  continuous reads through the switch and clear active failure after successful verification.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0` on the focused API/readiness,
+  read-model, digest and account-reader tests → 315 passed under each timezone; 16 new
+  regressions fail on the round-two head. Full suite deferred to the orchestrator as instructed.
+- **Metrics:** server +180, tools +29, product 0 LOC versus the round-three initial snapshot.
+- **Next:** orchestrator full-suite acceptance and API restart.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

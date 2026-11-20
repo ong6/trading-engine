@@ -218,7 +218,7 @@ def test_reads_serve_previous_generation_during_verification(monkeypatch, tmp_pa
         first.close()
 
 
-def test_corrupt_publication_keeps_previous_ready_and_readable(monkeypatch, tmp_path):
+def test_corrupt_publication_degrades_readiness_while_previous_remains_readable(monkeypatch, tmp_path):
     root = tmp_path / "repo"
     source = root / "store" / "market.duckdb"
     source.parent.mkdir(parents=True)
@@ -237,7 +237,8 @@ def test_corrupt_publication_keeps_previous_ready_and_readable(monkeypatch, tmp_
         damaged.write(b"damaged")
     assert main._warm_generation() is False
     state = server_db.readiness()
-    assert state["ok"] is True and state["generation_id"] == first_id
+    assert state["ok"] is False and state["generation_id"] == first_id
+    assert state["status"] == "verification_failed"
     assert state["pending_verification"] is True
     with server_db.read_con() as con:
         assert con.execute("SELECT close FROM prices WHERE ticker='SPY'").fetchone() == (1,)
@@ -261,7 +262,10 @@ def test_readiness_fails_when_selected_generation_becomes_unreadable(monkeypatch
         for path in ("/meta", "/ready"):
             response, body = await asyncio.wait_for(_get(path), 0.5)
             assert response["status"] == 503
-            assert "not ready" in json.dumps(body)
+            if path == "/meta":
+                assert "not ready" in json.dumps(body)
+            else:
+                assert body["status"] == "verification_failed" and body["ok"] is False
         response, body = await _get("/health")
         assert response["status"] == 200 and body["ok"] is True
 

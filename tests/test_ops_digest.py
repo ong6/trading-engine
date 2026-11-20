@@ -109,6 +109,8 @@ def _gateway_fetch(health):
         if url.endswith("/meta"):
             return 200, 40, json.dumps({"nightly": {"status": "ok"},
                                         "price_verification": {"status": "issues"}}).encode()
+        if url.endswith("/ready"):
+            return 200, 3, b'{"ok":true,"status":"current","reason":null}'
         return 200, 3, b"{}"
     return fetch
 

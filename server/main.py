@@ -220,7 +220,7 @@ def _warm_generation() -> bool:
     try:
         return server_db.refresh_generation()
     except Exception:  # A missing/unreadable store must not stop API liveness.
-        logging.getLogger(__name__).debug("generation warm failed", exc_info=True)
+        logging.getLogger(__name__).warning("generation warm failed", exc_info=True)
         return False
 
 
