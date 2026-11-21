@@ -9,18 +9,16 @@
 | 5 | SPY Buy & Hold | 2026-07-17 | $36,082 | −7.48% | −0.54% | −11.40% | 1 | 1 | −8.51% |
 | 6 | Macro Composite (all-signals) | 2026-08-03 | $35,130 | −9.92% | −1.22% | −10.36% | 1 | 2 | −8.56% |
 | 7 | Dual Momentum (GEM) | 2026-07-17 | $34,956 | −10.37% | −3.43% | −12.82% | 1 | 6 | −7.71% |
-| 8 | p15_hybrid_veto | 2026-09-26 | $8,502 ‡ | −14.98% | −4.41% | −16.28% | 5 | 82 | −4.73% |
-| 9 | Momentum Top 10 (stop-managed) | 2026-07-28 | $33,016 | −15.34% | −8.71% | −32.81% | 10 | 232 | −9.34% |
-| 10 | p15_rule_control | 2026-09-26 | $8,380 ‡ | −16.20% | −5.63% | −17.58% | 6 | 82 | −5.64% |
-| 11 | Template Top 5 | 2026-07-17 | $32,679 | −16.21% | −9.27% | −33.29% | 5 | 117 | −12.42% |
-| 12 | p15_ai_ranked | 2026-09-26 | $8,372 ‡ | −16.28% | −5.70% | −17.24% | 4 | 121 | −4.64% |
+| 8 | Momentum Top 10 (stop-managed) | 2026-07-28 | $33,016 | −15.34% | −8.71% | −32.81% | 10 | 232 | −9.34% |
+| 9 | Template Top 5 | 2026-07-17 | $32,679 | −16.21% | −9.27% | −33.29% | 5 | 117 | −12.42% |
+| 10 | p15_hybrid_veto | 2026-09-26 | $8,154 | −18.46% | −7.89% | −19.70% | 4 | 83 | −8.43% |
+| 11 | p15_rule_control | 2026-09-26 | $8,069 | −19.31% | −8.73% | −20.64% | 5 | 83 | −8.73% |
+| 12 | p15_ai_ranked | 2026-09-26 | $8,053 | −19.47% | −8.90% | −20.40% | 4 | 122 | −8.27% |
 | 13 | Equal-Weight Benchmark | 2026-07-17 | $30,873 | −20.84% | −13.90% | −28.53% | 52 | 271 | −6.94% |
 | 14 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $29,069 | −25.46% | −15.59% | −27.78% | 52 | 206 | −7.13% |
 | 15 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $27,351 | −29.87% | −20.27% | −30.33% | 50 | 110 | −13.30% |
 
 _Regime: **risk-off** · each return uses its book's persisted starting capital · as of 2026-11-20._
-
-_‡ marked through 2026-11-19: p15_hybrid_veto, p15_rule_control, p15_ai_ranked. A P15 book is marked by its own window after that session's P15 fills, never provisionally by the league._
 
 ## Commission break
 
@@ -33,11 +31,11 @@ _‡ marked through 2026-11-19: p15_hybrid_veto, p15_rule_control, p15_ai_ranked
 | SPY Buy & Hold | −9.57% | $0.00 |
 | Macro Composite (all-signals) | −9.44% | $0.39 |
 | Dual Momentum (GEM) | −7.93% | $3.10 |
-| p15_hybrid_veto | −5.48% | $17.42 |
 | Momentum Top 10 (stop-managed) | −15.36% | $40.51 |
-| p15_rule_control | −5.77% | $16.91 |
 | Template Top 5 | −11.73% | $20.67 |
-| p15_ai_ranked | −9.57% | $25.67 |
+| p15_hybrid_veto | −9.34% | $17.84 |
+| p15_rule_control | −9.26% | $17.33 |
+| p15_ai_ranked | −13.03% | $26.02 |
 | Equal-Weight Benchmark | −12.91% | $33.93 |
 | EW Screen — Inverse-Vol Weighted | −13.73% | $33.81 |
 | XS Momentum 12-1 (unscreened control) | −15.75% | $24.23 |

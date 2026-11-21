@@ -45,7 +45,7 @@
       "model_version": "unversioned-catalog-alias",
       "policy_id": "four_hour_opportunity_review_v5",
       "prompt_role": "catalyst_and_structure_review",
-      "trace_count": 24
+      "trace_count": 26
     },
     {
       "cadence": "hourly",
@@ -90,7 +90,7 @@
       "model_version": "unversioned-catalog-alias",
       "policy_id": "hourly_market_watch_v5",
       "prompt_role": "rapid_catalyst_watch",
-      "trace_count": 83
+      "trace_count": 88
     },
     {
       "cadence": "nightly",
@@ -108,7 +108,7 @@
       "model_version": "unversioned-catalog-alias",
       "policy_id": "nightly_opportunity_tool_v1",
       "prompt_role": "eod_swing_decision",
-      "trace_count": 11
+      "trace_count": 12
     },
     {
       "cadence": "nightly",
@@ -126,7 +126,7 @@
       "model_version": "unversioned-catalog-alias",
       "policy_id": "p15-scoring-v1",
       "prompt_role": "p15-scoring-v1",
-      "trace_count": 11
+      "trace_count": 12
     }
   ],
   "contamination": {
@@ -178,14 +178,14 @@
     }
   },
   "coverage": {
-    "available_decision_count": 3466,
-    "decision_count": 3687,
-    "expected_window_count": 396,
-    "immature_label_count": 2364,
-    "label_count": 4752,
-    "mature_expected_label_count": 11500,
-    "missing_mature_label_count": 6748,
-    "missing_window_count": 39,
+    "available_decision_count": 3556,
+    "decision_count": 3783,
+    "expected_window_count": 406,
+    "immature_label_count": 2393,
+    "label_count": 4888,
+    "mature_expected_label_count": 11831,
+    "missing_mature_label_count": 6943,
+    "missing_window_count": 41,
     "missing_windows": [
       "four_hour_opportunity_review_v5:2026-09-28T12",
       "four_hour_opportunity_review_v5:2026-10-29T12",
@@ -221,6 +221,8 @@
       "hourly_market_watch_v5:2026-11-18T19",
       "hourly_market_watch_v5:2026-11-18T20",
       "hourly_market_watch_v5:2026-11-18T21",
+      "hourly_market_watch_v5:2026-11-20T17",
+      "hourly_market_watch_v5:2026-11-20T20",
       "nightly:2026-10-22",
       "nightly:2026-11-13",
       "nightly:2026-11-16",
@@ -228,27 +230,27 @@
       "nightly:2026-11-18"
     ],
     "missing_windows_truncated": false,
-    "observed_expected_window_count": 357,
+    "observed_expected_window_count": 365,
     "scheduled_window_status": "incomplete",
-    "trace_count": 407,
-    "unavailable_decision_count": 221
+    "trace_count": 416,
+    "unavailable_decision_count": 227
   },
   "data_provenance": {
-    "fact_count": 8905576,
+    "fact_count": 9088386,
     "historical_membership_authority": false,
     "pit_import_batch_count": 0,
     "pit_import_row_count": 0,
-    "receipt_count": 287268,
-    "sec_current_mapping_fact_count": 4108,
-    "sec_filing_fact_count": 93495
+    "receipt_count": 295490,
+    "sec_current_mapping_fact_count": 4236,
+    "sec_filing_fact_count": 94760
   },
   "evidence_class": "prospective_forward_only",
   "execution": {
-    "alert_open_count": 6,
+    "alert_open_count": 4,
     "alert_precision": 0.4492753623188406,
     "alert_precision_count": 69,
-    "alert_terminal_count": 105,
-    "alert_trigger_rate": 0.6571428571428571,
+    "alert_terminal_count": 108,
+    "alert_trigger_rate": 0.6388888888888888,
     "completed_exit_count": 6,
     "exit_rate": 0.6666666666666666,
     "exit_rule_count": 9,
@@ -264,14 +266,14 @@
     "turnover_notional": 13475.745756255199,
     "turnover_over_initial_cash": 1.34757457562552
   },
-  "generated_at": "2026-11-20T02:54:40.857794+00:00",
+  "generated_at": "2026-11-21T02:53:52.217069+00:00",
   "horizons": [
     1,
     5,
     10,
     20
   ],
-  "labels_source_revised": 6823,
+  "labels_source_revised": 7084,
   "labels_source_revised_ids": [
     1,
     2,
@@ -2195,6 +2197,75 @@
     9458,
     9459,
     9460,
+    11154,
+    11155,
+    11156,
+    11157,
+    11158,
+    11159,
+    11160,
+    11161,
+    11162,
+    11163,
+    11164,
+    11165,
+    11166,
+    11167,
+    11168,
+    11169,
+    11170,
+    11171,
+    11172,
+    11173,
+    11174,
+    11175,
+    11176,
+    11177,
+    11178,
+    11179,
+    11180,
+    11181,
+    11182,
+    11183,
+    11184,
+    11185,
+    11186,
+    11187,
+    11188,
+    11189,
+    11190,
+    11191,
+    11192,
+    11193,
+    11194,
+    11195,
+    11196,
+    11197,
+    11198,
+    11199,
+    11203,
+    11204,
+    11205,
+    11206,
+    11207,
+    11208,
+    11209,
+    11210,
+    11211,
+    11212,
+    11213,
+    11214,
+    11215,
+    11216,
+    11217,
+    11218,
+    11219,
+    11220,
+    11221,
+    11222,
+    11223,
+    11224,
+    11225,
     89,
     90,
     92,
@@ -6235,6 +6306,135 @@
     9738,
     9739,
     9740,
+    11243,
+    11244,
+    11245,
+    11246,
+    11247,
+    11249,
+    11250,
+    11251,
+    11254,
+    11255,
+    11257,
+    11258,
+    11259,
+    11261,
+    11262,
+    11263,
+    11265,
+    11267,
+    11268,
+    11269,
+    11271,
+    11272,
+    11273,
+    11276,
+    11278,
+    11279,
+    11280,
+    11281,
+    11282,
+    11283,
+    11284,
+    11287,
+    11288,
+    11289,
+    11291,
+    11292,
+    11293,
+    11295,
+    11297,
+    11299,
+    11300,
+    11301,
+    11302,
+    11303,
+    11304,
+    11307,
+    11309,
+    11313,
+    11314,
+    11315,
+    11317,
+    11319,
+    11320,
+    11321,
+    11322,
+    11324,
+    11325,
+    11326,
+    11327,
+    11330,
+    11332,
+    11333,
+    11334,
+    11335,
+    11337,
+    11339,
+    11340,
+    11341,
+    11344,
+    11345,
+    11346,
+    11347,
+    11348,
+    11349,
+    11354,
+    11355,
+    11358,
+    11359,
+    11360,
+    11361,
+    11362,
+    11363,
+    11364,
+    11366,
+    11367,
+    11368,
+    11370,
+    11371,
+    11372,
+    11376,
+    11377,
+    11378,
+    11379,
+    11381,
+    11382,
+    11383,
+    11384,
+    11385,
+    11386,
+    11389,
+    11391,
+    11393,
+    11394,
+    11397,
+    11398,
+    11400,
+    11401,
+    11402,
+    11405,
+    11406,
+    11407,
+    11408,
+    11409,
+    11414,
+    11417,
+    11418,
+    11419,
+    11420,
+    11421,
+    11422,
+    11423,
+    11433,
+    11434,
+    11435,
+    11437,
+    11438,
+    11439,
+    11440,
+    11441,
     11,
     24,
     156,
@@ -7095,9 +7295,72 @@
     2854,
     2856,
     2857,
-    2858
+    2858,
+    3713,
+    3714,
+    3715,
+    3716,
+    3717,
+    3719,
+    3720,
+    3724,
+    3725,
+    3726,
+    3727,
+    3728,
+    3729,
+    3733,
+    3734,
+    3736,
+    3737,
+    3738,
+    3739,
+    3770,
+    3773,
+    3774,
+    3779,
+    3782,
+    3783,
+    3786,
+    3790,
+    3791,
+    3794,
+    3795,
+    3796,
+    3797,
+    3799,
+    3800,
+    3801,
+    3803,
+    3804,
+    3807,
+    3810,
+    3811,
+    3812,
+    3813,
+    3814,
+    3816,
+    3817,
+    3818,
+    3820,
+    3822,
+    3823,
+    3824,
+    3880,
+    3883,
+    3884,
+    3885,
+    3886,
+    3889,
+    3891,
+    3892,
+    3893,
+    3894,
+    3895,
+    3897,
+    3901
   ],
-  "labels_source_unverifiable": 932,
+  "labels_source_unverifiable": 1014,
   "labels_source_unverifiable_ids": [
     4,
     5,
@@ -8030,7 +8293,89 @@
     2878,
     2879,
     2880,
-    2882
+    2882,
+    3741,
+    3742,
+    3743,
+    3744,
+    3747,
+    3748,
+    3750,
+    3751,
+    3752,
+    3753,
+    3755,
+    3756,
+    3757,
+    3758,
+    3760,
+    3761,
+    3764,
+    3768,
+    3769,
+    3825,
+    3826,
+    3827,
+    3832,
+    3834,
+    3835,
+    3836,
+    3838,
+    3839,
+    3840,
+    3841,
+    3842,
+    3843,
+    3844,
+    3846,
+    3849,
+    3851,
+    3854,
+    3855,
+    3856,
+    3857,
+    3858,
+    3861,
+    3863,
+    3867,
+    3868,
+    3870,
+    3871,
+    3874,
+    3875,
+    3903,
+    3904,
+    3905,
+    3907,
+    3908,
+    3909,
+    3910,
+    3911,
+    3912,
+    3913,
+    3915,
+    3916,
+    3918,
+    3920,
+    3921,
+    3923,
+    3924,
+    3926,
+    3927,
+    3929,
+    3930,
+    3931,
+    3932,
+    3933,
+    3935,
+    3936,
+    3937,
+    3938,
+    3940,
+    3943,
+    3944,
+    3947,
+    3949
   ],
   "legacy_policy_ids": [
     "four_hour_opportunity_review_v1",
@@ -8045,42 +8390,42 @@
       "books": [
         {
           "active": true,
-          "calendar_days": 31,
+          "calendar_days": 32,
           "closed_trade_count": 28,
           "comparison_eligible": false,
-          "end_date": "2026-11-19",
+          "end_date": "2026-11-20",
           "evaluation_clock_start": "2026-10-19",
-          "maximum_drawdown": -0.10345086972505069,
+          "maximum_drawdown": -0.1376781398466257,
           "portfolio_id": "p15_ai_ranked",
           "start_date": "2026-10-19",
-          "turnover_notional": 62397.87976844629,
-          "turnover_over_initial_cash": 6.239787976844629
+          "turnover_notional": 63112.153326002444,
+          "turnover_over_initial_cash": 6.311215332600244
         },
         {
           "active": true,
-          "calendar_days": 31,
-          "closed_trade_count": 18,
+          "calendar_days": 32,
+          "closed_trade_count": 19,
           "comparison_eligible": false,
-          "end_date": "2026-11-19",
+          "end_date": "2026-11-20",
           "evaluation_clock_start": "2026-10-19",
-          "maximum_drawdown": -0.0781394666531049,
+          "maximum_drawdown": -0.11580275643818316,
           "portfolio_id": "p15_hybrid_veto",
           "start_date": "2026-10-19",
-          "turnover_notional": 34205.73773319225,
-          "turnover_over_initial_cash": 3.4205737733192247
+          "turnover_notional": 35472.46517093355,
+          "turnover_over_initial_cash": 3.547246517093355
         },
         {
           "active": true,
-          "calendar_days": 31,
-          "closed_trade_count": 16,
+          "calendar_days": 32,
+          "closed_trade_count": 17,
           "comparison_eligible": false,
-          "end_date": "2026-11-19",
+          "end_date": "2026-11-20",
           "evaluation_clock_start": "2026-10-19",
-          "maximum_drawdown": -0.09032997646460583,
+          "maximum_drawdown": -0.1240646362864638,
           "portfolio_id": "p15_rule_control",
           "start_date": "2026-10-19",
-          "turnover_notional": 32734.898391783314,
-          "turnover_over_initial_cash": 3.2734898391783314
+          "turnover_notional": 33985.697493524676,
+          "turnover_over_initial_cash": 3.398569749352468
         }
       ],
       "comparisons": [
@@ -8144,28 +8489,28 @@
           "top_bottom_quintile_spread": 0.00796706448284571
         },
         "next_session_open": {
-          "ic": 0.06652223896539443,
-          "label_count": 640,
-          "missing_mature_label_count": 7,
+          "ic": 0.06688099447003924,
+          "label_count": 659,
+          "missing_mature_label_count": 9,
           "missing_status_counts": {
-            "complete": 639,
+            "complete": 658,
             "last_available_close": 1
           },
           "reason": "missing_mature_labels",
           "status": "invalid",
-          "top_bottom_quintile_spread": 0.019079630920717364
+          "top_bottom_quintile_spread": 0.019502745861947703
         }
       },
-      "decision_count": 718,
+      "decision_count": 737,
       "latency_target_ms": 600000,
-      "p95_latency_ms_all": 134906.192,
-      "p95_latency_ms_available": 127738.281,
+      "p95_latency_ms_all": 135357.947,
+      "p95_latency_ms_available": 130383.93199999999,
       "skipped_rate_limit_count": 23,
       "status": "invalid",
-      "unavailable_count": 19,
-      "window_count": 906
+      "unavailable_count": 20,
+      "window_count": 932
     },
-    "generated_at": "2026-11-20T02:54:40.857794+00:00",
+    "generated_at": "2026-11-21T02:53:52.217069+00:00",
     "model_strata": {
       "attribution": "each decision keeps the model its scoring trace records",
       "decided_on": "2026-10-29",
@@ -8173,44 +8518,44 @@
       "pooled": "registered primary, looks and books (unchanged)",
       "post_switch_books": [
         {
-          "end_date": "2026-11-19",
+          "end_date": "2026-11-20",
           "includes_positions_opened_before_switch": true,
           "portfolio_id": "p15_ai_ranked",
-          "return": -0.05355856853693286,
+          "return": -0.08969056112388907,
           "start_date": "2026-10-30"
         },
         {
-          "end_date": "2026-11-19",
+          "end_date": "2026-11-20",
           "includes_positions_opened_before_switch": true,
           "portfolio_id": "p15_rule_control",
-          "return": -0.038213917633959316,
+          "return": -0.07388127554459778,
           "start_date": "2026-10-30"
         },
         {
-          "end_date": "2026-11-19",
+          "end_date": "2026-11-20",
           "includes_positions_opened_before_switch": true,
           "portfolio_id": "p15_hybrid_veto",
-          "return": -0.024498529370968636,
+          "return": -0.06435335908222795,
           "start_date": "2026-10-30"
         }
       ],
       "post_switch_first_market_date": "2026-10-30",
       "post_switch_primary": {
         "first_market_date": "2026-10-30",
-        "mean_champion_ic": -0.14865149558566151,
-        "mean_delta_ic": -0.19365036624139514,
-        "mean_rule_ic": 0.04499887065573366,
+        "mean_champion_ic": -0.07835687895044284,
+        "mean_delta_ic": -0.025348292337094968,
+        "mean_rule_ic": -0.05300858661334786,
         "model": "GPT-6.1-Sol:max",
-        "primary_offset_session_count": 1,
+        "primary_offset_session_count": 2,
         "role": "diagnostic_only_never_changes_pass_or_kill",
-        "scored_session_count": 5
+        "scored_session_count": 7
       },
       "role": "diagnostic_only_never_changes_pass_or_kill",
       "to_model": "GPT-6.1-Sol:max"
     },
     "observer_pairing": {
-      "four_hour_opportunity_review_v5": 325,
-      "hourly_market_watch_v5": 689
+      "four_hour_opportunity_review_v5": 335,
+      "hourly_market_watch_v5": 707
     },
     "preopen": {
       "books": [
@@ -8250,14 +8595,14 @@
           "2026-10-20"
         ]
       },
-      "run_count": 34,
+      "run_count": 35,
       "status": "collecting"
     },
     "primary": {
       "book_look_dates": [],
-      "candidate_count": 2240,
+      "candidate_count": 2306,
       "diagnostics": {
-        "baseline_logistic_brier": 0.257050124576523,
+        "baseline_logistic_brier": 0.2559473012133587,
         "by_scoring_model": [
           {
             "first_market_date": "2026-09-29",
@@ -8271,13 +8616,13 @@
           },
           {
             "first_market_date": "2026-10-30",
-            "mean_champion_ic": -0.14865149558566151,
-            "mean_delta_ic": -0.19365036624139514,
-            "mean_rule_ic": 0.04499887065573366,
+            "mean_champion_ic": -0.07835687895044284,
+            "mean_delta_ic": -0.025348292337094968,
+            "mean_rule_ic": -0.05300858661334786,
             "model": "GPT-6.1-Sol:max",
-            "primary_offset_session_count": 1,
+            "primary_offset_session_count": 2,
             "role": "diagnostic_only_never_changes_pass_or_kill",
-            "scored_session_count": 5
+            "scored_session_count": 7
           }
         ],
         "calibration": [
@@ -8289,23 +8634,23 @@
             "upper": 0.2
           },
           {
-            "count": 84,
+            "count": 91,
             "lower": 0.2,
-            "mean_probability": 0.3753571428571429,
-            "observed_rate": 0.40476190476190477,
+            "mean_probability": 0.3753846153846154,
+            "observed_rate": 0.4175824175824176,
             "upper": 0.4
           },
           {
-            "count": 1307,
+            "count": 1416,
             "lower": 0.4,
-            "mean_probability": 0.4936954858454476,
-            "observed_rate": 0.4407039020657995,
+            "mean_probability": 0.4943820621468926,
+            "observed_rate": 0.4477401129943503,
             "upper": 0.6000000000000001
           },
           {
-            "count": 34,
+            "count": 46,
             "lower": 0.6,
-            "mean_probability": 0.6075,
+            "mean_probability": 0.6079347826086956,
             "observed_rate": 0.5,
             "upper": 0.8
           },
@@ -8317,33 +8662,33 @@
             "upper": 1.0
           }
         ],
-        "climatology_brier": 0.257556580304564,
+        "climatology_brier": 0.2578221054483368,
         "h10": {
-          "mean_baseline_ic": -0.12958392526377988,
-          "mean_model_ic": -0.037834073020468914,
-          "scored_session_count": 27
+          "mean_baseline_ic": -0.10434350412062368,
+          "mean_model_ic": -0.017498209539872224,
+          "scored_session_count": 28
         },
         "ic_by_stratum": {
           "mover": {
-            "count": 930,
-            "model_ic": 0.050038841712618645
+            "count": 1010,
+            "model_ic": 0.052031292130748426
           },
           "trend": {
-            "count": 480,
-            "model_ic": -0.02621199752514606
+            "count": 520,
+            "model_ic": -0.006544350732943019
           }
         },
-        "mean_top_bottom_quintile_spread": -0.003005453373742655,
-        "model_brier": 0.2508676560283688
+        "mean_top_bottom_quintile_spread": -0.002501273364459738,
+        "model_brier": 0.25110478431372546
       },
       "earliest_next_look_date": "2027-02-01",
       "immature_session_count": 9,
       "insufficient_session_count": 0,
       "looks": [],
-      "missing_mature_label_count": 3,
+      "missing_mature_label_count": 2,
       "next_look": 60,
       "origin_epoch": "2026-09-29",
-      "scored_session_count": 26,
+      "scored_session_count": 28,
       "status": "invalid"
     },
     "promotion_authority": "owner_review_required",
@@ -8354,8 +8699,8 @@
   "p8_evaluation": {
     "cohort_start": "2026-10-19",
     "completed_round_trip_count": 1,
-    "completed_session_count": 19,
-    "elapsed_calendar_days": 32,
+    "completed_session_count": 20,
+    "elapsed_calendar_days": 33,
     "lower_bound_is_gate": false,
     "lower_confidence_bound": null,
     "mean_net_round_trip_return": 0.006407516989932471,
@@ -8372,15 +8717,15 @@
       "left_missing_count": 0,
       "left_policy": "nightly_opportunity_tool_v1",
       "left_wins": 2,
-      "mean_signed_return_delta": -0.003124751879876305,
-      "paired_count": 343,
+      "mean_signed_return_delta": -0.003071031217185022,
+      "paired_count": 349,
       "right_ambiguous_count": 0,
-      "right_missing_count": 244,
+      "right_missing_count": 248,
       "right_policy": "hourly_market_watch_v5",
       "right_wins": 6,
       "same_input_count": 0,
       "same_source_set_count": 0,
-      "ties": 335,
+      "ties": 341,
       "window_scope": "first"
     },
     {
@@ -8389,15 +8734,15 @@
       "left_missing_count": 0,
       "left_policy": "nightly_opportunity_tool_v1",
       "left_wins": 9,
-      "mean_signed_return_delta": -0.002327671675803669,
-      "paired_count": 552,
+      "mean_signed_return_delta": -0.002286254030326735,
+      "paired_count": 562,
       "right_ambiguous_count": 0,
       "right_missing_count": 35,
       "right_policy": "four_hour_opportunity_review_v5",
       "right_wins": 17,
       "same_input_count": 0,
       "same_source_set_count": 0,
-      "ties": 526,
+      "ties": 536,
       "window_scope": "first"
     },
     {
@@ -8409,7 +8754,7 @@
       "mean_signed_return_delta": null,
       "paired_count": 0,
       "right_ambiguous_count": 0,
-      "right_missing_count": 587,
+      "right_missing_count": 597,
       "right_policy": "p15-scoring-v1",
       "right_wins": 0,
       "same_input_count": 0,
@@ -8426,7 +8771,7 @@
       "mean_signed_return_delta": null,
       "paired_count": 0,
       "right_ambiguous_count": 0,
-      "right_missing_count": 343,
+      "right_missing_count": 349,
       "right_policy": "p15-scoring-v1",
       "right_wins": 0,
       "same_input_count": 0,
@@ -8443,7 +8788,7 @@
       "mean_signed_return_delta": null,
       "paired_count": 0,
       "right_ambiguous_count": 0,
-      "right_missing_count": 552,
+      "right_missing_count": 562,
       "right_policy": "p15-scoring-v1",
       "right_wins": 0,
       "same_input_count": 0,
@@ -8459,15 +8804,15 @@
       "left_missing_count": 0,
       "left_policy": "nightly_opportunity_tool_v1",
       "left_wins": 31,
-      "mean_signed_return_delta": -0.002548624955426609,
-      "paired_count": 2364,
+      "mean_signed_return_delta": -0.0025072615042149417,
+      "paired_count": 2403,
       "right_ambiguous_count": 0,
-      "right_missing_count": 235,
+      "right_missing_count": 239,
       "right_policy": "hourly_market_watch_v5",
       "right_wins": 63,
       "same_input_count": 0,
       "same_source_set_count": 0,
-      "ties": 2270,
+      "ties": 2309,
       "window_scope": "all"
     },
     {
@@ -8476,15 +8821,15 @@
       "left_missing_count": 0,
       "left_policy": "nightly_opportunity_tool_v1",
       "left_wins": 20,
-      "mean_signed_return_delta": -0.0019245727916476574,
-      "paired_count": 1119,
+      "mean_signed_return_delta": -0.0018907787127776371,
+      "paired_count": 1139,
       "right_ambiguous_count": 0,
       "right_missing_count": 0,
       "right_policy": "four_hour_opportunity_review_v5",
       "right_wins": 31,
       "same_input_count": 0,
       "same_source_set_count": 0,
-      "ties": 1068,
+      "ties": 1088,
       "window_scope": "all"
     },
     {
@@ -8496,7 +8841,7 @@
       "mean_signed_return_delta": null,
       "paired_count": 0,
       "right_ambiguous_count": 0,
-      "right_missing_count": 587,
+      "right_missing_count": 597,
       "right_policy": "p15-scoring-v1",
       "right_wins": 0,
       "same_input_count": 0,
@@ -8513,7 +8858,7 @@
       "mean_signed_return_delta": null,
       "paired_count": 0,
       "right_ambiguous_count": 0,
-      "right_missing_count": 352,
+      "right_missing_count": 358,
       "right_policy": "p15-scoring-v1",
       "right_wins": 0,
       "same_input_count": 0,
@@ -8530,7 +8875,7 @@
       "mean_signed_return_delta": null,
       "paired_count": 0,
       "right_ambiguous_count": 0,
-      "right_missing_count": 587,
+      "right_missing_count": 597,
       "right_policy": "p15-scoring-v1",
       "right_wins": 0,
       "same_input_count": 0,
@@ -8541,12 +8886,12 @@
   ],
   "policies": {
     "four_hour_opportunity_review_v5": {
-      "abstention_rate": 0.9633802816901409,
+      "abstention_rate": 0.9643835616438357,
       "brier_score": 0.32563478260869566,
       "by_horizon": {
         "1": {
-          "agent_vs_cash_delta": -5.4339936621675254e-05,
-          "agent_vs_long_candidate_delta": 0.0035169212627250896,
+          "agent_vs_cash_delta": -5.2809234181628064e-05,
+          "agent_vs_long_candidate_delta": 0.0037555543944849104,
           "brier_score": 0.3481,
           "confusion_matrix": {
             "false_negative": 0,
@@ -8562,8 +8907,8 @@
           "mean_signed_return": -0.0014420983180367664
         },
         "10": {
-          "agent_vs_cash_delta": 0.0007530871135063167,
-          "agent_vs_long_candidate_delta": 0.012944761093897908,
+          "agent_vs_cash_delta": 0.000727558736777289,
+          "agent_vs_long_candidate_delta": 0.01574803476791986,
           "brier_score": 0.3527,
           "confusion_matrix": {
             "false_negative": 0,
@@ -8579,8 +8924,8 @@
           "mean_signed_return": 0.017885818945775022
         },
         "20": {
-          "agent_vs_cash_delta": 0.00033097650105947687,
-          "agent_vs_long_candidate_delta": 0.007097018560412261,
+          "agent_vs_cash_delta": 0.00031718581351533197,
+          "agent_vs_long_candidate_delta": 0.012680207471503785,
           "brier_score": 0.254525,
           "confusion_matrix": {
             "false_negative": 0,
@@ -8596,8 +8941,8 @@
           "mean_signed_return": 0.007612459524367968
         },
         "5": {
-          "agent_vs_cash_delta": -0.0006979276371315925,
-          "agent_vs_long_candidate_delta": 0.012720244377514367,
+          "agent_vs_cash_delta": -0.0006776978505480681,
+          "agent_vs_long_candidate_delta": 0.01729867108073722,
           "brier_score": 0.3219461538461538,
           "confusion_matrix": {
             "false_negative": 0,
@@ -8650,7 +8995,7 @@
           "upper": 1.0
         }
       ],
-      "decision_count": 355,
+      "decision_count": 365,
       "directional_accuracy": 0.4782608695652174,
       "forecast_error": {
         "reason": "forward policy does not emit a numeric return forecast",
@@ -8660,19 +9005,19 @@
       "mean_adverse_excursion": -0.05708414981068955,
       "mean_excess_return": 0.0141371953780671,
       "mean_favorable_excursion": 0.0597121563648211,
-      "mean_latency_ms": 19850.293089386443,
+      "mean_latency_ms": 19827.733367273253,
       "mean_signed_return": 0.0004994884124061426,
       "p95_latency_ms": 26176.87613144517,
-      "total_tokens": 793969,
-      "trace_count": 71
+      "total_tokens": 814582,
+      "trace_count": 73
     },
     "hourly_market_watch_v5": {
-      "abstention_rate": 0.9813084112149533,
+      "abstention_rate": 0.981675392670157,
       "brier_score": 0.32426458333333336,
       "by_horizon": {
         "1": {
-          "agent_vs_cash_delta": -0.00015756650540421117,
-          "agent_vs_long_candidate_delta": 0.004024169356666987,
+          "agent_vs_cash_delta": -0.00015314875291624262,
+          "agent_vs_long_candidate_delta": 0.004008501444859352,
           "brier_score": 0.39062142857142856,
           "confusion_matrix": {
             "false_negative": 0,
@@ -8688,8 +9033,8 @@
           "mean_signed_return": -0.008193458281018981
         },
         "10": {
-          "agent_vs_cash_delta": 0.00017410222452176108,
-          "agent_vs_long_candidate_delta": 0.0027320399538192743,
+          "agent_vs_cash_delta": 0.0001682617345617659,
+          "agent_vs_long_candidate_delta": 0.005458042307223926,
           "brier_score": 0.2563357142857143,
           "confusion_matrix": {
             "false_negative": 0,
@@ -8705,8 +9050,8 @@
           "mean_signed_return": 0.0075237032739761045
         },
         "20": {
-          "agent_vs_cash_delta": -0.0016754872389647454,
-          "agent_vs_long_candidate_delta": -0.0054173935617510905,
+          "agent_vs_cash_delta": -0.0015886101228702772,
+          "agent_vs_long_candidate_delta": 0.0016665623235774002,
           "brier_score": 0.40976666666666667,
           "confusion_matrix": {
             "false_negative": 0,
@@ -8722,8 +9067,8 @@
           "mean_signed_return": -0.1072311832937437
         },
         "5": {
-          "agent_vs_cash_delta": -0.0004623168891096745,
-          "agent_vs_long_candidate_delta": 0.010675529783969203,
+          "agent_vs_cash_delta": -0.0004508859770163034,
+          "agent_vs_long_candidate_delta": 0.015012897680582626,
           "brier_score": 0.2891928571428571,
           "confusion_matrix": {
             "false_negative": 0,
@@ -8776,7 +9121,7 @@
           "upper": 1.0
         }
       ],
-      "decision_count": 749,
+      "decision_count": 764,
       "directional_accuracy": 0.4791666666666667,
       "forecast_error": {
         "reason": "forward policy does not emit a numeric return forecast",
@@ -8786,19 +9131,19 @@
       "mean_adverse_excursion": -0.07348973520409453,
       "mean_excess_return": -0.009117955401179899,
       "mean_favorable_excursion": 0.04485761173953295,
-      "mean_latency_ms": 13969.369963241883,
+      "mean_latency_ms": 13982.437121172552,
       "mean_signed_return": -0.02043768044018607,
       "p95_latency_ms": 18633.089303970337,
-      "total_tokens": 1862128,
-      "trace_count": 251
+      "total_tokens": 1899399,
+      "trace_count": 256
     },
     "nightly_opportunity_tool_v1": {
-      "abstention_rate": 0.9335664335664335,
+      "abstention_rate": 0.9347079037800687,
       "brier_score": 0.34764782608695655,
       "by_horizon": {
         "1": {
-          "agent_vs_cash_delta": -0.00038528453948571446,
-          "agent_vs_long_candidate_delta": 0.0002882717738874619,
+          "agent_vs_cash_delta": -0.000379877037177143,
+          "agent_vs_long_candidate_delta": 0.001005446032173231,
           "brier_score": 0.39554210526315786,
           "confusion_matrix": {
             "false_negative": 1,
@@ -8814,8 +9159,8 @@
           "mean_signed_return": -0.005698155557657146
         },
         "10": {
-          "agent_vs_cash_delta": -0.0026071415233183603,
-          "agent_vs_long_candidate_delta": 0.01246654176477236,
+          "agent_vs_cash_delta": -0.002543810150282287,
+          "agent_vs_long_candidate_delta": 0.014540674487799209,
           "brier_score": 0.3359111111111111,
           "confusion_matrix": {
             "false_negative": 1,
@@ -8831,8 +9176,8 @@
           "mean_signed_return": -0.03490672817331805
         },
         "20": {
-          "agent_vs_cash_delta": -0.0018202979973805352,
-          "agent_vs_long_candidate_delta": 0.07024874537071604,
+          "agent_vs_cash_delta": -0.0017474860774853137,
+          "agent_vs_long_candidate_delta": 0.07121354408923443,
           "brier_score": 0.3039,
           "confusion_matrix": {
             "false_negative": 0,
@@ -8902,7 +9247,7 @@
           "upper": 1.0
         }
       ],
-      "decision_count": 286,
+      "decision_count": 291,
       "directional_accuracy": 0.4492753623188406,
       "forecast_error": {
         "reason": "forward policy does not emit a numeric return forecast",
@@ -8912,14 +9257,14 @@
       "mean_adverse_excursion": -0.08164777366963515,
       "mean_excess_return": -0.017566610045816493,
       "mean_favorable_excursion": 0.051710159739139894,
-      "mean_latency_ms": 28746.990718551584,
+      "mean_latency_ms": 28722.137179421752,
       "mean_signed_return": -0.019940807265167046,
       "p95_latency_ms": 38394.05230432749,
-      "total_tokens": 487105,
-      "trace_count": 37
+      "total_tokens": 496142,
+      "trace_count": 38
     },
     "p15-scoring-v1": {
-      "abstention_rate": 0.7118141374196737,
+      "abstention_rate": 0.7124339894383102,
       "brier_score": null,
       "by_horizon": {
         "1": {
@@ -9028,7 +9373,7 @@
           "upper": 1.0
         }
       ],
-      "decision_count": 2023,
+      "decision_count": 2083,
       "directional_accuracy": null,
       "forecast_error": {
         "reason": "forward policy does not emit a numeric return forecast",
@@ -9038,17 +9383,17 @@
       "mean_adverse_excursion": null,
       "mean_excess_return": null,
       "mean_favorable_excursion": null,
-      "mean_latency_ms": 1053988.9409393938,
+      "mean_latency_ms": 1061434.202117647,
       "mean_signed_return": null,
       "p95_latency_ms": 1416026.038,
-      "total_tokens": 29336337,
-      "trace_count": 33
+      "total_tokens": 30269291,
+      "trace_count": 34
     }
   },
   "promotion_authority": "none",
   "schema_version": 2,
   "trial_count_register": {
-    "register_sha256": "4966a5cb9161cd1779f3055a2d1cd8826189444d11be96a19e3686dc11b2f8c4",
+    "register_sha256": "406b9d1e02f0fe8bca4d1cfabf64d8ec4a86104062bbe4820ca29a9ba6672f3a",
     "returned_version_count": 34,
     "selection_trial_count": 29,
     "status": "capturing",
@@ -9158,8 +9503,8 @@
           "f0fcdb221d1ebf2ceaf840bdbc975a26241c152f325ea60d9e6c758c3a91a1ba",
           "gpt-6.1-sol"
         ],
-        "last_observed_at": "2026-11-19T18:30:07.259006",
-        "observation_count": 4,
+        "last_observed_at": "2026-11-20T18:30:02.076539",
+        "observation_count": 6,
         "policy_id": "four_hour_opportunity_review_v5"
       },
       {
@@ -9266,8 +9611,8 @@
           "f0fcdb221d1ebf2ceaf840bdbc975a26241c152f325ea60d9e6c758c3a91a1ba",
           "gpt-6.1-sol"
         ],
-        "last_observed_at": "2026-11-19T21:15:19.402697",
-        "observation_count": 13,
+        "last_observed_at": "2026-11-20T21:15:01.874083",
+        "observation_count": 18,
         "policy_id": "hourly_market_watch_v5"
       },
       {
@@ -9320,8 +9665,8 @@
           "f0fcdb221d1ebf2ceaf840bdbc975a26241c152f325ea60d9e6c758c3a91a1ba",
           "gpt-6.1-sol"
         ],
-        "last_observed_at": "2026-11-20T02:00:54.360323",
-        "observation_count": 1,
+        "last_observed_at": "2026-11-21T02:00:00.668496",
+        "observation_count": 2,
         "policy_id": "nightly_opportunity_tool_v1"
       },
       {
@@ -9374,8 +9719,8 @@
           "f0fcdb221d1ebf2ceaf840bdbc975a26241c152f325ea60d9e6c758c3a91a1ba",
           "gpt-6.1-sol"
         ],
-        "last_observed_at": "2026-11-20T02:30:54.300394",
-        "observation_count": 1,
+        "last_observed_at": "2026-11-21T02:30:00.563069",
+        "observation_count": 2,
         "policy_id": "p15-scoring-v1"
       },
       {
@@ -9384,7 +9729,7 @@
         "identity": [
           "aeb55f0436a06e6a625df3653e8fbf68319f4c814cb3c58996d740f337bdb5ad"
         ],
-        "observation_count": 45,
+        "observation_count": 46,
         "policy_id": "dual_momentum_agent_shadow_v1"
       },
       {
@@ -9467,7 +9812,7 @@
           "no_model_call",
           "no_pending_orders"
         ],
-        "observation_count": 3,
+        "observation_count": 4,
         "policy_id": "p15-preopen-v1"
       },
       {
@@ -9512,7 +9857,7 @@
           "gpt-6.1-sol",
           "5ef6bc1cd74302f70c5a28185be5237fd52377dc67c2830a80c4e276f0560fd2"
         ],
-        "observation_count": 30,
+        "observation_count": 41,
         "policy_id": "p15-events-v1"
       },
       {
@@ -9522,7 +9867,7 @@
           "no_model_call",
           "no_call"
         ],
-        "observation_count": 583,
+        "observation_count": 597,
         "policy_id": "p15-events-v1"
       },
       {
@@ -9532,7 +9877,7 @@
           "no_model_call",
           "unavailable"
         ],
-        "observation_count": 5,
+        "observation_count": 6,
         "policy_id": "p15-events-v1"
       },
       {
@@ -9542,7 +9887,7 @@
           "p15-book-v1",
           "0d0b6a39d87129471247ac586a12c462c8dacafce430d910c38d5b834e28cd71"
         ],
-        "observation_count": 38,
+        "observation_count": 39,
         "policy_id": "p15_ai_ranked"
       },
       {
@@ -9552,7 +9897,7 @@
           "p15-book-v1",
           "8ade3ed05e34089c53fdf62c267780a499b1f59fa5dea3f7aa52acb3aed1c2ed"
         ],
-        "observation_count": 38,
+        "observation_count": 39,
         "policy_id": "p15_hybrid_veto"
       },
       {
@@ -9562,7 +9907,7 @@
           "p15-book-v1",
           "1ef39be2e115b2ce273a015e392654aea7b7fdd47c3ae1d01c3f281775f34ad7"
         ],
-        "observation_count": 38,
+        "observation_count": 39,
         "policy_id": "p15_rule_control"
       }
     ],
