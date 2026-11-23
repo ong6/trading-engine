@@ -226,7 +226,7 @@ def test_only_the_reviewed_files_import_computed_names():
     assert set(at.REVIEWED_COMPUTED_IMPORTS) == {
         "farm/research/worker.py", "tests/test_affected_tests.py", "tools/release_deploy.py",
         "engine/lib/snapshots.py", "engine/schema_migrations.py",
-        "tests/test_baseline_table_coverage.py"}
+        "tests/test_baseline_table_coverage.py", "tools/repin.py"}
     for path in at.REVIEWED_COMPUTED_IMPORTS:  # an exemption that no longer applies goes
         assert at.python_facts(str(REPO_ROOT), path)[2], path
 
