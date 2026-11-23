@@ -5970,4 +5970,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** see the metrics snapshot.
 - **Next:** fast-forward the live checkout, `install_automation --apply`, verify `/ready`.
 
+## 2026-11-23 — Deploy revision 25
+
+- **Why:** P25 scope item 1; revision 25 on `main` with both CI runs green (the `checks` job
+  had been red on two production asserts, fixed before deploy).
+- **What:** fast-forwarded the live checkout to the revision-25 head and ran
+  `install_automation --apply`: publish-on-change unit installed, API and UI restarted. No
+  forward-record migration (no closure digest changed). Deploy gate passed on the same tree.
+- **Evidence:** `/health` 200 in 1 ms, `/ready` 200 (`warning: generation_stale`, weekend gap),
+  `/meta` 200 in 1.05 s (was about 10 s); `install_automation` audit and registration identity pass.
+- **Metrics:** unchanged.
+- **Next:** auto-deployer in dry run (P25 scope items 2–4, registration revision 26).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
