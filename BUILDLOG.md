@@ -5956,6 +5956,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
   new tests pin the warning states, the probe severities and lock reentrancy.
 - **Next:** orchestrator full suite, then deploy with the revision-25 batch.
 
+## 2026-11-23 — Revision 25: snapshot capture lock, API readiness, bounded publication wait
+
+- **Why:** P25 scope item 1 (batch B); reproductions in the lane entries above, plus a
+  release check that would have rolled back: `/health` no longer reports `db_readable`.
+- **What:** merge `r25/snapshot-lock` and `r25/api-latency`; bound the nightly's wait on
+  `.generation-publish.lock` to 50 minutes and ignore EBADF when unlocking a closed inherited
+  descriptor; release verification reads `/ready` and probes `/meta` for the forced snapshot;
+  the UI treats the new not-ready 503 as busy; the job manifest matches the 45-minute unit.
+  EMBJ needs no code change: Yahoo has not back-adjusted its 4:1 split, so the source proof
+  correctly refuses until it does (bounded retry continues for 60 days from the ex-date).
+- **Evidence:** `pytest -q -W error -n 8` passes under `TZ=UTC` and `TZ=Asia/Singapore`.
+- **Metrics:** see the metrics snapshot.
+- **Next:** fast-forward the live checkout, `install_automation --apply`, verify `/ready`.
 ## 2026-11-23 — Continuous deploy tooling: mechanical re-pin, dry-run deployer, landing command
 
 - **Why:** P25 scope items 2-4 (active plan `docs/plans/p25-ship-autodeploy-cleanup.md`); the

@@ -435,7 +435,8 @@ def convert(
         }
         manifest["manifest_sha256"] = _manifest_identity(manifest)
         if apply:
-            assert manifest_path is not None
+            if manifest_path is None:
+                raise ValueError("apply needs a manifest path")
             write_text_atomic(
                 manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             )
