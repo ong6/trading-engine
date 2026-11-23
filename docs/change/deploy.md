@@ -32,17 +32,33 @@ live checkout and run `python -m tools.install_automation --apply`. Once the tim
 2. It takes the newest `main` commit whose GitHub `ci` run is green.
 3. On a private worktree it runs `tools.deploy_gate` plus the registration and forward-record
    tests. A dependency, schema-migration or contract-version commit is `needs-human`: everything
-   before it deploys, and that commit waits for a person, who releases it through
-   `tools/release_deploy.py` (dry by default, `--execute` to mutate). A `needs-human` target is
+   before it deploys, and that commit waits to be released through `tools/release_deploy.py`
+   (dry by default, `--execute` to mutate). A `needs-human` target is
    not re-checked until `main` moves (`skipped:refused-target`).
 4. It fast-forwards the live checkout (rebasing data-only local commits). When a forward-record
    closure changed, it runs `--migrate-runtime-contract` after a digest-only rehearsal.
 5. It runs `tools.install_automation --apply` (changed units; API or UI restart only when their
    code changed) and post-checks `/health`, `/ready` and `/meta`.
-6. A failed post-check rolls back automatically. After `rolled-back` or a failed rollback it halts
-   (`skipped:halted`) until a person checks and runs `python -m tools.auto_deploy --clear-halt`.
+6. A failed post-check rolls back automatically. A rolled-back target is refused until `main`
+   moves; newer green commits still deploy.
 
-Decisions appear only under "Deployer" in the hourly digest; there are no other alerts. State lives in
+## Self-heal
+
+- After every verified deploy the deployer records the last verified commit. Its first run trusts
+  the deployed checkout, and a healthy hand deploy is adopted.
+- While it moves the checkout it leaves an in-flight marker. Each run first converges: a crashed
+  deploy, a failed rollback, or unhealthy code that was never verified is brought back to the last
+  good commit by restoring the reports, `git reset --keep` (else a hard reset of tracked files;
+  untracked store files are untouched and a `refs/auto-deploy/pre-recovery-*` ref keeps every
+  commit), re-applying data-only commits, `install_automation --apply` and a health check.
+- Failed recoveries retry with backoff from 15 minutes to 4 hours; after three it clears failed
+  engine units and restarts the API and UI.
+- Dry runs report `would-recover` and never act. `--drill-rollback` (with `--execute`) proves the
+  rollback path.
+- There are no notifications: decisions and recovery actions appear in the receipts and the hourly
+  digest.
+
+Decisions appear under "Deployer" in the hourly digest. State lives in
 `~/.local/state/trading-engine/auto-deploy/state.json`; receipts in `logs/job-runs/auto-deploy/`.
 The nightly does not pull code; it takes only data-only commits.
 
