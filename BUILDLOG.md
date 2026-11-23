@@ -679,4 +679,13 @@ earlier logs listed in that index.
 - **Metrics:** tools +350 lines, tests +245.
 - **Next:** the extension guide (`docs/extend/README.md`).
 
+## 2026-11-23 — Write the add-a-strategy guide
+
+- **Why:** P25 scope item 8 (one short documented path for adding a strategy or experiment).
+- **What:** `docs/extend/README.md` replaces its stub with the funnel (register, screen on the
+  shared backtest core, confirm, paper book), where each kind of code goes, and the rules that bite.
+- **Evidence:** `tools.affected_tests --run` passes (documentation links and index).
+- **Metrics:** unchanged.
+- **Next:** switch the deployer timer to `--execute`.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
