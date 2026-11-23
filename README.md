@@ -1,211 +1,51 @@
 # trading-engine
 
-- **What we are building:** a public, paper-only trading engine that collects market data, tests strategies and runs paper books, plus a separate private research programme that looks for strategies worth running on it, with AI deciding inside deterministic controls.
-- **End goal:** the [north star](https://github.com/ong6/trading-engine/blob/main/docs/product.md#north-star), "An engine that runs on its own and makes money, with AI in the decision loop" (owner, 2026-09-24).
-- **Live now (2026-10-22):** engine v2 runs 17 paper books, three frozen forward records and the AI profitability evidence loop, on paper only (no broker, no real capital); no strategy, public or private, has a proven edge yet.
-- **Working on now:** P24, the senior-quant review (pipeline fixes, speed, new pre-registered studies), then moving the private research onto its own engine paper account.
+A public, paper-only trading engine. It collects daily and intraday market data into a
+point-in-time DuckDB store, screens the market nightly, runs paper books through a conservative
+next-open fill simulator with commissions, and evaluates strategies and AI policies against frozen,
+pre-registered controls. AI models can make paper decisions, but deterministic code owns data
+admission, sizing, risk, execution, accounting and halts.
 
-**Status (2026-10-22):** engine v2 (accounts and money, P22) has run the paper books since
-2026-10-18, with commissions and restarted evaluation clocks from D0 2026-10-19. The host runs
-`main` at registration revision 17; the senior-quant review (P24) is active, and its storage
-revision (18) is in rehearsal, not live. No policy has demonstrated a prospective edge over its
-frozen control. What is live, in flight and decided is in [`docs/product.md`](docs/product.md)
-("Where it stands"); plan status is in [`docs/plans/README.md`](docs/plans/README.md); live
-state comes from `GET /meta` and the generated reports, never from this dated summary.
+**Paper only.** There is no broker connection, no broker credential and no real money anywhere in
+this repository. No strategy here has a proven edge; see the notice in `LICENSE`.
 
-- **Research engine.** Real market data in DuckDB, a nightly Minervini screen, **17 active paper
-  portfolios** (including the three profitability evidence loop books (P15); eight books with no
-  after-cost edge were retired on 2026-10-21), a conservative next-open fill simulator with
-  effective-dated commissions, a weekly walk-forward, and three frozen forward records.
-- **Nightly AI agent.** A model reviews the day's standouts and could act only through a locked
-  simulator trade tool; its v1 book was retired on 2026-10-21, so it now records assessments
-  without orders. Deterministic code owns data admission, sizing, risk, fills, and halts.
-  Hourly and four-hour variants run as shadow observers with no order authority.
-- **Evaluation ledger.** Every agent decision is recorded with its information cutoff, exact
-  model/prompt/input identities, and later market outcomes, so each AI policy can be judged
-  prospectively against its paired control.
-- **Profitability evidence loop (P15; live since 2026-09-29).** Candidate-wide scoring, equal-mechanics
-  comparator books, a cancel-only pre-open check, shadow event triggers, and coded
-  profitability gates. Registration revision 17 binds the P24 fixes (including the SEC
-  acceptance clock that revived its SEC 8-K source) without changing scoring, labels, gates or
-  schedules; evidence collection continues.
-- **What "makes money" means** (net of trading and data cost, against the right comparator,
-  prospectively): [`docs/product.md`](docs/product.md#north-star).
-- **Public engine, private strategies.** This repo is the open infrastructure plus the
-  profitability evidence loop (P15) and challenger lab (P16) demo policies. New strategies,
-  prompts, and research results are kept in a separate private
-  repository; see [`AGENTS.md`](AGENTS.md). No strategy there has a proven edge either.
+**Public engine, private strategies.** This repo is the reusable infrastructure: data pipeline,
+simulator, fill and cost models, evaluation statistics, replay and text labs, the shared backtest
+core, paper accounts and a few example strategies. Strategy research, prompts and results are kept
+in a separate private repository and reach the engine only through its paper accounts and
+backtest core.
 
-Generated public data may be pushed only when the current branch has a configured upstream. The
-`source_control` object in `GET /meta` is authoritative for the current tracking state;
-`local-only` means Git is not an off-machine backup.
+## Ground rules
 
-**Agents start at [`AGENTS.md`](AGENTS.md)** — the operating contract (build toward a verdict,
-admission test, budgets). Humans: **[`docs/README.md`](docs/README.md)** — the documentation index
-and current strategy/evidence status. The operating runbook is
-[`docs/operate/how-it-works.md`](docs/operate/how-it-works.md), the detailed system reference is
-[`docs/architecture/architecture-reference.md`](docs/architecture/architecture-reference.md), and plan status is in
-[`docs/plans/README.md`](docs/plans/README.md).
+Never fabricate a price. Point-in-time data is append-only. Orders fill at the next open, never on
+the bar that produced the signal. One DuckDB writer at a time. Every strategy or experiment is
+pre-registered with a kill criterion before its evidence accrues.
 
-- Design specs (the law): [`docs/architecture/design/`](docs/architecture/design/) — engine design (§12 wins on
-  conflict) + execution design (§7 exit criteria).
-- Former live-readiness handoff (historical reference):
-  [`docs/history/live-readiness-goal.md`](docs/history/live-readiness-goal.md) — the gates a
-  future execution-layer plan would inherit. It does not authorize live trading.
-- Product decisions and focus order: [`docs/product.md`](docs/product.md). The deterministic
-  research queue is [`docs/strategy-research-backlog.md`](docs/strategy-research-backlog.md),
-  including its ordered
-  [next admissible actions](docs/strategy-research-backlog.md#next-admissible-actions).
-  Current runtime evidence comes from `GET /meta`, the Dashboard prospective-evidence cards,
-  and generated forward reports. [`docs/history/review-2026-09-06.md`](docs/history/review-2026-09-06.md)
-  is a detailed dated historical snapshot, as are the other files in
-  [`docs/history/`](docs/history/README.md).
-- Build state + every decision and incident: [`BUILDLOG.md`](BUILDLOG.md) (entries before
-  2026-09-18 and the 2026-09-19 C90 refactor series are in [`docs/history/`](docs/history/README.md)).
-- Latest completed nightly league standings: [`data/reports/league.md`](data/reports/league.md).
-- Profitability evidence loop (P15) gate report:
-  [`data/reports/agent-eval/p15.md`](data/reports/agent-eval/p15.md).
-- Historical replays of the replayable rules: [`data/reports/backtests/`](data/reports/backtests/).
-- Deterministic Sunday walk-forward re-validation:
-  [`data/reports/walkforward/`](data/reports/walkforward/) — run by
-  `engine/run_weekly_walkforward.sh`, not by the weekday nightly. The former autonomous model
-  review is retired; these historical reports inform only an explicit human review and cannot
-  change a book or authorize trading.
-- Frozen prospective paper reviews:
-  [`sector_momentum`](data/reports/forward/sector_momentum.md) and
-  [`xs_momentum_12_1`](data/reports/forward/xs_momentum_12_1.md). These accumulate new
-  evidence only; neither can promote a strategy or authorize live trading.
-- Faster prospective experiment:
-  [`e1-spy-monday`](data/reports/experiments/e1-spy-monday-forward.md) records exactly 40
-  settled Monday open-to-close observations, then applies its frozen kill gate. It is
-  evidence-only and cannot promote a strategy or place an order.
+## Quick start
 
-## Daily rhythm
-
-Cron fires `engine/run_daily.sh` at 22:30 UTC weekdays: universe refresh → collect → resolve
-the breadth-qualified operational date → screen → corporate-actions fetch/reconcile → league
-step → two frozen forward reviews → E1
-forward experiment → sync → farm (intraday/signals/earnings and Friday fundamentals
-through the resource-capped job queue). Health snapshot lands in `data/_meta.json`; the
-run log in `logs/cron.log`. Full walk-forward revalidation is a separate Sunday job.
-The primary EOD collector and the queued network collectors release DuckDB during HTTP/retry
-waits and between bounded writes, so API/UI reads are not locked out for an entire multi-minute
-or multi-hour pull. EOD price batches commit independently; backfill batches checkpoint their
-price rows, completion flags, and job progress in one transaction.
-
-The former agentic layer (AI-gated/tuned books + news analyst) was **retired 2026-08-18** and moved to
-[`archive/agentic-2026-08/`](archive/agentic-2026-08/README.md) — its books are `active = FALSE`;
-that README covers what it was and why it was retired. Any replacement follows the current
-goal's new structured, separately attributed paper-agent path; it does not reactivate or reuse
-the retired implementation or its evidence.
-
-## Running it yourself
+Linux and Python 3.12:
 
 ```bash
 uv venv --python 3.12 .venv
 uv sync --extra dev --frozen
-.venv/bin/python -m pytest -q -W error -n 8        # ~6,100 tests, ~150 s; warnings are failures
-.venv/bin/ruff check .                             # active Python; archive is immutable history
+.venv/bin/python -m pytest -q -W error -n 8        # full suite; warnings are failures
 .venv/bin/python -m engine.universe                # build the ticker universe
-.venv/bin/python -m engine.collect --bootstrap-floor   # first backfill (hours; see how-it-works)
-engine/run_daily.sh                                  # one nightly, end to end
+.venv/bin/python -m engine.collect --bootstrap-floor   # first backfill (takes hours)
+engine/run_daily.sh                                # one nightly run, end to end
 ```
 
-The complete operating suite targets Linux, including `/proc`, file-descriptor safety and
-systemd checks. Numerical and dashboard tests also run on macOS; a local macOS full-suite
-failure does not substitute for Linux validation. Use Python 3.12 for the supported host setup.
+The repo ships no market store and no credentials: `store/` is rebuilt locally, while
+`data/screens/` and `data/reports/` hold the committed outputs. The local API
+(`server/run_server.sh`) and dashboard ([`ui/README.md`](ui/README.md)) bind to loopback only and
+have no authentication.
 
-For the local dashboard, follow [`ui/README.md`](ui/README.md) for Node setup, production build,
-loopback services and SSH access. The API and dashboard have no authentication and must stay
-on loopback.
+## Where to read next
 
-The repo ships no raw market store or credentials. `store/` (the DuckDB) and `data/eod/`
-are regenerated locally; `data/screens/` and `data/reports/` are the committed outputs.
-Paper trading only — see the notice in `LICENSE`.
+- [`docs/site/index.md`](docs/site/index.md): plain-language guide to how the engine works.
+- [`docs/README.md`](docs/README.md): the documentation index (operations, architecture, data,
+  testing, deploy).
+- [`docs/product.md`](docs/product.md): the goal, what "makes money" means and the current focus.
+- [`data/reports/README.md`](data/reports/README.md): the generated evidence and paper standings.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): how to contribute.
 
-## Quick checks
-
-```bash
-tail -50 logs/cron.log            # did last night finish? ("=== done ...")
-cat data/reports/league.md        # standings
-cat data/_meta.json               # collection/mining health
-systemctl --user status trading-engine-api.service trading-engine-ui.service \
-  trading-engine-agent-data-capture.timer trading-engine-agent-shadow.timer --no-pager
-curl -fsS http://127.0.0.1:8000/research/readiness  # research-data admission only
-curl -fsS http://127.0.0.1:8000/meta                 # scheduler: production 5/5 + postflight 1/1
-curl -fsS http://127.0.0.1:8000/agent/data/corporate-actions
-curl -fsS http://127.0.0.1:8000/agent/data/provider-responses
-curl -fsS http://127.0.0.1:8000/agent/data/independent-price-evidence
-.venv/bin/python -m tools.adjudicate_agent_data_discrepancy status
-.venv/bin/python -m tools.review_agent_data_discrepancy list
-curl -fsS http://127.0.0.1:8000/agent/fault-drills
-curl -fsS http://127.0.0.1:8000/agent/shadow/control # operator-controlled shadow schedule
-curl -fsS http://127.0.0.1:8000/daily-opportunities/status # daily opportunity agent (P8)
-curl -fsS http://127.0.0.1:8000/agent/evaluation/status     # P8/P15 gates and trial register
-cat data/reports/agent-eval/p15.md                          # generated P15 evidence summary
-.venv/bin/python -m tools.verify_friday_postflight  # inspect Friday; publishing is opt-in
-```
-
-The API, production UI, six agent and data timers, and the three P15 timers (installed at
-activation on 2026-09-29) are enabled user units bound to local operation; the operating guide's
-agent-services table lists every schedule. The data timer retains normalized price and corporate-action
-observations, exact bounded future Yahoo and independent Nasdaq response bodies, and source
-observations derived from those exact bytes without a model;
-the shadow timer invokes a static worker through an LLM model gateway and remains gated by an explicit
-operator control that installation leaves disabled; it has no order authority. User lingering is
-enabled, so these
-units survive terminal disconnection and restart after reboot. See the operating
-guide for installation, restart, logs, SSH-tunnel commands, and the weekend verifier, liquidity,
-sweep, and walk-forward schedules.
-An auxiliary Saturday postflight records whether Friday's completed nightly published all four
-canonical miner receipts. It is read-only with respect to producer, research, and paper-trading
-state; its only writes are its own atomic receipt and redirected log. It does not invoke a model
-or repair or recreate missing evidence. The receipt is projected by `GET /meta` and becomes a
-persistent-header alert only after the first scheduled observation window or a later missed or
-failed check.
-The installed scheduled command uses `--publish`; manual invocation is non-publishing by default,
-so an operator cannot replace the scheduled receipt merely by inspecting current evidence.
-
-Research readiness requires both time and breadth, not merely row counts: stock and
-fundamentals dates qualify at 1,000 distinct names, and each 1m/5m intraday session qualifies
-at 500 tickers. The dashboard and endpoint count only qualifying dates toward their minimums;
-clearing a gate permits drafting a charter, not activating a strategy or claiming profit.
-The `walkforward_evidence` object in `GET /meta` independently validates every active
-walk-forward result's live config identity and complete source, protocol-window, fill, universe,
-capital, execution, data-snapshot, and comparison cohort. A completed weekly driver does not by
-itself make older research artifacts current.
-
-## Guardrails (short form)
-
-Never fabricate a price. Point-in-time tables are append-only. Every strategy/experiment is
-pre-registered with a kill criterion before evidence accrues. Orders fill next-open, never
-same-bar. One DuckDB writer at a time — heavy work goes through the job queue. Prove by
-running, never by code inspection. Operational response:
-[`docs/operate/how-it-works.md`](docs/operate/how-it-works.md). Architecture and authority boundaries:
-[`docs/architecture/architecture-reference.md`](docs/architecture/architecture-reference.md).
-
-## Offline market-data audit
-
-The [market-data auditor](docs/history/plans/p19-market-data-auditor.md) measures per-session signal-input
-coverage against an independently supplied reference population. A security absent from the
-audited source stays in the denominator. Unknown reference eligibility and publication evidence
-remain explicit; passing these scoped checks does not establish profitability.
-
-Run the fictional, offline omission demonstration without an account, database or network:
-
-```sh
-.venv/bin/python -m farm.study.examples.data_audit --output-dir /tmp/market-data-audit-demo
-```
-
-It writes separate JSON/Markdown audit sidecars and native evaluator evidence. The same four-name
-rule, costs and $40,000 capital are held fixed: retaining only two favorable names produces
-+0.9740742%, while the complete population produces -2.0510404%. The omission is a planted
-hindsight fault, not a strategy. Inspect the report for exact populations, missing attempts,
-identities, independent fee arithmetic and the future-input failure case.
-
-The library is `farm.study.audit`; raw immutable snapshots enter before panel normalization.
-Existing study report bytes, evaluator identities and holdout markers remain unchanged.
-Real-data adapters, full revision/action tracing, production-scale memory acceptance and a visual
-export are separate work. The first slice produces JSON/Markdown only.
-
-<!-- sources: BUILDLOG.md, docs/plans/README.md, docs/plans/p3-point-in-time-data.md, docs/history/plans/p18-backtest-core.md, docs/history/plans/p19-market-data-auditor.md, docs/product.md, engine/free_sources.py, engine/run_daily.sh, server/p15-registration.json, sim/fills.py, sim/league.py, tools/free_sources.py -->
+AI agents working in this repository start at [`AGENTS.md`](AGENTS.md).

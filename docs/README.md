@@ -2,8 +2,8 @@
 
 Agents start at [`../AGENTS.md`](../AGENTS.md). Docs state current rules and structure; anything
 that changes (books, revisions, live producers, counts) comes from `GET /meta` and the generated
-reports under [`../data/reports/`](../data/reports/README.md). Every top-level directory has a short
-`README.md` with its entry points.
+reports under [`../data/reports/`](../data/reports/README.md). Every top-level code folder has an
+`AGENTS.md` with its entry points and local rules (its `CLAUDE.md` loads it).
 
 ## Decide what to work on
 
