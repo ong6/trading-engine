@@ -151,13 +151,10 @@ postflight. The production schedules are:
 | `run_weekly_liquid.sh` | Sunday at 02:00 | `logs/liquid-cron.log` | 4 hours |
 | `run_weekly_walkforward.sh` | Sunday at 06:00 | `logs/walkforward-cron.log` | 18 hours |
 
-Revision 15 moves the Sunday TradingView history slice from 07:40 to 01:40 UTC in the existing
-timer, retaining six Sunday slices and all weekday/Saturday slots. With its existing ten-minute
-random delay, default one-minute accuracy and four-hour service timeout, that moved invocation
-ends by 05:51, before the 06:00 weekly readers. The old 07:40 slot collided with readers that
-ran until 08:47 on October 11. Other history slices and late persistent catch-up runs still depend
-on the existing queue/lock behavior; schedule avoidance does not change reader or writer ownership.
-This timer change was installed with revision 15 on 2026-10-21.
+The Sunday TradingView history slices start at 01:40 UTC so that, with the ten-minute random
+delay and four-hour service timeout, the first ends by 05:51, before the 06:00 weekly readers.
+Other slices and persistent catch-up runs rely on the queue and lock; schedule avoidance does not
+change reader or writer ownership.
 
 The exact five required user-crontab entries above are managed by
 `tools.install_automation`. The auxiliary crontab entry remains outside the five
@@ -171,7 +168,7 @@ lock is held; otherwise it is `interrupted`. A held lock past the driver's grace
 read-only diagnoses: they do not restart a process or alter a queue.
 
 Recovery is separate. `trading-engine-driver-watchdog.timer` runs `tools.driver_watchdog` at
-:03, :13, … :53 UTC (owner request 2026-11-19, after a nightly hung for five days). A run is the
+:03, :13, … :53 UTC. A run is the
 driver script's own process (lock open, script path on its command line), its descendants and
 cron's launching shell; services waiting for the lock and API probes are never signalled. A run
 past its contract `max_runtime` that used under 2% of one CPU over a 60-second sample, or is past
@@ -231,10 +228,9 @@ one. A walk-forward drain builds one immutable read-only input store for the run
 only its private writable overlay. Workers convert termination into normal cleanup, and the next
 drain removes only orphan scratch directories whose active lock is not held.
 
-## Revision 9 throughput and read-path checks
+## Throughput and read-path behaviour
 
-The October 2 infrastructure revision changed scheduling and contention, not scoring or evidence
-semantics. These are the expected paths when investigating runtime:
+These are the expected paths when investigating runtime:
 
 - `verify-prices` uses four workers, but a single global limiter still spaces all request starts by
   0.4 seconds. It releases its database connection after materializing the input and runs its
@@ -421,16 +417,13 @@ While holding the normal producer locks, `backup_database create` uses the lates
 when that snapshot is newer than the live database's last write. Otherwise it takes its own
 consistent copy of the live database. Verification and restore semantics are unchanged.
 
-## P15 activation record and recovery boundary
+## P15 recovery boundary
 
-P15 activated on 2026-09-29. The current registration is revision 17 (2026-10-22): revision 15
-(installed 2026-10-21) added accepted price admission, trusted-bar money paths, data-flow and
-operations corrections, rejected-bar/prospective board state and test runtime improvements on top
-of revision 14's P22 account runtime, and revisions 16 and 17 bind the P24 merge batches. From the migration `--d0`, books
-pay `ibkr_pro_tiered_v1` commissions and restart their evaluation clocks; scoring, labels, gates,
-schedules and frozen valid-data outcomes are unchanged. The registered source units and three
-timers remain the deployment boundary. The original activation steps are not a procedure to
-activate a second cohort.
+The current P15 registration revision is reported by `GET /meta`. Revisions bind infrastructure
+changes without changing scoring, labels, gates, schedules or frozen valid-data outcomes. From the
+migration `--d0`, books pay `ibkr_pro_tiered_v1` commissions and restart their evaluation clocks.
+The registered source units and three timers remain the deployment boundary. The original
+activation steps are not a procedure to activate a second cohort.
 
 For current operations, treat any change to a registered value as a new version and cohort. Before
 an admitted schema or recovery operation, confirm the worktree and producer locks, create and
@@ -443,16 +436,8 @@ and reapplies the installer. Never delete or rewrite P15 evidence to make a chec
 
 ## Session close
 
-Run the tests touched by the change, then the full suite and:
-
-```bash
-.venv/bin/python -m tools.metrics_snapshot --check-budget
-git status --short
-```
-
-Commit only source and documentation owned by the session. Pipeline `data/` outputs are never
-stashed, reverted, or included in a build commit. Leave no source or documentation change
-uncommitted.
+Follow `AGENTS.md` (Session). Commit only source and documentation owned by the session. Pipeline
+`data/` outputs are never stashed, reverted, or included in a build commit.
 
 <!-- sources: BUILDLOG.md, engine/bitemporal_facts.py, engine/earnings.py, engine/run_daily.sh, engine/lib/driver.sh, engine/queue_runner.py, engine/tradingview_history_archive.py, engine/verify_prices.py, farm/walkforward/runner.py, server/agent_evaluation_reporting.py, server/hourly_opportunity_observer.py, server/intraday_readiness.py, server/main.py, server/run_p15_scoring.sh, server/trading-engine-p15-events.timer, server/trading-engine-p15-preopen.timer, server/trading-engine-p15-scoring.service, server/trading-engine-p15-scoring.timer, server/p15-registration.json, server/p16-registration.json, tools/backup_database.py, tools/publish_snapshot.py, tools/stage_timings.py -->
 

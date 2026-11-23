@@ -89,10 +89,10 @@ flowchart LR
 
 ## Layers: deployed, built-inert, later
 
-| Layer | Deployed (2026-10-22; engine v2 since 2026-10-18) | P16 built, inactive | Later |
+| Layer | Deployed (live detail in `GET /meta`) | P16 built, inactive | Later |
 |---|---|---|---|
 | Data | EOD store, screens, earnings, headline titles, TradingView research data, the TradingView historical archive (P14); P15 RSS and 8-K event facts and intraday mover scan | Acceptance-timestamped filing capture and gated historical EDGAR/news corpus paths | Point-in-time data (P3; owner spend) |
-| Signals | Daily opportunity agent (P8) nightly assessments (its v1 book retired 2026-10-21, so no orders); multi-cadence agent tools (P9) shadow observers; P15 candidate scoring, deterministic baseline, pre-open cancel, and shadow event triggers; P7 allocator (inactive) | Challenger lab (blinded, memory, tournament, ensemble, ablations) and filing reader | Promoted challengers and separately held strategies gain book authority only through their activation gates |
+| Signals | Daily opportunity agent (P8) nightly assessments (no active book, so no orders); multi-cadence agent tools (P9) shadow observers; P15 candidate scoring, deterministic baseline, pre-open cancel, and shadow event triggers; P7 allocator (inactive) | Challenger lab (blinded, memory, tournament, ensemble, ablations) and filing reader | Promoted challengers and separately held strategies gain book authority only through their activation gates |
 | Evaluation | Ledger, 1/5/10/20 labels, contamination probes; P15 paired IC test with looks, book comparison, coded P8 gate | Factor-neutral IC, always-valid sequential tests, deflated Sharpe over the N=139 trial census, time-locked text lab, and post-cutoff replay lockbox | Stage gates computed from live fills |
 | Portfolio | P8 fixed-fraction sizing, 3 names; P15 ATR sizing, SPY core, 8 names; P22 independently funded account risk, margin/PDT, shorts and halts | Score-to-weight optimizer, recovery, and shadow diagnostics | Strategy-specific beta hedge after its own gate |
 | Execution | Next-open and limit-on-open legacy paths; P22 MOO/MOC/deferred intraday fills, effective-dated commissions and one replay ledger | Best-attempt opening measurement and slippage calibration | IBKR paper on personal hardware, then live |
@@ -135,7 +135,7 @@ prospective evidence, provided the model identity is unchanged.
 
 | Step | Gate | Owner decision needed |
 |---|---|---|
-| Collect (P15, P16) | Registered tests reach their looks | None (P16 approved 2026-09-26) |
+| Collect (P15, P16) | Registered tests reach their looks | None (P16 approved) |
 | Judge | A policy passes its primary test and book comparison, inside the drawdown envelope | None |
 | Broker-paper | 1–3 months of IBKR paper fills reconcile to the simulator | Personal host, model provider, IBKR account, execution-layer plan |
 | Small live | Live tracks paper within tolerance at each capital step | Loss limits, capital steps |

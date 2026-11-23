@@ -70,7 +70,7 @@ laptop clone), do W1–W7 against fixtures and dry-runs, then stop before W8 act
 
 ## Owner inputs
 
-Defaults apply until the owner decides (see [`../product.md`](../product.md#open-owner-only)):
+Defaults apply until the owner decides (see [`../product.md`](../product.md#open-product-decisions)):
 
 - `TRADING_ENGINE_SEC_USER_AGENT` unset → the 8-K trigger source reports `unconfigured`; the
   other sources run.

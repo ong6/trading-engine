@@ -22,20 +22,8 @@ however green the tests are.
 | Research | Sector momentum shared sessions, Monday open-to-close experiment (E1) observations, cross-sectional momentum (XS) status, active book count, league staleness | Operational evidence counters; profitability evidence loop (P15) verdict progress lives in its status/report | Sessions and observations rising; books change only through approved plans |
 | Budget | Pass/fail against `scope-budget.json` | Hard stop for frozen layers | `ok` |
 
-## Baseline, 2026-09-18
-
-| Metric | Value |
-|---|---|
-| `server` LOC | 45,769 |
-| `tools` LOC | 6,828 (includes this tool) |
-| Product LOC (`engine`+`sim`+`farm`) | 28,180 |
-| `tests` LOC | 55,712 |
-| Non-screen commits, 30 days | 41, of which 12 support-only |
-| Largest commit, 30 days | 86,905 insertions |
-| BUILDLOG last ten entries | mean 741 lines, 913 SHA-256 mentions |
-| Sector momentum | 9 / 200 sessions, ACCUMULATING |
-| E1 | 8 / 40 observations |
-| Active books | 21 |
+The first snapshot (`data/reports/metrics/`) is the baseline; compare a session's snapshot with
+the previous row of the generated table.
 
 ## Reading a snapshot
 

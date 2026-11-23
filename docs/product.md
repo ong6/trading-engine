@@ -130,7 +130,7 @@ and accounting, no broker code, credentials, or real capital on this host, and n
 frozen rule after seeing its outcome. New fill types and shorting are generic paper
 infrastructure; they grant no private strategy authority by themselves.
 
-### Open (owner only)
+### Open product decisions
 
 Each row has the default that applies until the owner decides.
 

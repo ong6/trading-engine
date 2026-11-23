@@ -15,7 +15,7 @@ state, and measure the difference from the simulator for one to three months. Pr
 original simulator cohort. The new broker-paper cohort has its own registration, account identity,
 execution contract, opening balance, model identity and reporting namespace.
 
-This is future work, explicitly not work for now. Before any later work starts, the owner must
+This is future work, not planned for now. Before any later work starts, the owner must
 select personal hardware, an IBKR paper account, model identity acceptable for Stage 2, and an
 execution-layer plan. Record the instrument
 and tax review called for in `docs/product.md`: US dividend withholding and US-situs estate exposure
@@ -59,7 +59,7 @@ it does not impose the immutable-revision requirement intended for real capital.
 | Model for broker-paper: observable personally owned identity; immutable provider revision now; no model | Extend the existing observable, drift-checked paper identity to broker-paper in the approved mandate; it enables operational evidence while retaining immutable provider revision as a Stage 3 prerequisite | Stage 2 model-enabled rehearsal | New broker-paper policy calls; no implicit permission for live capital |
 | Paper risk envelope: rehearse proposed −3% daily / −10% drawdown; tighter limits; retain simulator limits only | Rehearse −3% daily / −10% drawdown plus any stricter policy limits in one isolated paper sleeve; exercises intended halts without claiming the owner has approved live limits | Stage 2 activation | RiskPolicy values and halt tests; Stage 3 needs separate owner approval |
 | Exit response: cancel entries only/keep existing sells; cancel all; automatic flatten | Cancel entries only and keep existing risk-reducing sells; no automatic flatten until a reduce-only rehearsal passes. This avoids cancelling protection or creating a duplicate exit while holdings are uncertain | Stage 2 submission authority | Halt response, cancel/fill-race handling and recovery tests |
-| Failure response: push alerts; on-demand investigation; scheduled digest | On-demand agent investigation with retained local evidence and no push alerting (owner decision, 2026-10-02) | Stage 2 operations | No alert credentials, routing, or response SLA |
+| Failure response: push alerts; on-demand investigation; scheduled digest | On-demand agent investigation with retained local evidence and no push alerting | Stage 2 operations | No alert credentials, routing, or response SLA |
 | Off-host watcher: separate service; another personal device; none | None for now; any future watcher needs a separate owner decision and cannot create order authority | Stage 2 operations | Local fail-closed behavior and later outage rehearsal |
 | Budget ceilings: host; data; account/funding; alerts | Approve separate one-time and recurring ceilings before any purchase, subscription or account action | Before implementation/deployment | Spending and deployment approval |
 

@@ -199,7 +199,7 @@ actions in `corporate_actions` /
 `split_adjustments` / `actions_fetch_log`, research in `experiment_results`, signals in
 `macro_signals`.
 
-**Revision 15 price admission (installed 2026-10-21).** `db.upsert_prices` and
+**Price admission.** `db.upsert_prices` and
 `db.insert_intraday` validate every canonical observation before cache promotion.
 NULL, nonfinite or nonpositive OHLC, impossible ranges, negative/unrepresentable
 volume, off-calendar sessions and conflicting response duplicates are rejected;
@@ -364,19 +364,17 @@ flags any held name with a >40% one-session move and no corporate-actions row.
 
 ## The league
 
-On 2026-10-22 the live store has **17 active paper portfolios** (eight no-edge books were retired
-on 2026-10-21; `GET /meta` `nightly_evidence.active_portfolios` is the live count), including the
-three profitability evidence loop (P15) comparator books activated on 2026-09-29. All are
-long-only with persisted initial capital and execution profiles. Before the retirements 18 were
-historically replayable rules. Three are intentionally excluded from historical walk-forward:
+The active paper portfolios are counted live by `GET /meta` (`nightly_evidence.active_portfolios`)
+and include the three profitability evidence loop (P15) comparator books. All are long-only with
+persisted initial capital and execution profiles. Three are intentionally excluded from historical walk-forward:
 `discretionary` needs human tickets, `pead_ear` lacks historical point-in-time earnings
 dates, and `macro_composite` lacks a historical point-in-time macro reconstruction. They
 remain valid forward-paper books; they are not silently scored as zero-return backtests.
 
 The replayable cohort includes SPY and equal-weight controls, dual and sector momentum,
 the Minervini template family, mean-reversion overlays, turtle and stopped momentum,
-low-volatility, 52-week-high, and `xs_momentum_12_1` (the turtle, mean-reversion overlay,
-low-volatility, trend-gated and banded-template books were retired on 2026-10-21). Every automated book's frozen config
+low-volatility, 52-week-high, and `xs_momentum_12_1`; retired books keep their history but no
+longer trade. Every automated book's frozen config
 carries an expectation and a **kill criterion**; the weekly review judges process, not
 outcome. Current standings: `data/reports/league.md`, whose table contains exactly the active
 portfolios marked in that nightly. `data/reports/league.csv` deliberately remains the
@@ -711,7 +709,7 @@ with the standings response. The page visibly discloses either kind of truncatio
 ## Agent services (P8, P9, P11, P13, P14, P15)
 
 Six user-systemd timers run the AI agent and research-data capture alongside cron, and the
-three P15 timers (scoring, pre-open, and events) have run since activation on 2026-09-29.
+three P15 timers (scoring, pre-open, and events).
 Unit files live in `server/*.service` / `server/*.timer`; each service runs one bounded command,
 prints one JSON result line, and has only local-simulator authority or none.
 
@@ -735,7 +733,7 @@ the P15 pre-open and event timers are non-persistent.
 **Market-data sources (P13/P14).** The hourly wrapper preflights the optional
 `~/.config/trading-engine/market-data.env` and runs the v5 observer through
 `tools.market_data_source`. TradingView quotes and daily bars are active for internal research
-under the owner's asserted non-display rights; exact WebSocket transcripts are retained, stale
+under held non-display rights, for research use only; exact WebSocket transcripts are retained, stale
 snapshots stay ledger-only, and Alpaca remains dormant without credentials. The P14 archive advances
 a frozen, explicitly survivor-biased current-liquid cohort in resumable windows through the job
 queue (nightly enqueue is a fallback to the timer). Neither source writes `prices`, prices fills, or
