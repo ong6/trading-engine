@@ -143,17 +143,15 @@ def in_blocked_window(moment: datetime) -> bool:
 
 
 def _cron_field(spec: str, value: int, low: int, high: int) -> bool:
-    for part in spec.split(","):
-        step = 1
-        if "/" in part:
-            part, raw_step = part.split("/", 1)
-            step = int(raw_step)
-        if part == "*":
+    for item in spec.split(","):
+        span, _slash, raw_step = item.partition("/")
+        step = int(raw_step) if raw_step else 1
+        if span == "*":
             start, end = low, high
-        elif "-" in part:
-            start, end = (int(x) for x in part.split("-", 1))
+        elif "-" in span:
+            start, end = (int(x) for x in span.split("-", 1))
         else:
-            start = end = int(part)
+            start = end = int(span)
         if start <= value <= end and (value - start) % step == 0:
             return True
     return False

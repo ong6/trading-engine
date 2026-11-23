@@ -773,6 +773,10 @@ def main(argv: list[str] | None = None) -> int:
     python = sys.executable
     steps = [
         [python, "-m", "ruff", "check", "."],
+        # The blocking rule selections of CI's checks job, so a local run fails the same way.
+        [python, "-m", "ruff", "check", "--select", "PLW2901,RET504", "server", "tools"],
+        [python, "-m", "ruff", "check", "--select", "S101", "engine", "farm", "sim", "server",
+         "tools", "--extend-exclude", "farm/research/tests"],
         [python, "-m", "compileall", "-q", "engine", "sim", "server", "tests", "farm", "tools"],
         [python, "-m", "pytest", "-q", "-W", "error", "-n", args.workers,
          *(["-m", "not slow"] if args.skip_slow else []), *tests],
