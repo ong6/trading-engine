@@ -126,7 +126,7 @@ deletes it.
 
 ## Completed issue closure
 
-[P21](plans/p21-operational-issues-and-account-isolation.md) completed the owner-requested
+[P21](history/plans/p21-operational-issues-and-account-isolation.md) completed the owner-requested
 operational fixes, complete independent-source evidence, queue-resolution audit, capture
 reliability, separate-account proof and behavior-preserving advisory-complexity work. The
 complete metadata snapshot is supported by P15 revision 12's narrow recovery-bundle limit
@@ -136,7 +136,7 @@ before deployment; policies and the research runtime remain unchanged.
 ## Completed review
 
 The two 2026-10-03 shared-study findings (duplicate bars and terminal-zero cross-checks) were
-reproduced and corrected under [P20](plans/p20-engine-and-board-review.md).
+reproduced and corrected under [P20](history/plans/p20-engine-and-board-review.md).
 The review also covered existing dashboard reliability and setup documentation, with read-only
 host inspection and independent acceptance. Frozen strategy and execution rules remain in force.
 

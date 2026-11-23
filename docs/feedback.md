@@ -532,7 +532,7 @@ studies, with point-in-time views, exact named costs, gross benchmarks, calendar
 sealed holdouts, deterministic process-pool execution, fixed reports, and price-only synthetic
 known-answer tests. Technical decisions and checkpoint acceptance remain with the orchestrator.
 
-**Rule changes.** P18 is approved under `docs/plans/p18-backtest-core.md`. Work is confined to
+**Rule changes.** P18 is approved under `docs/history/plans/p18-backtest-core.md`. Work is confined to
 `farm/study/**`, `tests/test_study_*.py`, and P18's claimed documentation entries. It does not
 modify running producers, P15-hashed files, P7/P8/P16 paths, services, or live data, and it writes
 no study-specific strategies, censuses, findings, or results to this public repository.

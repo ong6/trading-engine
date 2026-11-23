@@ -145,7 +145,7 @@ copy created by `tools.backup_database create`, outside production windows, and 
 deleted after use. Generated study reports and censuses stay with the study and are not committed
 under `data/`.
 
-<!-- sources: BUILDLOG.md, docs/plans/p18-backtest-core.md, farm/study/bench.py, farm/study/data.py, farm/study/panel.py, farm/study/run.py, farm/study/simulate.py, tests/test_study_followup3.py, tests/test_study_simulate.py -->
+<!-- sources: BUILDLOG.md, docs/history/plans/p18-backtest-core.md, farm/study/bench.py, farm/study/data.py, farm/study/panel.py, farm/study/run.py, farm/study/simulate.py, tests/test_study_followup3.py, tests/test_study_simulate.py -->
 
 ## Universe coverage (added 2026-10-02)
 

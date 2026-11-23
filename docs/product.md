@@ -109,12 +109,12 @@ is a dated summary of them.
   the same census and pre-registration rules; its results are not published here, and no strategy
   there has a proven edge either.
 
-**Built and finished.** The [shared backtest core (P18)](plans/p18-backtest-core.md): on the
+**Built and finished.** The [shared backtest core (P18)](history/plans/p18-backtest-core.md): on the
 registered 3,000-stock × 3,800-session benchmark, 16-worker simulation fell from 989.05 to 0.847
 seconds (1,167.5×) with all 295 captured JSON outputs (53,391,323 bytes) byte-identical. The
-[offline market-data auditor (P19)](plans/p19-market-data-auditor.md), the
+[offline market-data auditor (P19)](history/plans/p19-market-data-auditor.md), the
 [paper-account boundary (P21)](paper-account-contract.md) and the
-[hourly operations digest (P23)](plans/p23-hourly-ops-digest.md) are complete.
+[hourly operations digest (P23)](history/plans/p23-hourly-ops-digest.md) are complete.
 
 ## Stages
 
@@ -276,4 +276,4 @@ Stop building toward live capital, and keep the engine as a research and portfol
 excess return at the capital the owner will deploy, or if work drifts back into governance for an
 edge that does not exist for two review cycles (the 2026-09-18 failure mode).
 
-<!-- sources: BUILDLOG.md, docs/plans/README.md, docs/plans/p3-point-in-time-data.md, docs/plans/p15-profitability-evidence-loop.md, docs/plans/p16-challenger-lab-and-text-edge.md, docs/plans/p17-personal-host-ibkr-paper-execution.md, docs/plans/p18-backtest-core.md, engine/free_sources.py, server/p15-registration.json, server/p16-registration.json, tools/free_sources.py -->
+<!-- sources: BUILDLOG.md, docs/plans/README.md, docs/plans/p3-point-in-time-data.md, docs/plans/p15-profitability-evidence-loop.md, docs/plans/p16-challenger-lab-and-text-edge.md, docs/plans/p17-personal-host-ibkr-paper-execution.md, docs/history/plans/p18-backtest-core.md, engine/free_sources.py, server/p15-registration.json, server/p16-registration.json, tools/free_sources.py -->

@@ -1,9 +1,12 @@
-# History
+# History (archive)
 
-Dated snapshots kept for provenance. Each one records what was known on its date; its counts,
-process state, and recommendations are **not** current. Current truth lives in
-[`../scope.md`](../scope.md), [`../plans/README.md`](../plans/README.md), `GET /meta`, and the
-generated reports under [`../../data/reports/`](../../data/reports/README.md).
+This folder is an archive, not part of the read path. Each file records what was known on its
+date; its counts, process state, rules and recommendations are **not** current, and nothing here
+admits work. Current docs link here only as background. Current truth lives in
+[`../README.md`](../README.md) (the documentation index), [`../product.md`](../product.md),
+`GET /meta` and the generated reports under [`../../data/reports/`](../../data/reports/README.md).
+Git history and `BUILDLOG.md` are the decision record. Finished plans are in
+[`plans/`](plans/README.md).
 
 | Date | Document | What it is | Why it is kept |
 |---|---|---|---|

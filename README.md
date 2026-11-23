@@ -186,7 +186,7 @@ running, never by code inspection. Operational response:
 
 ## Offline market-data audit
 
-The [market-data auditor](docs/plans/p19-market-data-auditor.md) measures per-session signal-input
+The [market-data auditor](docs/history/plans/p19-market-data-auditor.md) measures per-session signal-input
 coverage against an independently supplied reference population. A security absent from the
 audited source stays in the denominator. Unknown reference eligibility and publication evidence
 remain explicit; passing these scoped checks does not establish profitability.
@@ -208,4 +208,4 @@ Existing study report bytes, evaluator identities and holdout markers remain unc
 Real-data adapters, full revision/action tracing, production-scale memory acceptance and a visual
 export are separate work. The first slice produces JSON/Markdown only.
 
-<!-- sources: BUILDLOG.md, docs/plans/README.md, docs/plans/p3-point-in-time-data.md, docs/plans/p18-backtest-core.md, docs/plans/p19-market-data-auditor.md, docs/product.md, engine/free_sources.py, engine/run_daily.sh, server/p15-registration.json, sim/fills.py, sim/league.py, tools/free_sources.py -->
+<!-- sources: BUILDLOG.md, docs/plans/README.md, docs/plans/p3-point-in-time-data.md, docs/history/plans/p18-backtest-core.md, docs/history/plans/p19-market-data-auditor.md, docs/product.md, engine/free_sources.py, engine/run_daily.sh, server/p15-registration.json, sim/fills.py, sim/league.py, tools/free_sources.py -->

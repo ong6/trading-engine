@@ -740,7 +740,7 @@ snapshots stay ledger-only, and Alpaca remains dormant without credentials. The 
 a frozen, explicitly survivor-biased current-liquid cohort in resumable windows through the job
 queue (nightly enqueue is a fallback to the timer). Neither source writes `prices`, prices fills, or
 grants execution authority. Details: [`product-agent-research-platform.md`](product-agent-research-platform.md#optional-market-data-sources),
-[P13](plans/p13-market-data-source-hardening.md), [P14](plans/p14-tradingview-history-archive.md).
+[P13](history/plans/p13-market-data-source-hardening.md), [P14](history/plans/p14-tradingview-history-archive.md).
 
 **P15 flow.** The 02:30 scorer snapshots up to 40 positive movers and 20 distinct trend names,
 runs three retained samples per chunk, and feeds three identical-mechanics US$10,000 comparator
