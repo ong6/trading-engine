@@ -27,21 +27,21 @@ async function withFetch(t, implementation) {
 test("apiFetch recognizes only the two reviewed database-busy envelopes", async (t) => {
   const payloads = [
     { detail: "database busy (nightly run?) — retry later" },
-    { ok: false, status: "busy", db_readable: false },
+    { status: "not ready", detail: "database not ready: no verified readable generation" },
   ];
   let call = 0;
   await withFetch(t, async () => response(503, payloads[call++]));
 
   const lockError = await apiFetch("/meta");
-  const healthBusy = await apiFetch("/health");
+  const notReady = await apiFetch("/meta");
 
   assert.equal(lockError.busy, true);
-  assert.equal(healthBusy.busy, true);
+  assert.equal(notReady.busy, true);
 });
 
 test("apiFetch does not mislabel unreadable or unrelated 503 responses as busy", async (t) => {
   const payloads = [
-    { ok: false, status: "unreadable", db_readable: false },
+    { ok: false, status: "busy", db_readable: false },
     { detail: "service unavailable" },
     { detail: "database busy (nightly run?) — retry later", extra: true },
   ];

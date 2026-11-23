@@ -1909,12 +1909,16 @@ print(json.dumps(applied, sort_keys=True))
         last_error = "unavailable"
         for _attempt in range(60):
             try:
+                # Liveness never touches the store; readiness reports the verified generation
+                # the API serves from (an HTTP 503 raises and is retried).
                 health, headers = self.request_json(f"{self.api_url}/health")
-                if health == {"ok": True, "status": "ok", "db_readable": True}:
-                    if headers.get("x-data-source") == "snapshot":
-                        raise DeployError("primary API check unexpectedly used a snapshot")
-                    return health, headers
-                last_error = f"unexpected payload: {health}"
+                if health != {"ok": True, "status": "ok"}:
+                    last_error = f"unexpected liveness payload: {health}"
+                else:
+                    ready, _ready_headers = self.request_json(f"{self.api_url}/ready")
+                    if ready.get("ok") is True and ready.get("generation_id"):
+                        return {**health, "ready": ready}, headers
+                    last_error = f"not ready: {ready}"
             except DeployError as exc:
                 last_error = str(exc)
             time.sleep(1)
@@ -2040,8 +2044,10 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
         try:
             if process.stdout is None or process.stdout.readline().strip() != "ready":
                 raise DeployError("could not acquire the forced-snapshot writer")
-            health, headers = self.request_json(f"{self.api_url}/health")
-            if health.get("status") != "ok" or headers.get("x-data-source") != "snapshot":
+            # A data route, not liveness: it must still answer from a snapshot generation
+            # while the primary is held.
+            _meta, headers = self.request_json(f"{self.api_url}/meta")
+            if headers.get("x-data-source") != "snapshot":
                 raise DeployError("API did not use the forced snapshot")
             return {"header": headers["x-data-source"]}
         finally:

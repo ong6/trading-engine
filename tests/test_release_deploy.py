@@ -1341,9 +1341,12 @@ def test_forced_snapshot_probe_requires_snapshot_header(tmp_path, monkeypatch):
     monkeypatch.setattr(
         operations,
         "request_json",
-        lambda _url: ({"status": "ok"}, {"x-data-source": "snapshot"}),
+        lambda url: ({"generation": {}}, {"x-data-source": "snapshot"} if url.endswith("/meta") else {}),
     )
     assert operations._forced_snapshot(state, rolled_back=False) == {"header": "snapshot"}
+    monkeypatch.setattr(operations, "request_json", lambda _url: ({"ok": True, "status": "ok"}, {}))
+    with pytest.raises(release_deploy.DeployError, match="forced snapshot"):
+        operations._forced_snapshot(state, rolled_back=False)
 
 
 def test_insufficient_recovery_workspace_refuses_before_copy(tmp_path, monkeypatch):
@@ -2408,3 +2411,48 @@ def test_actual_unit_mutations_are_derived_from_saved_inventory(tmp_path, monkey
     recorded = operations._record_automation_mutations(state)
     assert recorded["installed_unit_files"] == [name]
     assert recorded["enablement_units"] == [name]
+
+
+def _probe_operations(tmp_path, monkeypatch, responses):
+    operations = release_deploy.ReleaseOperations(
+        release_deploy.StateStore(tmp_path / "state"),
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://fixture",
+        ui_url="http://fixture",
+        minimum_free_bytes=0,
+    )
+    seen = []
+
+    def request_json(url):
+        seen.append(url.rsplit("/", 1)[-1])
+        value = responses[url.rsplit("/", 1)[-1]]
+        if isinstance(value, list):
+            value = value.pop(0)
+        if isinstance(value, Exception):
+            raise value
+        return value, {}
+
+    monkeypatch.setattr(operations, "request_json", request_json)
+    monkeypatch.setattr(release_deploy.time, "sleep", lambda _s: None)
+    return operations, seen
+
+
+def test_wait_health_accepts_liveness_plus_verified_readiness(tmp_path, monkeypatch):
+    ready = {"ok": True, "warning": False, "reason": None, "generation_id": "g1"}
+    operations, seen = _probe_operations(tmp_path, monkeypatch, {
+        "health": {"ok": True, "status": "ok"},
+        "ready": [release_deploy.DeployError("HTTP 503"), {**ready, "generation_id": None}, ready],
+    })
+    health, _headers = operations._wait_health()
+    assert health == {"ok": True, "status": "ok", "ready": ready}
+    assert seen.count("ready") == 3
+
+
+def test_wait_health_refuses_when_readiness_never_verifies(tmp_path, monkeypatch):
+    operations, _seen = _probe_operations(tmp_path, monkeypatch, {
+        "health": {"ok": True, "status": "ok"},
+        "ready": {"ok": False, "reason": "verification_failed", "generation_id": None},
+    })
+    with pytest.raises(release_deploy.DeployError, match="not ready"):
+        operations._wait_health()

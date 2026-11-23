@@ -103,13 +103,11 @@ function isDatabaseBusy(data, status) {
     (fields.length === 1 &&
       fields[0] === "detail" &&
       data.detail === "database busy (nightly run?) — retry later") ||
-    (fields.length === 3 &&
-      fields.includes("ok") &&
+    (fields.length === 2 &&
       fields.includes("status") &&
-      fields.includes("db_readable") &&
-      data.ok === false &&
-      data.status === "busy" &&
-      data.db_readable === false)
+      fields.includes("detail") &&
+      data.status === "not ready" &&
+      data.detail === "database not ready: no verified readable generation")
   );
 }
 
