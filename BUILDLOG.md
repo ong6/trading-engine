@@ -665,4 +665,18 @@ earlier logs listed in that index.
 - **Metrics:** tools +27 lines, tests +45.
 - **Next:** release batch C (dependency update) and switch the deployer timer to `--execute`.
 
+## 2026-11-23 — Keep local backups short: newest two deploy copies, finished clones removed
+
+- **Why:** P25 scope item 6 (short local backup history; `trading-data` on GitHub is the backup
+  of record).
+- **What:** `tools/prune_local.py` keeps the newest two deployer report backups and store backups,
+  removes `recovery/` of finished release transactions older than the newest two (under
+  `releases/` or the older `~/.local/state/*-deploy`), and removes lane clones that are quiet for
+  24 hours with every commit on origin. A daily 12:20 UTC timer runs it; the deployer prunes its
+  own backups after each verified deploy or recovery.
+- **Evidence:** `pytest -q -W error -n 0 tests/test_prune_local.py tests/test_auto_deploy.py` passes
+  under `TZ=UTC` and `TZ=Asia/Singapore`; a host dry run keeps two backups and three active clones.
+- **Metrics:** tools +350 lines, tests +245.
+- **Next:** the extension guide (`docs/extend/README.md`).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

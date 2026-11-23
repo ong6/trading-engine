@@ -9,7 +9,8 @@ Backups:
   * ``~/.local/state/trading-engine/auto-deploy/backups/*`` and the live checkout's
     ``store/backups`` keep their newest two entries (by modification time). The deployer's
     in-flight backup is always kept.
-  * ``~/.local/state/trading-engine/releases/<name>/recovery/`` is removed only when that
+  * ``recovery/`` of a release transaction (``~/.local/state/trading-engine/releases/<name>/``,
+    or the older ``~/.local/state/<name>-deploy/``) is removed only when that
     transaction's ``state.json`` records a final phase (``verified``, ``rolled-back``, ``aborted``,
     ``resumed``) and the release is not one of the newest two (by ``created_at``).
   * ``~/trading-data``, the published snapshots (``publish_snapshot`` has its own retention),
@@ -117,12 +118,16 @@ def _read_json(path: Path) -> dict | None:
     return payload if isinstance(payload, dict) else None
 
 
-def prune_releases(root: Path, *, keep: int = KEEP, apply: bool = False) -> list[dict]:
+def release_dirs(state_root: Path) -> list[Path]:
+    """Release transaction state directories: ``<state_root>/releases/*`` and the older
+    ``~/.local/state/*-deploy`` spelling. Directories without ``recovery/`` are skipped later."""
+    candidates = [*(state_root / "releases").glob("*"), *state_root.parent.glob("*-deploy")]
+    return sorted({path for path in candidates if path.is_dir() and not path.is_symlink()})
+
+
+def prune_releases(releases: list[Path], *, keep: int = KEEP, apply: bool = False) -> list[dict]:
     """Remove ``recovery/`` of finished release transactions older than the newest ``keep``."""
-    try:
-        releases = [path for path in root.iterdir() if path.is_dir() and not path.is_symlink()]
-    except FileNotFoundError:
-        return []
+    releases = list(releases)
     states = {path: _read_json(path / "state.json") for path in releases}
 
     def created(path: Path) -> tuple[str, float]:
@@ -290,7 +295,7 @@ def plan(*, state_root: Path = STATE_ROOT, engine_root: Path = ENGINE_ROOT,
         "auto_deploy_backups": prune_entries(state_root / "auto-deploy/backups", apply=apply,
                                              protect=[Path(in_flight)] if in_flight else []),
         "store_backups": prune_entries(engine_root / "store/backups", apply=apply),
-        "release_recovery": prune_releases(state_root / "releases", apply=apply),
+        "release_recovery": prune_releases(release_dirs(state_root), apply=apply),
         "lanes": prune_lanes(lanes_root, claims or lanes_root / "CLAIMS.md", apply=apply, now=now),
     }
     items = [item for section in sections.values() for item in section]

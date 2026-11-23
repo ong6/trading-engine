@@ -210,11 +210,11 @@ def test_release_recovery_is_removed_only_when_final_and_not_among_the_newest_tw
     unreadable = _release(root, "r2", "", None)
     (root / "r1").mkdir()  # no recovery bundle: nothing to report
     plan = {Path(item["path"]).parent.name: (item["action"], item["reason"])
-            for item in prune_local.prune_releases(root)}
+            for item in prune_local.prune_releases(sorted(root.iterdir()))}
     assert plan == {"r6": ("keep", "newest-2-releases"), "r5": ("keep", "newest-2-releases"),
                     "r4": ("keep", "phase-not-final"), "r3": ("remove", "final-release"),
                     "r2": ("keep", "state-unreadable")}
-    prune_local.prune_releases(root, apply=True)
+    prune_local.prune_releases(sorted(root.iterdir()), apply=True)
     assert [path.exists() for path in (newest, second, pending, rolled, unreadable)] == [
         True, True, True, False, True]
     assert (root / "r3/state.json").exists()  # only the recovery bundle goes
@@ -230,3 +230,15 @@ def test_main_prints_a_dry_run_plan(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["mode"] == "dry-run" and out["summary"]["remove"] == 1
     assert (backups / "a").exists()
+
+
+def test_release_dirs_include_the_older_deploy_spelling(tmp_path):
+    state = tmp_path / "state" / "trading-engine"
+    _release(state / "releases", "r30", "2026-11-30T00:00:00Z", "verified")
+    _release(tmp_path / "state", "r27-deploy", "2026-11-23T00:00:00Z", "verified")
+    (tmp_path / "state" / "r21-deploy").mkdir()  # hand-made receipts: no recovery bundle
+    (tmp_path / "state" / "store-sync.log").write_text("")
+    names = [path.name for path in prune_local.release_dirs(state)]
+    assert names == ["r21-deploy", "r27-deploy", "r30"]
+    items = prune_local.prune_releases(prune_local.release_dirs(state))
+    assert sorted(Path(item["path"]).parent.name for item in items) == ["r27-deploy", "r30"]
