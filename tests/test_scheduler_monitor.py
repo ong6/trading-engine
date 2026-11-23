@@ -1296,9 +1296,9 @@ def test_job_registry_audits_legacy_sources_without_becoming_scheduler():
     assert audit == {
         "status": "ok",
         "mode": "audit-only",
-        "jobs": 24,
-        "scheduled_jobs": 22,
-        "registered_timers": 16,
+        "jobs": 25,
+        "scheduled_jobs": 23,
+        "registered_timers": 17,
         "registered_cron": 6,
         "errors": [],
     }

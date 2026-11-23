@@ -1,0 +1,11 @@
+[Unit]
+Description=Trading engine local retention (deploy backups and finished lane clones)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/trading-engine
+ExecStart=%h/trading-engine/.venv/bin/python -m tools.prune_local --apply
+Environment=PYTHONUNBUFFERED=1
+Nice=10
+TimeoutStartSec=2h
+UMask=0077

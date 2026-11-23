@@ -1,0 +1,11 @@
+[Unit]
+Description=Keep the newest two local deploy backups and remove finished lane clones
+
+[Timer]
+OnCalendar=*-*-* 12:20:00 UTC
+Persistent=false
+AccuracySec=1min
+Unit=trading-engine-local-prune.service
+
+[Install]
+WantedBy=timers.target

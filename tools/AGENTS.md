@@ -9,8 +9,8 @@ part in research execution.
   `worktree_audit`, `lane` (lane worktrees), `public_hygiene` (+ `public_hygiene_pre_push.sh`).
   Deploy path: [`../docs/change/deploy.md`](../docs/change/deploy.md).
 - **Operate**: `ops_digest` (hourly digest), `driver_watchdog`, `schedule_contract_check`,
-  `stage_timings`, `check_invariants` with `invariants/`, `log_retention`, `publish_snapshot`,
-  `backup_database`, `verify_friday_postflight`, `run_job`, `metrics_snapshot`.
+  `stage_timings`, `check_invariants` with `invariants/`, `log_retention`, `prune_local`,
+  `publish_snapshot`, `backup_database`, `verify_friday_postflight`, `run_job`, `metrics_snapshot`.
 - **Data capture**: `free_sources`, `free_sec`, `free_sec_bulk`, `free_massive_minute`,
   `free_massive_options`, `free_frozen_archive`, `free_source_audit`, `sec_edgar_capture`,
   `market_data_source`, `provider_contracts` (recorded fixtures and the runtime-environment

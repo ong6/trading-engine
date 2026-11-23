@@ -339,6 +339,21 @@ def test_failed_post_check_rolls_back(host):
     assert "INVALID" in receipt["reason"]
 
 
+def test_a_verified_deploy_keeps_only_the_newest_two_report_backups(host):
+    backups = host["tmp"] / "state/backups"
+    for age, name in enumerate(("20261122T100000Z", "20261121T100000Z", "20261120T100000Z")):
+        (backups / name).mkdir(parents=True)
+        os.utime(backups / name, (1_000_000_000 - age,) * 2)
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    deployer = _deployer(host, green={target})
+    decision = deployer.decide(execute=True)
+    assert decision.outcome == "deployed", decision
+    # this deploy's own backup has the real clock's mtime, so it is the newest
+    assert sorted(path.name for path in backups.iterdir()) == [
+        "20261122T100000Z", SAFE.strftime("%Y%m%dT%H%M%SZ")]
+    assert "prune-backups:2" in deployer.steps
+
+
 def test_execute_rechecks_the_window_before_mutating(host):
     target = _push(host, "code", {"engine/x.py": "x = 1\n"})
     deployer = _deployer(host, green={target})

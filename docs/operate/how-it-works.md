@@ -417,6 +417,29 @@ While holding the normal producer locks, `backup_database create` uses the lates
 when that snapshot is newer than the live database's last write. Otherwise it takes its own
 consistent copy of the live database. Verification and restore semantics are unchanged.
 
+### Local retention
+
+The private `trading-data` repository on GitHub, exported daily and restore-checked, is the
+backup of record. Its history is kept whole, not squashed: about 3 GiB packed locally and hosted
+by GitHub. Local deploy and rollback copies are short-lived. `trading-engine-local-prune.timer`
+runs `tools.prune_local --apply` daily at 12:20 UTC (`.venv/bin/python -m tools.prune_local`
+alone prints the plan as JSON and changes nothing):
+
+- the newest two entries are kept under `~/.local/state/trading-engine/auto-deploy/backups/`
+  (plus the deployer's in-flight backup) and under the live checkout's `store/backups/`; the
+  deployer also prunes its own report backups after a verified deploy or recovery;
+- a release transaction's `recovery/` bundle is removed only when its `state.json` phase is
+  `verified`, `rolled-back`, `aborted` or `resumed` and it is not one of the newest two releases;
+- a lane clone under `~/engine-lanes/` is removed only when its `origin` is this repository, it
+  has no tracked changes, untracked files outside `.gitignore` or stash entries, every local
+  branch's commits are on origin or patch-equivalent in `origin/main` (`git cherry`, after a
+  fetch), nothing in it changed for 24 hours, and its directory name is not on a
+  `~/engine-lanes/CLAIMS.md` line containing "stay claimed" (for example
+  `stay claimed: p25-docs`). Non-git directories and linked worktrees are reported, never removed.
+
+It never touches `~/trading-data`, the published snapshots (they keep their own two
+generations), the point-in-time stores or the live store.
+
 ## P15 recovery boundary
 
 The current P15 registration revision is reported by `GET /meta`. Revisions bind infrastructure

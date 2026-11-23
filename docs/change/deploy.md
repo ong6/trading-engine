@@ -33,8 +33,10 @@ live checkout and run `python -m tools.install_automation --apply`. Once the tim
 3. On a private worktree it runs `tools.deploy_gate` plus the registration and forward-record
    tests. A dependency, schema-migration or contract-version commit is `needs-human`: everything
    before it deploys, and that commit waits to be released through `tools/release_deploy.py`
-   (dry by default, `--execute` to mutate). A `needs-human` target is
-   not re-checked until `main` moves (`skipped:refused-target`).
+   (dry by default, `--execute` to mutate). Each release transaction keeps its state under
+   `~/.local/state/trading-engine/releases/<name>/` (its `state.json` phase and its store backup
+   in `recovery/`). A `needs-human` target is not re-checked until `main` moves
+   (`skipped:refused-target`).
 4. It fast-forwards the live checkout (rebasing data-only local commits). When a forward-record
    closure changed, it runs `--migrate-runtime-contract` after a digest-only rehearsal.
 5. It runs `tools.install_automation --apply` (changed units; API or UI restart only when their
@@ -70,7 +72,8 @@ The nightly does not pull code; it takes only data-only commits.
 - **Switch to execute**: add `--execute` to the auto-deploy job's `argv` and `exec_start` in
   `ops/jobs.toml`, re-render the unit, land it, then run `python -m tools.install_automation --apply`.
 - **Pause**: `systemctl --user stop trading-engine-auto-deploy.timer`.
-- **Manual rollback**: restore reports from `auto-deploy/backups/<time>/`, run
+- **Manual rollback**: restore reports from `auto-deploy/backups/<time>/` (the newest two are
+  kept; see [local retention](../operate/how-it-works.md#local-retention)), run
   `git -C ~/trading-engine reset --keep <previous>`, then `python -m tools.install_automation --apply`,
   and check `/ready`.
 - **Gate a tree by hand**: `.venv/bin/python -m tools.deploy_gate --check WORKTREE` writes a

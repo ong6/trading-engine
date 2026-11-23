@@ -40,7 +40,8 @@ commit (only when no commit landed since), restore the reports and re-apply.
 
 Mutation holds the release transaction lock and the te-autopush lock, so neither can race it.
 State lives in ``~/.local/state/trading-engine/auto-deploy/``; one receipt per run goes to the
-``job-runs`` tree of the logs directory, which ``tools/ops_digest.py`` reads.
+``job-runs`` tree of the logs directory, which ``tools/ops_digest.py`` reads. After a verified
+deploy or a successful recovery only the newest two report backups under ``backups/`` are kept.
 """
 from __future__ import annotations
 
@@ -70,7 +71,7 @@ from engine.lib import store_limits
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import REPO_ROOT
 from server.driver_log import _lock_held
-from tools import affected_tests, backup_database, release_deploy, repin, run_job
+from tools import affected_tests, backup_database, prune_local, release_deploy, repin, run_job
 
 JOB_ID = "auto-deploy"
 STATE_DIR = Path.home() / ".local/state/trading-engine/auto-deploy"
@@ -756,8 +757,21 @@ class Deployer:
                 return self.roll_back(previous, moved, families, backup,
                                       f"{type(exc).__name__}: {exc}"[:300])
             self.save_state(in_flight=None, last_good_sha=moved, recovery=None)
+            self.prune_backups()
             return Decision("deployed", detail={"target": target, "previous": previous,
                                                 "migrated": families, **checked})
+
+    def prune_backups(self) -> None:
+        """Once the host is verified, keep only the newest report backups (trading-data is the
+        backup of record)."""
+        try:
+            items = prune_local.prune_entries(self.state_dir / "backups", apply=True)
+        except OSError as exc:
+            self.steps.append(f"prune-backups:error:{exc}"[:200])
+            return
+        removed = sum(item["action"] == "removed" for item in items)
+        failed = sum(item["action"] == "remove-failed" for item in items)
+        self.steps.append(f"prune-backups:{removed}" + (f":failed:{failed}" if failed else ""))
 
     def roll_back(self, previous: str, moved: str, families: list[str], backup: Path,
                   error: str) -> Decision:
@@ -831,6 +845,7 @@ class Deployer:
                 return Decision("recovery-failed", why, {**detail, "error": str(exc)[:300],
                                                          "failures": failures})
         self.save_state(in_flight=None, recovery=None, last_good_sha=good)
+        self.prune_backups()
         return Decision("recovered", why, detail)
 
     def _data_only(self, commit: str) -> bool:

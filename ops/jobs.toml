@@ -1020,6 +1020,37 @@ service_unit = "trading-engine-auto-deploy.service"
 
 
 [[jobs]]
+job_id = "local-prune"
+version = 1
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.prune_local", "--apply"]
+schedules = ["*-*-* 12:20:00 UTC"]
+
+[jobs.timeout]
+attempt_seconds = 7200
+overall_seconds = 7200
+
+[jobs.retry]
+deadline_seconds = 7200
+
+[jobs.legacy.service]
+unit = "trading-engine-local-prune.service"
+description = "Trading engine local retention (deploy backups and finished lane clones)"
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.prune_local", "--apply"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 10
+timeout_start = "2h"
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "trading-engine-local-prune.timer"
+description = "Keep the newest two local deploy backups and remove finished lane clones"
+on_calendar = ["*-*-* 12:20:00 UTC"]
+persistent = false
+accuracy_sec = "1min"
+service_unit = "trading-engine-local-prune.service"
+
+
+[[jobs]]
 job_id = "registry-audit"
 version = 1
 runner_enabled = true
