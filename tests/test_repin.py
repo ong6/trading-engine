@@ -306,9 +306,13 @@ def test_rehearsal_allows_only_runtime_identity_changes(repo, tmp_path, monkeypa
     assert repin.rehearse(repo, [], engine_root)["families"] == []
 
 
-@pytest.mark.slow  # about 15 s: a shared clone, five closure digests and one registration test
-def test_reproduces_revision_25_byte_for_byte(tmp_path, monkeypatch):
-    pinned, deployed = "8a0d9baf504bb29a2bb5a0f5a4cfa5aa6b261b1b", "4534a88acfb8a03fc089c0b8c3f6033fd6c80635"
+@pytest.mark.slow  # about 15 s each: a shared clone, closure digests and one registration test
+@pytest.mark.parametrize("pinned, sentence", [
+    ("8a0d9baf504bb29a2bb5a0f5a4cfa5aa6b261b1b", True),   # revision 25 itself
+    ("7698eb2f2ed1d1668c22eb537a3f301c681c14aa", False),  # a refresh keeping revision 25
+])
+def test_reproduces_revision_25_byte_for_byte(tmp_path, monkeypatch, pinned, sentence):
+    deployed = "4534a88acfb8a03fc089c0b8c3f6033fd6c80635"
     for commit in (pinned, deployed):
         if subprocess.run(["git", "cat-file", "-e", f"{commit}^{{commit}}"], cwd=ROOT,
                           capture_output=True).returncode:
@@ -319,8 +323,29 @@ def test_reproduces_revision_25_byte_for_byte(tmp_path, monkeypatch):
     subprocess.run(["git", "clone", "-q", "--shared", "--no-checkout", str(ROOT), str(clone)],
                    check=True)
     _git(clone, "checkout", "-q", f"{pinned}^")
-    reason = json.loads(_git(clone, "show", f"{pinned}:{repin.REGISTRATION}"))["revision_reason"]
-    sentence = reason.split(": ", 1)[1].split(" E1 v8, sector v12")[0]
-    assert repin.main(["--root", str(clone), "--deployed", deployed,
-                       "--reason-file", str(_reason(tmp_path, sentence))]) == 0
+    argv = ["--root", str(clone), "--deployed", deployed]
+    if sentence:
+        reason = json.loads(_git(clone, "show", f"{pinned}:{repin.REGISTRATION}"))[
+            "revision_reason"]
+        text = reason.split(": ", 1)[1].split(" E1 v8, sector v12")[0]
+        argv += ["--reason-file", str(_reason(tmp_path, text))]
+    assert repin.main(argv) == 0
     assert _git(clone, "diff", pinned, "HEAD", "--stat") == ""
+
+
+def test_refresh_within_an_undeployed_revision_keeps_number_and_reason(repo, tmp_path,
+                                                                        monkeypatch):
+    monkeypatch.setattr(repin, "_derived_identities", lambda _root: None)
+    _write(repo, "sim/pinned.py", "VALUE = 5\n")
+    _commit(repo, "first change")
+    assert repin.main(["--root", str(repo), "--deployed", "deployed",
+                       "--reason-file", str(_reason(tmp_path))]) == 0
+    reason = json.loads((repo / repin.REGISTRATION).read_text())["revision_reason"]
+    _write(repo, "sim/pinned.py", "VALUE = 6\n")
+    fix = _commit(repo, "a fix inside the same batch")
+    assert repin.main(["--root", str(repo), "--deployed", "deployed"]) == 0
+    registration = json.loads((repo / repin.REGISTRATION).read_text())
+    assert registration["registration_revision"] == 2
+    assert registration["revision_reason"] == reason
+    assert registration["code_identity"]["source_commit"] == fix
+    assert _git(repo, "diff", "--name-only", "HEAD~1", "HEAD").split() == [repin.REGISTRATION]

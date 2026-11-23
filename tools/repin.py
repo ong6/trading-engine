@@ -12,7 +12,8 @@ deployer recorded in its state file, else ``origin/main``) and writes at most tw
 (c) the registration: pinned file hashes, ``source_commit`` (the last commit touching a pinned
     file, after (b)), revision ``REF``'s plus one, ``revision_reason`` (boilerplate around the
     one sentence in ``--reason-file``) and ``registration_sha256``; plus the two literals in
-    ``tests/test_p15_registration.py``.
+    ``tests/test_p15_registration.py``. When the checkout already carries that undeployed
+    revision, omitting ``--reason-file`` refreshes the pins and keeps its number and reason.
 
 It refuses (exit 2, nothing written) when the tree is dirty; when a registration key other
 than the code identity, revision, reason and self-hash differs from ``REF``; when any
