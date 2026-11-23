@@ -5842,4 +5842,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** session server +1, tools +54, product unchanged LOC.
 - **Next:** orchestrator updates the local overlay and runs full acceptance before deployment.
 
+## 2026-11-23 — Admit P25: continuous deploy, docs and code cleanup
+
+- **Why:** owner instruction of 2026-11-23 (deploy merged work, clean docs and code, short
+  backup history, UI frozen); P25 plan opened as active.
+- **What:** add `docs/plans/p25-ship-autodeploy-cleanup.md` and its index row; put P25 first in
+  `docs/product.md` "Focus now" with the UI frozen.
+- **Evidence:** `.venv/bin/python -m tools.affected_tests --run` passes.
+- **Metrics:** unchanged.
+- **Next:** integrate batch B and issue registration revision 25.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -66,8 +66,9 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   [P20 engine and paper dashboard review](plans/p20-engine-and-board-review.md),
   [P21 operational issue closure and separate accounts](plans/p21-operational-issues-and-account-isolation.md),
   [P22 engine v2 accounts and money foundation](plans/p22-engine-v2-accounts.md),
-  [P23 hourly operations digest](plans/p23-hourly-ops-digest.md), and
-  [P24 senior-quant review, fixes, speed and research lanes](plans/p24-quant-review-and-speed.md).
+  [P23 hourly operations digest](plans/p23-hourly-ops-digest.md),
+  [P24 senior-quant review, fixes, speed and research lanes](plans/p24-quant-review-and-speed.md), and
+  [P25 continuous deploy and cleanup](plans/p25-ship-autodeploy-cleanup.md).
 - [`glossary.md`](glossary.md) — plain names for P1–P24, the P15/P16 workstreams, and research
   terms such as registration, holdout, census, DSR, and walk-forward.
 

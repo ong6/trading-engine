@@ -35,6 +35,7 @@ each plan's YAML `status` must match its row.
 | [P22](p22-engine-v2-accounts.md) | Engine v2 accounts and money foundation | active | Deployed 2026-10-18 at registration revision 14, D0 2026-10-19; open: the private alpha's move onto its engine-owned account (lane L5, held) |
 | [P23](p23-hourly-ops-digest.md) | Hourly operations digest | done | Completed 2026-10-15: hourly digest at :08 UTC with SQLite metrics; `--report` checks every scheduled run and driver stage against the timers and crontab |
 | [P24](p24-quant-review-and-speed.md) | Senior-quant review, pipeline fixes, speed and new research lanes | active | Batches 1 and 2 live as registration revisions 16 and 17; wave 1 landed at `483564b6`; live store repair 2026-10-22; storage revision 21 in rehearsal, not live |
+| [P25](p25-ship-autodeploy-cleanup.md) | Ship continuously, clean the docs and code, keep the engine easy to extend | active | Revision 25, a self-running deployer, agent-first docs, short backup history and dead-code removal |
 
 Recommended order: follow [`../product.md`](../product.md) ("Focus now"). Keep the revision-17
 registered evidence path green, finish P24 and the P22 alpha cutover, then continue P15 and P7

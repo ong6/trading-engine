@@ -213,8 +213,10 @@ Each row has the default that applies until the owner decides.
 
 ## Focus now (in order)
 
-Updated 2026-10-22 for engine v2 live and P24 active.
-
+0. **P25 first: ship continuously and clean up** ([plan](plans/p25-ship-autodeploy-cleanup.md)).
+   Deploy merged work without waiting on a session, clean the docs and code, and keep local
+   backup history short. The UI is frozen: keep it building and tested, add no UI features, and
+   do not design for mobile.
 1. **Keep the evidence clean and the revision 17 registered path green.** Use per-stage timings
    and the hourly ops digest to watch collection, snapshots, the queue, observers and status
    projections. Keep scheduled producers green, miss no agent windows, allow no identity drift,
