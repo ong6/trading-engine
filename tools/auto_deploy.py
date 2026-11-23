@@ -1,0 +1,564 @@
+#!/usr/bin/env python3
+"""Continuous deployer: bring the live checkout to the newest green ``main`` commit, or say why not.
+
+``python -m tools.auto_deploy [--execute]`` is run by ``trading-engine-auto-deploy.timer``
+every 15 minutes. Without ``--execute`` (the timer's default) it decides and reports but never
+changes the live checkout, its units or its reports. Each run records one decision:
+
+  deployed                 the live checkout was moved to the target and post-checked
+  dry-run would-deploy     every check passed; ``--execute`` would deploy the target
+  skipped:<reason>         nothing to do now (a blocked window, a producer, up to date, ...)
+  needs-human:<reason>     the range needs ``tools/release_deploy.py`` or a person
+  rolled-back              the post-check failed and the previous commit was restored
+
+Steps: (1) skip inside 14:05-14:35 and 22:30-03:00 UTC, while any producer lock is held
+(observed through ``/proc/locks``, never acquired), a producer process runs or a release
+transaction holds its lock; (2) fetch ``origin/main`` into a private mirror under the state
+directory and pick the newest commit whose GitHub Actions ``ci`` push run succeeded, also
+requiring green CI on the newest code-touching commit up to it (content-only pushes run a
+reduced tier); (3) run ``tools.deploy_gate --check`` (the deployed gate code) on a worktree of
+the target with ``--base <deployed>``, plus the registration and forward-record tests;
+(4) refuse dependency, schema-migration and contract-version changes; (5) require a clean live
+``main`` whose only unpushed commits touch ``data/``; (6) when a forward-record closure digest
+changed, rehearse the digest-only migration on the newest snapshot, back up the reports and run
+``--migrate-runtime-contract``; (7) ``install_automation --apply``; (8) post-check ``/health``,
+``/ready``, ``/meta`` and the automation audit; (9) on failure ``git reset --keep`` the previous
+commit (only when no commit landed since), restore the reports and re-apply.
+
+Mutation holds the release transaction lock and the te-autopush lock, so neither can race it.
+State lives in ``~/.local/state/trading-engine/auto-deploy/``; one receipt per run goes to
+``logs/job-runs/auto-deploy/``, which ``tools/ops_digest.py`` reads.
+"""
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.error
+import urllib.request
+import uuid
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, time, timedelta
+from pathlib import Path
+from typing import Iterator
+
+from engine import job_contract
+from engine.lib.resources import write_text_atomic
+from engine.lib.settings import REPO_ROOT
+from server.driver_log import _lock_held
+from tools import affected_tests, backup_database, release_deploy, repin
+
+JOB_ID = "auto-deploy"
+STATE_DIR = Path.home() / ".local/state/trading-engine/auto-deploy"
+ENGINE_ROOT = Path.home() / "trading-engine"
+AUTOPUSH_LOCK = Path.home() / ".local/state/te-autopush.lock"
+API_URL = "http://127.0.0.1:8000"
+REPOSITORY = "ong6/trading-engine"
+RUNS_URL = (f"https://api.github.com/repos/{REPOSITORY}/actions/runs"
+            "?branch=main&event=push&per_page=100")
+WORKFLOW = "ci"
+BLOCKED_WINDOWS = ((time(14, 5), time(14, 35)), (time(22, 30), time(3, 0)))
+MUTATION_LEAD = timedelta(minutes=20)  # the mutating half must end before a window opens
+HUMAN_PATHS = ("uv.lock", "pyproject.toml", "engine/requirements.txt", "ui/package.json",
+               "ui/package-lock.json")
+MIGRATIONS = "engine/migrations/"
+FORWARD_TESTS = ("tests/test_p15_registration.py", "tests/test_forward_review.py",
+                 "tests/test_xs_forward_review.py", "tests/test_experiment_runner.py")
+EXTRA_LOCKS = (".hourly-opportunity.lock", "store/snapshots/.generation-publish.lock",
+               "logs/.verify-prices-reader.lock")
+LOCK_GLOBS = ("*.running.lock", ".p15-*.lock", ".p16-*.lock", ".*opportunity*.lock",
+              "store/.p15-*.lock", "store/.p16-*.lock")
+META_KEYS = {"e1": "e1_forward", "sector": "forward_review", "xs": "xs_forward_review"}
+WORK_STATUS = {"deployed": "success", "would-deploy": "noop", "skipped": "noop",
+               "needs-human": "degraded", "rolled-back": "terminal_failure",
+               "failed": "terminal_failure"}
+
+
+class Stop(Exception):
+    """End the run with one decision."""
+
+    def __init__(self, outcome: str, reason: str = "", **detail):
+        super().__init__(f"{outcome}:{reason}" if reason else outcome)
+        self.outcome, self.reason, self.detail = outcome, reason, detail
+
+
+@dataclass
+class Decision:
+    outcome: str
+    reason: str = ""
+    detail: dict = field(default_factory=dict)
+
+    @property
+    def label(self) -> str:
+        if self.outcome == "would-deploy":
+            return "dry-run would-deploy"
+        return f"{self.outcome}:{self.reason}" if self.reason else self.outcome
+
+
+def in_blocked_window(moment: datetime) -> bool:
+    clock = moment.astimezone(UTC).time()
+    for start, end in BLOCKED_WINDOWS:
+        if (start <= clock < end) if start < end else (clock >= start or clock < end):
+            return True
+    return False
+
+
+def _iso(moment: datetime) -> str:
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class Deployer:
+    """One run. Every host interaction is a method so tests can replace it."""
+
+    def __init__(self, *, engine_root: Path = ENGINE_ROOT, state_dir: Path = STATE_DIR,
+                 logs_dir: Path | None = None, api_url: str = API_URL,
+                 autopush_lock: Path = AUTOPUSH_LOCK, runs_url: str = RUNS_URL):
+        self.root = engine_root.resolve()
+        self.state_dir = state_dir
+        self.logs_dir = logs_dir or self.root / "logs"
+        self.api_url = api_url.rstrip("/")
+        self.autopush_lock = autopush_lock
+        self.runs_url = runs_url
+        self.mirror = state_dir / "mirror"
+        self.worktree = state_dir / "worktree"
+        self.steps: list[str] = []
+        self.ops = release_deploy.ReleaseOperations(
+            release_deploy.StateStore(state_dir), home=Path.home(),
+            command_runner=release_deploy.CommandRunner(), api_url=self.api_url,
+            ui_url="http://127.0.0.1:3000", minimum_free_bytes=0)
+
+    # ---- host seams -------------------------------------------------------------------
+    def now(self) -> datetime:
+        return datetime.now(UTC)
+
+    def run(self, argv: list[str], *, cwd: Path, env: dict | None = None,
+            timeout: float = 600) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(argv, cwd=cwd, env={**os.environ, **(env or {})},
+                                  capture_output=True, text=True, timeout=timeout, check=False,
+                                  stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return subprocess.CompletedProcess(argv, 124, "", str(exc))
+
+    def git(self, root: Path, *args: str, check: bool = True) -> str:
+        done = self.run(["git", "--no-optional-locks", *args], cwd=root, timeout=300)
+        if check and done.returncode:
+            raise Stop("failed", "git", command=" ".join(args), error=done.stderr.strip()[-300:])
+        return done.stdout.strip() if done.returncode == 0 else ""
+
+    def lock_held(self, path: Path) -> bool | None:
+        return _lock_held(path) if path.exists() else False
+
+    def producers(self) -> list[str]:
+        return self.ops._surviving_producers(self.root)
+
+    def http_get(self, url: str, headers: dict) -> tuple[int, dict, bytes]:
+        request = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.status, dict(response.headers.items()), response.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, dict(exc.headers.items()), b""
+
+    # ---- step 1: may we run at all? ------------------------------------------------------
+    def busy(self) -> str | None:
+        locks = set(backup_database.LOCK_FILES) | set(EXTRA_LOCKS)
+        for pattern in LOCK_GLOBS:
+            locks |= {str(path.relative_to(self.root)) for path in self.root.glob(pattern)}
+        for relative in sorted(locks):
+            held = self.lock_held(self.root / relative)
+            if held is not False:
+                return f"producer-lock:{relative}" if held else f"lock-unknown:{relative}"
+        found = self.producers()
+        if found:
+            return "producer-running"
+        common = Path(self.git(self.root, "rev-parse", "--git-common-dir"))
+        transaction = (common if common.is_absolute() else self.root / common) / \
+            "release-deploy.lock"
+        if self.lock_held(transaction) is not False:
+            return "release-transaction"
+        return None
+
+    def _gate_now(self, *, lead: timedelta = timedelta(0)) -> None:
+        moment = self.now()
+        if in_blocked_window(moment) or in_blocked_window(moment + lead):
+            raise Stop("skipped", "window")
+        reason = self.busy()
+        if reason:
+            raise Stop("skipped", reason)
+
+    # ---- step 2: target -------------------------------------------------------------------
+    def refresh_mirror(self) -> tuple[str, str]:
+        """Fetch origin/main and the live HEAD into the private mirror; never write the live tree."""
+        if not (self.mirror / ".git").exists() and not (self.mirror / "HEAD").exists():
+            self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            done = self.run(["git", "clone", "-q", "--no-checkout", str(self.root),
+                             str(self.mirror)], cwd=self.state_dir, timeout=1800)
+            if done.returncode:
+                raise Stop("failed", "mirror", error=done.stderr.strip()[-300:])
+            url = self.git(self.root, "remote", "get-url", "origin")
+            self.git(self.mirror, "remote", "set-url", "origin", url)
+        fetched = self.run(["git", "fetch", "-q", "origin", "+main:refs/remotes/origin/main"],
+                           cwd=self.mirror, timeout=600)
+        if fetched.returncode:
+            raise Stop("skipped", "fetch-failed", error=fetched.stderr.strip()[-300:])
+        self.git(self.mirror, "fetch", "-q", str(self.root), "+HEAD:refs/live/head")
+        return (self.git(self.mirror, "rev-parse", "refs/remotes/origin/main"),
+                self.git(self.mirror, "rev-parse", "refs/live/head"))
+
+    def ci_conclusions(self) -> dict[str, bool]:
+        """head SHA -> whether its ``ci`` push run on main succeeded (ETag-cached)."""
+        cache_path = self.state_dir / "ci-runs.json"
+        try:
+            cache = json.loads(cache_path.read_text())
+        except (OSError, ValueError):
+            cache = {}
+        headers = {"Accept": "application/vnd.github+json",
+                   "User-Agent": "trading-engine-auto-deploy"}
+        if cache.get("etag"):
+            headers["If-None-Match"] = cache["etag"]
+        if os.environ.get("GITHUB_TOKEN"):  # optional: the shared host's anonymous quota is 60/h
+            headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
+        try:
+            status, response_headers, body = self.http_get(self.runs_url, headers)
+        except (OSError, urllib.error.URLError, ValueError) as exc:
+            raise Stop("skipped", "ci-unavailable", error=str(exc)[:200]) from exc
+        if status == 304 and "runs" in cache:
+            runs = cache["runs"]
+        elif status == 200:
+            try:
+                runs = json.loads(body)["workflow_runs"]
+            except (ValueError, KeyError, TypeError) as exc:
+                raise Stop("skipped", "ci-unavailable", error="malformed runs") from exc
+            runs = [{"head_sha": run.get("head_sha"), "conclusion": run.get("conclusion")}
+                    for run in runs if run.get("name") == WORKFLOW
+                    and run.get("event") == "push" and run.get("head_branch") == "main"]
+            etag = {key.lower(): value for key, value in response_headers.items()}.get("etag")
+            write_text_atomic(cache_path, json.dumps({"etag": etag, "runs": runs}) + "\n")
+        elif status in {403, 429}:
+            reset = {key.lower(): value for key, value in response_headers.items()}.get(
+                "x-ratelimit-reset", "")
+            raise Stop("skipped", "ci-rate-limited", http_status=status, reset=reset)
+        else:
+            raise Stop("skipped", "ci-unavailable", http_status=status)
+        green: dict[str, bool] = {}
+        for run in runs:
+            sha = run["head_sha"]
+            green[sha] = green.get(sha, False) or run["conclusion"] == "success"
+        return green
+
+    def touches_code(self, commit: str) -> bool:
+        parents = self.git(self.mirror, "rev-list", "--parents", "-n", "1", commit).split()[1:2]
+        names = self.git(self.mirror, "diff", "--name-only", "--no-renames", parents[0], commit
+                         ).splitlines() if parents else ["(root)"]
+        return not all(affected_tests.is_content(name) for name in names if name)
+
+    def pick_target(self, deployed: str, origin: str) -> str:
+        candidates = self.git(self.mirror, "rev-list", "--first-parent",
+                              f"{deployed}..{origin}").split()
+        if not candidates:
+            raise Stop("skipped", "up-to-date", deployed=deployed)
+        green = self.ci_conclusions()
+        code = {commit: self.touches_code(commit) for commit in candidates}
+        for index, commit in enumerate(candidates):
+            if not green.get(commit):
+                continue
+            newest_code = next((c for c in candidates[index:] if code[c]), None)
+            if newest_code is None or green.get(newest_code):
+                return commit
+        raise Stop("skipped", "no-green-ci", newest=origin)
+
+    # ---- steps 3-5: checks -----------------------------------------------------------------
+    def human_reasons(self, deployed: str, target: str) -> list[str]:
+        reasons = []
+        changed = self.git(self.mirror, "diff", "--name-status", "--no-renames", deployed,
+                           target).splitlines()
+        paths = {line.split("\t", 1)[1] for line in changed if "\t" in line}
+        if paths & set(HUMAN_PATHS):
+            reasons.append("dependencies")
+        if any(path.startswith(MIGRATIONS) for path in paths):
+            reasons.append("schema-migration")
+        for family in repin.FAMILIES:
+            versions = {repin._literal(self.git(self.mirror, "show", f"{ref}:{family.path}"),
+                                       "RUNTIME_CONTRACT_VERSION") for ref in (deployed, target)}
+            if len(versions) > 1:
+                reasons.append(f"contract-version:{family.key}")
+        return reasons
+
+    def prepare_worktree(self, target: str) -> Path:
+        if self.worktree.exists():
+            self.git(self.mirror, "worktree", "remove", "--force", str(self.worktree),
+                     check=False)
+            shutil.rmtree(self.worktree, ignore_errors=True)
+        self.git(self.mirror, "worktree", "prune")
+        self.git(self.mirror, "worktree", "add", "-q", "--detach", str(self.worktree), target)
+        return self.worktree
+
+    def gate(self, worktree: Path, deployed: str) -> dict:
+        done = self.run([sys.executable, "-m", "tools.deploy_gate", "--check", str(worktree),
+                         "--base", deployed, "--engine-root", str(self.root),
+                         "--receipts", str(self.state_dir / "gate-receipts")],
+                        cwd=REPO_ROOT, env={"PYTHONPATH": str(REPO_ROOT)}, timeout=3600)
+        tail = done.stdout.strip().splitlines()[-6:]
+        if done.returncode:
+            raise Stop("needs-human", "gate-refused", exit=done.returncode, tail=tail)
+        with tempfile.TemporaryDirectory(prefix="auto-deploy-tests-") as private:
+            tests = self.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+                              "-n", "2", *FORWARD_TESTS], cwd=worktree,
+                             env={"PYTHONPATH": str(worktree), "TMPDIR": private,
+                                  "PYTHONDONTWRITEBYTECODE": "1"}, timeout=3600)
+        if tests.returncode:
+            raise Stop("needs-human", "forward-tests",
+                       tail=(tests.stdout + tests.stderr).strip().splitlines()[-6:])
+        return {"gate": tail[-1] if tail else "", "forward_tests": "pass"}
+
+    def migrations_needed(self, target: str) -> list[str]:
+        """Families whose target closure digest differs from the live published report."""
+        needed = []
+        for family in repin.FAMILIES:
+            literal = repin._literal(self.git(self.mirror, "show", f"{target}:{family.path}"),
+                                     "EXPECTED_RUNTIME_CONTRACT_SHA256")
+            report = json.loads((self.root / family.report).read_text())
+            if report.get("status") == "INVALID":
+                raise Stop("needs-human", f"invalid-report:{family.key}")
+            if repin._report_identity(report, family)["runtime_contract_sha256"] != literal:
+                needed.append(family.key)
+        return needed
+
+    def live_state(self, live_head: str, origin: str) -> list[str]:
+        """Unpushed live commits (all data-only), or Stop."""
+        branch = self.git(self.root, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
+        if branch != "main":
+            raise Stop("skipped", "live-not-on-main")
+        git_dir = Path(self.git(self.root, "rev-parse", "--absolute-git-dir"))
+        if any((git_dir / name).exists() for name in
+               ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD")):
+            raise Stop("skipped", "live-operation-in-progress")
+        if self.git(self.root, "status", "--porcelain", "--untracked-files=no"):
+            raise Stop("skipped", "live-tree-dirty")
+        local = self.git(self.mirror, "rev-list", live_head, f"^{origin}").split()
+        for commit in local:
+            names = self.git(self.mirror, "diff-tree", "--no-commit-id", "--name-only", "-r",
+                             "-m", commit).splitlines()
+            if any(not name.startswith("data/") for name in names):
+                raise Stop("skipped", "live-has-code-commits", commit=commit)
+        return local
+
+    # ---- steps 6-9: mutation ------------------------------------------------------------------
+    @contextmanager
+    def mutation_locks(self) -> Iterator[None]:
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(self.ops.transaction_lock(self.root, f"auto-deploy-{uuid.uuid4()}"))
+            except release_deploy.DeployError as exc:
+                raise Stop("skipped", "release-transaction") from exc
+            self.autopush_lock.parent.mkdir(parents=True, exist_ok=True)
+            handle = stack.enter_context(open(self.autopush_lock, "a"))  # noqa: SIM115
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise Stop("skipped", "autopush-running") from exc
+            yield
+
+    def python(self) -> str:
+        venv = self.root / ".venv/bin/python"
+        return str(venv) if venv.exists() else sys.executable
+
+    def automation(self, mode: str) -> tuple[int, dict]:
+        done = self.run([self.python(), "-m", "tools.install_automation", "--repo-root",
+                         str(self.root), mode], cwd=self.root,
+                        env={"PYTHONPATH": str(self.root)}, timeout=1800)
+        try:
+            summary = json.loads(done.stdout)
+        except ValueError:
+            summary = {"status": "invalid-output", "stderr": done.stderr.strip()[-300:]}
+        return done.returncode, summary if isinstance(summary, dict) else {}
+
+    def post_check(self, expected: dict[str, str]) -> dict:
+        health, _headers = self.ops._wait_health()
+        meta, _ = self.ops.request_json(f"{self.api_url}/meta")
+        for key, family in META_KEYS.items():
+            entry = meta.get(family) or {}
+            if entry.get("status") in (None, "INVALID"):
+                raise release_deploy.DeployError(f"/meta {family} is {entry.get('status')}")
+            if entry.get("runtime_contract_sha256") != expected[key]:
+                raise release_deploy.DeployError(f"/meta {family} runtime mismatch")
+        code, summary = self.automation("--audit")
+        if code:
+            raise release_deploy.DeployError(f"automation audit: {summary.get('status')}")
+        return {"generation_id": health["ready"].get("generation_id")}
+
+    def migrate(self, families: list[str], backup: Path) -> None:
+        backup.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for family in repin.FAMILIES:
+            if family.key in families:
+                for path in self.root.joinpath(family.report).parent.glob(
+                        Path(family.report).stem + "*"):
+                    shutil.copy2(path, backup / path.name)
+        for family in repin.FAMILIES:
+            if family.key not in families:
+                continue
+            done = self.run(repin.migration_argv(self.python(), family), cwd=self.root,
+                            env={"PYTHONPATH": str(self.root)}, timeout=1800)
+            self.steps.append(f"migrate:{family.key}:{done.returncode}")
+            if done.returncode:
+                raise release_deploy.DeployError(
+                    f"{family.key} migration exited {done.returncode}: "
+                    f"{(done.stderr or done.stdout).strip()[-200:]}")
+
+    def restore_reports(self, families: list[str], backup: Path) -> None:
+        for family in repin.FAMILIES:
+            if family.key in families:
+                for saved in backup.glob(Path(family.report).stem + "*"):
+                    shutil.copy2(saved, self.root.joinpath(family.report).parent / saved.name)
+
+    def deploy(self, target: str, local: list[str], families: list[str],
+               expected: dict[str, str]) -> Decision:
+        self._gate_now(lead=MUTATION_LEAD)
+        with self.mutation_locks():
+            self._gate_now(lead=MUTATION_LEAD)
+            previous = self.git(self.root, "rev-parse", "HEAD")
+            self.git(self.root, "fetch", "-q", "origin")
+            if local:
+                done = self.run(["git", "rebase", "-q", target], cwd=self.root, timeout=600)
+                if done.returncode:
+                    self.run(["git", "rebase", "--abort"], cwd=self.root)
+                    raise Stop("skipped", "rebase-conflict")
+            else:
+                self.git(self.root, "merge", "-q", "--ff-only", target)
+            moved = self.git(self.root, "rev-parse", "HEAD")
+            self.steps.append(f"moved:{previous[:12]}->{moved[:12]}")
+            backup = self.state_dir / "backups" / self.now().strftime("%Y%m%dT%H%M%SZ")
+            try:
+                self.migrate(families, backup)
+                code, summary = self.automation("--apply")
+                self.steps.append(f"apply:{summary.get('status')}")
+                if code:
+                    raise release_deploy.DeployError(f"install_automation --apply: "
+                                                     f"{summary.get('errors')}")
+                checked = self.post_check(expected)
+            except release_deploy.DeployError as exc:
+                return self.roll_back(previous, moved, families, backup, str(exc))
+            return Decision("deployed", detail={"target": target, "previous": previous,
+                                                "migrated": families, **checked})
+
+    def roll_back(self, previous: str, moved: str, families: list[str], backup: Path,
+                  error: str) -> Decision:
+        if self.git(self.root, "rev-parse", "HEAD") != moved:
+            return Decision("needs-human", "rollback-blocked-by-new-commit",
+                            {"error": error, "previous": previous})
+        self.git(self.root, "reset", "-q", "--keep", previous)
+        self.restore_reports(families, backup)
+        code, summary = self.automation("--apply")
+        try:
+            if code:
+                raise release_deploy.DeployError(f"re-apply: {summary.get('errors')}")
+            self.ops._wait_health()
+        except release_deploy.DeployError as exc:
+            return Decision("needs-human", "rollback-unhealthy",
+                            {"error": error, "rollback_error": str(exc), "previous": previous})
+        return Decision("rolled-back", detail={"error": error, "previous": previous})
+
+    # ---- one run ------------------------------------------------------------------------------
+    def decide(self, *, execute: bool) -> Decision:
+        self._gate_now()
+        origin, live_head = self.refresh_mirror()
+        deployed = self.git(self.mirror, "merge-base", live_head, origin)
+        target = self.pick_target(deployed, origin)
+        reasons = self.human_reasons(deployed, target)
+        if reasons:
+            raise Stop("needs-human", ",".join(reasons), target=target)
+        local = self.live_state(live_head, origin)
+        families = self.migrations_needed(target)
+        expected = {family.key: repin._literal(
+            self.git(self.mirror, "show", f"{target}:{family.path}"),
+            "EXPECTED_RUNTIME_CONTRACT_SHA256") for family in repin.FAMILIES}
+        worktree = self.prepare_worktree(target)
+        checks = self.gate(worktree, deployed)
+        if families:
+            try:
+                checks["rehearsal"] = repin.rehearse(worktree, families, self.root)
+            except repin.Refused as exc:
+                raise Stop("needs-human", "rehearsal", error=str(exc)[:300]) from exc
+        detail = {"deployed": deployed, "target": target, "local_data_commits": len(local),
+                  "migrations": families, **checks}
+        if not execute:
+            return Decision("would-deploy", detail=detail)
+        decision = self.deploy(target, local, families, expected)
+        decision.detail = {**detail, **decision.detail}
+        return decision
+
+    def record(self, decision: Decision, started: datetime, ended: datetime) -> Path:
+        spec = job_contract.load_registry(REPO_ROOT).by_id.get(JOB_ID)
+        run_id = str(uuid.uuid4())
+        scheduled = _iso(started)
+        reason = decision.label
+        if decision.detail.get("target"):
+            reason += f" target={decision.detail['target'][:12]}"
+        if decision.detail.get("error"):
+            reason += f" ({decision.detail['error']})"
+        status = WORK_STATUS[decision.outcome]
+        receipt = {
+            "schema_version": 1, "run_id": run_id, "attempt": 1, "job_id": JOB_ID,
+            "spec_version": spec.version if spec else 1,
+            "spec_sha256": spec.spec_sha256 if spec else "unregistered",
+            "idempotency_key": f"{JOB_ID}:{spec.version if spec else 1}:{scheduled}",
+            "scheduled_for": scheduled, "started_at": scheduled, "ended_at": _iso(ended),
+            "work_status": status, "reason": reason[:2000],
+            "process_exit": 0 if status in {"success", "noop", "degraded"} else 1,
+            "decision": decision.label, "detail": decision.detail, "steps": self.steps,
+        }
+        slot = started.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+        path = self.logs_dir / "job-runs" / JOB_ID / slot / run_id / "receipt.json"
+        write_text_atomic(path, json.dumps(receipt, indent=1, sort_keys=True) + "\n")
+        state_path = self.state_dir / "state.json"
+        try:
+            state = json.loads(state_path.read_text())
+        except (OSError, ValueError):
+            state = {}
+        if decision.outcome == "deployed":
+            state["deployed_sha"] = decision.detail["target"]
+        elif decision.detail.get("deployed") and decision.outcome != "rolled-back":
+            state.setdefault("deployed_sha", decision.detail["deployed"])
+        state["last_attempt"] = {"at": _iso(ended), "decision": decision.label,
+                                 "receipt": str(path)}
+        self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        write_text_atomic(state_path, json.dumps(state, indent=1, sort_keys=True) + "\n")
+        return path
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--execute", action="store_true", help="act; the default only decides")
+    parser.add_argument("--engine-root", type=Path, default=ENGINE_ROOT)
+    parser.add_argument("--state-dir", type=Path, default=STATE_DIR)
+    parser.add_argument("--logs-dir", type=Path, help="receipt root (default ENGINE_ROOT/logs)")
+    parser.add_argument("--api-url", default=API_URL)
+    parser.add_argument("--autopush-lock", type=Path, default=AUTOPUSH_LOCK)
+    args = parser.parse_args(argv)
+    deployer = Deployer(engine_root=args.engine_root.expanduser(),
+                        state_dir=args.state_dir.expanduser(), logs_dir=args.logs_dir,
+                        api_url=args.api_url, autopush_lock=args.autopush_lock.expanduser())
+    started = deployer.now()
+    try:
+        decision = deployer.decide(execute=args.execute)
+    except Stop as stop:
+        decision = Decision(stop.outcome, stop.reason, stop.detail)
+    except (OSError, ValueError, KeyError, release_deploy.DeployError, repin.Refused) as exc:
+        decision = Decision("failed", type(exc).__name__, {"error": str(exc)[:300]})
+    receipt = deployer.record(decision, started, deployer.now())
+    print(json.dumps({"decision": decision.label, "detail": decision.detail,
+                      "steps": deployer.steps, "receipt": str(receipt)}, indent=1,
+                     sort_keys=True))
+    return 1 if decision.outcome in {"failed", "rolled-back"} else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
