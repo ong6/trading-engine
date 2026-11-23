@@ -315,3 +315,29 @@ def test_receipts_match_the_registered_spec_and_are_pruned(host):
     spec = auto_deploy.job_contract.load_registry(auto_deploy.REPO_ROOT).get("auto-deploy")
     assert fresh["spec_sha256"] == spec.spec_sha256
     assert ops_digest.registered_receipt_alerts([fresh], SAFE) == ([], [], [])
+
+
+def test_rollback_restores_migrated_reports(host, monkeypatch):
+    target = _push(host, "closure", {"engine/xs_forward_review.py": _module(digest="e" * 64)})
+    deployer = _deployer(host, green={target})
+    deployer.post_ok = False
+    deployer.ops._wait_health = lambda: ({"ok": True}, {})
+    monkeypatch.setattr(repin, "rehearse", lambda *args: {"status": "ok"})
+    report = host["live"] / "data/reports/forward/xs_momentum_12_1.json"
+    published = report.read_text()
+    real_run = deployer.run
+
+    def run(argv, **kwargs):
+        if "--migrate-runtime-contract" in argv:
+            report.write_text(published.replace(DIGEST, "e" * 64))
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        return real_run(argv, **kwargs)
+
+    deployer.run = run
+    before = _git(host["live"], "rev-parse", "HEAD")
+    decision = deployer.decide(execute=True)
+    assert decision.label == "rolled-back", decision
+    assert report.read_text() == published
+    assert _git(host["live"], "rev-parse", "HEAD") == before
+    assert _git(host["live"], "status", "--porcelain") == ""
+    assert "migrate:xs:0" in deployer.steps

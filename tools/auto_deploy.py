@@ -394,12 +394,16 @@ class Deployer:
             raise release_deploy.DeployError(f"automation audit: {summary.get('status')}")
         return {"generation_id": health["ready"].get("generation_id")}
 
+    def _report_files(self, family: repin.Family, directory: Path) -> list[Path]:
+        """The family's published report files (E1 also writes ``e1-spy-monday.md``)."""
+        prefix = Path(family.report).stem.removesuffix("-forward")
+        return sorted(path for path in directory.glob(prefix + "*") if path.is_file())
+
     def migrate(self, families: list[str], backup: Path) -> None:
         backup.mkdir(mode=0o700, parents=True, exist_ok=True)
         for family in repin.FAMILIES:
             if family.key in families:
-                for path in self.root.joinpath(family.report).parent.glob(
-                        Path(family.report).stem + "*"):
+                for path in self._report_files(family, self.root.joinpath(family.report).parent):
                     shutil.copy2(path, backup / path.name)
         for family in repin.FAMILIES:
             if family.key not in families:
@@ -415,7 +419,7 @@ class Deployer:
     def restore_reports(self, families: list[str], backup: Path) -> None:
         for family in repin.FAMILIES:
             if family.key in families:
-                for saved in backup.glob(Path(family.report).stem + "*"):
+                for saved in self._report_files(family, backup):
                     shutil.copy2(saved, self.root.joinpath(family.report).parent / saved.name)
 
     def deploy(self, target: str, local: list[str], families: list[str],
@@ -443,8 +447,9 @@ class Deployer:
                     raise release_deploy.DeployError(f"install_automation --apply: "
                                                      f"{summary.get('errors')}")
                 checked = self.post_check(expected)
-            except release_deploy.DeployError as exc:
-                return self.roll_back(previous, moved, families, backup, str(exc))
+            except Exception as exc:  # noqa: BLE001 - any failure after the move rolls back
+                return self.roll_back(previous, moved, families, backup,
+                                      f"{type(exc).__name__}: {exc}"[:300])
             return Decision("deployed", detail={"target": target, "previous": previous,
                                                 "migrated": families, **checked})
 
@@ -453,16 +458,17 @@ class Deployer:
         if self.git(self.root, "rev-parse", "HEAD") != moved:
             return Decision("needs-human", "rollback-blocked-by-new-commit",
                             {"error": error, "previous": previous})
-        self.git(self.root, "reset", "-q", "--keep", previous)
-        self.restore_reports(families, backup)
-        code, summary = self.automation("--apply")
         try:
+            self.restore_reports(families, backup)  # back to the committed bytes first
+            self.git(self.root, "reset", "-q", "--keep", previous)
+            code, summary = self.automation("--apply")
             if code:
                 raise release_deploy.DeployError(f"re-apply: {summary.get('errors')}")
             self.ops._wait_health()
-        except release_deploy.DeployError as exc:
-            return Decision("needs-human", "rollback-unhealthy",
-                            {"error": error, "rollback_error": str(exc), "previous": previous})
+        except (Stop, OSError, release_deploy.DeployError) as exc:
+            return Decision("needs-human", "rollback-failed",
+                            {"error": error, "rollback_error": str(exc)[:300],
+                             "previous": previous})
         return Decision("rolled-back", detail={"error": error, "previous": previous})
 
     # ---- one run ------------------------------------------------------------------------------
