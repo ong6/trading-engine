@@ -62,6 +62,7 @@ class FakeDeployer(auto_deploy.Deployer):
         self.crontab = ""
         self.low_disk = None
         self.api_restarts = True
+        self.full: set[str] = set()
         self.healthy = True
 
     def now(self):
@@ -88,6 +89,9 @@ class FakeDeployer(auto_deploy.Deployer):
 
     def heal_services(self):
         self.calls.append("heal")
+
+    def full_tier(self, sha):
+        return sha in self.full
 
     def ci_conclusions(self):
         return {sha: True for sha in self.green}
@@ -322,7 +326,7 @@ def test_ci_runs_are_etag_cached(host, monkeypatch):
     assert deployer.ci_conclusions() == {"a": True, "b": False}
     assert deployer.ci_conclusions() == {"a": True, "b": False}
     assert sent[1]["If-None-Match"] == '"v1"' and sent[1]["Authorization"] == "Bearer secret"
-    assert "secret" not in (host["tmp"] / "state/ci-runs.json").read_text()
+    assert "secret" not in (host["tmp"] / "state/ci-runs-v2.json").read_text()
     with pytest.raises(auto_deploy.Stop, match="skipped:ci-unavailable"):
         deployer.ci_conclusions()
 
@@ -625,3 +629,35 @@ def test_check_venv_is_built_once_per_lock(host, monkeypatch):
     (worktree / "uv.lock").write_text("lock-2\n")
     deployer.check_venv(worktree)
     assert len(calls) == 2 and calls[0] == (["sync", "--frozen"], str(venv))
+
+
+def test_a_full_tier_run_covers_code_pushed_with_it(host):
+    code = _commit(host["seed"], "code", {"engine/x.py": "x = 1\n"})
+    head = _commit(host["seed"], "plan", {"docs/plan.md": "status\n"})
+    _git(host["seed"], "push", "-q", "origin", "main")  # one push: only the head has a run
+    deployer = _deployer(host, green={head})
+    with pytest.raises(auto_deploy.Stop, match="skipped:no-green-ci"):
+        deployer.decide(execute=False)  # a reduced-tier run proves nothing about the code
+    deployer = _deployer(host, green={head})
+    deployer.full = {head}
+    decision = deployer.decide(execute=False)
+    assert decision.outcome == "would-deploy" and decision.detail["target"] == head
+    assert code
+
+
+def test_full_tier_reads_the_runs_test_shards(host, monkeypatch):
+    deployer = auto_deploy.Deployer(engine_root=host["live"], state_dir=host["tmp"] / "state",
+                                    logs_dir=host["tmp"] / "logs")
+    deployer.run_ids = {"a" * 40: 7}
+    monkeypatch.setattr(auto_deploy, "github_token", lambda: None)
+    answers = {
+        "full": {"jobs": [{"name": "test (UTC, 0)", "conclusion": "success"},
+                          {"name": "selected", "conclusion": "skipped"}]},
+        "reduced": {"jobs": [{"name": "test (UTC, 0)", "conclusion": "skipped"},
+                             {"name": "selected", "conclusion": "success"}]},
+    }
+    for label, expected in (("full", True), ("reduced", False)):
+        deployer.http_get = lambda url, headers, label=label: (
+            200, {}, json.dumps(answers[label]).encode())
+        assert deployer.full_tier("a" * 40) is expected
+    assert deployer.full_tier("b" * 40) is False

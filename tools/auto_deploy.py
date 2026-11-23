@@ -430,7 +430,7 @@ class Deployer:
 
         The run's conclusion is success only when every job did, so the ``checks`` job
         (ruff, audits) and the verdict job count as much as the test shards."""
-        cache_path = self.state_dir / "ci-runs.json"
+        cache_path = self.state_dir / "ci-runs-v2.json"  # v2 records run ids
         try:
             cache = json.loads(cache_path.read_text())
         except (OSError, ValueError):
@@ -453,7 +453,8 @@ class Deployer:
                 runs = json.loads(body)["workflow_runs"]
             except (ValueError, KeyError, TypeError) as exc:
                 raise Stop("skipped", "ci-unavailable", error="malformed runs") from exc
-            runs = [{"head_sha": run.get("head_sha"), "conclusion": run.get("conclusion")}
+            runs = [{"head_sha": run.get("head_sha"), "conclusion": run.get("conclusion"),
+                     "id": run.get("id")}
                     for run in runs if run.get("name") == WORKFLOW
                     and run.get("event") == "push" and run.get("head_branch") == "main"]
             etag = {key.lower(): value for key, value in response_headers.items()}.get("etag")
@@ -461,10 +462,33 @@ class Deployer:
         else:  # a rate limit (403/429) or any other answer: no verdict this run
             raise Stop("skipped", "ci-unavailable", http_status=status)
         green: dict[str, bool] = {}
+        self.run_ids: dict[str, int] = {}
         for run in runs:
             sha = run["head_sha"]
             green[sha] = green.get(sha, False) or run["conclusion"] == "success"
+            if run["conclusion"] == "success" and run.get("id"):
+                self.run_ids[sha] = run["id"]
         return green
+
+    def full_tier(self, sha: str) -> bool:
+        """Whether ``sha``'s green run executed the test shards (CI runs the full tier when its
+        push range touches code, so it covers code commits pushed with it that had no run)."""
+        run_id = getattr(self, "run_ids", {}).get(sha)
+        if not run_id:
+            return False
+        headers = {"Accept": "application/vnd.github+json",
+                   "User-Agent": "trading-engine-auto-deploy"}
+        token = github_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        url = self.runs_url.split("/runs?", 1)[0] + f"/runs/{run_id}/jobs?per_page=100"
+        try:
+            status, _headers, body = self.http_get(url, headers)
+            jobs = json.loads(body)["jobs"] if status == 200 else []
+        except (OSError, urllib.error.URLError, ValueError, KeyError, TypeError):
+            return False
+        shards = [job for job in jobs if str(job.get("name", "")).startswith("test (")]
+        return bool(shards) and all(job.get("conclusion") == "success" for job in shards)
 
     def touches_code(self, commit: str) -> bool:
         parents = self.git(self.mirror, "rev-list", "--parents", "-n", "1", commit).split()[1:2]
@@ -483,7 +507,7 @@ class Deployer:
             if not green.get(commit):
                 continue
             newest_code = next((c for c in candidates[index:] if code[c]), None)
-            if newest_code is None or green.get(newest_code):
+            if newest_code is None or green.get(newest_code) or self.full_tier(commit):
                 return commit
         raise Stop("skipped", "no-green-ci", newest=origin)
 
