@@ -73,6 +73,8 @@ class FakeDeployer(auto_deploy.Deployer):
     def gate(self, worktree, deployed):
         self.calls.append(f"gate:{deployed[:7]}")
         assert (worktree / "README.md").exists()
+        assert (worktree / ".venv").resolve() == (self.root / ".venv").resolve()
+        assert _git(worktree, "status", "--porcelain", "--untracked-files=normal") == ""
         return {"gate": "PASS"}
 
     def automation(self, mode):
@@ -106,6 +108,9 @@ def host(tmp_path: Path, monkeypatch):
     _git(seed, "push", "-q", "origin", "main")
     live = tmp_path / "live"
     _git(tmp_path, "clone", "-q", str(origin), str(live))
+    (tmp_path / "venv/bin").mkdir(parents=True)
+    (live / ".venv").symlink_to(tmp_path / "venv")
+    (live / ".git/info/exclude").write_text("/.venv\n")
     return {"origin": origin, "seed": seed, "live": live, "tmp": tmp_path}
 
 

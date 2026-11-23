@@ -315,6 +315,17 @@ class Deployer:
             shutil.rmtree(self.worktree, ignore_errors=True)
         self.git(self.mirror, "worktree", "prune")
         self.git(self.mirror, "worktree", "add", "-q", "--detach", str(self.worktree), target)
+        # The gate's environment check needs the checkout's interpreter. Dependency changes are
+        # refused before this point, so the live environment is the target's environment.
+        venv = self.root / ".venv"
+        if venv.exists():
+            exclude = Path(self.git(self.mirror, "rev-parse", "--git-common-dir"))
+            exclude = (exclude if exclude.is_absolute() else self.mirror / exclude) / "info/exclude"
+            exclude.parent.mkdir(parents=True, exist_ok=True)
+            if "/.venv\n" not in (exclude.read_text() if exclude.exists() else ""):
+                with exclude.open("a") as handle:
+                    handle.write("/.venv\n")
+            (self.worktree / ".venv").symlink_to(venv.resolve())
         return self.worktree
 
     def gate(self, worktree: Path, deployed: str) -> dict:
