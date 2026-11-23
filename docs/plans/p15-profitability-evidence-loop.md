@@ -3,7 +3,7 @@ plan: P15 # Profitability evidence loop
 title: Profitability evidence loop
 status: active
 opened: 2026-09-25
-owner_decision: approved 2026-09-25 (feedback.md); open inputs listed under "Owner inputs"
+owner_decision: approved 2026-09-25 (docs/history/feedback.md); open inputs listed under "Owner inputs"
 ---
 
 # Profitability evidence loop (P15)
@@ -70,7 +70,7 @@ laptop clone), do W1–W7 against fixtures and dry-runs, then stop before W8 act
 
 ## Owner inputs
 
-Defaults apply until the owner decides (see [`../product.md`](../product.md#open-owner-only)):
+Defaults apply until the owner decides (see [`../product.md`](../product.md#open-product-decisions)):
 
 - `TRADING_ENGINE_SEC_USER_AGENT` unset → the 8-K trigger source reports `unconfigured`; the
   other sources run.
@@ -122,7 +122,7 @@ registration and the BUILDLOG.
 - **Model identity:** the existing bound model identity. Drift fails closed.
 
 **Prompt requirements for `p15-scoring-v1`.** Added 2026-09-26, before W2, from the prompt review
-in [`../design/prompt-review.md`](../design/prompt-review.md). Every live prompt's problems are
+in [`../design/prompt-review.md`](../architecture/design/prompt-review.md). Every live prompt's problems are
 recorded there. The scoring prompt must:
 - **State the objective truthfully.** Say what happens to the scores: they rank a simulator book
   judged against SPY and against a rule-ranked control. Do not describe the model as having "no
@@ -334,7 +334,7 @@ new variant versions and a new cohort; v1–v4 evidence is never rewritten.
 **W7: Cleanup and docs (before activation, so registered code identities don't move after it).**
 - Delete code, tests, and docs that P15 made dead.
 - Leave no reference to removed lanes or stale versions outside `docs/history/`.
-- Update `docs/how-it-works.md` (timers, runbook, and the P15 flow), `docs/scope.md` (including
+- Update `docs/operate/how-it-works.md` (timers, runbook, and the P15 flow), `docs/scope.md` (including
   the active book count), `README.md`, and the metrics doc.
 
 **W8: Activation.** **On hold (owner, 2026-09-26).** Do not activate. The 2026-09-26 reviews

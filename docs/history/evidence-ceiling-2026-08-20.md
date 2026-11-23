@@ -2,7 +2,7 @@
 
 > **Historical snapshot.** This captures the 2026-08-20 evidence assessment. The current
 > registered protocol uses 10 folds; see
-> [`architecture-reference.md`](../architecture-reference.md).
+> [`architecture-reference.md`](../architecture/architecture-reference.md).
 
 _Main-loop analysis, 2026-08-20. Every number below was measured against the live store
 read-only, except the market-wide listing counts, which are World Bank WDI

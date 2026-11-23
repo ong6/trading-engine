@@ -180,29 +180,43 @@ def test_local_markdown_links_and_fragments_resolve():
     assert not missing, "missing local Markdown targets:\n" + "\n".join(missing)
 
 
-def test_documentation_index_links_every_owned_document():
-    root = REPO_ROOT / "docs"
-    index_path = root / "README.md"
-    index = index_path.read_text()
-    expected = {
-        path.relative_to(root).as_posix() for path in root.rglob("*.md") if path != index_path
-    }
-    linked: set[str] = set()
-    for raw_target in MARKDOWN_LINK.findall(index):
-        target = unquote(raw_target.strip().strip("<>").split("#", 1)[0])
-        if not target:
+def _reachable_documents(root: Path, index_path: Path) -> set[Path]:
+    """Markdown files under ``root`` reachable from ``index_path`` by local links."""
+    root = root.resolve()
+    seen: set[Path] = set()
+    pending = [index_path.resolve()]
+    while pending:
+        source = pending.pop()
+        if source in seen:
             continue
-        resolved = (root / target).resolve()
-        if resolved.is_relative_to(root.resolve()) and resolved.suffix == ".md":
-            linked.add(resolved.relative_to(root.resolve()).as_posix())
-    assert not sorted(expected - linked), f"documents missing from docs/README.md: {sorted(expected - linked)}"
+        seen.add(source)
+        text = _without_fenced_code(source.read_text(errors="replace"))
+        for raw_target in MARKDOWN_LINK.findall(text):
+            target = unquote(raw_target.strip().strip("<>").split("#", 1)[0])
+            if not target or URI_SCHEME.match(target):
+                continue
+            resolved = (source.parent / target).resolve()
+            if resolved.is_dir():
+                resolved = resolved / "README.md"
+            if resolved.is_relative_to(root) and resolved.suffix == ".md" and resolved.is_file():
+                pending.append(resolved)
+    return seen
+
+
+def test_documentation_index_reaches_every_owned_document():
+    """Every document under docs/ is reachable from docs/README.md through sub-indexes."""
+    root = REPO_ROOT / "docs"
+    reachable = _reachable_documents(root, root / "README.md")
+    expected = {path.resolve() for path in root.rglob("*.md")}
+    missing = sorted(path.relative_to(root.resolve()).as_posix() for path in expected - reachable)
+    assert not missing, f"documents not reachable from docs/README.md: {missing}"
 
 
 def test_operations_guide_matches_runtime_constants():
-    operations = (REPO_ROOT / "docs" / "how-it-works.md").read_text()
-    architecture = (REPO_ROOT / "docs" / "architecture-reference.md").read_text()
-    execution = (REPO_ROOT / "docs" / "design" / "trading-execution-design.md").read_text()
-    engine_design = (REPO_ROOT / "docs" / "design" / "trading-engine-design.md").read_text()
+    operations = (REPO_ROOT / "docs" / "operate" / "how-it-works.md").read_text()
+    architecture = (REPO_ROOT / "docs" / "architecture" / "architecture-reference.md").read_text()
+    execution = (REPO_ROOT / "docs" / "architecture" / "design" / "trading-execution-design.md").read_text()
+    engine_design = (REPO_ROOT / "docs" / "architecture" / "design" / "trading-engine-design.md").read_text()
 
     for control in RISK_CONTROL_NAMES:
         assert f"`{control}`" in operations

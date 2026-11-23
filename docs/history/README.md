@@ -1,16 +1,19 @@
-# History
+# History (archive)
 
-Dated snapshots kept for provenance. Each one records what was known on its date; its counts,
-process state, and recommendations are **not** current. Current truth lives in
-[`../scope.md`](../scope.md), [`../plans/README.md`](../plans/README.md), `GET /meta`, and the
-generated reports under [`../../data/reports/`](../../data/reports/README.md).
+This folder is an archive, not part of the read path. Each file records what was known on its
+date; its counts, process state, rules and recommendations are **not** current, and nothing here
+admits work. Current docs link here only as background. Current truth lives in
+[`../README.md`](../README.md) (the documentation index), [`../product.md`](../product.md),
+`GET /meta` and the generated reports under [`../../data/reports/`](../../data/reports/README.md).
+Git history and `BUILDLOG.md` are the decision record. Finished plans are in
+[`plans/`](plans/README.md).
 
 | Date | Document | What it is | Why it is kept |
 |---|---|---|---|
 | 2026-07-15 → 09-17 | [`buildlog-2026-07-15-to-2026-09-17.md`](buildlog-2026-07-15-to-2026-09-17.md) | Legacy BUILDLOG (pre-v2 format), verbatim | Decisions, incidents and proofs behind every early design choice |
 | 2026-08-20 | [`data-sources-audit-2026-08-20.md`](data-sources-audit-2026-08-20.md) | Robustness audit of every market-data source | Why the verifier and fallbacks look the way they do |
 | 2026-08-20 | [`evidence-ceiling-2026-08-20.md`](evidence-ceiling-2026-08-20.md) | Why the walk-forward fold count cannot be increased | Why more history cannot manufacture more independent evidence |
-| 2026-08-20 | [`fill-model-audit-2026-08-20.md`](fill-model-audit-2026-08-20.md) | Read-only fill-model diagnosis (repro: `docs/repro_fill_integer_clamp.py`) | Diagnosis behind the later fill-model fixes |
+| 2026-08-20 | [`fill-model-audit-2026-08-20.md`](fill-model-audit-2026-08-20.md) | Read-only fill-model diagnosis (repro: `docs/history/repro_fill_integer_clamp.py`) | Diagnosis behind the later fill-model fixes |
 | 2026-08-20 | [`leveraged-etf-audit-2026-08-20.md`](leveraged-etf-audit-2026-08-20.md) | Leveraged/inverse ETFs in the universe: classifier and off-by-default exclusion flag | Measurements behind leaving the flag off |
 | 2026-08-20 | [`synthesis-price-adjustment-and-fills-2026-08-20.md`](synthesis-price-adjustment-and-fills-2026-08-20.md) | Reverse splits, stranded cash, fill-model synthesis | Explains the fill-model fix over a universe change |
 | 2026-09-02 | [`architecture-review-2026-09-02.md`](architecture-review-2026-09-02.md) | Architecture and open-source readiness review, with 2026-09-11 addendum | Source of the package layout and centralized DB opens |
@@ -26,9 +29,21 @@ generated reports under [`../../data/reports/`](../../data/reports/README.md).
 | 2026-09-22 | [`agent-trading-review-2026-09-22.md`](agent-trading-review-2026-09-22.md) | Agent, cadence, simulator-tool and 2022 replay assessment | Rationale for the daily opportunity agent (P8), multi-cadence tools (P9), and 2022 replay (P10) |
 | 2026-09-23 | [`agent-backtesting-roadmap-2026-09-23.md`](agent-backtesting-roadmap-2026-09-23.md) | Point-in-time data, execution and LLM-contamination roadmap | Research behind forward agent evaluation (P11) and the agent research product (P12) |
 | 2026-09-23 | [`agent-research-product-completion-audit-2026-09-23.md`](agent-research-product-completion-audit-2026-09-23.md) | Requirement-to-artifact audit for P12 | Proof of P12 completion and its external gates |
+| 2026-10-01 | [`pit-free-audit-2026-10-01.md`](pit-free-audit-2026-10-01.md) | P3 Phase 0 audit of the free Tiingo security master | Survivor gaps and free-source limits behind P3 |
+| 2026-10-01 | [`sec-free-audit-2026-10-01.md`](sec-free-audit-2026-10-01.md) | P3 Phase 0 Form 25 and insider coverage audit | Filing-date availability and symbol-quality limits |
+| 2026-10-02 | [`frozen-archive-census-2026-10-02.md`](frozen-archive-census-2026-10-02.md) | Census of the 2017 frozen Kaggle archive | Why no archive price rows were ingested (delisted-name gate failed) |
+| 2026-10-02 | [`sec-bulk-audit-2026-10-02.md`](sec-bulk-audit-2026-10-02.md) | SEC Companyfacts and Submissions coverage audit | Tag fallbacks, ticker matching and earnings-date overlap |
 | 2026-10-05 | [`p21-source-amendments-2026-10-05.md`](p21-source-amendments-2026-10-05.md) | P21 registered source amendments | Shows which operational corrections changed registered sources and which evidence and activation boundaries stayed fixed |
 | 2026-10-08 | [`p22-round4-rehearsals.md`](p22-round4-rehearsals.md) | P22 round-4 disposable-store rehearsal transcripts | Legacy-D0 processing and revision-13 rollback proof behind the engine v2 deployment |
 | 2026-10-10 | [`p22-lifecycle-brief-2026-10-10.md`](p22-lifecycle-brief-2026-10-10.md) | The P22 lifecycle writer brief (round-6 rulings), formerly `P22-BRIEF.md` at the root | Superseded by `feedback.md` and the P22 plan; kept so older links resolve |
 | 2026-10-18 | [`retired-pit-restore-2026-10-18.md`](retired-pit-restore-2026-10-18.md) | Portable identity and restore procedure for retired PIT inputs | Prevents absent retired databases from being silently recreated empty |
 | 2026-10-20 | `commit-map-2026-10-20.txt` (kept privately, not in this tree) | Old-to-new commit IDs from the 2026-10-20 history rewrite | Resolves commit IDs cited in registrations, reports and docs written before the rewrite |
 | 2026-10-30 | [league-thin-2026-10-30.md](league-thin-2026-10-30.md) | Exact gated-twin comparisons and league power estimates | Evidence for the two proposed duplicate-book retirements |
+| 2026-11 | [`revision-21-storage-deploy-checklist.md`](revision-21-storage-deploy-checklist.md) | Storage revision 21 deploy and rollback checklist | Pre-flight and rehearsal record of the storage revision |
+| 2026-11 | [`revision-22-basis-recovery.md`](revision-22-basis-recovery.md) | Revision 22 release notes (basis recovery, XS migration) | Release record of revision 22 |
+| 2026-08-20 | [`repro_fill_integer_clamp.py`](repro_fill_integer_clamp.py) | Reproduction script for the fill integer-clamp defect | Cited by the fill-model audit |
+| 2026-09-18 → 11-19 | [`feedback.md`](feedback.md) | The owner verdict ledger, retired; its valid rules now live in the docs they govern | Reasons behind current rules |
+| 2026-11-23 | [`scope-retired-2026-11-23.md`](scope-retired-2026-11-23.md) | Resolved and superseded scope-ledger lines | Record of what the parking list held before the cleanup |
+| 2026-09 → 10 | [`settlement-runbook-records-2026-09-to-10.md`](settlement-runbook-records-2026-09-to-10.md) | Settlement incident tables and the P22 revision-14/15 deploy, rollback and rehearsal procedures | Exact commands used for the engine v2 deployment |
+| 2026-09-12 → 13 | [`strategy-backlog-checkpoints-2026-09.md`](strategy-backlog-checkpoints-2026-09.md) | Dated decision checkpoints from the strategy backlog | Counts and migrations behind the forward records at that time |
+| 2026-09-18 → 10-31 | [`buildlog-archive.md`](buildlog-archive.md) | Format-v2 BUILDLOG entries before 2026-11-01, verbatim | Decisions and evidence behind the engine v2, P15–P24 work |

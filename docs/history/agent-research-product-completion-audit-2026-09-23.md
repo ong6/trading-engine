@@ -20,7 +20,7 @@ does not. No external gate is presented as an achieved data acquisition or perfo
 
 | Requirement | State | Concrete artifact and verification |
 |---|---|---|
-| Canonical product document | implemented | `docs/product-agent-research-platform.md`; documentation/operating-contract tests |
+| Canonical product document | implemented | `docs/architecture/product-agent-research-platform.md`; documentation/operating-contract tests |
 | Reviewed model identity | implemented | `server/agent_model_client.py`; live `/agent/model/status` reports `GPT-5.6-Sol:max`, proxy/runtime/catalog hashes, no proposal tools |
 | Hourly, four-hour, nightly policies | implemented | `server/agent-cadence-registration.json`; three enabled/active systemd timers; service source matches installation |
 | News and standout-stock discovery | implemented | `engine/daily_opportunities.py`, `server/daily_opportunity_news.py`; latest run completed six assessments with retained news receipts |

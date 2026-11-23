@@ -35,7 +35,7 @@ one exact response per date, resumes from those responses, pauses in the registe
 and loads `free_daily_bars`. Both sources default to
 `store/pit/free-sources.duckdb` and
 `store/pit/free-sources/`, with explicit path overrides. Audit the master against a consistent
-copy of the operational store and publish `docs/pit-free-audit-2026-10-01.md`. The free SEC history
+copy of the operational store and publish `docs/history/pit-free-audit-2026-10-01.md`. The free SEC history
 follow-up below is also complete.
 
 **Not in scope.** No purchase, paid-vendor ingestion, readiness endpoint, strategy or replay work,
@@ -63,7 +63,7 @@ tickers ended more than 30 sessions before the 2017-11-10 archive boundary, whil
 on that boundary. The archive is a current-at-cutoff survivor snapshot, not a useful delisted-name
 backfill. It is also split/dividend-adjusted current-vintage data without an action ledger.
 
-**Outcome.** [`../frozen-archive-census-2026-10-02.md`](../frozen-archive-census-2026-10-02.md)
+**Outcome.** [`../history/frozen-archive-census-2026-10-02.md`](../history/frozen-archive-census-2026-10-02.md)
 records `skip`; the conditional interval-keyed loader did not activate, zero rows were loaded, and
 `frozen-archive.duckdb` was not created. The raw ZIP and full per-ticker census remain host-only.
 
@@ -96,7 +96,7 @@ by year, ticker match rates, and the share of SEC earnings events within one cal
 existing engine earnings date. Raw archives and the database remain host-only.
 
 **Claimed files.** Only `engine/free_sec_bulk.py`, `tools/free_sec_bulk.py`,
-`tests/test_free_sec_bulk.py`, `docs/sec-bulk-audit-2026-10-02.md`, and this phase's P3, product,
+`tests/test_free_sec_bulk.py`, `docs/history/sec-bulk-audit-2026-10-02.md`, and this phase's P3, product,
 feedback, budget and BUILDLOG entries. No P15-registered file or XS forward-contract file changes.
 
 **Done when.** Recorded ZIP fixtures prove parsing, acceptance-time as-of behavior, retained
@@ -123,7 +123,7 @@ facts across 17,096 companies and 421,723 exact item 2.02 events from 2004 onwar
 event ticker matching is 93.8%. Of 3,649 distinct engine ticker/dates inside the mapped SEC capture
 window, 62.6% have a same-ticker item 2.02 event within ±1 day and 64.8% within ±3 days. The original
 0.5% event-first overlap is retained only as a full-history source diagnostic.
-[`../sec-bulk-audit-2026-10-02.md`](../sec-bulk-audit-2026-10-02.md) records the annual counts,
+[`../history/sec-bulk-audit-2026-10-02.md`](../history/sec-bulk-audit-2026-10-02.md) records the annual counts,
 ordered tag fallbacks, denominators and 30-miss sample. No operational or execution table changed.
 
 **Acceptance-clock amendment (P24, 2026-10-21).** The submissions `acceptanceDateTime` label's `Z`
@@ -221,7 +221,7 @@ requests carry the private contact at runtime, request gzip, run at no more than
 obey the registered UTC and New York no-call windows, and resume from verified cache entries.
 Insider availability is the EDGAR acceptance time when the quarterly dataset supplies one;
 otherwise it is filing-date-granular and must not be used before the next session. Transaction
-date is never availability. Publish `docs/sec-free-audit-2026-10-01.md` from the isolated database
+date is never availability. Publish `docs/history/sec-free-audit-2026-10-01.md` from the isolated database
 and a temporary `tools.backup_database create` copy of the operational store.
 
 **Not in scope.** No operational `prices` or universe mutation, live service or timer, strategy,
@@ -311,7 +311,7 @@ changes that date. Buying data does.
 
 Three agent sessions plus the owner's purchase. Under 800 lines of new code across loader,
 readiness family, and tests. Raises the `engine` ceiling in `../scope-budget.json` by 800;
-record the raise in `../feedback.md` when approving this plan.
+record the raise in `../history/feedback.md` when approving this plan.
 
 ## Risks
 
@@ -320,4 +320,4 @@ Vendor coverage may start later than 1996, which shrinks the usable folds; the a
 so and the plan still completes. The temptation to "just try one strategy" on the new data
 in the same session is the main risk; the admission test forbids it.
 
-<!-- sources: BUILDLOG.md, docs/pit-free-audit-2026-10-01.md, engine/free_sources.py, tests/test_free_sources.py, tools/free_sources.py -->
+<!-- sources: BUILDLOG.md, docs/history/pit-free-audit-2026-10-01.md, engine/free_sources.py, tests/test_free_sources.py, tools/free_sources.py -->

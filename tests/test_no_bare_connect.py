@@ -8,7 +8,7 @@ in one place. This test greps the packages and fails on any stray call.
 Deliberately outside the scan:
   tests/    in-memory fixtures (`duckdb.connect()`) and tmp_path stores
   scratch/  gitignored throwaway scripts
-  docs/     docs/repro_fill_integer_clamp.py opens ":memory:" — no store path
+  docs/     docs/history/repro_fill_integer_clamp.py opens ":memory:" — no store path
   ui/, .venv/  not Python of ours
 """
 from __future__ import annotations

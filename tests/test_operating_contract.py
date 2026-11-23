@@ -24,7 +24,7 @@ def test_contract_files_exist_and_point_at_each_other():
     agents = (REPO_ROOT / "AGENTS.md").read_text()
     claude = (REPO_ROOT / "CLAUDE.md").read_text()
     assert "AGENTS.md" in claude
-    for required in ("docs/feedback.md", "docs/scope.md", "data/reports/metrics/README.md",
+    for required in ("docs/scope.md", "data/reports/metrics/README.md",
                      "next-admissible-actions", "docs/scope-budget.json"):
         assert required in agents, f"AGENTS.md must reference {required}"
 

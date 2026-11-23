@@ -31,7 +31,7 @@ personal hardware, after policy evidence, owner decisions and a separate executi
 ## Scope
 
 Execute only after owner approval and a Stage 1 prospective pass, with one writer per store.
-Read `docs/design/stage2-broker-paper.md`.
+Read `docs/architecture/design/stage2-broker-paper.md`.
 
 1. **Admission and frozen registration.** Record the Stage 1 evidence, chosen account/instruments,
    personal host, account type, commission plan, budget ceilings and risk/mandate/model decisions in

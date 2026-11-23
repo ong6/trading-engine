@@ -5,7 +5,7 @@
 > for current execution assumptions.
 
 Diagnosis only. Nothing in `sim/` was changed; no job was enqueued or killed; every DB access
-was `duckdb.connect(..., read_only=True)`. Repro script: `docs/repro_fill_integer_clamp.py`
+was `duckdb.connect(..., read_only=True)`. Repro script: `docs/history/repro_fill_integer_clamp.py`
 (in-memory DuckDB, never opens the store).
 
 Throughout: **[M]** = measured by a query/parse I ran. **[D]** = derived from those measurements
@@ -138,7 +138,7 @@ gap is a genuine shortfall from slippage + the overnight gap on a book sized to 
 The residual on an ordinary name is rounding: excluding the leveraged/inverse ETF cluster, the
 mean `insufficient_cash` reject strands **$42** — 11 bp of a $39,000 book  [M].
 
-*Bug:* `math.floor`. Two failure modes, both reproduced in `docs/repro_fill_integer_clamp.py`:
+*Bug:* `math.floor`. Two failure modes, both reproduced in `docs/history/repro_fill_integer_clamp.py`:
 
 1. **Rounding down the affordable quantity.** `ew_benchmark ZG buy 17.4366 → 11 @ $45.4430
    (cash $530.36)`. The book could afford 11.6709 shares; it bought 11 and left $30.49 idle.

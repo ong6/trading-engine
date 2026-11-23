@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Storage revision 21 deploy (docs/revision-21-storage-deploy-checklist.md). Run from a fresh
+# Storage revision 21 deploy (docs/history/revision-21-storage-deploy-checklist.md). Run from a fresh
 # shell, never sourced, after the approved branch is merged into origin/main:
 #
 #   P21_ROOT=<live checkout> P21_STATE=<new private directory> \

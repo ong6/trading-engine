@@ -1,157 +1,80 @@
 # Operating contract for agents
 
-- **What we are building:** a public, paper-only trading engine that collects market data, tests strategies and runs paper books, plus a separate private research programme that looks for strategies worth running on it, with AI deciding inside deterministic controls.
-- **End goal:** the [north star](https://github.com/ong6/trading-engine/blob/main/docs/product.md#north-star), "An engine that runs on its own and makes money, with AI in the decision loop" (owner, 2026-09-24).
-- **Live now (2026-10-22):** engine v2 runs 17 paper books, three frozen forward records and the AI profitability evidence loop, on paper only (no broker, no real capital); no strategy, public or private, has a proven edge yet.
-- **Working on now:** P24, the senior-quant review (pipeline fixes, speed, new pre-registered studies), then moving the private research onto its own engine paper account.
+This repo is the **public, paper-only trading engine**: data collection, a point-in-time store, a
+next-open fill simulator, paper books and accounts, evaluation statistics and the AI evidence loop,
+with AI deciding inside deterministic controls. Strategies, prompts, parameters, registrations,
+trial counts, findings and results go to the owner's **private alpha repo** (if unsure, treat a
+change as alpha). Goal: [north star](docs/product.md#north-star). Live state: `GET /meta`,
+`data/reports/`. Precedence: `docs/product.md` > this file > `docs/scope.md`. Each code folder's
+`AGENTS.md` holds its entry points and local rules.
 
-This file governs any LLM session in this repository (Claude Code, Codex, or another agent).
-Read it in full before doing anything. It is short on purpose.
+## Absolute rules
 
-**Precedence:** newest `docs/feedback.md` entry > `docs/product.md` (goals, decisions, order) >
-this file (how sessions work) > `docs/scope.md` (what is admitted) > everything else. Other
-documents link here instead of restating the order.
+- Public repo: no employer, host or internal-tool names, absolute home paths or credentials in
+  files or commit messages ("the host", `$HOME/…`). Commit dates are never rewritten.
+- Never fabricate a price or bar. Point-in-time tables are append-only.
+- Orders fill next-open, never same-bar. One DuckDB writer at a time; heavy work uses the queue.
+- Every strategy and experiment is pre-registered with a kill criterion before evidence accrues.
+- No broker code, broker credentials or real money on this host.
+- Never weaken a gate to manufacture completion; never tune a frozen rule, registered value or
+  threshold after seeing its outcome; never disturb producers or the E1, sector and XS records.
+  Prove by running, not by reading.
 
-## Mode: build toward a verdict
+## Admission test
 
-The goal is the north star in `docs/product.md` (the end goal in the block above). Work inside
-an approved or active plan is BUILD work and runs until that plan's "Done when" holds. Outside
-a plan, a session verifies, fixes a reproduced defect, reports, and stops. The running producers
-and the calendar-bound deterministic records (E1, sector, XS) are never disturbed by either kind
-of session. Model credit cost is not a reason to stop or to cut
-corners (owner, 2026-09-25).
+A change other than a doc fix must match one of: a plan in `docs/plans/` with `status: approved`
+or `active`, inside its scope; a reproduced defect (a failing test or command with wrong output,
+recorded in the BUILDLOG entry; lint or a gap noticed while reading is not a defect); or a row of
+the next-admissible-actions table in `docs/strategy-research-backlog.md` whose trigger fired.
+Otherwise add one line under "Proposed, not approved" in `docs/scope.md` and stop; no side work.
 
-## Decisions: technical vs product
+## Decisions
 
-When the owner runs this repo through an orchestrating agent (Claude directing Codex or
-other sessions), **the orchestrator owns technical decisions**: design, placement, registered
-values, statistical tests, acceptance, and process fixes. It records them in the plan, in
-`docs/feedback.md`, or in an `ORCHESTRATOR-*.md` input. A session blocked on a technical question
-writes `blocked` with the question for the orchestrator and does not wait for the owner. The
-owner decides product questions: what to build, spending and data purchases, broker accounts,
-real capital and loss limits, and public presentation.
+The orchestrator owns technical decisions (design, placement, registered values, statistics,
+acceptance, process); a worker blocked on one writes `blocked` with the question. The owner decides
+product only: what to build, money and data purchases, broker accounts and capital, loss limits,
+public presentation; ask in plain text. Apply owner corrections to the doc they govern, in present
+tense. Workers stay within the orchestrator's daily budget, at most three concurrent writers.
 
-## Read order
+## Session
 
-1. `AGENTS.md` (this file).
-2. The newest entries of `docs/feedback.md`, the owner's verdict ledger.
-3. `docs/product.md`: north star, every owner decision, and the focus order.
-4. `docs/system-blueprint.md`: what is being built and why. Read it before drafting or building
-   a plan.
-5. `docs/scope.md`: what is admitted now and what is frozen.
-6. The active plan you are working on, or `data/reports/metrics/README.md` for a verify-only
-   session.
+1. `git pull --rebase origin main`; read your plan and the file the map names; check `GET /meta`.
+2. Fast tier while working: `.venv/bin/python -m tools.affected_tests --run`; full suite once at
+   the end: `.venv/bin/python -m pytest -q -W error -n 8`.
+3. `python -m tools.metrics_snapshot --check-budget`, a BUILDLOG entry, commit; leave nothing
+   uncommitted. Land with `python -m tools.land BRANCH --reason-file F --push` (or via the
+   orchestrator). Merged to `main` with green CI is deployed by the deployer.
 
-**Where truth lives.** What is live, in flight and decided: `docs/product.md` ("Where it stands",
-"Focus now", the decision tables). Plan status: `docs/plans/README.md` (each plan's YAML `status`
-matches its row). What happened and why: `BUILDLOG.md`, newest entries just above its tail marker.
-Runtime state (producers, freshness, forward records, invariants, source control): `GET /meta` and
-the generated reports under `data/reports/`; these beat any prose. The documentation map is
-`docs/README.md`; dated snapshots in `docs/history/` are never current.
+## Commits and BUILDLOG
 
-`docs/strategy-research-backlog.md` is the queue for *deterministic* strategy research only; AI
-policy work is ordered by `product.md` ("Focus now").
-
-Open `docs/how-it-works.md` only for the ops runbook when a scheduled run misbehaved. Do not
-read `docs/history/live-readiness-goal.md` as a work queue; it is reference, and its workstreams C, D
-and E are frozen (see `docs/scope.md`).
-
-## Admission test for any change
-
-Before editing anything other than a doc typo, the change must match exactly one of:
-
-- **A row in the next-admissible-actions table** whose trigger has actually fired.
-- **A plan in `docs/plans/` with `status: approved` or `active`**, and the change is inside
-  that plan's stated scope.
-- **A demonstrated defect**: a failing test or a reproduction command whose output is wrong,
-  written into the BUILDLOG entry before the fix. A defect is wrong behaviour or output of a
-  producer, the evidence, or the simulator. Lint and complexity findings are not defects, and a
-  lint cleanup never becomes a series of commits.
-
-If none matches: do not build it. Write one line under "Proposed, not approved" in
-`docs/scope.md` with the reason and stop. "Hardening", "provenance", "fail-closed",
-"bounded", "identity", "consistency", and "operability" are not defects. A gap you noticed
-while reading code is not a defect until it has a reproduction.
-
-## Hygiene budgets (enforced by `tests/test_operating_contract.py`)
-
-- **No per-layer size ceilings** (owner, 2026-09-27). Code size per layer is reported in the
-  metrics snapshot for visibility only. Keep the code lean: delete what a change makes dead in
-  the same change. `docs/scope-budget.json` holds the remaining hygiene budgets.
-- **One commit per logical step, under 1,500 inserted lines** outside `data/`. Larger work
-  needs an approved plan and lands as a sequence of small commits.
-- **BUILDLOG entries are at most 25 lines and carry at most one SHA-256.** Identities live in
-  `tools.release_manifest` output and the metrics snapshot, not in prose.
-- **No new documentation-pinning tests.** Tests that assert on doc prose are frozen at their
-  current count; fix a stale doc by editing the doc, not by adding a test.
-- **No new endpoints, dashboards, migrations, ledgers, or operator CLIs** without a plan.
-
-## Session shape
-
-1. `git pull --rebase origin main`, then read the files in the read order. Run `python -m tools.metrics_snapshot --dry-run` and compare with the
-   last snapshot. Query `GET /meta` if the API is up.
-2. If a scheduled producer failed, fix that (it is a demonstrated defect). Otherwise apply the
-   admission test to whatever you intended to do.
-3. Do the one admitted thing. While working, run the fast tier,
-   `.venv/bin/python -m tools.affected_tests --run` (ruff, compileall and the tests your changes
-   can affect, contract tests included; `--explain` says why). Then run the full suite once, in
-   parallel: `.venv/bin/python -m pytest -q -W error -n 8` (about 6,100 tests in roughly 150
-   seconds; `-n 0` to debug serially). Do not rerun the full suite per commit or per timezone
-   locally: CI runs the fast tier on branches and pull requests, and every test under `TZ=UTC`
-   and `TZ=Asia/Singapore` on each `main` push that changes code (content-only pushes run the
-   tests that read content), so check CI after pushing and fix a red run before moving on.
-4. Publish the snapshot: `python -m tools.metrics_snapshot --check-budget`.
-5. Append a v2 BUILDLOG entry (format below). Commit. Stop.
-
-Never end a session with uncommitted or unstaged changes: the nightly pipeline pulls with rebase
-and runs on stale code when the tree is dirty. Commits are pushed to the public upstream
-automatically; commit with the repository's configured identity and add no employer or internal-tool co-author trailers.
-
-Outside a plan: one admitted item per session, then stop. An approved or active plan with a
-"How to run this plan" section is run end to end as that section says, including long sessions
-and sub-agents under its one-writer rule. Never drift from the active plan into side work: a
-problem found along the way that the plan does not need goes on one line under "Proposed, not
-approved" in `docs/scope.md`.
-
-## BUILDLOG entry format v2
+Budgets (`docs/scope-budget.json`, enforced by `tests/test_operating_contract.py`, reported in
+`data/reports/metrics/README.md`): one logical step per commit, under 1,500 inserted lines outside
+`data/`; delete what a change makes dead; no new doc-pinning tests; no new endpoints, dashboards,
+migrations, ledgers or operator CLIs without a plan. A BUILDLOG entry goes directly above the tail
+marker, at most 25 lines and one SHA-256:
 
 ```
 ## YYYY-MM-DD — <one-line title>
 
-- **Why:** the admission row, plan, or reproduction that admitted this work.
+- **Why:** the plan, admission row or reproduction that admitted this work.
 - **What:** two to five lines of what changed, in plain words.
 - **Evidence:** the one command that proves it and its salient output line.
-- **Metrics:** server/tools/product LOC deltas from the snapshot, or "unchanged".
-- **Next:** the single next step in the active plan, or "nothing admitted". This line records
-  intent; it never admits work by itself.
+- **Metrics:** LOC deltas from the snapshot, or "unchanged".
+- **Next:** the single next step, or "nothing admitted" (never admits work).
 ```
 
-No hashes beyond one, no PIDs, no restatement of unchanged state, no list of every gate that
-still passes. The tests prove the gates; the entry records the decision.
+## Map: doing X → read Y
 
-## Feedback
-
-When the owner reviews the repo or corrects a behaviour, the review goes in `docs/feedback.md`
-as a dated entry with the rule it changes, and the rule is applied in the same session
-(this file, `docs/scope.md`, or the budget). A verdict that is only remembered in
-conversation is lost at the next compaction.
-
-## Public engine, private alpha (from 2026-09-28)
-
-This repo is the **public infrastructure**: data pipeline, simulator, fill models, evaluation
-statistics, replay and text labs, optimizer, runners, schemas and toy example strategies, so
-anyone can run it and look for their own edge. P15 and the P16 work built up to 2026-09-28 stay
-here as a public demo; none of it is a proven edge.
-
-**New strategies, prompts, parameter sets, registrations, trial-census updates, research
-findings and results reports go to the owner's private alpha repo**, never here.
-Reusable infrastructure a strategy needs still lands here, kept generic. If unsure whether a
-change is infrastructure or alpha, treat it as alpha and ask the orchestrator.
-
-## Absolute rules
-
-The repo is public: no employer, devbox, or internal-tool identifiers in files or commit messages, and commit dates are never rewritten. Never fabricate a price or bar. Point-in-time tables are append-only. Orders fill next-open,
-never same-bar. One DuckDB writer at a time. Every strategy is pre-registered with a kill
-criterion. No broker code, credentials, or real money on this host. Prove by running, not by
-reading. Never weaken a gate to manufacture completion, and never tune a frozen rule after
-seeing its outcome.
+| Doing | Read |
+|---|---|
+| Choose what to work on | `docs/product.md` (Focus now) |
+| A scheduled run failed | `docs/operate/how-it-works.md` |
+| Fix a data defect | `engine/AGENTS.md` |
+| Add a strategy or experiment | `docs/extend/README.md` |
+| Add a data source | `docs/data/README.md` |
+| Change a pinned or registered file | `server/AGENTS.md` |
+| Deploy or land a branch | `docs/change/deploy.md` |
+| Run a backtest | `docs/change/backtest-standard.md` |
+| Read today's evidence | `data/reports/README.md` |
+| Write public docs | `docs/site/README.md` |
+| Anything else | `docs/README.md` |

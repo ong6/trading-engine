@@ -1,0 +1,492 @@
+# Operations runbook
+
+Use this guide when a scheduled run, API, UI, or evidence projection misbehaves. The system
+design and component map live in [`architecture-reference.md`](../architecture/architecture-reference.md);
+[`system-blueprint.md`](../architecture/system-blueprint.md) explains the target architecture. The repository is
+paper-only: there is no broker connection, credential, or real-money authority on this host.
+
+## First response
+
+Inspect before changing anything:
+
+```bash
+date -u
+git status --short
+tail -50 logs/cron.log
+tail -50 logs/verify-cron.log
+tail -50 logs/sweeps-cron.log
+tail -50 logs/liquid-cron.log
+tail -50 logs/walkforward-cron.log
+curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1:8000/meta
+curl -fsS http://127.0.0.1:8000/research/readiness
+curl -fsS http://127.0.0.1:8000/agent/evaluation/status
+systemctl --user list-timers 'trading-engine-*'
+```
+
+Start with the hourly operations digest, which has already collated these sources:
+`.venv/bin/python -m tools.ops_digest --report --hours 24` lists non-OK hours, failed, missing
+and slow runs (over 3× their 14-day median), every scheduled job's observed runs and dated work
+receipts, each driver run's stages, the loudest error signatures, log growth
+and unhealthy `/meta` sections. Each UTC hour's detail is in `logs/ops/hourly/<date>/<HH>.md` (newest copy:
+`logs/ops/latest.md`); metrics for SQL are in `logs/ops/ops.sqlite` (tables `hours`,
+`unit_runs`, `stage_runs`, `log_counts`, `signatures`, `probes`, `meta_status`, `footprint`).
+The `trading-engine-ops-digest.timer` collects at :08 UTC from the user journal, new lines of
+`logs/*.log`/`*.jsonl` (plus host-private globs listed one per line in `logs/ops/sources.txt`),
+`logs/stage-timings.jsonl` and the API. It reads dated P15/daily-opportunity receipts from one
+resolved immutable published snapshot with a read-only connection, plus the dated hourly and
+four-hour observer JSONL receipts. A receipt proves work exists; the process exit remains unknown
+unless the journal records it. It never opens the primary DuckDB store, but its `/meta`
+probe holds an API read connection that refuses writers, so it runs clear of every other
+timer's start minute. Digests are kept 30 days and metrics 180 days. A missing source shows as a collection gap, never a failure.
+
+WARN means a new or worsening finding. A stable finding becomes chronic after six consecutive
+hourly observations, after three distinct hours within 24 hours, or when it recurs on the
+next UTC day. Counts and severity are compared with the last actual observation, including
+across silent hours. Once established, chronic status persists until history expires; it appears under
+“Chronic findings” with its first-seen time, and the headline becomes `OK (k chronic)`.
+Known chronic warnings get one reminder together on the first digest of a new UTC day,
+including their last actual observation. Reminders do not count as observations. Any increase raises
+WARN immediately. Six hours span multiple poller cycles while exposing a new condition
+for a quarter of a day. History lives in `logs/ops/finding-state.json`, written atomically
+under the collector lock; missing, corrupt or unwritable history leaves findings unsuppressed.
+Keys unseen for more than 72 hours expire; at most 512 recent keys and 256 KiB are retained.
+Evicted keys start unsuppressed next time. The previous history schema upgrades in place.
+FAIL findings always raise FAIL. Digest-unit output and its own slow runs are excluded;
+its failed process lifecycle remains visible. Structured progress is classified by levels,
+statuses and current-run failure counts, including zero counters and completed repairs.
+The gateway check reads the proxy unit's effective `TRAEX_BIN` before local resolution.
+Token warnings cover failed re-login, unknown expiry, or less than two hours remaining;
+routine renewal starts at 36 hours and is checked every 30 minutes by the proxy.
+
+The report counts due slots only between matching installed timer/crontab observations saved by
+the collector. Earlier schedules and intervals spanning a schedule change are unknown. A missing
+run additionally requires readable journal or stage coverage over its whole allowed start window;
+unknown history is never counted as missed. Existing metrics without coverage observations remain
+unknown. Successful systemd TERM and accepted exit 75 are clean stops; their termination kind and
+exit status remain visible. Completion-only journal rows keep an unknown start and duration.
+
+Partial backfill counts, unavailable/late pre-open receipts, queue refusals and resource deferrals
+make the digest WARN even when a wrapper exits zero. Host fetch/push/non-fatal child failures also
+make it WARN; process/stage failures make it FAIL. The default host sources include
+`~/.local/state/{te-autopush,store-sync}.log` and `~/news-scraper/logs/*.log`.
+`logs/ops/sources.txt` accepts extra globs with `~` or `$HOME`, or paths relative to `logs/ops/`;
+duplicate paths are read once. Text history before a file's first offset remains unknown.
+
+What may run on this host is declared in `server/schedule-contract.json`: every user unit, timer
+and cron line (including ones other repositories install), whether it is enabled, held or
+disabled and why, which live databases it may hold and when. Each digest run checks it
+read-only (`.venv/bin/python -m tools.schedule_contract_check --live`; `--static` checks a
+checkout) and publishes the result as `/meta` `schedule_contract`. A violation names the unit or
+process: a timer-driven unit without a runtime bound, a unit started from a lane worktree, a
+unit or cron line missing from the manifest, a failed unit, or a process holding
+`store/market.duckdb` or `store/pit/*.duckdb` outside a declared window (with its pid, command
+line and cgroup in `logs/ops/schedule-contract.json`). Change the manifest in the same commit
+as the unit; the installer reads its autostart and held sets from it.
+
+The contract covers declared dependencies, engine unit names, commands in the live checkout or
+any manifest `lane_path_markers` workspace, units in a declared slice, and units stopping engine
+services. The digest uses that same ownership for collection, warning history and reports; it
+names ignored units and warns when discovery is incomplete.
+
+An optional owner-only overlay, `~/.config/trading-engine/schedule-contract.local.json`, declares
+additional monitored dependencies and workspace exceptions
+(`{"version": 1, "units": [...]}`; each entry names the unit, an `owner` and a `reason`, and may
+`acknowledge` only `lane-path` or `unbounded` for its own unit; a service declares
+`"store": {"access": "none"}`, so an overlay can never excuse a process holding the store). The
+live check lists those units as host-local and their acknowledged rules as exceptions; the digest
+also monitors their runs and names the loaded declarations. An unrelated project's unit needs
+no overlay entry; remove obsolete declarations to stop monitoring that dependency. Workspace
+units remain subject to the contract without an overlay. The overlay
+may not name a unit of this repository, and a link, a FIFO, another owner, an open mode, a
+duplicate key or a malformed entry makes the check report an error and ignore the whole overlay.
+`--overlay PATH` checks a proposed file first.
+
+A finite boot unit declares `"completes": true` (the minute capture). It counts as running for
+the live check and the installer while it waits to restart after a successful run (a pause exits
+75, a success), and once done: its start condition failed and `capture-complete.json` names the
+current `manifest.json`. A crash or a runtime-bound kill waiting to restart, a unit never started
+and a marker for another manifest are reported. To capture a new manifest, delete the marker.
+
+Data and day-zero invariants run against the published snapshot only, never the live store:
+`.venv/bin/python -m tools.check_invariants --snapshot latest` (bar geometry, one split basis
+per liquid name, unrecorded split-sized breaks, a fee row per fill from the fee day zero, equity
+for every active book after its publisher, single close-outs, P15 publication order, pre-open
+voids and missed runs, and finite experiment and walk-forward results). A path that is not a
+published snapshot is refused with exit 3 before anything is opened. Accepted exceptions live
+in `tools/invariants/baseline.json`, each with an owner, a reason and an expiry. The hourly
+digest reruns the check in shadow mode whenever the snapshot sha256 changes and publishes it as
+`/meta` `invariants` (stale after 26 hours or when a newer snapshot is published); shadow
+regressions are listed in the digest and never change its status. `--gate` exits 2 on a
+regression for a caller that wants to block on it.
+
+Logs are bounded by `tools/log_retention.py`, which the digest runs once a UTC day from 10:00:
+cumulative `*cron.log` files over 8 MB are compressed to `logs/rotated/` and rewritten in place
+to their run-marker lines plus the last 256 KB, so the driver monitors parse them as before, and
+dated logs older than 60 days are deleted unless tracked text (`git grep`) cites them. It is a
+dry run, reported in `logs/ops/retention.md`, until the host-private `logs/ops/retention.json`
+sets `"apply": true` (optional `days`, `cap_mb`, `tail_kb`, `keep` globs). By hand:
+`.venv/bin/python -m tools.log_retention` lists candidates; `--apply` acts on them.
+
+Read `GET /meta` before interpreting a log in isolation. It reconciles schedule, log, lock,
+database, report, queue, source-control, and evidence state. A missing or malformed
+`data/_meta.json` is reported separately and does not hide live projections. `GET /health`
+returns 503 with `busy` for lock contention and `unreadable` for a missing or invalid store.
+
+Do not repair a paper record by editing or deleting evidence. Reproduce a producer defect, fix
+the producer, and let the normal recovery path reconstruct only derivable outputs. Rule 1 is:
+never invent a price or bar. Point-in-time rows are append-only, and orders fill next-open, never
+same-bar.
+
+## Scheduled work
+
+There are five deterministic production cron schedules, and one evidence-only Saturday
+postflight. The production schedules are:
+
+| Driver | UTC schedule | Log | Expected completion grace |
+|---|---|---|---|
+| `run_daily.sh` | weekdays at 22:30 | `logs/cron.log` | 6 hours |
+| `run_weekly_verify.sh` | Saturday at 02:00 | `logs/verify-cron.log` | 4 hours |
+| `run_weekend_sweeps.sh` | Saturday at 06:00 | `logs/sweeps-cron.log` | 24 hours |
+| `run_weekly_liquid.sh` | Sunday at 02:00 | `logs/liquid-cron.log` | 4 hours |
+| `run_weekly_walkforward.sh` | Sunday at 06:00 | `logs/walkforward-cron.log` | 18 hours |
+
+The Sunday TradingView history slices start at 01:40 UTC so that, with the ten-minute random
+delay and four-hour service timeout, the first ends by 05:51, before the 06:00 weekly readers.
+Other slices and persistent catch-up runs rely on the queue and lock; schedule avoidance does not
+change reader or writer ownership.
+
+The exact five required user-crontab entries above are managed by
+`tools.install_automation`. The auxiliary crontab entry remains outside the five
+production-driver count: it runs `tools.verify_friday_postflight --publish` at 05:15 UTC each
+Saturday. `scheduler` in `GET /meta` verifies the 5+1 shape, daemon state, UTC host timezone,
+executable sources, and safe writable logs.
+
+Each driver has an advisory lock. A start without a terminal marker is `running` only while the
+lock is held; otherwise it is `interrupted`. A held lock past the driver's grace is
+`stale-running`. Old or absent starts become `overdue` after the next slot and grace. These are
+read-only diagnoses: they do not restart a process or alter a queue.
+
+Recovery is separate. `trading-engine-driver-watchdog.timer` runs `tools.driver_watchdog` at
+:03, :13, … :53 UTC. A run is the
+driver script's own process (lock open, script path on its command line), its descendants and
+cron's launching shell; services waiting for the lock and API probes are never signalled. A run
+past its contract `max_runtime` that used under 2% of one CPU over a 60-second sample, or is past
+twice that runtime, is recovered when two consecutive passes agree: the watchdog saves the run's
+Python stacks under `logs/driver-watchdog/`, terminates it, and clears failed units this
+repository installs. A stalled nightly also owes one transient
+`trading-engine-nightly-catch-up.service`, started by a later pass once no driver lock is held,
+Tuesday to Friday before 11:00 UTC, bounded to end by 12:45 UTC (clear of the 09:05 New York
+pre-open in either season) and retried at most three times that day; once it finishes before
+12:45 UTC, the watchdog starts the P15 scoring unit so the P15 window steps its books to the same
+session. The P15 window never steps past the league books: until they reach the session, scoring
+exits 75 (`waiting_for_league`). After any league step made outside the nightly, start
+`trading-engine-p15-scoring.service` by hand so the P15 books follow before the next nightly. A busy overdue run is only reported. Each decision is a line in
+`logs/driver-watchdog.jsonl`, written before the action; a termination reads FAIL in the digest.
+`.venv/bin/python -m tools.driver_watchdog --dry-run` shows what it would do;
+`touch .driver-watchdog.disabled` in the live checkout pauses it for maintenance.
+
+Every driver stage writes start, end, duration, and exit status to its normal log and appends the
+same record to `logs/stage-timings.jsonl`. Timing publication is fail-soft. Summarize the latest
+20 runs per driver, or one named driver, with:
+
+```bash
+.venv/bin/python -m tools.stage_timings --runs 20
+.venv/bin/python -m tools.stage_timings --runs 20 --driver run_daily
+```
+
+## Nightly and queue checks
+
+The nightly is the only weekday orchestrator. Its fatal path collects EOD data, resolves the
+`breadth-qualified` operational date, screens, advances the paper league, writes reports, and
+queues supporting work. The operational date requires at least 90% coverage and at least 1,000
+names with real bars. A partial later batch cannot advance it. The `GET /screen/latest`
+projection is independently capped; `GET /screen/{run_date}` remains an explicit archival lookup.
+
+Inspect recent queue state without taking a write lease:
+
+```bash
+.venv/bin/python - <<'PY'
+from engine.lib import db
+
+with db.connect(read_only=True) as con:
+    print(con.execute(
+        "SELECT id, kind, state, created_at, updated_at "
+        "FROM jobs ORDER BY id DESC LIMIT 20"
+    ).fetchall())
+PY
+```
+
+One DuckDB writer is allowed at a time. Heavy work belongs in the queue. Up to eight isolated
+read-only workers may run jobs explicitly marked `parallel_safe`; a budget expiry stops starting
+new work and never kills an in-flight job. Do not launch a second nightly or queue drain around a
+held producer lock.
+
+The queue uses a priority-ordered rolling pool: when a worker finishes, the next eligible job starts
+without waiting for the rest of the old batch, but no lower-priority job launches before an earlier
+one. A walk-forward drain builds one immutable read-only input store for the run; each worker keeps
+only its private writable overlay. Workers convert termination into normal cleanup, and the next
+drain removes only orphan scratch directories whose active lock is not held.
+
+## Throughput and read-path behaviour
+
+These are the expected paths when investigating runtime:
+
+- `verify-prices` uses four workers, but a single global limiter still spaces all request starts by
+  0.4 seconds. It releases its database connection after materializing the input and runs its
+  network phase alongside the farm drain.
+- Nightly earnings pulls only names with an unknown next date, an event inside 21 NYSE sessions, or
+  a successful pull more than seven calendar days old. Monday UTC is the full eligible-universe
+  pass.
+- A caught-up TradingView archive symbol waits for two to four completed sessions and requests them
+  in one range. The per-request pause, request rate, 550-day historical chunk, and per-run chunk cap
+  are unchanged.
+- Intraday capture retains the exact response receipt, reuses an existing revision when the
+  normalized payload is unchanged, and inserts genuinely new or changed facts in one batch.
+- `GET /agent/evaluation/status` caches the expensive profitability validation and projection by
+  registration plus audited-table generations. Intraday readiness caches coverage by row count and
+  latest timestamp. A database change invalidates either result.
+- Hourly and four-hour observers open one connection for the full run, pass it through quote and
+  cross-check retention, and wait at most 60 seconds for the writer before reporting unavailable.
+
+Profitability scoring finishes, re-renders the league, and only then runs evidence reporting. An
+evidence-validation failure returns exit 75. The scoring service's
+`RestartPreventExitStatus=75` records that failure without restarting the unit; any other nonzero
+report failure remains a normal service failure.
+
+## Read-only database snapshots
+
+Completed producers publish an immutable consistent copy under `store/snapshots/` as
+`market-<UTC stamp>.duckdb`. `market-latest.duckdb` is an atomically replaced relative symlink;
+the matching JSON manifest records source data commit, publication time, file SHA-256, size, and
+table row counts. Without a sibling `.wal`, publication records the source invariants through a
+read-only attachment, file-copies and fsyncs while holding the producer locks, releases those
+locks, then verifies the copy against the recorded invariants before publication. A present WAL
+uses DuckDB's consistent `COPY FROM DATABASE` path instead. The newest two generations are
+retained, and a snapshot error never changes the producer's result.
+
+Profitability evidence loop (P15) event runs pass `--min-age-minutes 120`, so a valid latest snapshot newer than two hours is
+logged as skipped with exit 0. Nightly, P15 scoring, and TradingView history remain unthrottled;
+pre-open does not publish a snapshot.
+
+When the primary database is writer-locked, read-only API requests may use the latest valid
+snapshot. Snapshot responses carry `X-Data-Source: snapshot` and `X-Snapshot-As-Of`; corrupt or
+unreadable primary databases do not trigger fallback. Evidence validation, including
+`GET /agent/evaluation/status`, may use a snapshot only when its `as_of` is later than the live
+database's last write. If no qualifying snapshot exists, the endpoint keeps its normal 503
+behaviour. Research processes may open `store/snapshots/market-latest.duckdb` read-only.
+
+For a one-off data inspection, resolve `market-latest.duckdb` once and open that immutable
+path with `read_only=True`; never take a second writer or copy the changing live database.
+A snapshot proves its own publication time, so compare its manifest with current API freshness
+before interpreting counts. A successful driver and a current evidence cohort are separate:
+`walkforward_evidence.status=stale-source` means the result's executable source hash differs from
+the current tree. A newer source can reach the checkout after a successful weekly calculation.
+Inspect result `git_sha` and `source_sha256`, then the source diff; retain the original evidence
+and let the next admitted revalidation create a current cohort. Do not relabel old results.
+
+The XS forward projection accepts the monitor's two output forms: waiting reports carry an
+explicit `signal_boundary_frozen` flag; accumulating and verdict reports carry the frozen signal
+boundary itself. The API still reconciles the entire report against the database. An early
+`REVIEW-KILL` is valid before statistical maturity and remains visible as a paper review request.
+
+If the nightly failed:
+
+1. Identify the newest exact start and terminal marker in `logs/cron.log`.
+2. Check `.nightly.lock`, `GET /meta`, and recent `jobs`; distinguish a current writer from a
+   stale log.
+3. Reproduce the failed command against a copy when the operation can mutate the store.
+4. Fix only the demonstrated defect. Do not rewrite a frozen strategy, registration, or evidence
+   prefix.
+5. Run touched tests and the full suite, publish the metrics snapshot, and let the normal driver
+   recover on its next admitted run.
+
+## Evidence and portfolio checks
+
+Current operational evidence is exposed by `GET /meta`, `GET /research/readiness`, and
+`GET /agent/evaluation/status`. Generated Markdown is a report, not authority by itself:
+
+- `data/reports/league.md` is the last completed nightly standings snapshot.
+- `data/reports/forward/sector_momentum.md`,
+  `data/reports/forward/xs_momentum_12_1.md`, and
+  `data/reports/experiments/e1-spy-monday-forward.md` are the three frozen forward records.
+- `data/reports/agent-eval/p15.md` is the P15 evaluation report; it does not activate or promote
+  a policy.
+- the weekly challenger-lab (P16) operator digest summarizes status but does not grant execution
+  authority.
+
+Discretionary ticket admission applies 11 ordered controls:
+`data_quarantine`, `stop_present`, `entry_anchored`, `notional_cap`, `sizing_1pct`,
+`playbook_named`, `rr_at_least_2`, `max_open_risk_4r`, `earnings_window`, `regime_gate`, and
+`circuit_breaker`. Never bypass a rejected gate through a direct database edit.
+
+## Challenger lab (P16) state before activation
+
+P16 is built but inert. Its current parts are:
+
+- evaluation v2: factor-neutral IC, always-valid sequential evaluation, deflated-Sharpe trial
+  accounting, isolated P16 status, and the accepted census spanning agent paper decisions through
+  the challenger lab (P5–P16);
+- the challenger lab and timer, with no execution authority;
+- the filing reader, which remains gated while any inventoried SEC caller bypasses the host-wide
+  dispatcher; the frozen P15 scheduled caller currently keeps that gate closed;
+- time-locked text and post-cutoff replay labs, whose real-data runs still require their named
+  inputs and gates;
+- deterministic portfolio construction, recovery, and diagnostics with books inactive;
+- fill capture/calibration measurement, while `baseline_v1` remains the active simulator basis;
+- the weekly operator digest and the Stage 2 personal-host design.
+
+No P16 component is activated by installing automation, running a report, or loading the census.
+Registration, rehearsals, and activation belong to the later registration and activation sequence
+(W9b).
+
+## Agent timers and logs
+
+List installed timers and inspect service output with:
+
+```bash
+systemctl --user list-timers 'trading-engine-*'
+journalctl --user -u trading-engine-daily-opportunity.service -n 50 --no-pager
+journalctl --user -u trading-engine-agent-shadow.service -n 50 --no-pager
+journalctl --user -u trading-engine-p15-scoring.service \
+  -u trading-engine-p15-preopen.service \
+  -u trading-engine-p15-events.service -n 50 --no-pager
+```
+
+The daily opportunity agent (P8) has local-simulator authority through its locked tool. The
+multi-cadence agent tools (P9) intraday observers,
+the agent-only shadow, P15 event decisions, and every P16 producer are shadow or data-only unless
+their registration explicitly says otherwise. Disable a future timer run with
+`systemctl --user disable --now trading-engine-<name>.timer`; disabling never deletes or retries a
+recorded decision.
+
+## API and UI
+
+The API and UI bind to loopback. From another machine, forward both ports over SSH:
+
+```bash
+ssh -L 3000:127.0.0.1:3000 -L 8000:127.0.0.1:8000 <user>@<host>
+```
+
+Open `http://localhost:3000`. Port 3000 is enough for the UI; forward 8000 for direct API calls.
+Audit installed automation without changing it:
+
+```bash
+.venv/bin/python -m tools.install_automation
+systemctl --user status trading-engine-api.service trading-engine-ui.service --no-pager
+```
+
+Exit 0 means installed units and the managed cron block match their versioned sources. A
+`changes-required` result is a dry-run plan, not permission to mutate. Apply only during an
+admitted deployment step with `.venv/bin/python -m tools.install_automation --apply`.
+
+The dry run also reports `changes.restart_services`, with the reason and commit range for
+each API or UI restart. Apply compares the recorded running commit with HEAD over all Python
+sources in `server`, `engine`, `sim`, `farm`, and `tools`, plus Python dependency declarations;
+the UI comparison covers `ui` except generated output and installed dependencies. Unrelated
+docs and tests do not trigger a source restart. Each service's record lives under
+`~/.local/state/trading-engine/<service>.json` and belongs to its systemd invocation. With no
+matching record, apply compares the service start timestamp with its last source commit and
+restarts when that comparison is uncertain.
+
+Apply restarts each affected application service once, waits up to 90 seconds for API
+`/health` and `/meta` HTTP 200, and up to 10 minutes for the rebuilt UI's port 3000 HTTP 200.
+The new systemd invocation must be active before readiness can pass. The result appears in
+`changes.restarted_services`; a failure returns `status: error` and preserves the prior record.
+Read that evidence and the service log before retrying a deployment; apply never retries a
+failed restart within the same run.
+
+If a page returns 503, check `/health`, `/meta`, and the current DuckDB writer before restarting a
+service. Restarting cannot repair an unreadable store and can obscure the producer that owns a
+legitimate lock.
+
+## Recovery bundle
+
+Create a bundle only at an explicit path outside the checkout:
+
+```bash
+.venv/bin/python -m tools.backup_database create /absolute/backup/path
+.venv/bin/python -m tools.backup_database verify /absolute/backup/path
+```
+
+Keep the failed store separately. Restore only through the standard verified recovery command;
+never copy selected DuckDB tables, regenerate point-in-time observations, or overwrite the public
+`data/` outputs by hand.
+
+While holding the normal producer locks, `backup_database create` uses the latest valid snapshot
+when that snapshot is newer than the live database's last write. Otherwise it takes its own
+consistent copy of the live database. Verification and restore semantics are unchanged.
+
+## P15 recovery boundary
+
+The current P15 registration revision is reported by `GET /meta`. Revisions bind infrastructure
+changes without changing scoring, labels, gates, schedules or frozen valid-data outcomes. From the
+migration `--d0`, books pay `ibkr_pro_tiered_v1` commissions and restart their evaluation clocks.
+The registered source units and three timers remain the deployment boundary. The original
+activation steps are not a procedure to activate a second cohort.
+
+For current operations, treat any change to a registered value as a new version and cohort. Before
+an admitted schema or recovery operation, confirm the worktree and producer locks, create and
+verify an external recovery bundle, and preserve the existing evidence. A normal deployment may
+verify the installed units against source, but it must not replay missed pre-open or event windows.
+
+Rollback disables the three timers first, reverts the activation commit, verifies the recovery
+bundle, preserves the current store separately, restores through the standard recovery procedure,
+and reapplies the installer. Never delete or rewrite P15 evidence to make a check pass.
+
+## Session close
+
+Follow `AGENTS.md` (Session). Commit only source and documentation owned by the session. Pipeline
+`data/` outputs are never stashed, reverted, or included in a build commit.
+
+<!-- sources: BUILDLOG.md, engine/bitemporal_facts.py, engine/earnings.py, engine/run_daily.sh, engine/lib/driver.sh, engine/queue_runner.py, engine/tradingview_history_archive.py, engine/verify_prices.py, farm/walkforward/runner.py, server/agent_evaluation_reporting.py, server/hourly_opportunity_observer.py, server/intraday_readiness.py, server/main.py, server/run_p15_scoring.sh, server/trading-engine-p15-events.timer, server/trading-engine-p15-preopen.timer, server/trading-engine-p15-scoring.service, server/trading-engine-p15-scoring.timer, server/p15-registration.json, server/p16-registration.json, tools/backup_database.py, tools/publish_snapshot.py, tools/stage_timings.py -->
+
+## Verification receipts and resolved queue failures
+
+Price verification retains every discrepant field and named result. Exact Nasdaq response
+bytes, HTTP identity and requested security/window are written to a hash-named receipt under
+`data/price-verify/` before `_meta.json` changes. The summary points to the immutable receipt
+relative to `_meta.json`'s directory, without publishing an absolute host path. The per-name
+results go to `data/reports/producer-detail/price-verify.json` (`price-verify-full.json` for the
+weekly pass), rewritten in place, and the summary keeps only their counts and a pointer; the
+intraday archiver's per-ticker coverage lives beside them in `intraday-coverage.json`.
+Receipts are a local 35-day audit window: older receipts that `_meta.json` no longer cites are
+pruned after each run, and stdout carries only the summary, never response bodies.
+An ETF answer with no volume on any row (an index level or indicative value) is `not_checked`
+(`source_identity`), never compared as a price.
+A mismatch remains a mismatch until security, currency and corporate-action adjustment basis
+are established; the verifier never overwrites operational prices or converts currencies.
+
+A failed job remains in `jobs` permanently. For an intentional operator stop, record its
+reason and retained evidence with `python -m engine.job_resolutions --job ID --kind cancelled
+--reason TEXT --evidence TEXT`. For operator-attested completion, use
+`--kind completed --replacement-job ID` after inspecting retained receipts proving the original
+window/chunk coverage. The replacement must be a later successful job of the same kind with
+identical parameters; these checks bind the request identities but do not establish coverage.
+In particular, a resumable job can process different chunks with the same parameters. Without
+coverage evidence, leave the failure actionable. An unrelated newer success cannot clear it.
+The disposition and original/replacement job identities are checked whenever queue status is
+projected; altered evidence restores the actionable warning.
+Use the ordinary single-writer maintenance window for this explicit operation.
+
+Minute capture retries transport errors and HTTP 429/500/502/503/504 at most three times per
+page. Each attempt reserves the shared request limiter and rechecks the no-call window.
+Exhaustion exits with a sanitized failure; completed pages and their receipts remain resumable.
+TradingView `symbol_error` and `series_error` packets are retained in the source receipt and
+reported as provider unavailability immediately. They are not missing prices that can be invented
+or evidence that another resumable job covered the original request.
+
+## Explicit full-history recovery
+
+When a provider refuses maximum history for a pending liquid name, use the existing single-writer
+maintenance window and `python -m engine.history_recovery --ticker SYMBOL --db PATH`. Retain its
+JSON output as the recovery evidence. It binds the current universe mapping to provider symbol,
+USD currency, stock/ETF instrument type and listing date, then requires every completed listing
+session and valid OHLCV. The output contains normalized provider bars, not raw HTTP response bytes.
+
+After the network fetch it rechecks the current universe binding and all stored rows within a
+transaction. Any pre-listing stored row can indicate ticker reuse and causes refusal; conflicting
+overlapping bars or sources also refuse. Only absent rows are inserted, and `backfill_done` changes
+only after those checks. Existing prices, failed jobs and other metadata are unchanged. Refused
+evidence requires investigation; never delete old ticker history to force acceptance. The frozen
+collector and forward-record identity remain unchanged, and no producer schedule invokes recovery.

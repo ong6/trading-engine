@@ -1,0 +1,929 @@
+# Owner feedback ledger (archived)
+
+> Archived 2026-11-23. Each still-valid rule now lives in the doc it governs (`AGENTS.md`,
+> `docs/product.md`, `docs/scope.md`, the runbook). This ledger is background, not current guidance.
+
+Dated verdicts from the owner about the repo or agent behaviour, each with the rule it
+changed. The newest entry overrides any older document, including `AGENTS.md`. Agents read
+this second, and append here (never rewrite) when the owner gives a verdict in conversation.
+
+Format: date, the verdict in the owner's terms, the rule change, where it was applied.
+
+## 2026-09-18 — Review of progress; move to maintain mode
+
+**Verdict.** Rated 6/10 overall: engineering rigor 8, research honesty 9, research output 3,
+scope control 3, process health 4. The loop had drifted from "find an edge" to "build
+governance for an edge that doesn't exist." `server/` at 46k lines is larger than the whole
+product and almost all of it serves a broker that has no authority. Yesterday's single commit
+added 161 files and 61k lines against a standing order for small reviewable commits. BUILDLOG
+entries average 741 lines and repeat four hashes each. Owner asked for the docs, skills,
+metrics and feedback layers to be hardened so long-running LLM sessions stop doing work "we
+don't need yet", then for follow-up plans.
+
+**Rule changes.**
+
+1. Mode is MAINTAIN. Default session outcome is verify, report, stop. → `AGENTS.md`.
+2. Every change must pass the admission test (backlog row, approved plan, or reproduced
+   defect). → `AGENTS.md`.
+3. `server/`, `tools/`, and the research runtime are frozen at ceilings in
+   `docs/scope-budget.json`; the test suite fails on growth. → `tests/test_operating_contract.py`.
+4. BUILDLOG entries: at most 25 lines, one hash. → `AGENTS.md`, budget, test.
+5. No new documentation-pinning tests. → `AGENTS.md`, `docs/scope.md`.
+6. `docs/history/live-readiness-goal.md` is reference, not the work queue; workstreams C, D, E are
+   frozen pending the broker decision (P4). → banner in that file, `docs/scope.md`.
+7. A drift metrics snapshot closes every session. → `tools/metrics_snapshot.py`,
+   `docs/metrics.md`.
+8. Owner verdicts are written here and applied in the same session. → `AGENTS.md`.
+
+**Plans opened.** Appliance mode (P1), league collapse (P2), point-in-time data (P3), and broker
+decision (P4). All `proposed`; owner promotes.
+
+**Ceiling changes.** None yet. Record any raise here with the reason before editing the
+budget file.
+
+## 2026-09-18 — Repo made public; history scrubbed, dates untouched
+
+**Verdict.** Owner asked to publish the repo as a showcase for quant and trading-firm readers and
+to link it from a personal site. Owner also suggested spreading commit dates across a year; declined,
+because the artifacts are all dated from 2026-07-15 and a false timeline would be both dishonest
+and trivially detectable. The real record (first commit 2026-07-16, nightly since 2026-07-17)
+stands.
+
+**What changed.** History rewritten with `git filter-repo` to replace an employer email, an internal-host
+home path, an internal tool name and an agent co-author trailer; every commit date and count is
+unchanged (201 commits). A separate working-tree scrub commit became empty under the rewrite and was pruned by filter-repo.
+Visibility set to public. Any existing clone must be re-cloned.
+
+**Rule changes.**
+
+1. Public repo: no employer, internal-host, or internal-tool identifiers in any file or commit message.
+   "One Linux box" is the only description of the host. → `AGENTS.md` absolute rules.
+2. Commit dates are never edited. → this ledger.
+
+## 2026-09-18 — Resume bounded agent decisions and alpha research
+
+**Verdict.** The owner explicitly asked to resume feature implementation so a constrained agent
+can control decisions and the deterministic algorithm engine can search for alpha. This overrides
+the default MAINTAIN-only verdict for the two bounded plans below. It does not authorize broker
+connectivity, credentials, live orders, real capital, weakening frozen evidence, or tuning an
+existing strategy after observing its results.
+
+**Rule changes.**
+
+1. Agent paper decisions (P5) is approved and active: implement one separately attributed, simulator-only agent paper
+   decision path that fails to no action and has no broker submission surface.
+2. The alpha experiment (P6) is approved: add one theory-led, pre-registered deterministic alpha experiment with a
+   frozen control, costs, sample rule, and kill criterion. Existing forward records stay frozen.
+3. BUILD mode is permitted only inside P5 and P6 budgets; all unrelated frozen layers remain
+   frozen.
+4. P4 intent is **yes for continued capital-disabled execution research**. Real-broker operation
+   remains undecided and technically absent; any future broker connection requires a new explicit
+   owner decision and plan.
+
+**Ceiling changes.** P5 may add 900 lines under `server/` and 200 under `tools/`; P6 may add
+900 lines under `farm/`. The corresponding ceilings are raised before implementation.
+
+## 2026-09-18 — Independent review is a completion gate
+
+**Verdict.** The owner required fresh checking agents after implementation and directed continued
+remediation until those agents were satisfied. That instruction expands P5/P6's original commit
+budgets only for review findings; it does not expand feature scope or LOC ceilings. Each source
+commit remains below the repository's 1,500-line ceiling. P5 and P6 close only after the repeated
+safety, methodology, and regression reviews, the full suite, and publication of final evidence.
+
+## 2026-09-19 — Approve the P1-P4 roadmap and remote publication
+
+**Verdict.** The owner approved the four proposed follow-up plans and explicitly authorized
+completed commits to be pushed. Work proceeds in the documented order, beginning with P1.
+
+**Rule changes.**
+
+1. P1 is active; P2 is approved with its listed eleven-book retirement set confirmed.
+2. P3 is approved for its no-purchase vendor comparison. Purchase and ingestion still require
+   the owner to select a vendor and spending ceiling.
+3. P4 is approved as a decision plan. Execution or archival still requires the owner to choose
+   its explicit yes/no branch; broker connections, credentials, and real capital remain forbidden.
+4. The agent may push completed, verified commits to the configured `origin/main` upstream.
+
+## 2026-09-20 — Separate the research-data and execution vendors
+
+**Verdict.** The owner delegated the long-term provider choice, naming Moomoo and IBKR as likely
+candidates. The selected architecture is IBKR for eventual broker execution and Sharadar via
+Nasdaq Data Link for point-in-time US-equity research data. Norgate is the research-data fallback;
+Moomoo remains a secondary broker candidate.
+
+**Rule changes.**
+
+1. P4 takes the **yes, real-broker operation eventually** branch, with IBKR as the primary target.
+2. A separate execution-layer plan is required before implementation. No broker connection,
+   credentials, market-data subscription, live order, or capital is authorized by this decision.
+3. P3 recommends Sharadar for purchase review because broker APIs do not establish complete
+   delisted-security, historical-membership, and publication-timestamped fundamental coverage.
+4. P3 remains purchase-blocked until the owner sets a spend ceiling and accepts current licence
+   terms; no vendor account or data ingestion is authorized yet.
+
+## 2026-09-20 — Approve an autonomous S$10,000 paper comparison
+
+**Verdict.** The owner set S$10,000 as the starting capital envelope, required fully AI decisions
+without routine per-order approval, requested several months of paper operation first, and asked
+for algorithm-only, AI-only, and algorithm-plus-AI designs with sound logging and observability.
+
+**Rule changes.**
+
+1. The autonomous paper trial (P7) is approved and active for a simulator-only three-arm comparison. “Fully AI” delegates the
+   paper policy choice, not data admission, sizing, risk, accounting, execution, or kill switches.
+2. Each counterfactual arm models the same frozen USD equivalent of S$10,000; this is one owner
+   capital envelope, not three deployable allocations. The conversion must be independently
+   recorded when the trial activates.
+3. The first review gate is 90 calendar days and 60 completed sessions; no comparative strategy
+   verdict is allowed before 12 paired monthly decisions. No tuning occurs mid-cohort.
+4. P7 permits only internal simulator orders. Broker connections, credentials, subscriptions,
+   live orders, and real capital remain forbidden and need later explicit plans.
+5. The S$10,000 envelope is not a P3 vendor-data budget. Sharadar/Norgate purchase remains blocked
+   on a separate initial and recurring spend decision.
+
+**Ceiling changes for later P7 implementation.** `server/` 48,100 lines, `tools/` 7,400 lines,
+and `sim/` 7,000 lines. These are caps, not targets; P7 requires reuse of the existing evidence,
+attribution, simulator, scheduler, and fault-drill machinery.
+
+## 2026-09-20 — Use the available model gateway under an observable paper-only identity
+
+**Verdict.** The owner directed the project to fix and exercise the working gateway-delivered model rather than
+leave the paper programme blocked on an unavailable provider field. A real tool-free inference
+succeeded, while raw upstream metadata exposed a model family and request ID but no immutable
+provider build.
+
+**Rule changes.** P7 paper operation may use an LLM through a model gateway when every response is
+bound to the exact gateway source, runtime, routing identity, prompt/toolset, upstream-reported model family, and
+request identity. Any visible drift fails closed. This acceptance is simulator-only; a provider-
+issued immutable revision remains required before any later real-capital authorization.
+
+## 2026-09-22 — Approve a daily opportunity agent
+
+**Verdict.** The owner asked the agents to run daily, identify market-moving context and standout
+stocks, assess whether each should be ignored, watched, held, or swing-traded, retain multi-day
+price alerts, and implement the necessary flow now. The daily programme supplements rather than
+changes the frozen monthly P7 comparison.
+
+**Rule changes.**
+
+1. The daily opportunity agent (P8) is approved and active for one simulator-only daily opportunity pipeline using admitted
+   point-in-time prices, volume, screens, earnings, corporate actions, macro context, and optional
+   provenance-bound public headlines. Missing news is explicit and cannot be filled by the model.
+2. The model may classify a bounded deterministic candidate set as ignore, watch, hold, or swing
+   and may propose a price alert, horizon, thesis, and invalidation. Deterministic code owns the
+   universe, ranks, validation, sizing, trigger evaluation, expiry, idempotency, execution, and risk.
+3. P8 may add one isolated inactive simulator book, append-only assessment/alert tables, one daily
+   scheduler, and one bounded read-only status route. Broker routes, credentials, real capital,
+   leverage, shorting, options, arbitrary symbols, and same-bar fills remain forbidden.
+4. A triggered alert is not an order. The model must reassess fresh retained evidence after the
+   trigger; only an eligible swing decision may produce a capped next-session simulator order.
+5. P8 may use staged commits during this explicit implementation goal, each under 1,500 inserted
+   non-data lines, followed by full validation and independent evidence review.
+
+**Ceiling changes.** P8 may add up to 1,400 lines under `server/`, 400 under `engine/`, and 100
+under `sim/`. Ceilings become server 49,500, engine 11,800, and sim 7,100 lines.
+
+## 2026-09-22 — Approve multi-cadence agents and a locked paper-trade tool
+
+**Verdict.** The owner asked the always-on box to compare hourly, multi-hour, and nightly agents,
+test distinct prompts and scales, provide an actionable tool-call path, self-test the entire flow,
+and integrate an agent with an algorithmic candidate.
+
+**Rule changes.** The multi-cadence agent tools plan (P9) is approved and active. Hourly and four-hour variants are observation-only;
+one nightly policy may request a typed simulator trade through a locked, append-only, idempotent
+consumer. The model never selects size or risk limits. The algorithm-plus-agent arm is veto-only.
+All variants remain isolated from broker code and real capital, and their evidence cannot be pooled.
+
+**Ceiling changes.** P9 may add 900 lines under `server/`, 250 under `engine/`, 150 under `sim/`,
+and 150 under `tools/`. Ceilings become server 50,400, engine 12,050, sim 7,250, and tools 7,550.
+
+## 2026-09-22 — Approve a contamination-aware 2022 agent replay
+
+**Verdict.** The owner requested a small 2022 model backtest using historical charts and, where
+available, point-in-time fundamentals and news, with explicit consideration of model training data.
+
+**Rule changes.** The contamination-aware 2022 replay (P10) is approved and active as a diagnostic only. Four dates and three assets are
+frozen before inference; future prices stay out of prompts and are revealed only after responses
+are saved. The price-only variant may run. Fundamentals and news variants must report unavailable
+because the local point-in-time archives begin in 2026; present data cannot be backfilled into 2022.
+Results are labeled contaminated by possible model memory and current-universe survivorship bias,
+and cannot promote a strategy, paper book, broker connection, or real capital.
+
+## 2026-09-23 — Build forward data and consistent agent evaluation
+
+**Verdict.** The owner identified three blockers to effective agent backtesting: incomplete
+point-in-time data, an under-specified execution flow, and inconsistent agent evaluations. The
+owner requested online research and immediate forward storage/logging improvements.
+
+**Rule changes.** Forward agent evaluation (P11) is approved and active. Add one append-only evaluation ledger that binds
+information cutoff and availability time, exact model/prompt/tool/input/output identities, cadence,
+policy, latency, tokens, authority, source references, and maturity-gated market outcomes across
+daily, hourly, and four-hour agents. Existing raw source ledgers remain authoritative. Labels may
+not tune policies, pool variants, authorize brokers, or promote retrospective results.
+
+**Ceiling changes.** P11 may add 650 lines under `server/`, 200 under `engine/`, 150 under `tools/`,
+and 100 under `farm/`. Ceilings become server 51,050, engine 12,250, tools 7,700, and farm 11,600.
+
+## 2026-09-23 — Approve the complete agent-research product programme
+
+**Verdict.** The owner asked to implement every previously recommended feature and capture the full
+product intent in one product document. This expands the local roadmap to bitemporal source facts,
+raw intraday provenance, deterministic exits, execution-quality attribution, paired agent scoring,
+contamination diagnostics, and vendor-neutral historical-data ingestion.
+
+**Rule changes.** The agent research product (P12) is approved and active for the product programme. Locally implementable work
+may proceed in bounded stages. Paid data purchase remains blocked on a separate spend ceiling; IBKR
+or any broker connection remains blocked on a later execution plan. No new strategy or increased
+capital authority is implied.
+
+**Ceiling changes.** P12 may add 900 lines under `server/`, 500 under `engine/`, 350 under `tools/`,
+250 under `farm/`, and 150 under `sim/`. Ceilings become server 51,950, engine 12,750, tools 8,050,
+farm 11,850, and sim 7,400.
+
+## 2026-09-24 — State the end goal: autonomous, AI-in-the-loop profit
+
+**Verdict.** The owner restated the project's end goal: the engine should eventually run on its own
+and make money, with AI in the decision loop. The model chooses; deterministic code keeps data
+admission, sizing, risk, execution, accounting, and halts. "Makes money" means prospective,
+after-cost (including model and data cost) excess return over the policy's paired control, with
+drawdown inside the owner's envelope.
+
+**Rule changes.** None to current authority. This names the direction that P4 (IBKR eventually),
+P7, P8, P9, and P11 already serve. Every freeze in `scope.md` holds: no broker connection,
+credentials, or real capital on this host, and real capital still needs a separate execution-layer
+plan, personal hardware, and a provider-pinned model identity. Agents should prefer work that
+shortens the path to an honest verdict on the AI policies (P7 activation, P8/P9 observability) over
+new surfaces.
+
+## 2026-09-24 — Documentation cleanup and public hygiene
+
+**Verdict.** The owner asked for the agent-created documentation to be audited and cleaned up
+("do cleanup and then create new directional docs"). The audit found stale and contradictory plan
+status, hash chains restated in prose, dated snapshots mixed with current guides, a README that
+no longer described the project, a legacy BUILDLOG too long to read, and host identifiers in
+tracked docs.
+
+**Rule changes.**
+
+1. Dated audits, reviews, and snapshots live under `docs/history/`, indexed one line each (date,
+   what, why kept) in `docs/history/README.md`. `docs/history/live-readiness-goal.md` is reference
+   only. BUILDLOG entries before 2026-09-18 live verbatim in
+   `docs/history/buildlog-2026-07-15-to-2026-09-17.md`; the root `BUILDLOG.md` holds v2 entries.
+2. Plan status lives in one table, `docs/plans/README.md` (plan, title, status, one-line outcome).
+   `scope.md` links to it instead of restating it, and plan frontmatter must match it.
+3. Prose docs carry no SHA-256 chains. Cohort, source, and data identities live in generated
+   artifacts and `GET /meta` (`walkforward_evidence`); each forward monitor's doc keeps only its
+   current runtime-contract digest.
+4. Tracked docs use "the host" and `$HOME/…` or `<host>/…` instead of host-specific wording and
+   absolute home paths. Runtime model-identity literals in code, units, tests, and data are
+   unchanged because they bind the live model identity.
+
+## 2026-09-24 — Harden realtime and historical data sources
+
+**Verdict.** The owner asked to evaluate the unofficial Mathieu2301 Tradingview-API repository,
+add useful realtime and historical sources, and exercise the resulting data flow in the next agent
+pass. TradingView's current terms prohibit using its displayed market data for automated decisions,
+price referencing, or algorithmic trading without a separate agreement, so repository availability
+does not authorize non-display ingestion.
+
+**Rule changes.** Market-data source hardening (P13) is approved and active. Add a provider-neutral, exact-response market-data
+boundary and one credential-gated official API adapter for realtime cross-checks and historical
+capture. TradingView is registered as blocked unless the owner obtains written non-display rights;
+its data cannot enter prompts, alerts, orders, risk, labels, or historical tests. New source data is
+research-only, availability-timestamped, isolated from operational prices, and cannot expand agent
+or broker authority. Tonight's pass must use only sources whose terms and credentials are admitted.
+
+**Ceiling changes.** None. P13 may use at most 350 existing spare engine lines, 250 server lines,
+and 150 tools lines; sim and farm remain unchanged.
+
+## 2026-09-24 — Expand P13 only for review remediation
+
+**Verdict.** The owner required three fresh-agent critique and remediation cycles and asked that
+the design mimic real trading well enough to support a later evidence-gated live transition. The
+first review found source-security, cohort-identity, freshness, and service sequencing defects.
+
+**Rule changes.** P13's server allocation increases from 250 to 500 lines solely to remediate those
+findings and add their tests. This does not authorize TradingView data, execution-price use, broker
+connectivity, or real capital.
+
+## 2026-09-25 — Authorize TradingView market-data activation
+
+**Verdict.** The owner states that the required TradingView non-display rights are already held and
+directs the engine to activate TradingView fully for realtime and historical research data, without
+further entitlement gates. Alpaca remains implemented but dormant.
+
+**Rule changes.** P13 is active again for bounded TradingView activation. Anonymous TradingView
+WebSocket quote/chart data may be retained and used by hourly/four-hour shadow agents and isolated
+historical research. It remains prohibited from mutating operational prices, pricing simulator
+fills, granting intraday execution authority, connecting a broker, or using real capital. Raw
+transcripts remain private and non-redistributable.
+
+**Ceiling changes.** P13 may use the remaining repository headroom: at most 400 additional server
+lines and 150 tools lines; engine, farm, sim, and existing source ceilings do not increase.
+
+## 2026-09-25 — Build a durable TradingView historical archive
+
+**Verdict.** The owner confirmed that the initial TradingView sample is not enough and directed the
+engine to retain historical data for future trading needs. The TradingView historical archive
+(P14) is approved and active for a
+resumable daily-bar archive beginning with the current active/liquid universe.
+
+**Rule changes.** P14 may freeze a current-universe cohort, add per-symbol/date checkpoints and
+attempt logging, run bounded archive work through the existing queue, and schedule continued
+collection. Exact transcripts and bitemporal facts remain authoritative. This cohort must be labeled
+survivor-biased and retrieval-time-only; it cannot fill historical membership, fundamentals, or news
+gaps and cannot mutate operational prices, fills, orders, positions, or execution authority.
+
+**Ceiling changes.** None. P14 may use up to 700 existing spare engine lines, 20 server Python lines,
+and 20 tools lines; farm and sim do not grow.
+
+## 2026-09-25 — Approve the profitability evidence loop (P15) and make product.md central
+
+**Verdict.** The owner reviewed the AI loop and asked for it to be made profitable from a trading
+perspective, with latency, AI evaluation, and trigger timing as the levers. Model credit cost is to
+be ignored. The owner asked for all decisions to live in one central product document, and for
+the resulting changes to be scoped into one plan that a long-running model executes on its own,
+using sub-agents, with no cost limit.
+
+**Rule changes.**
+
+1. `docs/direction.md` becomes `docs/product.md`, the central product document. It holds the
+   north star, the "makes money" definition, a register of every made and open owner decision,
+   and the focus order. New owner decisions are recorded there as well as here.
+2. Model token cost is excluded from the profitability definition; trading and data costs still
+   count. → `docs/product.md`.
+3. P15 is approved: candidate scoring against a deterministic baseline, three comparator books,
+   limit-on-open entries with a cancel-only AI pre-open check, observer evidence fixes, event
+   triggers in shadow, and coded gates. BUILD mode is permitted inside P15's scope.
+4. For P15 only, a session may run every workstream in sequence without stopping, and may use
+   sub-agents for exploration, tests, and independent review under a single-writer rule. This
+   overrides "one admitted item per session" and "do not loop" for P15 only. → `AGENTS.md`,
+   P15 "How to run this plan".
+5. Unchanged: simulator-only, long-only, next-open fills, no broker, credentials, or real
+   capital, and P8 v1 and P7 are not modified.
+
+**Ceiling changes.** P15 may add up to 2,500 lines under `server/`, 1,000 under `engine/`, 400
+under `tools/`, 700 under `farm/`, and 500 under `sim/`. Ceilings become server 54,450, engine
+13,750, tools 8,450, farm 12,550, and sim 7,900. Code that P15 makes obsolete is deleted first.
+
+## 2026-09-26 — Refresh instructions that no longer fit the goal; add the challenger lab (P16)
+
+**Verdict.** The owner observed that agents get caught up in earlier instructions and asked for any
+legacy prompting or rules that do not fit the future goals to be fixed. The owner also asked for a
+document describing what is being built, and for the next long run to be planned. An audit found the
+maintain-only framing in `AGENTS.md`, a read order without the product or blueprint documents,
+lint findings counted as defects (the source of the 42-commit C90 series and a new C90 pass on
+2026-09-26), metrics that treat all growth as bad, a stale P1, and live prompts that hide the
+execution gates from the model.
+
+**Rule changes.**
+
+1. `AGENTS.md`: "Mode: build toward a verdict" replaces "MAINTAIN, not BUILD". Precedence is
+   defined once: feedback > product > AGENTS > scope. The read order includes `product.md` and
+   `system-blueprint.md`. Lint and complexity findings are not defects. `Next:` never admits work.
+   Any approved plan with a "How to run this plan" section runs end to end.
+2. CI's C90 complexity check is advisory (`continue-on-error`). The other lint gates still block.
+3. P1 is closed; its doc-pinning test retirement and the `how-it-works.md` split move to the
+   challenger lab's cleanup, docs, and activation workstream (P16 W9).
+4. `metrics.md`, `scope.md`, and the backlog header drop the appliance framing and stale counts;
+   the backlog is scoped to deterministic strategies.
+5. New `docs/architecture/system-blueprint.md` (target system, edge hypotheses, idea register) and
+   `docs/architecture/design/prompt-review.md`. P15's scoring prompt must follow the prompt requirements added
+   to P15 before W2.
+6. P16 (challenger lab, filing reader, time-locked text lab, optimizer books, fill calibration,
+   digest, Stage 2 design) is filed as `proposed`; the owner approves it and its ceilings after
+   P15 W8.
+
+**Ceiling changes.** None.
+
+## 2026-09-26 — Replay agents after their training cutoff; free data first
+
+**Verdict.** The owner asked for past news data so agents can paper trade the dates after their
+training cutoff, write notes on their mistakes, and improve. Any data now beats no data: use every
+free source first, including web scraping.
+
+**Rule changes.**
+
+1. P16 W4b adds a post-cutoff replay lab: per-model windows starting after the cutoff and after
+   contamination probes pass, point-in-time replay in an isolated store, structured post-mortems
+   and running notes (`c-notes`), and a development/lockbox split. Replay can kill or
+   deprioritize a policy but never promote one.
+2. Data sourcing is free-first: bulk archives (GDELT, CC-NEWS, EDGAR, FNSPID), then scraping
+   (wires, investor-relations pages, RSS, Wayback captures), then free API tiers. Each source has
+   a registered availability rule. Paid data (P3) still waits for a spend decision.
+3. Raw scraped text stays on the host, outside git; the public repo gets counts, hashes, and
+   derived scores only.
+
+**Ceiling changes.** None now; P16's proposed engine and farm ceilings grow to +2,000 and +2,800.
+
+## 2026-09-26 — Hold P15 activation, approve P16 with P15 remediation, add the refine loop
+
+**Verdict.** The owner asked for a quick review of the finished P15 build, with anything that needs
+changing to be handed to the P16 run, and for the refine skill to be part of the goal. Three
+independent reviews (spec conformance, look-ahead and statistics, safety and operations) found the
+build close to the spec, with sound authority boundaries. They also found 16 issues to fix before
+activation, including:
+
+- a late scoring run that can see post-entry news;
+- an event runner that holds the DuckDB writer through its model calls;
+- stale 8-K re-triggers;
+- missed-session fills at the wrong open;
+- a Newey–West setting that makes the primary test too lenient;
+- no enforcement of the frozen registration.
+
+**Rule changes.**
+
+1. P15 W8 activation is on hold. P16 W0 fixes R1–R16 (listed in P16), issues the P15 registration
+   again (allowed because P15 has produced no evidence), and then activates P15.
+2. P16 is approved. Its ceilings include a P15 remediation allowance.
+3. The `improve-work` refine loop (fresh reviewers, threshold 8/10, at most 3 rounds) gates each
+   registration before it is committed, and a final pass runs on docs and reports after
+   activation. The loop never changes registered code after activation.
+
+**Ceiling changes.** server 57,050, engine 16,050, farm 15,550, tools 8,850, sim 8,400 (P16 plus
+about 600 server, 300 engine, 200 farm, and 200 sim lines for P15 remediation).
+
+## 2026-09-27 — Remove the per-layer size limits
+
+**Verdict.** The owner removed the per-layer LOC ceilings outright ("we don't even need this size
+limit, just remove it"). P16 had reached `server/` 57,050/57,050, which blocked W1, W2, and W5.
+
+**Rule changes.**
+
+1. `docs/scope-budget.json` no longer holds `loc_ceiling`. Code size per layer is still reported
+   by `tools.metrics_snapshot`, for visibility only. → `AGENTS.md`, `docs/metrics.md`,
+   `tests/test_operating_contract.py`.
+2. Kept: the 1,500-inserted-line reviewability cap per commit, the BUILDLOG entry budget, the
+   doc-test freeze, and the rule to delete code a change makes dead in the same change.
+3. Plan "Budget" sections that list ceilings are historical; they no longer bind.
+
+**Ceiling changes.** All per-layer ceilings removed.
+
+## 2026-09-27 — The orchestrator owns technical decisions
+
+**Verdict.** The owner delegated all technical decisions in orchestrated runs to the orchestrating
+agent, keeping product-level decisions, and asked that sessions not get caught
+in loops.
+
+**Rule changes.**
+
+1. The orchestrator decides and records technical questions: design, placement, registered values,
+   statistical tests, acceptance, and process fixes. It may revise them as evidence changes.
+   → `AGENTS.md` "Decisions: technical vs product".
+2. A session blocked on a technical question writes `blocked` with the question for the
+   orchestrator; it never waits on the owner for a technical call.
+3. Owner-only: what to build, spending and data purchases, broker accounts, real capital and loss
+   limits, and public presentation.
+
+**Ceiling changes.** None.
+
+## 2026-09-28 — Public infrastructure, private alpha
+
+**Verdict.** The owner decided this repo is the public infrastructure that anyone can run to find
+their own edge. There is no proven alpha yet, so P15 and the P16 work built so far stay here as a
+demo. From now on, strategy-specific work goes to a private repo.
+
+**Rule changes.**
+
+1. New strategies, prompts, parameter sets, registrations, trial-census updates, research
+   findings and results reports go to the owner's private alpha repo, never here.
+   → `AGENTS.md` "Public engine, private alpha".
+2. Reusable infrastructure a strategy needs still lands here, kept generic. When in doubt, treat
+   a change as alpha.
+
+**Ceiling changes.** None.
+
+## 2026-09-29 — Private off-host backups of the store
+
+**Verdict.** The owner approved copying the store and the research files off this host into a
+private repository they own, so a lost or replaced host loses nothing that cannot be rebuilt.
+
+**Rule changes.**
+
+1. A daily backup may push the DuckDB store (as incremental Parquet segments), the recovery
+   bundle's evidence files, and small research files to the owner's private data repository.
+   Every run restores the export and checks every table's checksum before it pushes.
+   → `scope.md` "Never on this host".
+2. The backup takes a consistent copy with `tools.backup_database create`, or under the same
+   producer locks when that tool refuses. It never holds the live store open and never disturbs
+   a producer.
+3. Nothing else changes: no broker connection, credentials, or real capital on this host, and
+   raw data still never goes to this public repository.
+
+**Ceiling changes.** None.
+
+## 2026-10-01 — Use free survivor sources before any data purchase
+
+**Verdict.** The owner declined data spend for now and unblocked a Phase 0 of P3 using free
+sources: Tiingo's public ticker archive for historical listing intervals, a ready-but-unrun
+Massive Stocks Basic grouped-daily fetcher, and SEC Form 25 after the pending contact identity.
+The paid Sharadar/Norgate phase remains approved but purchase-blocked.
+
+**Rule changes.** P3 Phase 0 may build only the isolated free-source tables, raw cache, fixture
+tests, and 2026-10-01 coverage audit named in its plan. It never mutates operational `prices`, a
+forward record, or execution authority. Massive stays unrun until the owner creates its free key;
+SEC work stays unbuilt until the owner supplies the contact identity.
+
+**Ceiling changes.** `docs/scope-budget.json` records a 1,200-line P3 Phase 0 code-and-test
+ceiling. This plan-specific budget does not restore the removed per-layer LOC ceilings.
+
+## 2026-10-01 — Approve the shared backtest core (P18)
+
+**Verdict.** The owner approved P18: one public, reusable evaluator for event and portfolio
+studies, with point-in-time views, exact named costs, gross benchmarks, calendar-session DSR,
+sealed holdouts, deterministic process-pool execution, fixed reports, and price-only synthetic
+known-answer tests. Technical decisions and checkpoint acceptance remain with the orchestrator.
+
+**Rule changes.** P18 is approved under `docs/history/plans/p18-backtest-core.md`. Work is confined to
+`farm/study/**`, `tests/test_study_*.py`, and P18's claimed documentation entries. It does not
+modify running producers, P15-hashed files, P7/P8/P16 paths, services, or live data, and it writes
+no study-specific strategies, censuses, findings, or results to this public repository.
+
+**Ceiling changes.** Add the P18 review budget under its own `docs/scope-budget.json` key: at most
+4,800 new farm lines, 4,000 test lines, 800 documentation lines, and 9 logical commits. The
+repository-wide per-layer LOC ceilings remain removed; the 1,500-insertion per-commit cap remains.
+
+## 2026-10-02 — Set paper operations and near-term execution direction
+
+**Verdict.** The owner chose on-demand investigation instead of push alerting, kept a broker paper
+account on personal hardware as future work rather than current work, and selected a live paper
+book as the next way to observe separately held research strategies in real time.
+
+**Rule changes.** Failures are investigated on demand by an agent; there is no push alerting. The
+personal-host broker paper plan (P17) remains proposed and is explicitly not work for now. A live
+paper book may be planned for private research strategies, paper only. Private research strategies
+run in a separate private repository and reach the engine only through the shared backtest core and
+paper books; no strategy content, registration, prompt, trial count, finding, or result enters this
+public repository.
+
+**Ceiling changes.** None.
+
+## 2026-10-02 — Raise the P18 farm ceiling for the shared panel
+
+**Verdict.** The orchestrator approved P18's generic performance follow-up: profile a realistic
+synthetic market, replace repeated frame/bar scans with one immutable columnar panel shared by
+forked workers, and preserve existing outputs byte for byte.
+
+**Rule changes.** P18 also admits the two identity-bound event evaluation controls recorded in its
+standard: unevaluable window-end exits and an optional complete held-price path. Their defaults
+retain the existing simulation bytes and identity.
+
+**Ceiling changes.** Raise only P18's farm ceiling from 3,000 to 3,600 lines because the benchmark
+and reusable panel cannot fit in the remaining 104 lines. The final P18 farm total is 3,438 lines.
+
+## 2026-10-02 — Capture free Massive minute history for the small-stock tier
+
+**Verdict.** The owner requested the free plan's rolling two years of minute aggregates for the
+USD 1--5M MDV60 tier, plus SPY, QQQ, and IWM, so backtests can measure opening prices, pre-market
+activity, and intraday paths. The orchestrator fixed the universe, storage, pacing, window, resume,
+and priority rules and requested a running background checkpoint before acceptance review.
+
+**Rule changes.** P3 Phase 0 adds one isolated, host-only minute database and content-addressed
+cache. Every Massive caller shares one process-safe 13-second limiter; the minute capture cannot
+mutate operational prices, execution inputs, forward evidence, or private strategy artifacts.
+
+**Ceiling changes.** Add a 1,200-line code-and-test allowance for the three minute-lane files and
+the shared limiter integration. Repository-wide per-layer limits remain removed.
+## 2026-10-02 — Add SEC nightly bulk fundamentals and earnings timestamps to P3
+
+**Verdict.** The owner requested more free historical data for backtests. The orchestrator approved
+SEC `companyfacts.zip` and `submissions.zip`, including referenced older submission pages, as a
+bounded P3 phase using the existing private SEC contact and isolated host-only storage.
+
+**Rule changes.** The new phase owns only `engine/free_sec_bulk.py`, `tools/free_sec_bulk.py`,
+`tests/test_free_sec_bulk.py`, its P3 documentation, and `store/pit/sec-bulk.duckdb`. Filing
+acceptance is the availability clock, with filing-date end of day only when no matching acceptance
+exists; restatements remain separate. It may read the existing CIK history and market snapshot but
+must not mutate them, operational prices, registered files, or forward contracts.
+
+**Ceiling changes.** Add a 1,800-line code-and-test allowance for P3 SEC bulk work, split into
+commits below the repository's 1,500-insertion limit.
+
+## 2026-10-03 — Start the offline market-data auditor
+
+**Verdict.** The owner directed the agent to review the market-data auditor handoff and start
+working on it, set a goal and complete it, with subagents permitted. The orchestrator resolved
+the technical scope to the smallest offline slice in P19 after checking the current baseline.
+
+**Rule changes.** P19 is active for independent-reference coverage, explicit unknown evidence,
+a separate JSON/Markdown sidecar and a fictional native-evaluator omission demonstration.
+It does not alter existing evaluator behavior, identities, reports, holdouts, producers or data.
+Real-data integration and visual/hosted product work remain outside this slice.
+
+**Budget.** P19 allows 1,800 farm lines, 1,200 test lines, 600 documentation lines and five logical
+implementation commits, each below the existing 1,500-insertion cap.
+
+**Verification follow-up.** The orchestrator increased P19 to six logical commits to include
+the documentation-index correction required by full CI and final publication closure. No code,
+test, documentation-line or product scope expanded.
+
+## 2026-10-05 — Review the engine and paper dashboard with independent checks
+
+**Verdict.** The owner requested separate improvements to alpha, data and the main trading
+engine, verification against real host data, complete documentation and independent review.
+The public infrastructure work is admitted by P20; private alpha and backup work stay separate.
+
+**Rule changes.** P20 admits reproduced shared-study defects, existing dashboard reliability
+and setup fixes, and documentation reconciliation. Read-only host verification uses the API
+and published snapshots. Frozen policies and evidence, producer authority, inactive plans and
+broker restrictions remain unchanged. Review agents do not invoke production model policies.
+
+**Budget.** Five logical commits, each under the existing 1,500-insertion limit.
+
+## 2026-10-05 — Fix the remaining issues and prove separate strategy accounts
+
+**Verdict.** After P20, the owner requested every remaining issue be addressed and clarified
+that each alpha account must keep its own stocks and other state, with many strategies running
+at once. The owner also required host work to be published and reconciled before local changes
+are deployed. No Trae models are permitted.
+
+**Rule changes.** P21 admits the bounded operational corrections, complete verifier evidence,
+explicit queue resolution audit, capture reliability, behavior-preserving complexity extraction,
+and proof/fixes of existing portfolio isolation. Independent strategy evaluation may run in
+parallel; committed holdings, orders, fills, cash and equity stay isolated by account identity
+and use one DuckDB writer. Frozen rules/evidence and broker restrictions remain unchanged.
+Changed registered source files require the established new-revision rehearsal, never a hash-gate
+bypass. Private research stays separate from public infrastructure.
+
+**Budget.** Eighteen logical commits below 1,500 insertions each; 4,500 added test/documentation
+lines. Existing complexity threshold and repository hygiene limits remain unchanged.
+
+**Account clarification.** New paper accounts use independently funded USD 10,000, 50,000 or
+100,000 tiers. The private alpha layer owns generation, feasibility planning and versioned
+trade specifications across asset classes; the engine owns balance/execution/position/fill/equity
+state. Existing balances and registered sizing stay unchanged. An unsupported instrument must
+be explicitly refused, never run through stock arithmetic. New accounts start inactive.
+
+
+**Acceptance correction budget.** Full-metadata integration exposed three defects: the board's
+aggregate file-size limit, the monitor's legacy truncation requirement and the recovery-bundle
+metadata limit. The orchestrator extended P21 from 18 to 20, then 21 logical commits. The
+registered backup correction must first land as source commit 20; revision 12 binds that exact
+commit and lands with closure as commit 21. The existing source-commit assertion is preserved;
+no hash bypass or self-referential identity is introduced. Both commits are published together.
+Scope, trading authority, the 4,500 test/documentation-line budget and the 1,500-insertion
+per-commit limit are unchanged.
+
+## 2026-10-08 — P22 lifecycle round 2 (binding orchestrator rulings)
+
+Deploy no earlier than Sunday 2026-10-18, with parameterized D0 2026-10-19,
+after lifecycle regressions and the store-copy rehearsal pass. The integration
+orchestrator owns the P15 re-pin; this lane leaves its revision unchanged.
+
+1. Accounts are independently funded. Remove the shared gross exposure cap and
+   its refusal. Keep each account's default 1.0× gross limit (maximum 1.5×),
+   rechecked using marks observable at the fill timestamp. Concentration remains
+   an alert only; aggregate 1%-of-MDV60 liquidity follows global receipt order.
+2. Use one source-aware valuation in settlement, late settlement, margin and API
+   reads. Carry the last observed price, falling back to a fill, and flag it stale.
+   Refuse with a reason only when no price was ever observed; never erase a liability.
+3. Reconcile money within $0.005 per account and align financing/fill event order.
+   Exact floating-point hashes do not decide reconciliation.
+4. Halt/cancel do not attach market stores. Source reads retry writer contention
+   with backoff and defer only dependent accounts with a logged reason.
+5. Captured corporate actions change signed positions, lots, orders and replay,
+   independently of operational prices coverage. Account dividends transact with
+   account settlement; legacy reruns and dividend processing exclude accounts.
+6. Late settlement processes every unresolved session oldest-first, refreshes
+   carried marks without requiring a fill, and recomputes dependent later state,
+   verification, halts and maintenance.
+7. A contingent close cannot exceed its requested quantity, parent fill or holdings.
+   Borrow and margin interest continue during retirement until flat.
+8. The late CLI exits nonzero on any account error. Migration preserves v1 league
+   routing, reports proposed route changes and requires --allow-routing-change
+   before changing any route.
+
+
+## 2026-10-08 — P22 lifecycle round 3 (binding orchestrator rulings)
+
+The third review requires one chronological, corporate-action-aware accounting path for
+settlement, late recovery and results. Existing portfolios retain their fill routes at migration;
+commissions apply through those routes and only new accounts use the account engine. Migration
+breaks read the deployed P15 revision from its registration (revision 14, not yet deployed).
+Financing uses marks observable at its event timestamp and precedes execution checks that see
+its debit. Interest checkpoints advance even when cash is positive. Failed recovery verification
+rolls back the reconstructed state, reports an account error and makes the CLI exit nonzero.
+The lifecycle lane owns these corrections, revision 14 re-pinning, and a complete disposable-store
+deploy/rollback rehearsal for Sunday 2026-10-18, D0 2026-10-19. Live stores and units stay untouched.
+
+## 2026-10-08 — P22 lifecycle round 4 (binding orchestrator rulings)
+
+The fourth review admits consolidation of P15 sizing/cash, dividend entitlement, risk history
+and verification into the shared chronological ledger. P15 validation calls the executor's
+fee-aware sizing with its effective profile and prior fees; pre-D0 behavior stays exact.
+Dividends use signed holdings at the preceding close and historical corporate-action units.
+Resumes and halts replay as ledger events. Verification reconciles lots, cash and source-marked
+equity within $0.005 and durably halts mismatches. FIFO PDT preview, optional whole_shares and
+executable runbook bash blocks are included. Revision 14 is re-pinned while undeployed; scoring,
+labels, gates and schedules stay frozen. Rehearsal must cross D0 for legacy books and roll back
+to origin/main revision 13. Deploy remains October 18, D0 October 19; live state stays untouched.
+
+## 2026-10-09 — P22 lifecycle round 5 (binding orchestrator ruling)
+
+Every historical event uses one rule: verify retained state, rewind to the last verified
+checkpoint before its effective time, replay fills, actions, financing, marks and risk
+transitions chronologically, verify, and commit atomically. Failure preserves the old state
+and mismatch evidence, halts the account and exits nonzero. Nightly retries verify before
+replacing checkpoints. FIFO matches alone record day trades; elapsed debit interest precedes
+opening cash movements. Revision 14 may be re-pinned while undeployed. Deployment remains
+October 18 with D0 October 19; this lane pushes PR #13 without merging or touching live state.
+
+## 2026-10-10 — P22 lifecycle round 6 (binding orchestrator rulings)
+
+These rulings supersede the earlier checkpoint and historical-risk rules.
+Deploy target remains Sunday 2026-10-18, D0 2026-10-19.
+
+A. **Accounting is one pure fold from account inception.**
+`state = fold(all effective-dated events of the account)`: fills, corporate actions,
+cash settlements, dividends, financing and fees. Replay the whole account every settle
+(nightly, late, verify and `/results`). Stored cash, lots and equity are a cache written
+atomically from the fold and verified against it. Delete partial checkpoint restoration.
+Every event has a stable identity from its full key, including its date; a per-date
+sequence number alone is never an identity.
+
+B. **Orders keep receipt units.** Store an order in the units in force at receipt and
+convert to its execution session's units inside the fold. A pre-split MOO filled late
+fills its pre-split quantity; the later split applies exactly once.
+
+C. **Risk acts as-known, never backdated.** Halts and resumes take effect when processed.
+API resume is effective at receipt and rejects a past effective time. After every settle,
+run risk on corrected history as of now: drawdown from the corrected peak re-measured
+from the latest resume, daily loss for the latest settled session, and fold/cache mismatch.
+Late data never un-fills orders already executed while active. Delete historical-risk replay.
+
+D. **Any failure halts.** Any exception during fold, settle or verify rolls back the
+transaction, then persists mismatch evidence and halts in a separate transaction.
+Nightly and late entry points exit nonzero.
+
+## 2026-10-15 — Accept engine v2; land the revision-14 fixes before the Sunday deployment
+
+**Verdict.** The owner accepted engine v2 (P22): "we support the v2, I accept it." The pending
+revision-14 fixes go into v2 before the planned deployment on Sunday 2026-10-18.
+
+**Orchestrator acceptance.** P22 lifecycle round 6 (`42083c4`, PR #13 on `p22/lifecycle`) is
+accepted: CI green under both supported timezones with 4,728 tests. Lanes L0–L4 were accepted
+earlier; the private-alpha lane stays held for the post-deploy cutover.
+
+**Rule changes.**
+
+1. P22 deploys in the Sunday 2026-10-18 19:00–23:00 UTC window with D0 2026-10-19, using the
+   deployment and rollback commands in `settlement-runbook.md`, after the final revision-14
+   source passes both timezone suites and the store-copy rehearsal. → P22 plan progress.
+2. The revision-14 defect fixes are admitted into P22: the "Proposed, not approved" lines of
+   2026-10-10 and 2026-10-15 in `scope.md` and the further defects listed in the P22 plan
+   progress. Each lands on `p22/lifecycle` with its reproduction in BUILDLOG. Revision 14 and the
+   frozen runtime contracts are re-pinned once, while still undeployed, after the last fix.
+   → `scope.md`, P22 plan progress.
+
+## 2026-10-15 — Close out a delisted holding at its last real traded close
+
+**Verdict.** "A delisted holding is removed: closed out at its last real traded close."
+
+**Rule change.** A held name that has stopped trading is no longer carried at its last close
+until someone supplies settlement terms. The engine removes the position, crediting or debiting
+it at the name's last real traded close, for every book type through the v2 ledger and settlement
+path so replay reproduces it. This replaces the "needs a human decision" carried mark in
+`sim/league.py` and the settlement runbook's "the position stays open and stale". How a delisting
+is detected is a technical decision for the orchestrator. → `product.md`; a P22 fix lane implements it
+before deployment and updates the runbook in the same change.
+
+## 2026-10-21 — Senior-quant review: fix the pipelines, make it faster, find strategies
+
+**Verdict.** The owner asked the orchestrator to act as a senior quant: spread many agents out
+to evaluate and fix the pipelines, improve speed (nightly wall-clock, simulator and backtest
+core, test suite and research evaluators), make alpha generation and the engine work properly,
+and send agents to find new strategies (SEC filings and LLM text, microstructure and auction,
+cross-asset ETF, momentum, and a literature sweep). "You can do anything you want, as long as
+you feel it needs fixing; no need to ask me anything; you can just push."
+
+**Rule change.** P24 is active under this approval (`docs/plans/p24-quant-review-and-speed.md`).
+Work inside its scope is admitted without a per-item reproduction, but every fix still carries
+its evidence in BUILDLOG and every speed change proves identical outputs. The absolute rules in
+`AGENTS.md` are unchanged. → P24 plan, `docs/plans/README.md`.
+
+
+## 2026-10-22 — Make the goal and the current direction clear in every entry doc
+
+**Verdict.** "make sure the docs and everything context wise is clear and we know what we are
+building and the end goal and what we want."
+
+**Rule change.** Every agent entry doc states the goal and the current direction, consistent with
+`product.md`. One opening block, word for word, heads `AGENTS.md`, `README.md` and
+`docs/README.md` here and the private alpha repo's `AGENTS.md` and `README.md`; the end goal is
+stated once, in `product.md`'s north star, and other documents link to it instead of restating
+it. `product.md` lists "What the owner wants now" from this ledger, quoting the owner. →
+`AGENTS.md`, `README.md`, `docs/README.md`, `docs/product.md`.
+
+## 2026-10-29 — Switch the engine's model calls to GPT-6.1-Sol
+
+**Verdict.** "Switch the nightly [model calls] to GPT-6.1. Choose the effort level as needed.
+Make sure everything else is working fine."
+
+**Rule change.** The engine's model calls (P15 scoring, pre-open and events; the daily, hourly
+and four-hour opportunity calls) move from GPT-5.6-Sol:max to GPT-6.1-Sol:max. Effort, chosen
+by the orchestrator: high for the once-a-day decisions (scoring, pre-open, daily opportunity),
+medium for the 15-minute event scorer and the hourly and four-hour observers. This amends the
+frozen-model condition of the P15 registration as a disclosed owner-directed model amendment
+(revision 20): every decision keeps the model it was made with, and decisions before the switch
+stay attributed to GPT-5.6-Sol:max and are never relabelled. The registered tests stay pooled
+under unchanged rules, with a post-switch stratum reported beside them as a diagnostic. Live
+forward decisions are after any training cutoff, so the after-cutoff rule holds; GPT-6.1-Sol's
+training cutoff is recorded as unknown. P7's manifest still binds the GPT-5.6-Sol:max identities
+and reports that dependency as blocked until P7 is registered on the new model. →
+`server/p15-registration.json`, `server/agent_model_client.py`, `product.md`.
+
+## 2026-11-01 — Keep data free, allow the research text dependencies
+
+**Verdict.** "for the data we want to keep it free for now, since we should be able to trade on
+public data, i dont even want to add API keys. for the research we will allow it."
+
+**Rule change.** Three open owner decisions close. P3 data budget: no paid data, so Sharadar and
+Norgate are not bought and pre-2024-10 survivor-free research stays limited to free sources. Free
+API keys: none added, so Alpaca, Finnhub and Alpha Vantage stay out and free bulk archives and
+scraping remain the news sources. Keys already in use are not affected by this ruling. The
+`research-text` dependency group (`torch`, `transformers`, in its separate virtual environment) is
+approved for P16 W4, which no longer has to stop after building the corpus. → `product.md`.
+
+## 2026-11-01 — The orchestrator may deploy the revisions a batch needs
+
+**Verdict.** "you can deploy any revisions u need"
+
+**Rule change.** For the 2026-11-01 engine issue batch, the orchestrator owns deploying revision 21
+and any other revision the batch needs. No gate is relaxed: revision 21 still waits until after
+2026-11-03 06:30 UTC, stays outside 22:15-23:59 UTC and follows its checklist, and the limits on
+producers, calendar-bound records, trials and the live store still hold.
+
+## 2026-11-03 — Hold revision 21 while trial 375 reads schema-1 snapshots
+
+**Verdict.** Decided by the owner's delegate Claude session under the owner's 2026-11-03 delegation,
+quoted: "for the ochestrator you can do ayinth no need to ask me". The delegate decided: hold revision
+21 and the stacked follow-up revision. An earlier "Hold r21" answer in the orchestrator's question
+dialog was a watcher keystroke, not the owner's answer, and is not recorded as one.
+
+**Rule change.** Revision 21 is not deployed, although its time gate has passed. It publishes
+manifest-schema-2 generations, while the private trial 375 runner's frozen code accepts only schema-1
+snapshot manifests, so a deploy would make its weekly signal refuse. The revision-21 checklist's
+pre-flight 6 forbids a deploy until every schema-1 consumer supports generations. Amending the live
+trial's frozen code is forbidden once results exist, and a full schema-1 copy beside the generations
+would breach the 70 GiB reserve. `r21/integrate` stays merged with main and green (`7da3d72a`); the
+stacked fixes (`fix/p15-lock`, `fix/tv-verify-pinned`) wait with it. Owner-level questions from
+orchestrator sessions go to the delegate session as plain text, not through a question dialog.
+
+## 2026-11-12 — Share and expire automatic no-bars split retries
+
+**Verdict.** The orchestrator accepts the revision-21 capacity integration except its retry
+selection: three permanently refused rows can starve later repairable splits and fetch forever.
+
+**Rule change.** The undeployed revision-21 amendment rotates three-candidate groups by the UTC
+weekday reconciliation index, matching the scheduled nightly, and restricts automatic retries
+to ex-dates at most 60 days old. Older skips remain available to manual repair and are counted
+once per run in the summary. Complete source proof, retained refusal evidence, statistical
+values and the three-history per-night bound stay unchanged. Re-pin the runtime identities and
+P15 once, then repeat both timezone suites and the reduced rehearsal before acceptance.
+
+## 2026-11-13 — Preserve collection in the undeployed storage revision
+
+**Verdict.** At about 03:40 UTC the owner said: "why pause trading view? just get data as much as you need."
+
+**Rule change.** The orchestrator applies this decision to all three collection pauses proposed
+by undeployed revision 21: TradingView daily history, Massive options and the five macro series
+(gex, pc_total, aaii_bull, free_credit, cot_es_lev_net). Revision 21 pauses no collection relative
+to deployed revision 20; retained one-flag switches stay enabled. TradingView is quiesced only
+for deploy and resumes at release through the normal parent queue. The existing options timer
+hold for provider responses, storage/publication controls and window rules remain as deployed.
+Remove the TradingView-pause sign-off; re-pin revision 21 once and verify both timezone suites
+and the stub deploy/rollback rehearsal before acceptance. → `revision-21-storage-deploy-checklist.md`.
+
+
+## 2026-11-13 — Require exact deployed predecessor metadata and reader proof before release
+
+**Verdict.** The revision-21 independent review rejected sector/XS migrations comparing the
+published predecessor with the current file list, and deploy releasing producers before the
+checklist's frozen-reader and live-287 import proofs.
+
+**Rule change.** Pin the deployed digest and file list separately, retaining every evidence
+comparison; execute both existing read-only proof blocks after first publication and before
+release, retain their outputs, and keep producers quiesced on failure. Re-pin once and verify
+both timezone suites. This lane commits only in its clone; merge and deployment remain with
+the orchestrator. → revision-21 deploy checklist and script.
+
+## 2026-11-13 — The orchestrator directs Codex sessions
+
+**Verdict.** "ok we can change to claude prompting codex"; the owner leaves the choice of worker
+model to the orchestrator ("use the best model you deem needed").
+
+**Rule change.** `AGENTS.md` names the orchestrating setup as Claude directing Codex or other
+sessions, without a model version, and its closing heading reads "Absolute rules". Decision rights
+are unchanged: the orchestrator owns technical decisions and the owner owns product questions.
+
+## 2026-11-19 — The engine recovers from a stalled run by itself
+
+**Verdict.** The 2026-11-13 nightly hung for five days and nobody saw it. "make sure that the
+trading engine is running well and that it stops randomly stopping", and "make sure that we
+also have some self recovery in place that auto fixes when it breaks".
+
+**Rule change.** Scheduled work may now be restarted automatically: the driver watchdog
+terminates a cron driver that is idle past its declared runtime, clears failed engine units and
+runs one catch-up nightly when it can end before the pre-open. Diagnoses stay read-only
+everywhere else. → `tools/driver_watchdog.py`, `docs/operate/how-it-works.md` (Scheduled work).
