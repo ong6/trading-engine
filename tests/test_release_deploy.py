@@ -1115,6 +1115,20 @@ def test_release_restores_exact_activation_and_crontab_with_autopush_held(tmp_pa
             "UnitFileState": "enabled",
             "MainPID": "17",
         },
+        # captured mid-run: a one-shot its timer owns
+        "store-sync.timer": {
+            "LoadState": "loaded",
+            "ActiveState": "active",
+            "UnitFileState": "enabled",
+            "MainPID": "0",
+            "Triggers": "store-sync.service",
+        },
+        "store-sync.service": {
+            "LoadState": "loaded",
+            "ActiveState": "active",
+            "UnitFileState": "static",
+            "MainPID": "18",
+        },
     }
     host_state = tmp_path / "host.json"
     host_state.write_text(json.dumps({"units": units}))
@@ -1156,6 +1170,8 @@ def test_release_restores_exact_activation_and_crontab_with_autopush_held(tmp_pa
     operations.transaction_lock_held = True
     result = operations.release_producers(state, include_autopush=False)
     assert result["autopush_held"] is True
+    assert "store-sync.service" not in result["services_started"]
+    assert "store-sync.timer" in result["timers_started"]
     observed = json.loads(host_state.read_text())["units"]
     assert observed["trading-engine-api.service"]["ActiveState"] == "active"
     assert observed["trading-engine-ui.service"]["ActiveState"] == "active"
@@ -2291,10 +2307,17 @@ def test_common_semantics_reject_killed_evidence_for_adapter_none(tmp_path, monk
         for key, version in semantic["runtime_versions"].items()
     }
     meta["forward_review"]["status"] = "KILLED"
-    with pytest.raises(release_deploy.DeployError, match="not accumulating"):
+    with pytest.raises(release_deploy.DeployError, match="forward evidence changed"):
         operations._common_semantics(state, meta, rolled_back=False)
     meta["forward_review"]["status"] = "ACCUMULATING"
     assert operations._common_semantics(state, meta, rolled_back=False)["evidence"] == "valid"
+    # a record that already read REVIEW-KILL before the release may keep reading it
+    state.inventory["predeploy_meta"] = {"xs_forward_review": {"status": "REVIEW-KILL"}}
+    meta["xs_forward_review"]["status"] = "REVIEW-KILL"
+    assert operations._common_semantics(state, meta, rolled_back=False)["evidence"] == "valid"
+    meta["xs_forward_review"]["status"] = "INVALID"
+    with pytest.raises(release_deploy.DeployError, match="forward evidence changed"):
+        operations._common_semantics(state, meta, rolled_back=False)
 
 
 def test_route_verification_rejects_http_200_error_shell(tmp_path, monkeypatch):

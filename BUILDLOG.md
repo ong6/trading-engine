@@ -739,4 +739,19 @@ earlier logs listed in that index.
 - **Metrics:** tools +10 lines, tests +20.
 - **Next:** verify revision 27 and release producers.
 
+## 2026-11-23 — Release verify judges frozen records and timer-owned services correctly
+
+- **Why:** reproduced on the host during the revision-27 release. `verify` refused with "forward
+  evidence is not accumulating" because the cross-sectional record correctly reads REVIEW-KILL
+  under its frozen rule. A retry then restarted `store-sync.service`, a one-shot its timer owns
+  that was mid-run at capture, found it finished, called that "not restored" and re-quiesced the
+  host.
+- **What:** each forward record must keep the status captured before the release and never read
+  INVALID. Services a captured timer triggers are left to their timer: not started, not stopped,
+  not checked.
+- **Evidence:** `pytest -q -W error tests/test_release_deploy.py` passes under `TZ=UTC` and
+  `TZ=Asia/Singapore` (REVIEW-KILL unchanged passes, INVALID refuses, a triggered one-shot is skipped).
+- **Metrics:** tools +15 lines, tests +25.
+- **Next:** deploy `main` through the deployer.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

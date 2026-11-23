@@ -1978,8 +1978,15 @@ print(json.dumps(applied, sort_keys=True))
         self, state: ReleaseState, meta: dict[str, Any], rolled_back: bool
     ) -> dict[str, Any]:
         keys = ("forward_review", "xs_forward_review", "e1_forward")
-        if any(meta.get(key, {}).get("status") != "ACCUMULATING" for key in keys):
-            raise DeployError("forward evidence is not accumulating")
+        # A release must not change what a frozen record says: each status matches the one
+        # captured before the release (a record may legitimately read REVIEW-KILL), and none
+        # is missing or INVALID.
+        before = (state.inventory or {}).get("predeploy_meta") or {}
+        for key in keys:
+            status = meta.get(key, {}).get("status")
+            prior = before.get(key, {}).get("status")
+            if status in (None, "INVALID") or status != (prior or "ACCUMULATING"):
+                raise DeployError(f"forward evidence changed: {key} is {status}, was {prior}")
         expected = state.inventory["registration"] if rolled_back else state.prepared["semantic"]
         registration_path = Path(state.repo_root) / "server/p15-registration.json"
         registration = json.loads(registration_path.read_text())
@@ -2111,11 +2118,20 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
         units = state.inventory["units"]
         if not isinstance(units, dict) or any(UNIT_NAME.fullmatch(name) is None for name in units):
             raise DeployError("saved unit inventory is invalid")
+        # A service a timer triggers belongs to its timer: it was "active" at capture only if
+        # it happened to be mid-run, and a one-shot finishes seconds after a restart.
+        triggered = {
+            service
+            for name, values in units.items()
+            if name.endswith(".timer")
+            for service in str(values.get("Triggers", "")).split()
+        }
         desired = {
             name
             for name, values in units.items()
             if values.get("ActiveState") in ACTIVE_STATES
             and (include_autopush or name not in AUTOPUSH_UNITS)
+            and name not in triggered
         }
         discovered = self._unit_names()
         unexpected = {
@@ -2132,7 +2148,7 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
         }
         unexpected_active = {
             name
-            for name in loaded - desired
+            for name in loaded - desired - triggered
             if self._unit_properties(name).get("ActiveState") in ACTIVE_STATES
         }
         services = [
@@ -2142,6 +2158,7 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
             and values.get("ActiveState") in ACTIVE_STATES
             and (include_autopush or name not in AUTOPUSH_UNITS)
             and name not in {"trading-engine-api.service", "trading-engine-ui.service"}
+            and name not in triggered
         ]
         timers = [
             name
@@ -2157,7 +2174,7 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
             if timers:
                 self._systemctl("start", *sorted(timers))
             self._restore_crontab(state.inventory["crontab"])
-            for name in sorted(loaded):
+            for name in sorted(loaded - triggered):
                 active = self._unit_properties(name).get("ActiveState") in ACTIVE_STATES
                 if active != (name in desired):
                     raise DeployError(f"saved activation state was not restored: {name}")
