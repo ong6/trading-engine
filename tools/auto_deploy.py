@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -510,9 +511,9 @@ class Deployer:
             shutil.rmtree(self.worktree, ignore_errors=True)
         self.git(self.mirror, "worktree", "prune")
         self.git(self.mirror, "worktree", "add", "-q", "--detach", str(self.worktree), target)
-        # The gate's environment check needs the checkout's interpreter. Dependency changes are
-        # refused before this point, so the live environment is the target's environment.
-        venv = self.root / ".venv"
+        # The gate and the forward tests need pytest, which the production environment lacks:
+        # link the deployer's own check environment (the target's lock plus the dev extra).
+        venv = self.check_venv(self.worktree)
         if venv.exists():
             exclude = Path(self.git(self.mirror, "rev-parse", "--git-common-dir"))
             exclude = (exclude if exclude.is_absolute() else self.mirror / exclude) / "info/exclude"
@@ -523,6 +524,24 @@ class Deployer:
             (self.worktree / ".venv").symlink_to(venv.resolve())
         return self.worktree
 
+    def check_venv(self, worktree: Path) -> Path:
+        """``state_dir/check-venv``: the worktree's frozen lock with the dev extra, rebuilt only
+        when ``uv.lock`` changes (dependency ranges are refused, so it matches production)."""
+        venv = self.state_dir / "check-venv"
+        lock = worktree / "uv.lock"
+        stamp = venv / ".uv-lock-sha256"
+        digest = hashlib.sha256(lock.read_bytes()).hexdigest() if lock.exists() else ""
+        if stamp.exists() and stamp.read_text().strip() == digest:
+            return venv
+        uv = shutil.which("uv") or str(Path.home() / ".local/bin/uv")
+        done = self.run([uv, "sync", "--frozen", "--extra", "dev", "--quiet"], cwd=worktree,
+                        env={"UV_PROJECT_ENVIRONMENT": str(venv)}, timeout=1800)
+        if done.returncode:
+            raise Stop("skipped", "check-venv", error=(done.stderr or done.stdout)[-300:])
+        stamp.write_text(digest + "\n")
+        self.steps.append("check-venv:built")
+        return venv
+
     def gate(self, worktree: Path, deployed: str) -> dict:
         done = self.run([sys.executable, "-m", "tools.deploy_gate", "--check", str(worktree),
                          "--base", deployed, "--engine-root", str(self.root),
@@ -532,7 +551,8 @@ class Deployer:
         if done.returncode:
             raise Stop("needs-human", "gate-refused", exit=done.returncode, tail=tail)
         with tempfile.TemporaryDirectory(prefix="auto-deploy-tests-") as private:
-            tests = self.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+            tests = self.run([str(worktree / ".venv/bin/python"), "-m", "pytest", "-q",
+                              "-p", "no:cacheprovider",
                               "-n", "2", *FORWARD_TESTS], cwd=worktree,
                              env={"PYTHONPATH": str(worktree), "TMPDIR": private,
                                   "PYTHONDONTWRITEBYTECODE": "1"}, timeout=3600)

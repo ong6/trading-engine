@@ -79,6 +79,9 @@ class FakeDeployer(auto_deploy.Deployer):
     def disk_problem(self):
         return self.low_disk
 
+    def check_venv(self, worktree):
+        return self.root / ".venv"
+
     def host_healthy(self):
         self.calls.append("healthy?")
         return self.healthy
@@ -599,3 +602,26 @@ def test_a_rollback_drill_rolls_back_a_good_deploy(host):
     assert decision.label == "rolled-back" and "rollback drill" in decision.detail["error"]
     assert deployer.calls[-3:] == ["--apply", "post-check", "--apply"]
     assert _git(host["live"], "rev-parse", "HEAD") == before
+
+
+def test_check_venv_is_built_once_per_lock(host, monkeypatch):
+    worktree = host["tmp"] / "wt"
+    worktree.mkdir()
+    (worktree / "uv.lock").write_text("lock-1\n")
+    deployer = auto_deploy.Deployer(engine_root=host["live"], state_dir=host["tmp"] / "state",
+                                    logs_dir=host["tmp"] / "logs")
+    calls = []
+
+    def run(argv, *, cwd, env=None, timeout=600):
+        calls.append((argv[1:3], env["UV_PROJECT_ENVIRONMENT"]))
+        pathlib.Path(env["UV_PROJECT_ENVIRONMENT"]).mkdir(parents=True, exist_ok=True)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    import pathlib
+    deployer.run = run
+    venv = deployer.check_venv(worktree)
+    assert venv == host["tmp"] / "state/check-venv"
+    assert deployer.check_venv(worktree) == venv and len(calls) == 1  # reused while unchanged
+    (worktree / "uv.lock").write_text("lock-2\n")
+    deployer.check_venv(worktree)
+    assert len(calls) == 2 and calls[0] == (["sync", "--frozen"], str(venv))
