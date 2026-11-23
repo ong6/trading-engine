@@ -83,8 +83,8 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   paper-league, agent-service, UI/API, and authority-boundary reference.
 - [`settlement-runbook.md`](settlement-runbook.md) — manual adjudication of dead or
   untradeable positions.
-- [`revision-22-basis-recovery.md`](revision-22-basis-recovery.md) — basis recovery and the XS migration at release.
-- [`revision-21-storage-deploy-checklist.md`](revision-21-storage-deploy-checklist.md) — storage
+- [`revision-22-basis-recovery.md`](history/revision-22-basis-recovery.md) — basis recovery and the XS migration at release.
+- [`revision-21-storage-deploy-checklist.md`](history/revision-21-storage-deploy-checklist.md) — storage
   revision deploy and rollback checklist with its store-copy rehearsal (blocked).
 - [`../BUILDLOG.md`](../BUILDLOG.md) — v2 implementation log since 2026-09-18; earlier entries
   are in [`history/buildlog-2026-07-15-to-2026-09-17.md`](history/buildlog-2026-07-15-to-2026-09-17.md),
@@ -124,15 +124,15 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
 - `GET /research/readiness` and the dashboard readiness cards — live, read-only admission
   gates for stock-selection, fundamentals, and intraday research. They require both elapsed
   time and per-date breadth and never imply profitability or activate a strategy.
-- [`pit-free-audit-2026-10-01.md`](pit-free-audit-2026-10-01.md) — P3 Phase 0 snapshot of the
+- [`pit-free-audit-2026-10-01.md`](history/pit-free-audit-2026-10-01.md) — P3 Phase 0 snapshot of the
   free Tiingo security master against a consistent operational-store copy, including annual
   exact-ticker survivor gaps and the remaining free-source limits.
-- [`sec-free-audit-2026-10-01.md`](sec-free-audit-2026-10-01.md) — P3 Phase 0 Form 25 and insider
+- [`sec-free-audit-2026-10-01.md`](history/sec-free-audit-2026-10-01.md) — P3 Phase 0 Form 25 and insider
   coverage against the Tiingo master and a consistent operational-store copy, with explicit
   filing-date availability and symbol-quality limits.
-- [`frozen-archive-census-2026-10-02.md`](frozen-archive-census-2026-10-02.md) — P3's census of
+- [`frozen-archive-census-2026-10-02.md`](history/frozen-archive-census-2026-10-02.md) — P3's census of
   the 2017 frozen Kaggle archive; its delisted-name gate failed, so no price rows were ingested.
-- [`sec-bulk-audit-2026-10-02.md`](sec-bulk-audit-2026-10-02.md) — P3 nightly Companyfacts and
+- [`sec-bulk-audit-2026-10-02.md`](history/sec-bulk-audit-2026-10-02.md) — P3 nightly Companyfacts and
   Submissions coverage, ordered fundamental-tag fallbacks, ticker matching, and earnings-date
   overlap under the filing-acceptance availability rule.
 - The dated “Live decision checkpoint” in

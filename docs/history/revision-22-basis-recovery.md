@@ -18,7 +18,7 @@ passed the XS migration with every non-runtime section identical.
 
 After orchestrator merge and acceptance, run in the live checkout during a release window with
 producers idle, before allowing another producer run. Use the existing release-window and
-quiescence rules in the [runbook](settlement-runbook.md). The additional step between the pull
+quiescence rules in the [runbook](../settlement-runbook.md). The additional step between the pull
 and installer is the XS migration:
 
 ```sh

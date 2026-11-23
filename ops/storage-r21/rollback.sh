@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Storage revision 21 rollback (docs/revision-21-storage-deploy-checklist.md). Run from a fresh
+# Storage revision 21 rollback (docs/history/revision-21-storage-deploy-checklist.md). Run from a fresh
 # shell using the copy the deploy saved:   P21_STATE=<deploy state directory> bash "$P21_STATE/rollback.sh"
 #
 # The live checkout stays on branch main: when HEAD carries the approved merge, the rollback

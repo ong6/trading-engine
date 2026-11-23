@@ -148,7 +148,7 @@ alerting gap, not a code-path gap.
 **None.** No `tests/`, `conftest.py`, `test_*.py`, or `pytest` in requirements (`.pytest_cache/`
 is in `.gitignore`, suggesting it was once run ad hoc). Verification is "prove by running" on a
 store copy, logged in BUILDLOG, plus `sim/*_shakedown.py`, `farm/backtest/proofs.py`, and
-`docs/repro_fill_integer_clamp.py`. Those are excellent *integration* proofs but they need a
+`docs/history/repro_fill_integer_clamp.py`. Those are excellent *integration* proofs but they need a
 multi-GB store and are not repeatable by anyone else. Pure functions that deserve unit tests
 today: `sim/fills.py` (slippage, liquidity cap, integer clamp), `sim/portfolio.py`,
 `farm/stats.py` + `farm/backtest/stats.py`, `engine/lib/leverage.py` classifier,

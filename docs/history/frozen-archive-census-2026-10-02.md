@@ -179,4 +179,4 @@ python -m tools.free_frozen_archive store/pit/frozen-archive/<sha256>.zip \
 ```
 
 <!-- sources: data-scout build 2 and Kaggle receipts; host-only frozen census;
-docs/pit-free-audit-2026-10-01.md; engine/free_frozen_archive.py -->
+docs/history/pit-free-audit-2026-10-01.md; engine/free_frozen_archive.py -->

@@ -4,7 +4,7 @@ fractional-share simulator. DIAGNOSIS ONLY — changes nothing, writes nothing.
 
 Runs entirely on an in-memory DuckDB. It never opens store/market.duckdb.
 
-    .venv/bin/python docs/repro_fill_integer_clamp.py
+    .venv/bin/python docs/history/repro_fill_integer_clamp.py
 
 Two cases, both taken from real lines in logs/run-2026-08-19.log:
 
