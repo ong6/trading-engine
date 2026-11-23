@@ -998,9 +998,8 @@ overall_seconds = 3000
 [jobs.retry]
 deadline_seconds = 3000
 
-[jobs.alert]
-severity = "WARN"
-grace_seconds = 300
+[jobs.run_record]
+retention_days = 14
 
 [jobs.legacy.service]
 unit = "trading-engine-auto-deploy.service"

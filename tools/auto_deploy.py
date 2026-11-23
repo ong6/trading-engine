@@ -52,7 +52,7 @@ from engine import job_contract
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import REPO_ROOT
 from server.driver_log import _lock_held
-from tools import affected_tests, backup_database, release_deploy, repin
+from tools import affected_tests, backup_database, release_deploy, repin, run_job
 
 JOB_ID = "auto-deploy"
 STATE_DIR = Path.home() / ".local/state/trading-engine/auto-deploy"
@@ -517,6 +517,8 @@ class Deployer:
         slot = started.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
         path = self.logs_dir / "job-runs" / JOB_ID / slot / run_id / "receipt.json"
         write_text_atomic(path, json.dumps(receipt, indent=1, sort_keys=True) + "\n")
+        if spec:  # 96 runs a day: keep only the registered retention
+            run_job.prune_receipts(path.parents[2], spec.retention_days, ended)
         state_path = self.state_dir / "state.json"
         try:
             state = json.loads(state_path.read_text())

@@ -304,3 +304,14 @@ def test_main_records_a_failed_decision(host, monkeypatch, capsys):
                              str(host["tmp"] / "state"), "--logs-dir", str(host["tmp"] / "l")])
     assert code == 1
     assert json.loads(capsys.readouterr().out)["decision"] == "failed:OSError"
+
+
+def test_receipts_match_the_registered_spec_and_are_pruned(host):
+    deployer = _deployer(host)
+    old = auto_deploy.Decision("skipped", "window")
+    stale = deployer.record(old, SAFE.replace(month=10), SAFE.replace(month=10))
+    fresh = json.loads(deployer.record(old, SAFE, SAFE).read_text())
+    assert not stale.exists()
+    spec = auto_deploy.job_contract.load_registry(auto_deploy.REPO_ROOT).get("auto-deploy")
+    assert fresh["spec_sha256"] == spec.spec_sha256
+    assert ops_digest.registered_receipt_alerts([fresh], SAFE) == ([], [], [])
