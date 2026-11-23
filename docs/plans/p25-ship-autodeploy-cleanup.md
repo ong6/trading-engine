@@ -84,3 +84,21 @@ re-pin per batch.
 A bad automatic deploy: the deployer runs the gate first, keeps the previous commit and unit
 state, and rolls back on a failed post-check. A pinned-set reduction that hides an evidence
 change: excluded files need a written proof, and the identity check still covers the rest.
+
+## Status
+
+Edited in place as items close.
+
+1. Done: revision 25 deployed (batch B, release-check and readiness fixes).
+2. Built and deployed as revision 26 in dry run: `tools/auto_deploy.py` with schedule-aware
+   mutation, refused-target memory, held-back dependency commits and self-heal; the nightly takes
+   only data-only commits. `--execute` goes on the timer after a supervised drill and one full
+   nightly cycle of correct dry-run decisions.
+3. Done: `tools/repin.py` reproduces the revision-25 pin byte for byte. The pinned set is
+   unchanged; narrowing it needs a write-path proof and is open.
+4. Done: `tools/land.py` lands a reviewed branch from any session.
+5. Done: agent-first docs (short `AGENTS.md` map, per-folder notes, task-organised `docs/`,
+   dated material under `docs/history/`).
+6. Open: backup retention and lane-clone retention.
+7. Open: code and branch cleanup.
+8. Open: the add-a-strategy-or-experiment path in `docs/extend/`.
