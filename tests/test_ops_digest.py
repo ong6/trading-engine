@@ -109,6 +109,8 @@ def _gateway_fetch(health):
         if url.endswith("/meta"):
             return 200, 40, json.dumps({"nightly": {"status": "ok"},
                                         "price_verification": {"status": "issues"}}).encode()
+        if url.endswith("/ready"):
+            return 200, 3, b'{"ok":true,"status":"current","reason":null}'
         return 200, 3, b"{}"
     return fetch
 
@@ -121,6 +123,41 @@ def _collect(tmp_path, journal, now=NOW):
     logs.mkdir(exist_ok=True)
     return ops_digest.collect(now=now, run=_fake_run(journal), fetch=_fetch, logs_dir=logs,
                               ops_dir=logs / "ops", db_path=tmp_path / "store.duckdb")
+
+
+def test_api_probe_keeps_liveness_and_readiness_separate():
+    calls = []
+
+    def fetch(url, timeout):
+        calls.append((url.removeprefix(ops_digest.API_URL), timeout))
+        return (503, 1, b'{"status":"not ready"}') if url.endswith("/ready") else _fetch(url, timeout)
+
+    probes, sections = ops_digest.probe(fetch)
+    assert calls == [("/health", 5), ("/ready", 5), ("/meta", 30)]
+    assert [p["http_status"] for p in probes] == [200, 503, 200]
+    assert sections["nightly"] == "ok"
+
+
+@pytest.mark.parametrize("http_status", [0, 503])
+def test_database_not_ready_is_a_digest_failure(tmp_path, monkeypatch, http_status):
+    original = _fetch
+
+    def fetch(url, timeout):
+        if url.endswith("/ready"):
+            return http_status, 1, b'{"status":"not ready"}'
+        return original(url, timeout)
+
+    monkeypatch.setitem(globals(), "_fetch", fetch)
+    monkeypatch.setattr(ops_digest, "latest_snapshot", lambda *_a, **_k: None)
+    [hour] = _collect(tmp_path, {})
+    assert hour["status"] == "FAIL"
+    findings = ops_digest.findings({
+        "signals": {}, "runs": [], "failed_runs": 0,
+        "probes": [{"target": "/ready", "http_status": http_status, "ms": 1}],
+    })
+    assert [(item["source"], item["severity"]) for item in findings] == [("probe:/ready", 3)]
+    report = (tmp_path / "logs" / "ops" / "latest.md").read_text()
+    assert "database not ready" in report
 
 
 def test_classify_and_signature():
@@ -1663,3 +1700,16 @@ def test_remembered_fail_does_not_invent_a_failure_in_a_silent_hour(tmp_path):
         assert item['alert']
     items, _ = ops_digest.classify_findings(start + timedelta(hours=24), [], state)
     assert items == []
+
+
+@pytest.mark.parametrize("readiness, severity", [
+    ({"ok": True, "status": "stale", "reason": "generation_stale"}, 0),
+    ({"ok": True, "status": "pending", "reason": "pending_timeout"}, 1),
+    ({"ok": True, "status": "pending", "reason": None}, 0),
+    ({"ok": False, "status": "verification_failed", "reason": "verification_failed"}, 3),
+    ({"ok": False, "status": "stale", "reason": "worker_stalled"}, 3),
+])
+def test_ready_probe_severity_follows_readiness_semantics(readiness, severity):
+    probe = {"target": "/ready", "http_status": 200 if readiness["ok"] else 503,
+             "ms": 1, "readiness": readiness}
+    assert ops_digest._api_probe_severity(probe) == severity

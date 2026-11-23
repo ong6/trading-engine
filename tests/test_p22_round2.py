@@ -137,6 +137,7 @@ class Harness:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('{"fixture": true}\n')
         publish_snapshot.publish_snapshot(self.root, self.market)
+        assert server_db.refresh_generation()
 
     def scalar(self, sql):
         with self.con() as con:

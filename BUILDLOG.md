@@ -5891,5 +5891,69 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `.venv/bin/python -m tools.affected_tests --run` passes.
 - **Metrics:** unchanged.
 - **Next:** integrate batch B and issue registration revision 25.
+## 2026-11-20 — Keep API liveness independent of snapshot verification
+
+- **Why:** revision-25 API latency reproduction on a published snapshot copy: cold
+  `server.main.health()` takes 10.13 s, including 9.97 s hashing 7.31 GiB of generation files;
+  the digest times out after 5 s. A verified generation's `/meta` takes 1.12 s.
+- **What:** make liveness an async, in-memory response; verify the first generation at
+  startup and pre-verify publications in a separate worker through the unchanged read gate.
+  Metadata is identical before/after and matches the captured JSON shape; normal requests
+  take 1.57 s, but a request racing publication verification still takes 10.83 s.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_api_latency.py tests/test_server_routes.py tests/test_meta_projection.py tests/test_server_db.py`
+  → 130 passed with a runner-only asyncio wakeup workaround; three regressions fail on main.
+  Both full timezone suites: 6,778 passed, six unchanged watchdog failures because the runner
+  hides inherited shell locks from `/proc/locks`; one failure also reproduced on main.
+- **Metrics:** server +20, tools 0, product 0 LOC versus the session's initial snapshot.
+- **Next:** blocked: orchestrator acceptance needs normal process-lock visibility and a
+  decision on the metadata latency boundary during publication verification.
+
+## 2026-11-20 — Serve verified generations while publication verification runs
+
+- **Why:** revision-25 round-two decision; the round-one snapshot-copy race took 10.83 s
+  because request readers still verified inline, and liveness alone hid database readiness.
+- **What:** retain a verified connection and lifetime pin, with independent request cursors;
+  switch only after background verification and keep prior requests pinned until close.
+  Cold data reads return not ready immediately; `/ready` reports the worker's readability
+  result, and its failure gives the digest the same severity as unavailable liveness.
+  Metadata retains every original value and adds served-generation pending fields; its
+  snapshot-copy publication race takes 2.01 s, with health/readiness below 1 ms.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 8` under UTC and Asia/Singapore
+  → 6,783 passed each; the six sandbox-only watchdog failures are accepted by the orchestrator.
+  Focused: 290 passed; corrected accounting/concurrent-reader fixtures: 32 passed per zone.
+- **Metrics:** server +154, tools +2, product 0 LOC versus the round-two initial snapshot.
+- **Next:** orchestrator acceptance and API restart.
+
+## 2026-11-20 — Report generation failures and bound verification retries
+
+- **Why:** revision-25 round-three review; tests on the round-two head reproduce silent
+  failed verification, per-poll retries, cursor timezone loss and missing health/lifetime guards.
+- **What:** report refresh errors/times, pending age and generation status; warn on actual
+  failures and retry after 60 seconds, doubling to a ten-minute cap or retrying a changed identity.
+  Readiness degrades for failure, pending past 15 minutes, the existing 3.5-hour stale budget,
+  a five-minute heartbeat gap or three query I/O errors in five minutes; digest severity follows it.
+  Reapply UTC/resource settings on cursors and finalize leaked leases; preserve coherent
+  continuous reads through the switch and clear active failure after successful verification.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0` on the focused API/readiness,
+  read-model, digest and account-reader tests → 315 passed under each timezone; 16 new
+  regressions fail on the round-two head. Full suite deferred to the orchestrator as instructed.
+- **Metrics:** server +180, tools +29, product 0 LOC versus the round-three initial snapshot.
+- **Next:** orchestrator full-suite acceptance and API restart.
+
+## 2026-11-20 — Readiness warns on normal staleness and retries one verification failure
+
+- **Why:** independent review of round 3: a served generation older than the 3.5 h evidence budget is
+  normal overnight and at weekends (publish-on-change runs only in US market hours; 3h53m and 4h05m
+  gaps on 2026-11-20), but readiness returned 503 and the digest would FAIL every night. A single
+  transient verification error also failed readiness at once, and a leased connection's finalizer could
+  deadlock on the non-reentrant selector lock.
+- **What:** `generation_stale` and `pending_timeout` keep `/ready` at 200 with `warning: true`; the
+  digest ignores `generation_stale` (the served `as_of` stays on `/meta`) and warns on `pending_timeout`.
+  `verification_failed` needs two consecutive failures (the retry backoff spaces them by at least 60 s).
+  The selector lock is reentrant. The stale check runs last, so a dead worker, read errors or
+  overdue verification are never masked by the stale warning (follow-up review).
+- **Evidence:** focused API, database, route, meta and digest tests pass under UTC and Asia/Singapore;
+  new tests pin the warning states, the probe severities and lock reentrancy.
+- **Next:** orchestrator full suite, then deploy with the revision-25 batch.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

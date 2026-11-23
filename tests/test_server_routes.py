@@ -10,7 +10,6 @@ from pathlib import Path as FilePath
 import duckdb
 import pytest
 from fastapi import HTTPException
-from fastapi.responses import JSONResponse
 
 from engine import schema_migrations
 from engine.lib.db import DBBusyError
@@ -519,36 +518,13 @@ def test_json_media_type_with_parameters_reaches_mutation_route(monkeypatch):
     assert connection.closed is True
 
 
-def test_health_ok_when_db_is_readable(monkeypatch):
-    monkeypatch.setattr(main, "read_con", lambda: _Con())
-    result = main.health()
-    assert result == {"ok": True, "status": "ok", "db_readable": True}
+@pytest.mark.parametrize("error", [DBBusyError("locked"), OSError("unreadable store")])
+def test_health_is_liveness_without_database_access(monkeypatch, error):
+    def unavailable():
+        raise error
 
-
-def test_health_projection_requires_exact_coherent_fields():
-    main._validate_health_payload({"ok": True, "status": "ok", "db_readable": True})
-
-    with pytest.raises(ValueError, match="projection shape"):
-        main._validate_health_payload(
-            {"ok": True, "status": "ok", "db_readable": True, "internal": True}
-        )
-    with pytest.raises(ValueError, match="projection is inconsistent"):
-        main._validate_health_payload({"ok": True, "status": "busy", "db_readable": False})
-
-
-def test_health_503_when_db_is_busy(monkeypatch):
-    def busy():
-        raise DBBusyError("locked")
-
-    monkeypatch.setattr(main, "read_con", busy)
-    result = main.health()
-    assert isinstance(result, JSONResponse)
-    assert result.status_code == 503
-    assert json.loads(result.body) == {
-        "ok": False,
-        "status": "busy",
-        "db_readable": False,
-    }
+    monkeypatch.setattr(main, "read_con", unavailable)
+    assert asyncio.run(main.health()) == {"ok": True, "status": "ok"}
 
 
 def test_database_busy_handler_returns_stable_503_without_internal_detail():
@@ -557,21 +533,6 @@ def test_database_busy_handler_returns_stable_503_without_internal_detail():
     assert result.status_code == 503
     assert b"database busy" in result.body
     assert b"private lock detail" not in result.body
-
-
-def test_health_503_when_database_is_unreadable(monkeypatch):
-    def broken():
-        raise OSError("sensitive filesystem detail")
-
-    monkeypatch.setattr(main, "read_con", broken)
-    result = main.health()
-    assert isinstance(result, JSONResponse)
-    assert result.status_code == 503
-    assert json.loads(result.body) == {
-        "ok": False,
-        "status": "unreadable",
-        "db_readable": False,
-    }
 
 
 def test_locked_get_uses_snapshot_header_and_evidence_after_a_write_reports_pending(
@@ -584,14 +545,15 @@ def test_locked_get_uses_snapshot_header_and_evidence_after_a_write_reports_pend
     _snapshot_cohort(root)
     publish_snapshot.publish_snapshot(root, source)
     monkeypatch.setattr(server_db, "DEFAULT_DB", source)
+    assert main._warm_generation()
     writer = duckdb.connect(str(source))
     try:
-        health_messages = asyncio.run(_request_messages("/health"))
-        health_start = next(
-            message for message in health_messages if message["type"] == "http.response.start"
+        snapshot_messages = asyncio.run(_request_messages("/league"))
+        snapshot_start = next(
+            message for message in snapshot_messages if message["type"] == "http.response.start"
         )
-        headers = dict(health_start["headers"])
-        assert health_start["status"] == 200
+        headers = dict(snapshot_start["headers"])
+        assert snapshot_start["status"] == 200
         assert headers[b"x-data-source"] == b"snapshot"
         assert b"x-snapshot-as-of" in headers
         assert headers[b"x-generation-id"].startswith(b"market-")
@@ -635,7 +597,7 @@ def test_locked_get_uses_snapshot_header_and_evidence_after_a_write_reports_pend
         writer.close()
 
 
-def test_board_past_its_budget_is_served_stale_and_health_degrades(monkeypatch, tmp_path):
+def test_board_past_its_budget_reports_staleness_while_health_stays_live(monkeypatch, tmp_path):
     root = tmp_path / "repo"
     source = root / "store" / "market.duckdb"
     source.parent.mkdir(parents=True)
@@ -643,6 +605,7 @@ def test_board_past_its_budget_is_served_stale_and_health_degrades(monkeypatch, 
     _snapshot_cohort(root)
     publish_snapshot.publish_snapshot(root, source)
     monkeypatch.setattr(server_db, "DEFAULT_DB", source)
+    assert main._warm_generation()
     # A weekend clock past the board budget, with a write the publisher has not caught up with.
     monkeypatch.setitem(server_db.DATASET_GENERATION_MAX_AGE, "board", timedelta(0))
     writer = duckdb.connect(str(source))
@@ -662,7 +625,8 @@ def test_board_past_its_budget_is_served_stale_and_health_degrades(monkeypatch, 
     health_body = json.loads(b"".join(
         message.get("body", b"") for message in health if message["type"] == "http.response.body"
     ))
-    assert health_body["status"] == "degraded" and health_body["ok"] is True
+    assert health_body == {"ok": True, "status": "ok"}
+    assert b"x-generation-stale" not in dict(health_start["headers"])
 
 
 @pytest.mark.parametrize("run_date", ["not-a-date", "20260909", "2026-W37-3"])

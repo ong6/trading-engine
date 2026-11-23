@@ -12,6 +12,14 @@ from engine.lib.db import DBBusyError
 from server import db
 
 
+@pytest.fixture(autouse=True)
+def isolated_generation_reader(monkeypatch):
+    reader = db._GenerationReader()
+    monkeypatch.setattr(db, "_generation_reader", reader)
+    yield
+    reader.close()
+
+
 def test_different_connection_configuration_is_busy(monkeypatch):
     def conflict(*args, **kwargs):
         raise duckdb.ConnectionException(
@@ -39,7 +47,8 @@ def test_unrelated_connection_failure_is_not_mislabeled_busy(monkeypatch):
     )
 
     with pytest.raises(duckdb.ConnectionException, match="corrupt database header"):
-        db.read_con()
+        db.refresh_generation()
+    assert db.readiness()["ok"] is False
 
 
 def test_missing_generation_never_opens_unversioned_primary(tmp_path, monkeypatch):
@@ -51,7 +60,7 @@ def test_missing_generation_never_opens_unversioned_primary(tmp_path, monkeypatc
         db.engine_db, "connect", lambda *_args, **_kwargs: opened.append(True),
     )
 
-    with pytest.raises(DBBusyError, match="no valid published generation"):
+    with pytest.raises(DBBusyError, match="not ready"):
         db.read_con()
     assert opened == []
 
@@ -75,13 +84,13 @@ def test_versioned_store_without_generation_fails_closed(tmp_path, monkeypatch):
     connection.close()
     monkeypatch.setattr(db, "DEFAULT_DB", Path(database))
 
-    with pytest.raises(DBBusyError, match="no valid published generation"):
+    with pytest.raises(DBBusyError, match="not ready"):
         db.read_con()
 
 
 def test_newest_generation_is_served_and_flagged_never_refused(monkeypatch, tmp_path):
     calls = []
-    connection = SimpleNamespace(close=lambda: None)
+    connection = duckdb.connect(":memory:")
     primary = tmp_path / "market.duckdb"
     primary.write_bytes(b"primary")
     monkeypatch.setattr(db, "DEFAULT_DB", primary)
@@ -102,6 +111,7 @@ def test_newest_generation_is_served_and_flagged_never_refused(monkeypatch, tmp_
     monkeypatch.setattr(db, "pin_latest_generation", pin)
     monkeypatch.setattr(db.engine_db, "connect", lambda *_args, **_kwargs: connection)
 
+    db.refresh_generation()
     with db.response_data_source() as state:
         db.read_con().close()
         board = state["generation"]
@@ -110,7 +120,7 @@ def test_newest_generation_is_served_and_flagged_never_refused(monkeypatch, tmp_
         db.read_con().close()
         evidence = state["generation"]
 
-    assert calls == [{}, {}]  # no freshness refusal for either dataset
+    assert calls == [{}]  # no freshness refusal for either dataset
     assert board["generation_id"] == "market-20261019T000000000000Z"
     # four hours old (past the evidence budget) but identical to the primary: not stale
     assert (board["stale"], board["pending_publication"]) == (False, False)
@@ -118,12 +128,14 @@ def test_newest_generation_is_served_and_flagged_never_refused(monkeypatch, tmp_
     assert evidence["budget_seconds"] == db.DATASET_GENERATION_MAX_AGE["evidence"].seconds
 
 
-def test_only_a_missing_generation_refuses(monkeypatch):
+def test_worker_failure_leaves_cold_read_not_ready(monkeypatch):
     monkeypatch.setattr(
         db, "pin_latest_generation",
         lambda *_a, **_k: (_ for _ in ()).throw(db.GenerationError("no valid published generation")),
     )
-    with pytest.raises(db.DBBusyError, match="no valid published generation"):
+    with pytest.raises(db.GenerationError, match="no valid published generation"):
+        db.refresh_generation()
+    with pytest.raises(db.DBNotReadyError, match="not ready"):
         db.read_con()
 
 

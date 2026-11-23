@@ -689,6 +689,7 @@ def test_evaluation_key_tracks_in_place_content_through_the_served_generation(
     at = datetime(2026, 10, 22, 15, tzinfo=timezone.utc)
 
     def served_key():
+        assert main._warm_generation()
         with server_db.read_con() as con:
             assert con.generation_info.source_snapshot["table_sha256"]
             return main._evaluation_generation_key(con, at)

@@ -304,8 +304,17 @@ def findings(data: dict) -> list[dict]:
     for probe in data["probes"]:
         if probe["ms"] > SLOW_PROBE_MS:
             add("probe:" + probe["target"], "response over 10 seconds")
-        if probe["target"] == "/health" and probe["http_status"] != 200:
-            add("probe:/health", "health unavailable", severity=3)
+        severity = _api_probe_severity(probe)
+        if severity:
+            reason = (probe.get("readiness") or {}).get("reason")
+            message = ("health unavailable" if probe["target"] == "/health" else {
+                "verification_failed": "generation verification failed",
+                "generation_stale": "served generation is stale",
+                "pending_timeout": "generation verification pending beyond its budget",
+                "worker_stalled": "generation worker heartbeat expired",
+                "read_errors": "recent database read I/O failures",
+            }.get(reason, "database not ready"))
+            add("probe:" + probe["target"], message, severity=severity)
     contract = data.get("contract")
     if contract and contract["status"] != "ok":
         for item in contract["violations"]:
@@ -1008,11 +1017,34 @@ def typical_seconds(db: sqlite3.Connection, unit: str, before: str) -> float | N
     return median(rows) if len(rows) >= 3 else None
 
 
+def _api_probe_severity(probe: dict) -> int:
+    """Readiness semantics distinguish overdue verification from a failed database."""
+    if probe["target"] not in {"/health", "/ready"}:
+        return 0
+    readiness = probe.get("readiness")
+    if probe["target"] == "/ready" and readiness is not None:
+        if readiness.get("reason") == "generation_stale" and readiness.get("ok") is True:
+            return 0  # normal outside market hours; the served as_of is reported on /meta
+        if readiness.get("reason") == "pending_timeout" and readiness.get("ok") is True:
+            return 1
+        if (type(readiness.get("ok")) is not bool or readiness["ok"] is False
+                or readiness.get("status") not in {"current", "ready", "pending"}):
+            return 3
+    return 3 if probe["http_status"] != 200 else 0
+
+
 def probe(fetch: Fetch) -> tuple[list[dict], dict[str, str]]:
     probes, sections = [], {}
-    for target, timeout in (("/health", 5), ("/meta", 30)):
+    for target, timeout in (("/health", 5), ("/ready", 5), ("/meta", 30)):
         status, ms, body = fetch(API_URL + target, timeout)
-        probes.append({"target": target, "http_status": status, "ms": ms})
+        item = {"target": target, "http_status": status, "ms": ms}
+        if target == "/ready" and status:
+            try:
+                readiness = json.loads(body)
+            except (ValueError, UnicodeDecodeError):
+                readiness = {}
+            item["readiness"] = readiness if isinstance(readiness, dict) else {}
+        probes.append(item)
         if target == "/meta" and status == 200:
             try:
                 meta = json.loads(body)
@@ -1394,12 +1426,13 @@ def collect_hour(
     failed_stages = [row for row in stages if row["exit"] != 0]
     errors = sum(sig.counts["error"] for sig in signals.values())
     warns = sum(sig.counts["warn"] for sig in signals.values())
-    health = next((p for p in probes if p["target"] == "/health"), None)
+    api_unavailable = any(_api_probe_severity(p) == 3 for p in probes)
+    api_pending = any(_api_probe_severity(p) == 1 for p in probes)
     gateway_status = gateway_report["status"] if gateway_report else "ok"
     if (failed or failed_stages or failed_job_receipts or config_errors
-            or (health and health["http_status"] != 200) or gateway_status == "fail"):
+            or api_unavailable or gateway_status == "fail"):
         status = "FAIL"
-    elif errors or warns or degraded or warned_job_receipts or receipt_projection_gaps or (
+    elif errors or warns or degraded or warned_job_receipts or receipt_projection_gaps or api_pending or (
             gateway_status == "warn") or any(
             (r["unit"] != DIGEST_UNIT and r.get("slow")) or r["result"] == SKIPPED_RESULT
             for r in runs) or any(
