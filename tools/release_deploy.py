@@ -257,7 +257,9 @@ class ReleaseState:
 
 class StateStore:
     def __init__(self, directory: Path):
-        self.directory = directory.absolute()
+        # Resolved: the backup verifier refuses symlinked parents, and a home directory
+        # reached through a symlink would otherwise fail the release after quiescing.
+        self.directory = directory.resolve()
         self.state_path = self.directory / "state.json"
 
     def _validate_directory(self) -> None:
@@ -2843,6 +2845,20 @@ class ReleaseDeployment:
             raise
         except BaseException as exc:
             self._save_failure(state, exc)
+            if isinstance(exc, Exception) and self._activation_only_abort_safe(state):
+                # Nothing on the host changed yet: put the paused automation back now rather
+                # than leave the engine quiesced until someone runs abort.
+                try:
+                    self._abort_activation(state)
+                except BaseException as abort_exc:
+                    self._save_failure(state, abort_exc)
+                    raise DeployError(
+                        f"apply failed ({exc}); restoring the paused automation also failed: "
+                        f"{abort_exc}"
+                    ) from exc
+                raise DeployError(
+                    f"apply failed before changing the host and was aborted: {exc}"
+                ) from exc
             raise
 
     @serialized_phase
@@ -2881,8 +2897,21 @@ class ReleaseDeployment:
             return {"status": "aborted", "idempotent": True, "state": asdict(state)}
         if not state.inventory or self.journal.completed("capture-inventory") is None:
             raise DeployError("abort has no completed activation inventory")
-        if self.journal.read("create-backup") is not None:
-            raise DeployError("recovery bundle work started; use rollback instead of abort")
+        if not self._activation_only_abort_safe(state):
+            raise DeployError("release mutation started; activation-only abort is unsafe")
+        try:
+            return self._abort_activation(state)
+        except BaseException as exc:
+            self._save_failure(state, exc)
+            raise
+
+    def _activation_only_abort_safe(self, state: ReleaseState) -> bool:
+        """True while the live checkout, runtimes, units and store are untouched.
+
+        Quiescing and the recovery bundle (written only inside the state directory) do not
+        change the host, so restoring the captured activation is a complete undo."""
+        if not state.inventory or self.journal.completed("capture-inventory") is None:
+            return False
         mutating = [
             "source-switch",
             "runtime-switch",
@@ -2890,23 +2919,18 @@ class ReleaseDeployment:
             "publish-snapshot",
             *[f"migration-{item.migration_id}" for item in ADAPTERS[state.adapter_set]],
         ]
-        if any(self.journal.read(step) is not None for step in mutating):
-            raise DeployError("release mutation started; activation-only abort is unsafe")
+        return not any(self.journal.read(step) is not None for step in mutating)
+
+    def _abort_activation(self, state: ReleaseState) -> dict[str, Any]:
         state.phase = "aborting"
         self.store.save(state)
-        try:
-            self.operations.validate_state_source(state, state.original_sha)
-            self._prepare_activation_attempt(state, "abort-release-producers")
-            self._fresh_semantic(state, step="abort-semantic-verify", rolled_back=True)
-            self.operations.validate_state_source(state, state.original_sha)
-            self._activate_with_receipt(
-                state, step="abort-release-producers", include_autopush=True
-            )
-            self._publish_terminal_after_activation(state, "aborted")
-            return {"status": "aborted", "state": asdict(state)}
-        except BaseException as exc:
-            self._save_failure(state, exc)
-            raise
+        self.operations.validate_state_source(state, state.original_sha)
+        self._prepare_activation_attempt(state, "abort-release-producers")
+        self._fresh_semantic(state, step="abort-semantic-verify", rolled_back=True)
+        self.operations.validate_state_source(state, state.original_sha)
+        self._activate_with_receipt(state, step="abort-release-producers", include_autopush=True)
+        self._publish_terminal_after_activation(state, "aborted")
+        return {"status": "aborted", "state": asdict(state)}
 
     @serialized_phase
     def rollback(self, *, execute: bool) -> dict[str, Any]:

@@ -688,4 +688,18 @@ earlier logs listed in that index.
 - **Metrics:** unchanged.
 - **Next:** switch the deployer timer to `--execute`.
 
+## 2026-11-23 — A release that fails before changing the host restores the paused automation
+
+- **Why:** reproduced on the host: `release_deploy apply` quiesced every timer, the API, the UI and
+  the crontab, then `create-backup` failed (`relative path parent must be a non-symlinked
+  directory`: the state directory was given through a symlinked home). Abort refused once backup
+  work had started, so the engine stayed down until the activation was restored by hand.
+- **What:** the state directory is resolved; abort is allowed whenever no step that changes the
+  host (source, runtimes, migrations, automation, snapshot) has started; and apply runs that abort
+  itself when it fails before the source switch. Later failures still go to rollback.
+- **Evidence:** `pytest -q -W error tests/test_release_deploy.py` passes under `TZ=UTC` and
+  `TZ=Asia/Singapore` (new: backup failure auto-aborts, a post-switch failure does not, symlink).
+- **Metrics:** tools +30 lines, tests +40.
+- **Next:** release revision 27 (dependency update) with the fixed tool.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

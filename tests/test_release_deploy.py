@@ -34,6 +34,7 @@ class FakeOperations:
         self.optional_failures: list[str] = []
         self.reconciled_migrations: set[str] = set()
         self.fail_quiesce = False
+        self.fail_backup = False
         self.fail_install_after_start = False
         self.writers_active = False
         self.transaction_mutex = threading.Lock()
@@ -178,6 +179,8 @@ class FakeOperations:
     def create_backup(self, _state, _held_locks):
         assert self.producer_locks_held
         self.calls.append("create-backup")
+        if self.fail_backup:
+            raise release_deploy.DeployError("bundle verification refused")
         return {"manifest_sha256": "e" * 64}
 
     def capture_artifacts(self, _state):
@@ -399,15 +402,46 @@ def test_activation_only_abort_restores_inventory_when_quiesce_fails_before_back
     prepare(transaction)
     deployment, operations, _repo, _database = transaction
     operations.fail_quiesce = True
-    with pytest.raises(release_deploy.DeployError, match="after cron removal"):
+    with pytest.raises(release_deploy.DeployError, match="aborted: failed after cron removal"):
         deployment.apply(execute=True, approve_plan=None)
     assert release_deploy.ReceiptJournal(deployment.store).read("create-backup") is None
+    assert deployment.store.load().phase == "aborted"
+    assert operations.releases == [True]
 
     operations.fail_quiesce = False
     fresh_shell = release_deploy.ReleaseDeployment(deployment.store, operations)
-    result = fresh_shell.abort(execute=True)
-    assert result["status"] == "aborted"
+    assert fresh_shell.abort(execute=True)["idempotent"] is True
     assert operations.releases == [True]
+
+
+def test_backup_failure_restores_the_paused_automation_automatically(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    operations.fail_backup = True
+    with pytest.raises(release_deploy.DeployError, match="aborted: bundle verification refused"):
+        deployment.apply(execute=True, approve_plan=None)
+    assert release_deploy.ReceiptJournal(deployment.store).read("create-backup") is not None
+    assert "source-switch" not in operations.calls
+    assert deployment.store.load().phase == "aborted"
+    assert operations.releases == [True]
+
+
+def test_failure_after_the_source_switch_is_left_for_rollback(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    deployment.fail_after = "source-switch"
+    with pytest.raises(release_deploy.DeployError, match="injected failure"):
+        deployment.apply(execute=True, approve_plan=None)
+    assert deployment.store.load().phase == "applying"
+    assert operations.releases == []
+
+
+def test_state_store_resolves_a_symlinked_directory(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    (tmp_path / "home").symlink_to(real)
+    store = release_deploy.StateStore(tmp_path / "home" / "release")
+    assert store.directory == real / "release"
 
 
 def test_apply_and_verify_are_idempotent_after_receipted_fault(transaction):
