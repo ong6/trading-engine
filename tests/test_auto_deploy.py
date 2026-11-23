@@ -275,8 +275,9 @@ def test_execute_rechecks_the_window_before_mutating(host):
     assert _git(host["live"], "rev-parse", "HEAD") == before
 
 
-def test_ci_runs_are_etag_cached(host):
+def test_ci_runs_are_etag_cached(host, monkeypatch):
     deployer = auto_deploy.Deployer(engine_root=host["live"], state_dir=host["tmp"] / "state")
+    monkeypatch.setattr(auto_deploy, "github_token", lambda: "secret")
     responses = [
         (200, {"ETag": '"v1"'}, json.dumps({"workflow_runs": [
             {"name": "ci", "event": "push", "head_branch": "main", "head_sha": "a",
@@ -292,9 +293,20 @@ def test_ci_runs_are_etag_cached(host):
     deployer.http_get = lambda url, headers: sent.append(headers) or responses.pop(0)
     assert deployer.ci_conclusions() == {"a": True, "b": False}
     assert deployer.ci_conclusions() == {"a": True, "b": False}
-    assert sent[1]["If-None-Match"] == '"v1"'
-    with pytest.raises(auto_deploy.Stop, match="ci-rate-limited"):
+    assert sent[1]["If-None-Match"] == '"v1"' and sent[1]["Authorization"] == "Bearer secret"
+    assert "secret" not in (host["tmp"] / "state/ci-runs.json").read_text()
+    with pytest.raises(auto_deploy.Stop, match="skipped:ci-unavailable"):
         deployer.ci_conclusions()
+
+
+def test_github_token_comes_from_the_environment_or_the_hosts_file(tmp_path, monkeypatch):
+    hosts = tmp_path / "hosts.yml"
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    assert auto_deploy.github_token(hosts) is None
+    hosts.write_text("github.com:\n    user: someone\n    oauth_token: abc123\n")
+    assert auto_deploy.github_token(hosts) == "abc123"
+    monkeypatch.setenv("GITHUB_TOKEN", "from-env")
+    assert auto_deploy.github_token(hosts) == "from-env"
 
 
 def test_main_records_a_failed_decision(host, monkeypatch, capsys):

@@ -48,6 +48,8 @@ from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Iterator
 
+import yaml
+
 from engine import job_contract
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import REPO_ROOT
@@ -58,6 +60,7 @@ JOB_ID = "auto-deploy"
 STATE_DIR = Path.home() / ".local/state/trading-engine/auto-deploy"
 ENGINE_ROOT = Path.home() / "trading-engine"
 AUTOPUSH_LOCK = Path.home() / ".local/state/te-autopush.lock"
+GH_HOSTS = Path.home() / ".config/gh/hosts.yml"
 API_URL = "http://127.0.0.1:8000"
 REPOSITORY = "ong6/trading-engine"
 RUNS_URL = (f"https://api.github.com/repos/{REPOSITORY}/actions/runs"
@@ -106,6 +109,20 @@ def in_blocked_window(moment: datetime) -> bool:
         if (start <= clock < end) if start < end else (clock >= start or clock < end):
             return True
     return False
+
+
+def github_token(hosts: Path = GH_HOSTS) -> str | None:
+    """``$GITHUB_TOKEN``, else github.com's ``oauth_token`` in the gh CLI's hosts file.
+
+    Read at run time only; never logged, printed, cached or written anywhere."""
+    if os.environ.get("GITHUB_TOKEN"):
+        return os.environ["GITHUB_TOKEN"]
+    try:
+        entry = (yaml.safe_load(hosts.read_text()) or {}).get("github.com") or {}
+    except (OSError, ValueError, AttributeError, yaml.YAMLError):
+        return None
+    token = entry.get("oauth_token") if isinstance(entry, dict) else None
+    return token if isinstance(token, str) and token.strip() else None
 
 
 def _iso(moment: datetime) -> str:
@@ -213,7 +230,10 @@ class Deployer:
                 self.git(self.mirror, "rev-parse", "refs/live/head"))
 
     def ci_conclusions(self) -> dict[str, bool]:
-        """head SHA -> whether its ``ci`` push run on main succeeded (ETag-cached)."""
+        """head SHA -> whether its ``ci`` push run on main succeeded (ETag-cached).
+
+        The run's conclusion is success only when every job did, so the ``checks`` job
+        (ruff, audits) and the verdict job count as much as the test shards."""
         cache_path = self.state_dir / "ci-runs.json"
         try:
             cache = json.loads(cache_path.read_text())
@@ -223,8 +243,9 @@ class Deployer:
                    "User-Agent": "trading-engine-auto-deploy"}
         if cache.get("etag"):
             headers["If-None-Match"] = cache["etag"]
-        if os.environ.get("GITHUB_TOKEN"):  # optional: the shared host's anonymous quota is 60/h
-            headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
+        token = github_token()  # the host's shared anonymous quota (60/h) runs out
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         try:
             status, response_headers, body = self.http_get(self.runs_url, headers)
         except (OSError, urllib.error.URLError, ValueError) as exc:
@@ -241,11 +262,7 @@ class Deployer:
                     and run.get("event") == "push" and run.get("head_branch") == "main"]
             etag = {key.lower(): value for key, value in response_headers.items()}.get("etag")
             write_text_atomic(cache_path, json.dumps({"etag": etag, "runs": runs}) + "\n")
-        elif status in {403, 429}:
-            reset = {key.lower(): value for key, value in response_headers.items()}.get(
-                "x-ratelimit-reset", "")
-            raise Stop("skipped", "ci-rate-limited", http_status=status, reset=reset)
-        else:
+        else:  # a rate limit (403/429) or any other answer: no verdict this run
             raise Stop("skipped", "ci-unavailable", http_status=status)
         green: dict[str, bool] = {}
         for run in runs:
