@@ -766,4 +766,21 @@ earlier logs listed in that index.
 - **Metrics:** unchanged.
 - **Next:** re-sync the public docs into the personal site.
 
+## 2026-11-23 — Remove closed-study runners nothing references
+
+- **Why:** P25 scope item 7 (code cleanup).
+- **What:** deleted the closed sell-in-May, turn-of-month, VIX-term, fixed-ETF rebalancing and
+  gross-volatility review runners in `farm/`, `tools/self_test_daily_opportunity.py` and their
+  tests, and dropped the deleted tests from `tests/durations.json`. A grep for each module, its
+  charter, protocol, candidate and control ids across code, units, `ops/jobs.toml`, the schedule
+  contract, CI and the host crontab found only the files themselves, their tests and passive
+  mentions. Kept: reports, charters and catalogue entries; `sim/strategies/fixed_etf_rebalancing.py`
+  (the pinned `farm/backtest/replay.py` names both of its strategy ids); the sell-in-May,
+  turn-of-month and VIX-term strategies and `farm/paired_walkforward.py`, which only their own
+  tests use now.
+- **Evidence:** `tools.affected_tests --run` passes; `tools.repin --check` prints "registration is
+  current".
+- **Metrics:** farm -1494, tools -37, tests -678 lines.
+- **Next:** P25 scope item 5, agent-facing docs and search hygiene.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
