@@ -576,7 +576,7 @@ Publication `market-20261112T124829071883Z.duckdb` carries schema-2 and schema-1
 hot bytes 9,187,328; two cold parts totaling 2,810,571 bytes. The unchanged T4 reader accepts
 60 November 11 rows, 59 complete feature histories and 60 outcome rows. The exact opened
 hot-file and every generation file verify; stale/future publications refuse as before.
-Minimum sampled /data00 free is 131,979,583,488 bytes (122.9156 GiB), across 376 samples.
+Minimum sampled data-volume free is 131,979,583,488 bytes (122.9156 GiB), across 376 samples.
 All reserve guards pass. The sandbox and its databases, generation and cohort were removed.
 This reduced reader/publication proof does not replace the whole-store deploy-window gates.
 
@@ -594,7 +594,7 @@ compatibility fields; hot bytes 9,187,328, two cold parts totaling 2,810,571 byt
 reader accepted 60 latest-session rows for November 11, 59 complete 253-session feature histories
 and 60 outcome rows. The exact opened hot-file hash and every generation file verified; stale
 and future cases still refused. Confirmation's preserved refusal diagnostics were exercised only
-as read functions; its closed epoch runner was not invoked. Minimum sampled /data00 free space
+as read functions; its closed epoch runner was not invoked. Minimum sampled data-volume free space
 was 116,909,240,320 bytes (108.8802 GiB), across 566 samples. Every copy/publication reserve
 check passed. The disposable checkout, store, generation and parts were deleted after verification.
 
@@ -620,7 +620,7 @@ reduced store a full evidence/forward-record replay. No evidence row was invente
 Rehearsal commands (the session's retained `rehearse.py` harness performs the steps above):
 
 ```bash
-df -B1 /data00
+df -B1 "$HOME"
 git clone --quiet --shared --branch r21/integrate . "$P21_REHEARSAL_OUT/sandbox"
 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 \
 TRADING_ENGINE_DUCKDB_THREADS=4 TRADING_ENGINE_DUCKDB_MEMORY=4GB \
