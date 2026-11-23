@@ -12,7 +12,6 @@ reports under [`../data/reports/`](../data/reports/README.md). Every top-level d
 - [`plans/README.md`](plans/README.md) — open plans and their status.
 - [`strategy-research-backlog.md`](strategy-research-backlog.md) — the deterministic research
   queue and its [next admissible actions](strategy-research-backlog.md#next-admissible-actions).
-- [`feedback.md`](feedback.md) — the owner verdict ledger.
 
 ## Operate
 

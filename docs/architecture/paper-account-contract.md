@@ -207,29 +207,35 @@ Their API entry point uses the account writer so a failed fold can durably halt 
 The canonical payload carries its own stable SHA-256. Private results stay in DuckDB and may be copied
 only into the private alpha repository; no command writes them below `data/`.
 
-## 2026-10-10 — P22 lifecycle round 6 (binding orchestrator rulings)
-
-These rulings supersede the earlier checkpoint and historical-risk rules.
-Deploy target remains Sunday 2026-10-18, D0 2026-10-19.
+## Accounting invariants
 
 A. **Accounting is one pure fold from account inception.**
 `state = fold(all effective-dated events of the account)`: fills, corporate actions,
-cash settlements, dividends, financing and fees. Replay the whole account every settle
+cash settlements, dividends, financing and fees. The whole account replays on every settle
 (nightly, late, verify and `/results`). Stored cash, lots and equity are a cache written
-atomically from the fold and verified against it. Delete partial checkpoint restoration.
+atomically from the fold and verified against it; there is no partial checkpoint restoration.
 Every event has a stable identity from its full key, including its date; a per-date
 sequence number alone is never an identity.
 
-B. **Orders keep receipt units.** Store an order in the units in force at receipt and
-convert to its execution session's units inside the fold. A pre-split MOO filled late
+B. **Orders keep receipt units.** An order is stored in the units in force at receipt and
+converted to its execution session's units inside the fold. A pre-split MOO filled late
 fills its pre-split quantity; the later split applies exactly once.
 
 C. **Risk acts as-known, never backdated.** Halts and resumes take effect when processed.
 API resume is effective at receipt and rejects a past effective time. After every settle,
-run risk on corrected history as of now: drawdown from the corrected peak re-measured
+risk runs on corrected history as of now: drawdown from the corrected peak re-measured
 from the latest resume, daily loss for the latest settled session, and fold/cache mismatch.
-Late data never un-fills orders already executed while active. Delete historical-risk replay.
+Late data never un-fills orders already executed while active; there is no historical-risk replay.
 
 D. **Any failure halts.** Any exception during fold, settle or verify rolls back the
 transaction, then persists mismatch evidence and halts in a separate transaction.
 Nightly and late entry points exit nonzero.
+
+E. **Money and marks.** Accounts are independently funded; each keeps its own gross limit
+(default 1.0×, maximum 1.5×), checked with marks observable at the fill timestamp, and
+concentration is an alert only. Settlement, late settlement, margin and API reads share one
+source-aware valuation that carries the last observed price (falling back to a fill) and flags it
+stale; it refuses with a reason only when no price was ever observed and never erases a liability.
+Money reconciles within $0.005 per account; floating-point hashes do not decide reconciliation.
+A contingent close never exceeds its requested quantity, parent fill or holdings, and borrow and
+margin interest continue during retirement until flat.

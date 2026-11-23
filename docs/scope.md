@@ -1,17 +1,19 @@
 # Scope ledger
 
-What the engine is allowed to become, and what it is not allowed to become yet. `AGENTS.md`
-defines its place in the required read order. Edit it only through a plan in `plans/` or an
-owner entry in `feedback.md`.
+What the engine is allowed to become, and what it is not allowed to become yet. Change it only
+through a plan in `plans/` or an owner decision recorded in [`product.md`](product.md).
 
 ## In scope now (running components)
 
-| Component | Runs | Owner action if it fails |
+Live state (which books are active, the registration revision, freshness) is in `GET /meta`.
+
+| Component | Runs | Action if it fails |
 |---|---|---|
 | Nightly pipeline (`engine/run_daily.sh`) | Weekdays 22:30 UTC | Fix as a defect; reproduce first |
-| Paper league day-step on the engine v2 ledger (17 active books after the 2026-10-21 retirements, including the three profitability evidence loop books (P15) live since 2026-09-29) | Nightly | Same |
+| Paper league day-step on the engine v2 ledger, including the three P15 books | Nightly | Same |
 | Late account settlement (P22, `trading-engine-accounts-settle.timer`) | 07:45 and 11:55 UTC Tue–Sat | Same; any fold, settle or verify failure halts the account |
 | Hourly operations digest (P23, `trading-engine-ops-digest.timer`) with the schedule contract and the snapshot invariant monitor in shadow mode | Hourly at :08 UTC; invariants on each new snapshot | Same; shadow regressions are reported, never acted on automatically |
+| Driver watchdog (`trading-engine-driver-watchdog.timer`) | Every 10 minutes from :03 UTC | Same; it may terminate a stalled driver and run one catch-up nightly |
 | Three frozen forward records: sector momentum, XS 12-1, E1 Monday | Nightly / per signal | Never touch the rule; only the monitor may append |
 | Sunday walk-forward revalidation | Weekly | Same |
 | Saturday verifier, Sunday liquidity refresh, Friday postflight | Weekly | Same |
@@ -21,131 +23,55 @@ owner entry in `feedback.md`.
 | Multi-cadence agent tools (P9): hourly and four-hour shadow observers (`trading-engine-{hourly,four-hour}-opportunity.timer`) | Weekdays 10:15–16:15 hourly and 10:30/13:30 America/New_York | Same; missed windows are not replayed (`Persistent=false`) |
 | Agent data capture and agent-only shadow (`trading-engine-agent-{data-capture,shadow}.timer`) | 01:25 and 01:30 UTC Tue–Sat | Same |
 | Forward agent evaluation (P11) and P15 evaluation (`GET /agent/evaluation/status`, JSON and P15 Markdown reports) | After P8; refreshes after P15 scoring | Same; labels are mechanical and never tune a policy |
-| P15 pre-open check, event triggers, and scoring (`trading-engine-p15-{preopen,events,scoring}.timer`) | Pre-open 09:05 and events at 09:35/09:50 then :05/:20/:35/:50 through 15:50 America/New_York on weekdays; scoring 02:30 UTC Tue–Sat | Same; registration revision 17 (revision 15 installed 2026-10-21, then the P24 batches as revisions 16 and 17) preserves scoring, labels, gates, schedules and frozen valid-data outcomes |
-| TradingView historical archive (P14; existing queue, bounded slices) | 03:40, 07:40, 11:40, 21:40 and 23:40 UTC weekdays, six four-hourly slices on weekends (`trading-engine-tradingview-history.timer`); nightly enqueue is a fallback | Same; retrieval-time research only, current-universe survivor bias explicit |
+| P15 pre-open check, event triggers, and scoring (`trading-engine-p15-{preopen,events,scoring}.timer`) | Pre-open 09:05 and events at 09:35/09:50 then :05/:20/:35/:50 through 15:50 America/New_York on weekdays; scoring 02:30 UTC Tue–Sat | Same; a registration revision never changes scoring, labels, gates, schedules or frozen valid-data outcomes |
+| TradingView historical archive (P14; existing queue, bounded slices) | 03:40, 07:40, 11:40, 21:40 and 23:40 UTC weekdays, six slices each weekend day (Sunday's first at 01:40) (`trading-engine-tradingview-history.timer`); nightly enqueue is a fallback | Same; retrieval-time research only, current-universe survivor bias explicit |
 
 Change a running component only through a plan, as a new registered version. Existing versions
-and their evidence are never edited.
+and their evidence are never edited. A registered source change needs a rehearsed registration
+revision, never a hash-gate bypass.
 
 ## Approved plans
 
-Plan status lives in one place: the table in [`plans/README.md`](plans/README.md). Only plans
-marked `approved` or `active` there admit work, subject to their stated prerequisites. The
-profitability evidence loop's activation workstream (P15 W8) activated on 2026-09-29; the
-current source registration is revision 17 (revision 15's price-admission, trusted-money, flow,
-operations, board and test corrections, then P24's batches as revisions 16 and 17) on top of
-revision 14's P22 commissions, clocks and account engine, without changing activation, verdict
-rules, scoring, labels, gates or schedules. The owner's 2026-11-13 collection decision keeps revision-21 collection equal to revision 20;
-TradingView resumes after deploy quiescence, with all three retained collection switches on.
-P24 (active, 2026-10-21) admits its lanes' fixes and
-output-identical speed work; its storage revision (18) is not live until its rehearsal passes.
-Completed outputs from agent paper decisions (P5), the alpha experiment (P6), the 2022 replay
-(P10), forward agent evaluation (P11), the agent research product (P12), market-data source
-hardening (P13), and the TradingView historical archive (P14) stay in scope for operation and
-evidence but authorize no further feature growth.
-P19 admits only its offline audit sidecar, JSON/Markdown renderer and fictional example. Existing
-study identities, reports, holdout markers and running producers remain unchanged.
-P13 TradingView capture runs for research operation; Alpaca remains gated. The P14 archive runs for
-resumable current-liquid-universe daily history, isolated from operational prices and execution.
-The challenger lab's evaluation through broker-paper design workstreams (P16 W1–W8) and cleanup
-half of activation (W9a) are built but inactive: evaluation v2, challenger and filing paths, historical
-labs, construction books, fill measurement, and the weekly digest have no authority until their
-W9b registration, rehearsal, and activation gates. The Stage 2 output is design only.
-P22 admits the generic simulator account, auction/intraday fill, commission, short/margin/PDT,
-halt, result-isolation and data-capture foundation described by its active plan. It also admits
-the one-shot D0 migration and explicit frozen-contract revisions. It does not admit a private
+Plan status lives in one place: [`plans/README.md`](plans/README.md). Only plans marked `approved`
+or `active` there admit work, subject to their stated prerequisites. Outputs of finished plans
+(P5, P6, P10–P14, P18–P21, P23) stay in operation and evidence but authorize no further feature
+growth. P16 W1–W9a are built but inactive until their W9b registration, rehearsal and activation
+gates; the Stage 2 output is design only. P22 admits the generic account, fill, commission,
+short/margin/PDT, halt, result-isolation and data-capture foundation; it does not admit a private
 strategy, a broker connection, real capital, or options execution without bid/ask data.
-The owner accepted P22 on 2026-10-15 and admitted the revision-14 defect fixes proposed below
-(2026-10-10 and 2026-10-15) and in the P22 plan progress; each line leaves this ledger when its
-fix lands on `p22/lifecycle`. Fixes a–k landed on 2026-10-16 with the integrator's
-follow-ups, and revision 14 and the E1, sector and XS runtime contracts were re-pinned once;
-the P22 plan progress records each contract change and why no frozen rule's outcome moves.
-P22 deployed on 2026-10-18 with D0 2026-10-19.
 
 ## Not yet — frozen until its trigger fires
 
 | Area | Current state | Trigger that unfreezes it | Until then |
 |---|---|---|---|
-| Agent-only / hybrid paper books (`server/agent_*`, shadow runner, proposal ledgers) | Agent-only shadow timer on; P8/P9 and the three P15 books (live since 2026-09-29) hold local-simulator order authority | The autonomous paper trial's (P7) frozen internal simulator comparison, P8/P9 within their locked simulator-only scope, or P15's registered comparator books | No work outside P7/P8/P9/P15; no broker path |
-| Broker-paper adapters and paper-authority state machine (`server/broker_*`) | ~15k lines built, inert; IBKR selected as eventual primary | A later, separately approved IBKR-paper plan after P7 review | No growth, credentials, gateway, or connection |
+| Agent-only / hybrid paper books (`server/agent_*`, shadow runner, proposal ledgers) | Agent-only shadow timer on; P8/P9 and the three P15 books hold local-simulator order authority | The autonomous paper trial's (P7) frozen internal simulator comparison, P8/P9 within their locked simulator-only scope, or P15's registered comparator books | No work outside P7/P8/P9/P15; no broker path |
+| Broker-paper adapters and paper-authority state machine (`server/broker_*`) | Built, inert; IBKR selected as eventual primary | A later, separately approved IBKR-paper plan after P7 review | No growth, credentials, gateway, or connection |
 | Independent risk supervisor and fault drills | Built, inert | P7 may reuse/extend only for its internal simulator safety gates | No broker or live authority |
-| Release manifest, worktree audit, backup, install-automation hardening | Working; the six P15 unit files were installed and the three P15 timers enabled and added to autostart at activation on 2026-09-29 | A demonstrated recovery failure | No unrelated growth; no new invariants |
+| Release manifest, worktree audit, backup, install-automation hardening | Working | A demonstrated recovery failure, or P25's deployer | No unrelated growth; no new invariants |
 | New league books | See the metrics snapshot | A charter whose gate cleared in the backlog table | None |
-| Parameter sweeps and grids | `OPEN_RECURRING_GRIDS` empty | P6 permits one pre-registered fixed-instrument experiment, not a grid | No sweep or nearby variant |
+| Parameter sweeps and grids | `OPEN_RECURRING_GRIDS` empty | One pre-registered fixed-instrument experiment, not a grid | No sweep or nearby variant |
 | Stock-selection or fundamentals research | Gated | 756 qualifying dates / 156 snapshots, or an audited point-in-time data (P3) dataset | None |
 | Intraday research | Gated | 252 qualifying sessions over 365 days in both resolutions | None, except P15's shadow mover scan and `next_bar` labels, which are evidence collection, not research verdicts |
-| New API endpoints, dashboard cards, operator CLIs, migrations | P15 extends the existing evaluation status with a bounded `p15` section; P22 account APIs and its one-shot D0 migration are active-plan work | P7/P8 name bounded status and isolated-book changes; P15 and P22 name their bounded surfaces | Nothing else |
-| Daily opportunity agent | P8 deployed and live (02:00 UTC timer) | P8's bounded simulator-only scope | No broker path, real capital, retrospective trades, or P7 evidence pooling |
-| Multi-cadence and tool-call agents | P9 deployed: nightly locked simulator tool plus v5 hourly/four-hour shadow observers; P15 event triggers run in shadow since 2026-09-29 | P9's locked, attributed simulator-only scope; P15's observer fixes and shadow event triggers | No order authority for intraday variants or event triggers, and no broker path |
-| Additional market-data sources | P13 deployed; TradingView active for internal research | Owner-asserted TradingView rights; Alpaca credential-gated | No operational-price overwrite, fill pricing, or execution authority |
+| New API endpoints, dashboard cards, operator CLIs, migrations | Only what an active plan names | A plan that names the bounded surface | Nothing else; the UI gets no new features |
+| Daily opportunity agent | P8 live (02:00 UTC timer) | P8's bounded simulator-only scope | No broker path, real capital, retrospective trades, or P7 evidence pooling |
+| Multi-cadence and tool-call agents | P9 nightly locked simulator tool plus hourly/four-hour shadow observers; P15 event triggers in shadow | P9's locked, attributed simulator-only scope; P15's observer fixes and shadow event triggers | No order authority for intraday variants or event triggers, and no broker path |
+| Additional market-data sources | TradingView active for internal research; Alpaca dormant and credential-gated | An admitted plan and accepted non-display terms | No operational-price overwrite, fill pricing, or execution authority; no paid data or new API keys |
 
 ## Never on this host
 
-Broker connections, broker credentials, real capital, and anything that leaves the box
-other than public data pushes to the configured upstream and the owner's private daily backup
-of the store and research files (owner, 2026-09-29; `feedback.md`). P13 may load owner-only research-data credentials
-solely for an admitted provider whose automated non-display terms were explicitly accepted.
+Broker connections, broker credentials, real capital, and anything that leaves the box other than
+public data pushes to the configured upstream and the owner's private daily backup of the store and
+research files. Owner-only research-data credentials may be loaded solely for an admitted provider
+whose automated non-display terms were accepted. Raw market data and scraped text never enter this
+public repository.
 
 ## Proposed, not approved
 
-Agents append one line here instead of building. The owner promotes a line to a plan or
-deletes it.
+Agents append one line here instead of building. The owner or orchestrator promotes a line to a
+plan or deletes it.
 
-- 2026-11-01 · **Pinned split adjudication:** `actions._adjudicate` rule 3 misjudges spin-off breaks when legacy refetch timestamps stand in for first acquisition (CTVA 2026-10-01, skipped with 1,848 closes still at 6.665 times the provider); classifier and spin-off semantics await the post-r21 registered revision.
+- 2026-11-01 · **Pinned split adjudication:** `actions._adjudicate` rule 3 misjudges spin-off breaks when legacy refetch timestamps stand in for first acquisition (CTVA 2026-10-01, skipped with 1,848 closes still at 6.665 times the provider); classifier and spin-off semantics await a registered revision.
 - 2026-11-01 · **GRML older split basis:** 40 closes before 2026-06-15 remain at 0.02 times the provider's current 1:50-adjusted history, with later history already adjusted; separate repair admission, not the real 2026-08-26 offering-day fall.
 - 2026-11-01 · **Late deterministic exit intents and evaluation disclosure:** after the 2026-10-29 manual P15 run, three time-exit intents (control KOD/TXG, hybrid TXG) were written after the open their fills use, and the published evaluation report does not disclose the lost 10-28 decisions; both need a review before any change.
-- 2026-11-03 · **Unblock revision 21 for schema-1 readers without a store copy:** a generation's hot database still holds `prices` (only `intraday_prices`, `bitemporal_facts` and `source_response_receipts` are cold), and trial 375's runner reads `market-latest.duckdb`, its sibling `.json` (`schema_version` 1, `snapshot`, `sha256`, `as_of`) and `prices`. Cheapest path: let the schema-2 manifest also carry `schema_version: 1` and `sha256` (the hot file's recorded hash), with the r21 validator accepting those two keys (pinned `engine/lib/snapshots.py`, so one re-pin and a re-review), then rehearse trial 375's dry-run signal on a generation; separately switch the private `confirm_287.py` to `pin_latest_generation` before its 12-03 epoch.
-
-- 2026-10-20 · **Snapshot-invariant defects with no fix branch** (shadow monitor, first run):
-  same-night bars whose next-night re-fetch was skipped stay provisional with impossible opens
-  (DDS and SUNC 2026-10-12, CIB 2026-10-16); WLFC's 2026-07-15 bar sits on a third price basis
-  after the 3:1 restatement (close 23.00 between 72.33 and 65.33: stored already restated, then
-  divided again); the walk-forward runner writes NaN Sharpe and worst-month for zero-volatility
-  folds (sector_momentum's first train window, every earnings_context_pead fold), which strict JSON
-  readers reject. The 18 unrecorded split-sized breaks and the CRWU and ETHA mixed bases are
-  `fix/corporate-actions-split-integrity`'s.
-  **Resolved by P24** (`p24/integrity`, merged at `11a9a1f2`, registration revision 16): stale
-  provisional bars are re-asked and then retired (`settle_stale_provisional`); a restatement leaves
-  bars already on the new scale alone; `engine.repair_integrity` fixed the stored split, WLFC and
-  same-night defects and was applied to the live store on 2026-10-22 (18,798 rows); walk-forward
-  artifacts store an undefined statistic as null (`1ea61488`).
-
-- 2026-10-10 · **Registered-file observability defects (next registration revision)**: since
-  `9a37ac0` `engine/verify_prices.py` prints its full evidence JSON (base64 bodies) to stdout,
-  ~13k lines a night and 18 MB a weekly verify; fail-soft stages and units exit 0 when they
-  skipped work (TradingView archive under the nightly lock). Outside the revision-14 fix set
-  (a–k); its third item, the withheld P15 price-fetch record, was fix (e).
-  **Verifier output resolved by P24**: it prints one summary line and keeps its evidence in the
-  receipt (`46e993c3`, merged at `11a9a1f2`, registration revision 16). The fail-soft exit-0 item
-  is still open.
-
-- 2026-10-02 · **Activation of separately held research strategies**: P21 implements the generic
-  paper-account specification and stock/ETF intake boundary; new accounts start inactive.
-  Manual/all/auto tier planning does not grant activation. A private strategy runner or new
-  execution instrument still needs its own admitted plan and activation gates.
-
-## Completed issue closure
-
-[P21](history/plans/p21-operational-issues-and-account-isolation.md) completed the owner-requested
-operational fixes, complete independent-source evidence, queue-resolution audit, capture
-reliability, separate-account proof and behavior-preserving advisory-complexity work. The
-complete metadata snapshot is supported by P15 revision 12's narrow recovery-bundle limit
-correction, retained by revisions 13 and 14. Registered source identity changes require a properly rehearsed new revision
-before deployment; policies and the research runtime remain unchanged.
-
-## Completed review
-
-The two 2026-10-03 shared-study findings (duplicate bars and terminal-zero cross-checks) were
-reproduced and corrected under [P20](history/plans/p20-engine-and-board-review.md).
-The review also covered existing dashboard reliability and setup documentation, with read-only
-host inspection and independent acceptance. Frozen strategy and execution rules remain in force.
-
-## Completed from this ledger
-
-- 2026-09-28 · Retired the prose-pinning `tests/test_docs*.py` suite and split
-  `docs/operate/how-it-works.md` into the operations runbook plus `docs/architecture/architecture-reference.md` under
-  P16 W9.
-- 2026-09-18 · Move dated audits under `docs/history/`. Done 2026-09-24 on owner request
-  (`feedback.md`); doc tests' path constants followed the move.
-
-<!-- sources: docs/plans/README.md, docs/plans/p15-profitability-evidence-loop.md, docs/plans/p16-challenger-lab-and-text-edge.md, server/trading-engine-p15-events.timer, server/trading-engine-tradingview-history.timer -->
+- 2026-10-10 · **Fail-soft exit status:** fail-soft stages and units exit 0 when they skipped work (TradingView archive under the nightly lock).
+- 2026-10-02 · **Activation of separately held research strategies:** generic paper-account intake exists and new accounts start inactive; a private strategy runner or new execution instrument needs its own admitted plan and activation gates.

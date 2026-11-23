@@ -42,3 +42,5 @@ Git history and `BUILDLOG.md` are the decision record. Finished plans are in
 | 2026-11 | [`revision-21-storage-deploy-checklist.md`](revision-21-storage-deploy-checklist.md) | Storage revision 21 deploy and rollback checklist | Pre-flight and rehearsal record of the storage revision |
 | 2026-11 | [`revision-22-basis-recovery.md`](revision-22-basis-recovery.md) | Revision 22 release notes (basis recovery, XS migration) | Release record of revision 22 |
 | 2026-08-20 | [`repro_fill_integer_clamp.py`](repro_fill_integer_clamp.py) | Reproduction script for the fill integer-clamp defect | Cited by the fill-model audit |
+| 2026-09-18 → 11-19 | [`feedback.md`](feedback.md) | The owner verdict ledger, retired; its valid rules now live in the docs they govern | Reasons behind current rules |
+| 2026-11-23 | [`scope-retired-2026-11-23.md`](scope-retired-2026-11-23.md) | Resolved and superseded scope-ledger lines | Record of what the parking list held before the cleanup |

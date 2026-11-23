@@ -1,7 +1,7 @@
 # Deploy
 
-Merged `main` with green CI is deployed by the deployer. Workers land branches; they never deploy
-by hand.
+Merged `main` with green CI is deployed by the deployer. Workers test
+([`testing.md`](testing.md)) and land branches; they never deploy by hand.
 
 ## Land a branch
 

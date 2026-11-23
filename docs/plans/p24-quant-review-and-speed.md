@@ -3,7 +3,7 @@ plan: P24
 title: Senior-quant review, pipeline fixes, speed and new research lanes
 status: active
 opened: 2026-10-21
-owner_decision: approved by the owner's 2026-10-21 instruction (docs/feedback.md) to review and fix the pipelines, make everything faster, and send agents to find new strategies, with authority to fix whatever needs fixing and push
+owner_decision: approved by the owner's 2026-10-21 instruction (docs/history/feedback.md) to review and fix the pipelines, make everything faster, and send agents to find new strategies, with authority to fix whatever needs fixing and push
 ---
 
 ## Goal

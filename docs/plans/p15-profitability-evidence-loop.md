@@ -3,7 +3,7 @@ plan: P15 # Profitability evidence loop
 title: Profitability evidence loop
 status: active
 opened: 2026-09-25
-owner_decision: approved 2026-09-25 (feedback.md); open inputs listed under "Owner inputs"
+owner_decision: approved 2026-09-25 (docs/history/feedback.md); open inputs listed under "Owner inputs"
 ---
 
 # Profitability evidence loop (P15)

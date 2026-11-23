@@ -3,7 +3,7 @@ plan: P16 # Challenger lab, text edge, and evaluation science
 title: Challenger lab, text edge, and evaluation science
 status: active
 opened: 2026-09-26
-owner_decision: approved 2026-09-26 (feedback.md), including P15 remediation and activation as W0; optional inputs listed under Prerequisites
+owner_decision: approved 2026-09-26 (docs/history/feedback.md), including P15 remediation and activation as W0; optional inputs listed under Prerequisites
 ---
 
 # Challenger lab, text edge, and evaluation science (P16)

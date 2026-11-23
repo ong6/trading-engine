@@ -1,4 +1,7 @@
-# Owner feedback ledger
+# Owner feedback ledger (archived)
+
+> Archived 2026-11-23. Each still-valid rule now lives in the doc it governs (`AGENTS.md`,
+> `docs/product.md`, `docs/scope.md`, the runbook). This ledger is background, not current guidance.
 
 Dated verdicts from the owner about the repo or agent behaviour, each with the rule it
 changed. The newest entry overrides any older document, including `AGENTS.md`. Agents read

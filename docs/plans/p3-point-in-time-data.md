@@ -311,7 +311,7 @@ changes that date. Buying data does.
 
 Three agent sessions plus the owner's purchase. Under 800 lines of new code across loader,
 readiness family, and tests. Raises the `engine` ceiling in `../scope-budget.json` by 800;
-record the raise in `../feedback.md` when approving this plan.
+record the raise in `../history/feedback.md` when approving this plan.
 
 ## Risks
 
