@@ -62,6 +62,7 @@ class FakeDeployer(auto_deploy.Deployer):
         self.crontab = ""
         self.low_disk = None
         self.api_restarts = True
+        self.healthy = True
 
     def now(self):
         return self.moment
@@ -77,6 +78,13 @@ class FakeDeployer(auto_deploy.Deployer):
 
     def disk_problem(self):
         return self.low_disk
+
+    def host_healthy(self):
+        self.calls.append("healthy?")
+        return self.healthy
+
+    def heal_services(self):
+        self.calls.append("heal")
 
     def ci_conclusions(self):
         return {sha: True for sha in self.green}
@@ -278,7 +286,7 @@ def test_failed_post_check_rolls_back(host):
     assert _git(host["live"], "rev-parse", "HEAD") == before
     assert deployer.calls[-3:] == ["--apply", "post-check", "--apply"]
     receipt = json.loads(deployer.record(decision, SAFE, SAFE).read_text())
-    assert receipt["work_status"] == "terminal_failure"
+    assert receipt["work_status"] == "degraded"
     assert "INVALID" in receipt["reason"]
 
 
@@ -449,20 +457,19 @@ def test_a_dependency_bump_holds_back_only_itself(host):
         _deployer(host, green={code, bump}).decide(execute=False)
 
 
-def test_a_rollback_halts_the_deployer_until_cleared(host, capsys):
-    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
-    deployer = _deployer(host, green={target})
+def test_a_rolled_back_target_is_refused_and_a_newer_green_commit_deploys(host):
+    bad = _push(host, "bad", {"engine/x.py": "x = 1\n"})
+    deployer = _deployer(host, green={bad})
     deployer.post_ok = False
     deployer.ops._wait_health = lambda: ({"ok": True}, {})
     decision = deployer.decide(execute=True)
     assert decision.label == "rolled-back"
     deployer.record(decision, SAFE, SAFE)
-    with pytest.raises(auto_deploy.Stop, match="skipped:halted"):
-        _deployer(host, green={target}).decide(execute=True)
-    assert auto_deploy.main(["--clear-halt", "--state-dir", str(host["tmp"] / "state")]) == 0
-    assert "rolled-back" in capsys.readouterr().out
-    assert _deployer(host, green={target}).decide(execute=False).outcome == "would-deploy"
-
+    with pytest.raises(auto_deploy.Stop, match="skipped:refused-target"):
+        _deployer(host, green={bad}).decide(execute=True)
+    fix = _push(host, "fix", {"engine/x.py": "x = 2\n"})
+    decision = _deployer(host, green={bad, fix}).decide(execute=True)
+    assert decision.outcome == "deployed" and decision.detail["target"] == fix
 
 def test_low_disk_skips_before_any_work(host):
     target = _push(host, "code", {"engine/x.py": "x = 1\n"})
@@ -485,3 +492,110 @@ def test_a_migration_without_an_api_restart_rolls_back(host, monkeypatch):
     decision = deployer.decide(execute=True)
     assert decision.label == "rolled-back"
     assert "without an API restart" in decision.detail["error"]
+
+
+def _state(host) -> dict:
+    return json.loads((host["tmp"] / "state/state.json").read_text())
+
+
+def _failed_rollback(host):
+    """Deploy, fail the post-check, and fail the rollback's re-apply: the host is unverified."""
+    good = _git(host["live"], "rev-parse", "HEAD")
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    deployer = _deployer(host, green={target})
+    deployer.post_ok = False
+    applies = iter([(0, {"status": "ok"}), (1, {"status": "error", "errors": ["boom"]})])
+    deployer.automation = lambda mode: next(applies)
+    decision = deployer.decide(execute=True)
+    assert decision.label == "rolled-back:rollback-failed", decision
+    deployer.record(decision, SAFE, SAFE)
+    assert _state(host)["in_flight"]["moved"] == target
+    return good, target
+
+
+def test_a_failed_rollback_is_recovered_on_the_next_run(host):
+    good, target = _failed_rollback(host)
+    assert _git(host["live"], "rev-parse", "HEAD") == good  # reset done, re-apply failed
+    with pytest.raises(auto_deploy.Stop, match="skipped:would-recover"):
+        _deployer(host, green={target}).decide(execute=False)  # a dry run never acts
+    deployer = _deployer(host, green={target})
+    decision = deployer.decide(execute=True)
+    assert decision.label == "recovered:unverified-deploy", decision
+    assert _git(host["live"], "rev-parse", "HEAD") == good
+    state = _state(host)
+    assert "in_flight" not in state and state["last_good_sha"] == good
+    assert _git(host["live"], "for-each-ref", "refs/auto-deploy/")
+
+
+def test_recovery_falls_back_to_a_hard_reset_and_keeps_data_commits(host):
+    good = _git(host["live"], "rev-parse", "HEAD")
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    _git(host["live"], "pull", "-q", "--ff-only", "origin", "main")  # a deploy that crashed
+    _deployer(host).save_state(last_good_sha=good, in_flight={
+        "previous": good, "moved": target, "families": [],
+        "backup": str(host["tmp"] / "state/backups/none")})
+    data = _commit(host["live"], "nightly", {"data/reports/n.json": "{}"})
+    (host["live"] / "engine/x.py").write_text("local edit\n")  # makes --keep refuse
+    (host["live"] / "store").mkdir(exist_ok=True)
+    (host["live"] / "store/untracked.duckdb").write_text("keep me")
+    deployer = _deployer(host, green={target})
+    decision = deployer.decide(execute=True)
+    assert decision.outcome == "recovered", decision
+    assert "recover:hard-reset" in deployer.steps
+    assert _git(host["live"], "rev-parse", "HEAD~1") == good
+    assert (host["live"] / "data/reports/n.json").exists() and decision.detail["reapplied"] == 1
+    assert (host["live"] / "store/untracked.duckdb").read_text() == "keep me"
+    assert data  # the original stays reachable through the pre-recovery ref
+
+
+def test_failed_recoveries_back_off_and_then_heal_services(host):
+    from datetime import timedelta
+
+    _good, target = _failed_rollback(host)
+    moment = SAFE
+    for attempt in range(1, auto_deploy.HEAL_AFTER + 1):
+        deployer = _deployer(host, green={target})
+        deployer.healthy = False
+        deployer.moment = moment
+        decision = deployer.decide(execute=True)
+        assert decision.label == "recovery-failed:unverified-deploy"
+        assert decision.detail["failures"] == attempt
+        assert ("heal" in deployer.calls) == (attempt == auto_deploy.HEAL_AFTER)
+        early = _deployer(host, green={target})
+        early.moment = moment + timedelta(minutes=1)
+        with pytest.raises(auto_deploy.Stop, match="skipped:recovery-backoff"):
+            early.decide(execute=True)
+        moment += auto_deploy.RECOVERY_BASE * 2 ** (attempt - 1)
+    deployer = _deployer(host, green={target})
+    deployer.moment = moment
+    assert deployer.decide(execute=True).outcome == "recovered"
+    assert "recovery" not in _state(host)
+
+
+def test_a_healthy_hand_deploy_is_adopted_and_unhealthy_code_is_recovered(host):
+    _deployer(host).save_state(last_good_sha=_git(host["live"], "rev-parse", "HEAD"))
+    good = _git(host["live"], "rev-parse", "HEAD")
+    hand = _push(host, "hand", {"engine/x.py": "x = 9\n"})
+    _git(host["live"], "pull", "-q", "--ff-only", "origin", "main")
+    deployer = _deployer(host, green={hand})
+    with pytest.raises(auto_deploy.Stop, match="skipped:up-to-date"):
+        deployer.decide(execute=True)
+    assert f"adopted:{hand[:12]}" in deployer.steps and _state(host)["last_good_sha"] == hand
+    _deployer(host).save_state(last_good_sha=good)
+    sick = _deployer(host, green={hand})
+    sick.healthy = False
+    decision = sick.decide(execute=True)
+    assert decision.label == "recovery-failed:unhealthy-unverified-code"  # still unhealthy
+    assert _git(host["live"], "rev-parse", "HEAD") == good
+
+
+def test_a_rollback_drill_rolls_back_a_good_deploy(host):
+    before = _git(host["live"], "rev-parse", "HEAD")
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    deployer = _deployer(host, green={target})
+    deployer.drill_rollback = True
+    deployer.ops._wait_health = lambda: ({"ok": True}, {})
+    decision = deployer.decide(execute=True)
+    assert decision.label == "rolled-back" and "rollback drill" in decision.detail["error"]
+    assert deployer.calls[-3:] == ["--apply", "post-check", "--apply"]
+    assert _git(host["live"], "rev-parse", "HEAD") == before

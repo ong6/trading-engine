@@ -9,7 +9,20 @@ changes the live checkout, its units or its reports. Each run records one decisi
   dry-run would-deploy     every check passed; ``--execute`` would deploy the target
   skipped:<reason>         nothing to do now (a blocked window, a producer, up to date, ...)
   needs-human:<reason>     the range needs ``tools/release_deploy.py`` or a person
-  rolled-back              the post-check failed and the previous commit was restored
+  rolled-back              the post-check failed: the previous commit was restored and the
+                           target is refused until ``main`` moves (newer green commits deploy)
+  recovered                an unverified host (a crashed deploy, a failed rollback, unhealthy
+                           unverified code) was brought back to the last verified commit
+  recovery-failed          recovery did not verify; it retries with backoff and, after three
+                           failures, clears failed engine units and restarts the API and UI
+
+Self-heal, never alerts: state.json records ``last_good_sha`` after every verified deploy
+(the first run trusts the deployed checkout; a healthy hand deploy is adopted) and an
+``in_flight`` marker while the checkout is moved. A run first converges: an in-flight marker,
+a pending recovery or unhealthy unverified code restores the reports, resets to the last good
+commit (``--keep``, else a hard reset of tracked files; untracked store files are untouched and
+a ``refs/auto-deploy/pre-recovery-*`` ref keeps every commit), re-applies data-only commits,
+re-runs ``install_automation --apply`` and checks the host. Dry runs report ``would-recover``.
 
 Steps: (1) skip inside 14:05-14:35 and 22:30-03:00 UTC, while any producer lock is held
 (observed through ``/proc/locks``, never acquired), a producer process runs or a release
@@ -76,7 +89,10 @@ MUTATION_LEAD = timedelta(minutes=15)  # the mutating half must end before a win
 ENGINE_UNIT = re.compile(r"^(?:trading-engine-|massive-)")
 SCHEDULE_EXEMPT = frozenset({"trading-engine-auto-deploy", "trading-engine-ops-digest",
                              "trading-engine-driver-watchdog", "massive-minute-capture"})
-HALTING = ("rolled-back", "needs-human:rollback")
+RECOVERY_BASE = timedelta(minutes=15)  # backoff after a failed recovery: 15, 30, 60 ... minutes
+RECOVERY_CAP = timedelta(hours=4)
+HEAL_AFTER = 3  # consecutive failed recoveries before failed units are cleared and apps restarted
+APP_UNITS = ("trading-engine-api.service", "trading-engine-ui.service")
 HUMAN_PATHS = ("uv.lock", "pyproject.toml", "engine/requirements.txt", "ui/package.json",
                "ui/package-lock.json",
                # The long-running minute capture is exempt from the producer check, so a
@@ -92,7 +108,8 @@ FORWARD_TESTS = ("tests/test_p15_registration.py", "tests/test_forward_review.py
 LOCK_DIRECTORIES = ((), ("store",), ("store", "snapshots"), ("logs",))
 META_KEYS = {"e1": "e1_forward", "sector": "forward_review", "xs": "xs_forward_review"}
 WORK_STATUS = {"deployed": "success", "would-deploy": "noop", "skipped": "noop",
-               "needs-human": "degraded", "rolled-back": "terminal_failure",
+               "needs-human": "degraded", "rolled-back": "degraded",
+               "recovered": "degraded", "recovery-failed": "terminal_failure",
                "failed": "terminal_failure"}
 
 
@@ -223,6 +240,7 @@ class Deployer:
         self.mirror = state_dir / "mirror"
         self.worktree = state_dir / "worktree"
         self.steps: list[str] = []
+        self.drill_rollback = False
         self.ops = release_deploy.ReleaseOperations(
             release_deploy.StateStore(state_dir), home=Path.home(),
             command_runner=release_deploy.CommandRunner(), api_url=self.api_url,
@@ -320,6 +338,41 @@ class Deployer:
                         due[unit] = None
         crontab = self.run(["crontab", "-l"], cwd=self.root, timeout=30).stdout
         return due, activating, crontab
+
+    def save_state(self, **changes) -> dict:
+        """Merge ``changes`` into state.json at once (``None`` removes a key)."""
+        state = self.load_state()
+        for key, value in changes.items():
+            if value is None:
+                state.pop(key, None)
+            else:
+                state[key] = value
+        self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        write_text_atomic(self.state_dir / "state.json",
+                          json.dumps(state, indent=1, sort_keys=True) + "\n")
+        return state
+
+    def code_differs(self, good: str) -> bool:
+        """Whether the live checkout's tracked code (outside data/) differs from ``good``."""
+        done = self.run(["git", "diff", "--quiet", good, "HEAD", "--", ".", ":(exclude)data"],
+                        cwd=self.root, timeout=120)
+        return done.returncode != 0
+
+    def host_healthy(self) -> bool:
+        """Liveness, readiness and the automation audit on the code that is live now."""
+        try:
+            self.ops._wait_health()
+        except release_deploy.DeployError:
+            return False
+        code, _summary = self.automation("--audit")
+        return code == 0
+
+    def heal_services(self) -> None:
+        """The backstop after repeated failed recoveries: clear failed units, restart the apps."""
+        self.run(["systemctl", "--user", "reset-failed", "trading-engine-*"], cwd=self.root)
+        done = self.run(["systemctl", "--user", "restart", *APP_UNITS], cwd=self.root,
+                        timeout=900)
+        self.steps.append(f"heal:restart:{done.returncode}")
 
     def disk_problem(self) -> str | None:
         """Keep the store reserve: a rollback must still work on a full day."""
@@ -611,6 +664,10 @@ class Deployer:
             moved = self.git(self.root, "rev-parse", "HEAD")
             self.steps.append(f"moved:{previous[:12]}->{moved[:12]}")
             backup = self.state_dir / "backups" / self.now().strftime("%Y%m%dT%H%M%SZ")
+            # Until this run verifies or rolls back, the next run treats the host as unverified.
+            self.save_state(in_flight={"previous": previous, "moved": moved, "target": target,
+                                       "families": families, "backup": str(backup),
+                                       "at": _iso(self.now())})
             try:
                 self.migrate(families, backup)
                 code, summary = self.automation("--apply")
@@ -623,17 +680,20 @@ class Deployer:
                     # /meta compares against the API's imported contract constants.
                     raise release_deploy.DeployError("migrated without an API restart")
                 checked = self.post_check(expected)
+                if self.drill_rollback:  # an operator drill: prove the rollback path for real
+                    raise release_deploy.DeployError("rollback drill")
             except Exception as exc:  # noqa: BLE001 - any failure after the move rolls back
                 return self.roll_back(previous, moved, families, backup,
                                       f"{type(exc).__name__}: {exc}"[:300])
+            self.save_state(in_flight=None, last_good_sha=moved, recovery=None)
             return Decision("deployed", detail={"target": target, "previous": previous,
                                                 "migrated": families, **checked})
 
     def roll_back(self, previous: str, moved: str, families: list[str], backup: Path,
                   error: str) -> Decision:
         if self.git(self.root, "rev-parse", "HEAD") != moved:
-            return Decision("needs-human", "rollback-blocked-by-new-commit",
-                            {"error": error, "previous": previous})
+            return Decision("rolled-back", "rollback-deferred",
+                            {"error": error, "previous": previous, "recovery": "next run"})
         try:
             self.restore_reports(families, backup)  # back to the committed bytes first
             self.git(self.root, "reset", "-q", "--keep", previous)
@@ -642,10 +702,99 @@ class Deployer:
                 raise release_deploy.DeployError(f"re-apply: {summary.get('errors')}")
             self.ops._wait_health()
         except (Stop, OSError, release_deploy.DeployError) as exc:
-            return Decision("needs-human", "rollback-failed",
+            # Never terminal: the in-flight marker stays, so the next run recovers.
+            return Decision("rolled-back", "rollback-failed",
                             {"error": error, "rollback_error": str(exc)[:300],
-                             "previous": previous})
+                             "previous": previous, "recovery": "next run"})
+        self.save_state(in_flight=None)
         return Decision("rolled-back", detail={"error": error, "previous": previous})
+
+    # ---- self-heal ----------------------------------------------------------------------------
+    def recover(self, good: str, in_flight: dict | None, why: str) -> Decision:
+        """Bring the live checkout back to ``good``, keeping data commits and untracked files."""
+        state = self.load_state()
+        attempts = state.get("recovery") or {}
+        due = attempts.get("next_at")
+        if due and self.now() < datetime.fromisoformat(due.replace("Z", "+00:00")):
+            raise Stop("skipped", "recovery-backoff", next_at=due, why=why)
+        self._gate_now(lead=MUTATION_LEAD)
+        detail: dict = {"why": why, "good": good}
+        with self.mutation_locks():
+            self._gate_now(lead=MUTATION_LEAD)
+            try:
+                head = self.git(self.root, "rev-parse", "HEAD")
+                stamp = self.now().strftime("%Y%m%dT%H%M%SZ")
+                self.git(self.root, "update-ref", f"refs/auto-deploy/pre-recovery-{stamp}", head)
+                if in_flight and in_flight.get("backup"):
+                    self.restore_reports(in_flight.get("families") or [],
+                                         Path(in_flight["backup"]))
+                picks = [commit for commit in self.git(
+                    self.root, "rev-list", "--reverse", "--no-merges", "--cherry-pick",
+                    "--right-only", f"{good}...{head}").split() if self._data_only(commit)]
+                keep = self.run(["git", "reset", "-q", "--keep", good], cwd=self.root)
+                if keep.returncode:
+                    # --keep refuses over local edits: reset tracked files (untracked store
+                    # files are never touched; the pre-recovery ref keeps every commit).
+                    self.git(self.root, "reset", "-q", "--hard", good)
+                    self.steps.append("recover:hard-reset")
+                skipped = []
+                for commit in picks:
+                    done = self.run(["git", "cherry-pick", "--allow-empty", "--keep-redundant-commits",
+                                     commit], cwd=self.root)
+                    if done.returncode:
+                        self.run(["git", "cherry-pick", "--abort"], cwd=self.root)
+                        skipped.append(commit)
+                detail.update(reapplied=len(picks) - len(skipped), skipped=skipped,
+                              backup_ref=f"refs/auto-deploy/pre-recovery-{stamp}")
+                self.steps.append(f"recover:{head[:12]}->{good[:12]}")
+                code, summary = self.automation("--apply")
+                self.steps.append(f"apply:{summary.get('status')}")
+                if code or not self.host_healthy():
+                    raise release_deploy.DeployError("host unhealthy after recovery")
+            except (OSError, RuntimeError, release_deploy.DeployError) as exc:
+                failures = int(attempts.get("failures", 0)) + 1
+                delay = min(RECOVERY_BASE * 2 ** (failures - 1), RECOVERY_CAP)
+                if failures >= HEAL_AFTER:
+                    self.heal_services()
+                self.save_state(recovery={"failures": failures, "why": why,
+                                          "next_at": _iso(self.now() + delay)})
+                return Decision("recovery-failed", why, {**detail, "error": str(exc)[:300],
+                                                         "failures": failures})
+        self.save_state(in_flight=None, recovery=None, last_good_sha=good)
+        return Decision("recovered", why, detail)
+
+    def _data_only(self, commit: str) -> bool:
+        names = self.git(self.root, "diff-tree", "--no-commit-id", "--name-only", "-r",
+                         commit).splitlines()
+        return bool(names) and all(name.startswith("data/") for name in names)
+
+    def converge(self, *, execute: bool) -> Decision | None:
+        """Before deploying: recover an unverified host, or adopt verified manual changes."""
+        state = self.load_state()
+        good = state.get("last_good_sha")
+        in_flight = state.get("in_flight")
+        if not good:
+            head = self.git(self.root, "rev-parse", "HEAD")
+            self.save_state(last_good_sha=head)  # the first run trusts the deployed checkout
+            self.steps.append(f"bootstrap-good:{head[:12]}")
+            return None
+        why = None
+        if in_flight:
+            why = "unverified-deploy"
+        elif state.get("recovery"):
+            why = "recovery-pending"
+        elif self.code_differs(good):
+            if self.host_healthy():  # a person deployed by hand and the host is healthy
+                head = self.git(self.root, "rev-parse", "HEAD")
+                self.save_state(last_good_sha=head)
+                self.steps.append(f"adopted:{head[:12]}")
+                return None
+            why = "unhealthy-unverified-code"
+        if why is None:
+            return None
+        if not execute:
+            raise Stop("skipped", "would-recover", why=why, good=good)
+        return self.recover(good, in_flight, why)
 
     # ---- one run ------------------------------------------------------------------------------
     def blocking_commit(self, deployed: str, target: str) -> tuple[str, list[str]] | None:
@@ -658,17 +807,20 @@ class Deployer:
         return None
 
     def decide(self, *, execute: bool) -> Decision:
-        state = self.load_state()
-        if state.get("halted"):
-            raise Stop("skipped", "halted", **state["halted"])
         self._gate_now()
+        healed = self.converge(execute=execute)
+        if healed is not None:
+            return healed
+        state = self.load_state()
         origin, live_head = self.refresh_mirror()
         refused = state.get("refused") or {}
         if refused.get("origin") == origin:
             raise Stop("skipped", "refused-target", target=refused.get("target"),
                        refused_for=refused.get("reason"))
         try:
-            return self._decide(execute=execute, origin=origin, live_head=live_head)
+            decision = self._decide(execute=execute, origin=origin, live_head=live_head)
+            decision.detail.setdefault("origin", origin)
+            return decision
         except Stop as stop:
             if stop.outcome == "needs-human":
                 stop.detail.setdefault("origin", origin)
@@ -742,17 +894,14 @@ class Deployer:
             state = json.loads(state_path.read_text())
         except (OSError, ValueError):
             state = {}
-        if decision.label.startswith(HALTING):
-            # Stop safely: no further deploys until a person runs --clear-halt.
-            state["halted"] = {"at": _iso(ended), "decision": decision.label,
-                               "receipt": str(path)}
-        elif decision.outcome == "needs-human" and decision.detail.get("origin"):
+        if decision.outcome in {"needs-human", "rolled-back"} and decision.detail.get("origin"):
             state["refused"] = {"origin": decision.detail["origin"],
                                 "target": decision.detail.get("target"),
                                 "reason": decision.label, "receipt": str(path)}
         if decision.outcome == "deployed":
             state["deployed_sha"] = decision.detail["target"]
-        elif decision.detail.get("deployed") and decision.outcome != "rolled-back":
+        elif decision.detail.get("deployed") and decision.outcome not in {
+                "rolled-back", "recovered", "recovery-failed"}:
             state.setdefault("deployed_sha", decision.detail["deployed"])
         state["last_attempt"] = {"at": _iso(ended), "decision": decision.label,
                                  "receipt": str(path)}
@@ -770,23 +919,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--logs-dir", type=Path, help="receipt root (default ENGINE_ROOT/logs)")
     parser.add_argument("--api-url", default=API_URL)
     parser.add_argument("--autopush-lock", type=Path, default=AUTOPUSH_LOCK)
-    parser.add_argument("--clear-halt", action="store_true",
-                        help="after a person has checked a rollback: allow deploys again")
+    parser.add_argument("--drill-rollback", action="store_true",
+                        help="with --execute: fail the post-check once after it passes")
     args = parser.parse_args(argv)
-    if args.clear_halt:
-        state_path = args.state_dir.expanduser() / "state.json"
-        try:
-            state = json.loads(state_path.read_text())
-        except (OSError, ValueError):
-            state = {}
-        cleared = state.pop("halted", None)
-        state.pop("refused", None)
-        write_text_atomic(state_path, json.dumps(state, indent=1, sort_keys=True) + "\n")
-        print(json.dumps({"cleared": cleared}, sort_keys=True))
-        return 0
     deployer = Deployer(engine_root=args.engine_root.expanduser(),
                         state_dir=args.state_dir.expanduser(), logs_dir=args.logs_dir,
                         api_url=args.api_url, autopush_lock=args.autopush_lock.expanduser())
+    deployer.drill_rollback = args.drill_rollback and args.execute
     started = deployer.now()
     try:
         decision = deployer.decide(execute=args.execute)
@@ -798,7 +937,7 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps({"decision": decision.label, "detail": decision.detail,
                       "steps": deployer.steps, "receipt": str(receipt)}, indent=1,
                      sort_keys=True))
-    return 1 if decision.outcome in {"failed", "rolled-back"} else 0
+    return 1 if decision.outcome in {"failed", "recovery-failed"} else 0
 
 
 if __name__ == "__main__":
