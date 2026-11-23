@@ -702,4 +702,16 @@ earlier logs listed in that index.
 - **Metrics:** tools +30 lines, tests +40.
 - **Next:** release revision 27 (dependency update) with the fixed tool.
 
+## 2026-11-23 — The deployer acts: merged main with green CI deploys itself
+
+- **Why:** P25 scope item 2. The deployer passed a forced rollback drill and a real deploy on the
+  host (08:44 UTC, post-checks green, the dependency commit held back as designed), and the
+  dirty-data and release-abort defects found along the way are fixed.
+- **What:** the auto-deploy timer runs `tools.auto_deploy --execute`; the deploy doc drops its
+  interim dry-run section.
+- **Evidence:** `tools.affected_tests --run` passes; the next timer run's receipt reads `deployed`
+  or a `skipped:<reason>`, never `would-deploy`.
+- **Metrics:** unchanged.
+- **Next:** close the Dependabot pull requests that revision 27 applied.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

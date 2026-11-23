@@ -1,7 +1,6 @@
 # Deploy
 
-Merged `main` with green CI is deployed by the deployer (see the interim note below while it runs
-in dry run). Workers test ([`testing.md`](testing.md)) and land branches; they never deploy by hand.
+Merged `main` with green CI is deployed by the deployer. Workers test ([`testing.md`](testing.md)) and land branches; they never deploy by hand.
 
 ## Land a branch
 
@@ -12,14 +11,6 @@ python -m tools.land BRANCH --reason-file reason.txt --push
 A change to a file pinned by a registration needs a re-pin: `python -m tools.repin --check`, then
 `python -m tools.repin --reason-file F`. With no reason file inside an undeployed revision it
 refreshes the pins. Never change a registered value.
-
-## Interim: the deployer runs in dry run
-
-The nightly no longer pulls code, and until the orchestrator switches the deployer timer to
-`--execute`, nothing deploys code automatically. After `python -m tools.land BRANCH --push`, the
-orchestrator deploys by hand: run `python -m tools.auto_deploy --execute` once, or fast-forward the
-live checkout and run `python -m tools.install_automation --apply`. Once the timer runs with
-`--execute`, merged to `main` with green CI is deployed. (Edit this section when the switch happens.)
 
 ## The deployer
 
@@ -69,8 +60,8 @@ The nightly does not pull code; it takes only data-only commits.
 
 ## Operate the deployer
 
-- **Switch to execute**: add `--execute` to the auto-deploy job's `argv` and `exec_start` in
-  `ops/jobs.toml`, re-render the unit, land it, then run `python -m tools.install_automation --apply`.
+- **Dry run by hand**: `python -m tools.auto_deploy` (without `--execute`) reports what the timer
+  would do and changes nothing.
 - **Pause**: `systemctl --user stop trading-engine-auto-deploy.timer`.
 - **Manual rollback**: restore reports from `auto-deploy/backups/<time>/` (the newest two are
   kept; see [local retention](../operate/how-it-works.md#local-retention)), run

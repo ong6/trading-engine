@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Continuous deployer: bring the live checkout to the newest green ``main`` commit, or say why not.
 
-``python -m tools.auto_deploy [--execute]`` is run by ``trading-engine-auto-deploy.timer``
-every 15 minutes. Without ``--execute`` (the timer's default) it decides and reports but never
+``python -m tools.auto_deploy --execute`` is run by ``trading-engine-auto-deploy.timer``
+every 15 minutes. Without ``--execute`` it decides and reports but never
 changes the live checkout, its units or its reports. Each run records one decision:
 
   deployed                 the live checkout was moved to the target and post-checked

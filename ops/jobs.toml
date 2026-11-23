@@ -988,7 +988,7 @@ service_unit = "trading-engine-driver-watchdog.service"
 [[jobs]]
 job_id = "auto-deploy"
 version = 1
-argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.auto_deploy"]
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.auto_deploy", "--execute"]
 schedules = ["*-*-* *:06,21,36,51:00 UTC"]
 
 [jobs.timeout]
@@ -1003,8 +1003,8 @@ retention_days = 14
 
 [jobs.legacy.service]
 unit = "trading-engine-auto-deploy.service"
-description = "Trading engine continuous deployer (dry run unless --execute)"
-exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.auto_deploy"] }]
+description = "Trading engine continuous deployer"
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.auto_deploy", "--execute"] }]
 environment = ["PYTHONUNBUFFERED=1"]
 nice = 10
 timeout_start = "50min"
