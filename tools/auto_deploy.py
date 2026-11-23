@@ -608,8 +608,12 @@ class Deployer:
         if any((git_dir / name).exists() for name in
                ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD")):
             raise Stop("skipped", "live-operation-in-progress")
-        if self.git(self.root, "status", "--porcelain", "--untracked-files=no"):
-            raise Stop("skipped", "live-tree-dirty")
+        # Producers rewrite tracked files under data/ (``data/_meta.json``) between the commits
+        # that record them, so a dirty data/ path is normal; anything else is not.
+        dirty = self.live_dirty_paths()
+        outside = sorted(path for path in dirty if not path.startswith("data/"))
+        if outside:
+            raise Stop("skipped", "live-tree-dirty", paths=outside[:5])
         local = self.git(self.mirror, "rev-list", live_head, f"^{origin}").split()
         for commit in local:
             names = self.git(self.mirror, "diff-tree", "--no-commit-id", "--name-only", "-r",
@@ -617,6 +621,23 @@ class Deployer:
             if any(not name.startswith("data/") for name in names):
                 raise Stop("skipped", "live-has-code-commits", commit=commit)
         return local
+
+    def live_dirty_paths(self) -> set[str]:
+        """Tracked paths with uncommitted changes in the live checkout."""
+        return set(self.git(self.root, "diff", "--name-only", "--no-renames", "HEAD"
+                            ).splitlines())
+
+    def dirty_overlap(self, target: str) -> list[str]:
+        """Dirty live paths whose committed content differs between HEAD and ``target``.
+
+        Moving the checkout would have to overwrite those edits, so the run waits for the
+        producer's next commit instead."""
+        dirty = self.live_dirty_paths()
+        if not dirty:
+            return []
+        changed = set(self.git(self.root, "diff", "--name-only", "--no-renames", "HEAD",
+                               target).splitlines())
+        return sorted(dirty & changed)
 
     # ---- steps 6-9: mutation ------------------------------------------------------------------
     @contextmanager
@@ -697,8 +718,14 @@ class Deployer:
             self._gate_now(lead=MUTATION_LEAD)
             previous = self.git(self.root, "rev-parse", "HEAD")
             self.git(self.root, "fetch", "-q", "origin")
+            overlap = self.dirty_overlap(target)
+            if overlap:
+                raise Stop("skipped", "live-data-overlap", paths=overlap[:5])
             if local:
-                done = self.run(["git", "rebase", "-q", target], cwd=self.root, timeout=600)
+                # --autostash carries the producers' uncommitted data/ edits across the rebase;
+                # none of them overlaps the move (checked above).
+                done = self.run(["git", "rebase", "--autostash", "-q", target], cwd=self.root,
+                                timeout=600)
                 if done.returncode:
                     self.run(["git", "rebase", "--abort"], cwd=self.root)
                     raise Stop("skipped", "rebase-conflict")

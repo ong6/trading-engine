@@ -265,6 +265,48 @@ def test_live_checkout_rules(host):
     _write(host["live"], "README.md", "dirty\n")
     with pytest.raises(auto_deploy.Stop, match="live-tree-dirty"):
         deployer.decide(execute=False)
+    _git(host["live"], "checkout", "-q", "--", "README.md")
+    _write(host["live"], "data/reports/n.json", '{"producer": "mid-day"}')
+    assert deployer.decide(execute=False).outcome == "would-deploy"
+
+
+def test_execute_keeps_uncommitted_producer_data(host):
+    _commit(host["seed"], "meta", {"data/_meta.json": "{}"})
+    _git(host["seed"], "push", "-q", "origin", "main")
+    _git(host["live"], "pull", "-q", "--ff-only")
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    _write(host["live"], "data/_meta.json", '{"fresh": true}')
+    decision = _deployer(host, green={target}).decide(execute=True)
+    assert decision.outcome == "deployed", decision
+    assert _git(host["live"], "rev-parse", "HEAD") == target
+    assert (host["live"] / "data/_meta.json").read_text() == '{"fresh": true}'
+
+
+def test_execute_rebases_data_commits_over_uncommitted_producer_data(host):
+    _commit(host["seed"], "meta", {"data/_meta.json": "{}"})
+    _git(host["seed"], "push", "-q", "origin", "main")
+    _git(host["live"], "pull", "-q", "--ff-only")
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    _commit(host["live"], "nightly", {"data/reports/n.json": "{}"})
+    _write(host["live"], "data/_meta.json", '{"fresh": true}')
+    decision = _deployer(host, green={target}).decide(execute=True)
+    assert decision.outcome == "deployed", decision
+    assert _git(host["live"], "rev-parse", "HEAD~1") == target
+    assert (host["live"] / "data/_meta.json").read_text() == '{"fresh": true}'
+    assert (host["live"] / "data/reports/n.json").exists()
+
+
+def test_execute_waits_when_the_move_would_overwrite_producer_data(host):
+    _commit(host["seed"], "meta", {"data/_meta.json": "{}"})
+    _git(host["seed"], "push", "-q", "origin", "main")
+    _git(host["live"], "pull", "-q", "--ff-only")
+    target = _push(host, "code and meta", {"engine/x.py": "x = 1\n",
+                                           "data/_meta.json": '{"upstream": 1}'})
+    _write(host["live"], "data/_meta.json", '{"fresh": true}')
+    deployer = _deployer(host, green={target})
+    with pytest.raises(auto_deploy.Stop, match="live-data-overlap"):
+        deployer.deploy(target, [], [], {})
+    assert (host["live"] / "data/_meta.json").read_text() == '{"fresh": true}'
 
 
 def test_execute_fast_forwards_rebases_data_and_records(host):

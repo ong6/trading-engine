@@ -652,4 +652,17 @@ earlier logs listed in that index.
 - **Metrics:** server -45, tools -711, tests -1418 lines; ops scripts -663.
 - **Next:** P25 scope item 7, stale remote branches and lane clones.
 
+## 2026-11-23 — Let the deployer move a live checkout with uncommitted producer data
+
+- **Why:** reproduced on the host: every `tools.auto_deploy --execute` from 08:16 to 08:32 UTC
+  returned `skipped:live-tree-dirty` because `data/_meta.json` is rewritten between the
+  producer commits that record it, so the deployer could act only right after a nightly commit.
+- **What:** uncommitted changes under `data/` no longer block a deploy; any other dirty path
+  still does. The move waits (`skipped:live-data-overlap`) only when it would overwrite one of
+  those edits, and rebasing data-only local commits uses `--autostash`.
+- **Evidence:** `pytest -q -W error -n 0 tests/test_auto_deploy.py` passes under `TZ=UTC` and
+  `TZ=Asia/Singapore` (three new cases: fast-forward and rebase keep the edit, overlap waits).
+- **Metrics:** tools +27 lines, tests +45.
+- **Next:** release batch C (dependency update) and switch the deployer timer to `--execute`.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
