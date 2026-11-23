@@ -26,8 +26,8 @@ changed, rehearse the digest-only migration on the newest snapshot, back up the 
 commit (only when no commit landed since), restore the reports and re-apply.
 
 Mutation holds the release transaction lock and the te-autopush lock, so neither can race it.
-State lives in ``~/.local/state/trading-engine/auto-deploy/``; one receipt per run goes to
-``logs/job-runs/auto-deploy/``, which ``tools/ops_digest.py`` reads.
+State lives in ``~/.local/state/trading-engine/auto-deploy/``; one receipt per run goes to the
+``job-runs`` tree of the logs directory, which ``tools/ops_digest.py`` reads.
 """
 from __future__ import annotations
 
@@ -70,10 +70,9 @@ HUMAN_PATHS = ("uv.lock", "pyproject.toml", "engine/requirements.txt", "ui/packa
 MIGRATIONS = "engine/migrations/"
 FORWARD_TESTS = ("tests/test_p15_registration.py", "tests/test_forward_review.py",
                  "tests/test_xs_forward_review.py", "tests/test_experiment_runner.py")
-EXTRA_LOCKS = (".hourly-opportunity.lock", "store/snapshots/.generation-publish.lock",
-               "logs/.verify-prices-reader.lock")
-LOCK_GLOBS = ("*.running.lock", ".p15-*.lock", ".p16-*.lock", ".*opportunity*.lock",
-              "store/.p15-*.lock", "store/.p16-*.lock")
+# Every lock file in these directories counts: the producer locks, the running guards, the
+# P15/P16 and opportunity locks, snapshot publication and the price-verification reader.
+LOCK_DIRECTORIES = ((), ("store",), ("store", "snapshots"), ("logs",))
 META_KEYS = {"e1": "e1_forward", "sector": "forward_review", "xs": "xs_forward_review"}
 WORK_STATUS = {"deployed": "success", "would-deploy": "noop", "skipped": "noop",
                "needs-human": "degraded", "rolled-back": "terminal_failure",
@@ -168,9 +167,10 @@ class Deployer:
 
     # ---- step 1: may we run at all? ------------------------------------------------------
     def busy(self) -> str | None:
-        locks = set(backup_database.LOCK_FILES) | set(EXTRA_LOCKS)
-        for pattern in LOCK_GLOBS:
-            locks |= {str(path.relative_to(self.root)) for path in self.root.glob(pattern)}
+        locks = set(backup_database.LOCK_FILES)
+        for parts in LOCK_DIRECTORIES:
+            locks |= {str(path.relative_to(self.root))
+                      for path in self.root.joinpath(*parts).glob("*.lock")}
         for relative in sorted(locks):
             held = self.lock_held(self.root / relative)
             if held is not False:

@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from engine.lib.provenance import canonical_sha256
+from engine.lib.resources import write_text_atomic
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REGISTRATION = "server/p15-registration.json"
@@ -412,7 +413,7 @@ def apply(root: Path, result: Plan, message: str | None = None) -> list[str]:
     commits = []
     if result.contract_edits:
         for path, text in result.contract_edits.items():
-            (root / path).write_text(text)
+            write_text_atomic(root / path, text)
         labels = [f.label for f in FAMILIES if f.key in result.changed_families] or ["closure"]
         commits.append(_commit(root, sorted(result.contract_edits), (
             f"Accept the published revision-{result.deployed_revision} {_join(labels)} "
@@ -422,10 +423,11 @@ def apply(root: Path, result: Plan, message: str | None = None) -> list[str]:
         files = current["code_identity"]["files"]
         hashes = {path: hashlib.sha256((root / path).read_bytes()).hexdigest() for path in files}
         source = git(root, "rev-list", "-1", "HEAD", "--", *sorted(files))
-        (root / REGISTRATION).write_text(_render_registration(
+        write_text_atomic(root / REGISTRATION, _render_registration(
             current, hashes, source, result.revision, result.reason))
         test = root / REGISTRATION_TEST
-        test.write_text(_registration_test(test.read_text(), result.revision, result.reason))
+        write_text_atomic(test, _registration_test(test.read_text(), result.revision,
+                                                   result.reason))
         commits.append(_commit(root, [REGISTRATION, REGISTRATION_TEST],
                                message or f"Pin registration revision {result.revision}"))
     return commits
