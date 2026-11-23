@@ -1,0 +1,11 @@
+[Unit]
+Description=Deploy the newest green main commit outside the protected windows
+
+[Timer]
+OnCalendar=*-*-* *:06,21,36,51:00 UTC
+Persistent=false
+AccuracySec=1min
+Unit=trading-engine-auto-deploy.service
+
+[Install]
+WantedBy=timers.target

@@ -154,6 +154,8 @@ REVIEWED_COMPUTED_IMPORTS = {
     "tools/release_deploy.py": "_python_module runs `-m *args`; its only caller passes the "
                                "string-literal module names of run_migration's table, which "
                                "are import edges already",
+    "tools/repin.py": "migration_argv runs `-m family.module`; the modules are the string "
+                      "literals of FAMILIES, which are import edges already",
     "tests/test_affected_tests.py": "the computed imports are sources it parses as test data",
     "engine/lib/snapshots.py": "loads the migration modules named by its own string-literal "
                                "MIGRATION_MODULES, which are import edges already",

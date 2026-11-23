@@ -5969,6 +5969,22 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `pytest -q -W error -n 8` passes under `TZ=UTC` and `TZ=Asia/Singapore`.
 - **Metrics:** see the metrics snapshot.
 - **Next:** fast-forward the live checkout, `install_automation --apply`, verify `/ready`.
+## 2026-11-23 — Continuous deploy tooling: mechanical re-pin, dry-run deployer, landing command
+
+- **Why:** P25 scope items 2-4 (active plan `docs/plans/p25-ship-autodeploy-cleanup.md`); the
+  nightly's `git pull --rebase` moved pinned code onto the host before any migration ran.
+- **What:** `tools/repin.py` writes the next registration revision (closure digests first, then
+  the pin) and refuses any registered-value change; `tools/auto_deploy.py`, on a new 15-minute
+  timer in dry-run mode, takes the newest green `main` commit through the deploy gate, migrations,
+  `install_automation --apply`, post-checks and rollback, recording each decision for the digest;
+  `tools/land.py` merges, re-pins, verifies and pushes a branch. The nightly now takes only
+  data-only upstream commits; registration revision 26 pins that. Three tests that asserted
+  revision 24 read the registration instead.
+- **Evidence:** `python -m pytest tests/test_repin.py -k revision_25` reproduces the revision-25
+  pin byte for byte from its parent and the same sentence; the full suite passes under UTC and
+  Asia/Singapore.
+- **Metrics:** tools +1,190 LOC (repin, auto_deploy, land), server and product unchanged.
+- **Next:** run the deployer in dry run through one full nightly cycle, then add `--execute`.
 
 ## 2026-11-23 — Deploy revision 25
 

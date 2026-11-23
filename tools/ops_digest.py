@@ -1219,6 +1219,9 @@ def _invariants_lines(probe: dict | None) -> list[str]:
     return lines
 
 
+DEPLOYER_JOB = "auto-deploy"  # tools/auto_deploy.py
+
+
 def render(hour: datetime, data: dict) -> str:
     end = hour + timedelta(hours=1)
     chronic = [i for i in data.get("findings", []) if i["category"] == "chronic"]
@@ -1276,13 +1279,20 @@ def render(hour: datetime, data: dict) -> str:
                 f"{_flow_pair(row, 'input_bytes', 'output_bytes')} | "
                 f"{_flow_pair(row, 'writer_hold_seconds', 'lock_wait_seconds')} |"
             )
-    if data.get("job_receipts"):
+    receipts = [row for row in data.get("job_receipts", []) if row["job_id"] != DEPLOYER_JOB]
+    deploys = [row for row in data.get("job_receipts", []) if row["job_id"] == DEPLOYER_JOB]
+    if deploys:  # a run every 15 minutes: the last decision, not a row per run
+        last = max(deploys, key=lambda row: row["ended_at"])
+        lines += ["", "## Deployer", "",
+                  f"Last decision {last['ended_at']}: {_markdown_cell(last['reason'])} "
+                  f"({len(deploys)} run(s) since the last digest)."]
+    if receipts:
         lines += [
             "", "## Registered job receipts", "",
             "| job | scheduled | attempt | duration | work status | process exit | reason |",
             "|---|---|---|---|---|---|---|",
         ]
-        for row in data["job_receipts"]:
+        for row in receipts:
             lines.append(
                 f"| {row['job_id']} | {row['scheduled_for']} | {row['attempt']} | "
                 f"{_duration(_receipt_seconds(row))} | {row['work_status']} | "

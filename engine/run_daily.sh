@@ -15,9 +15,11 @@ DRIVER_STAGE_FILE=logs/.last_stage
 source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 
 body() {
-  # Pull only from a configured upstream whose local tracking ref resolves.
-  # Pin the remote and branch explicitly so pull.rebase/pushRemote defaults
-  # cannot silently redirect unattended synchronization.
+  # Take only data from a configured upstream whose local tracking ref resolves:
+  # the nightly never advances code (pinned code changes need their migrations,
+  # which tools/auto_deploy.py runs). When every incoming commit touches only
+  # data/, rebase onto it; otherwise run on the current code. Pin the remote and
+  # branch explicitly so pull.rebase/pushRemote defaults cannot redirect it.
   branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
   remote="$(git config --get "branch.${branch}.remote" 2>/dev/null || true)"
   merge_ref="$(git config --get "branch.${branch}.merge" 2>/dev/null || true)"
@@ -34,8 +36,23 @@ body() {
       && [ "${remote_exists}" -eq 1 ] \
       && [ -n "${upstream_ref}" ] \
       && git rev-parse --verify --quiet "${upstream_ref}^{commit}" >/dev/null; then
-    git pull --rebase --autostash "${remote}" "${remote_branch}" \
-      || echo "WARN: git pull --rebase --autostash ${remote} ${remote_branch} failed; continuing with local state"
+    if git fetch --quiet "${remote}" "${remote_branch}"; then
+      incoming="$(git rev-list "HEAD..${upstream_ref}")"
+      code_paths=""
+      for commit in ${incoming}; do
+        code_paths="${code_paths}$(git diff-tree --no-commit-id --name-only -r -m "${commit}" | grep -v '^data/' || true)"
+      done
+      if [ -z "${incoming}" ]; then
+        echo "INFO: no incoming commits from ${upstream_ref}"
+      elif [ -n "${code_paths}" ]; then
+        echo "INFO: ${upstream_ref} carries code changes; running on the current code (the deployer advances it)"
+      elif ! git rebase --quiet --autostash "${upstream_ref}"; then
+        git rebase --abort 2>/dev/null || true
+        echo "WARN: git rebase --autostash ${upstream_ref} failed; continuing with local state"
+      fi
+    else
+      echo "WARN: git fetch ${remote} ${remote_branch} failed; continuing with local state"
+    fi
   else
     echo "INFO: no usable upstream configured; skipping pull"
   fi
