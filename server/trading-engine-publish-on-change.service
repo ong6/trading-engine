@@ -8,7 +8,6 @@ ExecStart=%h/trading-engine/.venv/bin/python -m tools.publish_snapshot --if-chan
 Environment=PYTHONUNBUFFERED=1
 Nice=19
 IOSchedulingClass=best-effort
-# Recorded full publications took about 29 minutes; allow 16 minutes of load margin.
 TimeoutStartSec=45min
 PrivateTmp=true
 ProtectSystem=full

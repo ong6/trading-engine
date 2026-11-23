@@ -52,7 +52,7 @@ cd "${REPO_ROOT}"
 
 # The run guard lasts through the snapshot tail and the done/failure marker. It
 # never joins the publisher's capture locks: a second driver cannot overwrite
-# logs/stage state while P15 and other writers may use the captured store.
+# log and stage-timing state while P15 and other writers may use the captured store.
 exec 6>"${REPO_ROOT}/${DRIVER_LOCK%.lock}.running.lock"
 if ! flock -n 6; then
   echo "ERROR: ${DRIVER_LOCK_MSG}"
