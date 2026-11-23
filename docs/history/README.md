@@ -46,3 +46,4 @@ Git history and `BUILDLOG.md` are the decision record. Finished plans are in
 | 2026-11-23 | [`scope-retired-2026-11-23.md`](scope-retired-2026-11-23.md) | Resolved and superseded scope-ledger lines | Record of what the parking list held before the cleanup |
 | 2026-09 → 10 | [`settlement-runbook-records-2026-09-to-10.md`](settlement-runbook-records-2026-09-to-10.md) | Settlement incident tables and the P22 revision-14/15 deploy, rollback and rehearsal procedures | Exact commands used for the engine v2 deployment |
 | 2026-09-12 → 13 | [`strategy-backlog-checkpoints-2026-09.md`](strategy-backlog-checkpoints-2026-09.md) | Dated decision checkpoints from the strategy backlog | Counts and migrations behind the forward records at that time |
+| 2026-09-18 → 10-31 | [`buildlog-archive.md`](buildlog-archive.md) | Format-v2 BUILDLOG entries before 2026-11-01, verbatim | Decisions and evidence behind the engine v2, P15–P24 work |
