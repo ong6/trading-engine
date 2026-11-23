@@ -714,4 +714,15 @@ earlier logs listed in that index.
 - **Metrics:** unchanged.
 - **Next:** close the Dependabot pull requests that revision 27 applied.
 
+## 2026-11-23 — Remove two CI timing flakes that block the deployer
+
+- **Why:** reproduced on CI: `main` runs for 4898aa6a and 467602f8 failed with
+  `test_flat_sessions_advance_interest_checkpoint` at 26.5 s over the 25 s budget and
+  `test_attempt_timeout_escalates_from_term_to_kill` reading TERM for KILL (the 0.2 s timeout fired
+  before the child installed its SIGTERM handler). The deployer only ships green commits.
+- **What:** the first test is marked slow; the second gives the child 2 s before the timeout.
+- **Evidence:** both pass under `TZ=UTC` and `TZ=Asia/Singapore`.
+- **Metrics:** tests +3 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -65,6 +65,7 @@ def test_borrow_at_open_cannot_use_future_close(h, future_close):
         100 * 100 * .0025 / 360)
 
 
+@pytest.mark.slow  # about 26 s on CI runners: steps many flat sessions
 def test_flat_sessions_advance_interest_checkpoint(h):
     h.now = datetime(2026, 10, 5, 13, 27, tzinfo=timezone.utc)
     h.session = date(2026, 10, 5)

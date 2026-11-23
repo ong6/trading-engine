@@ -574,8 +574,10 @@ def test_attempt_timeout_escalates_from_term_to_kill(tmp_path, ignore_term, term
     spec, repo = _spec(
         tmp_path,
         f"import signal, time\n{setup}\ntime.sleep(10)\n",
-        attempt_seconds=0.2,
-        term_grace_seconds=0.05,
+        # Long enough for a slow runner to start the child and install its SIGTERM handler
+        # before the timeout fires; the child still sleeps far past it.
+        attempt_seconds=2.0,
+        term_grace_seconds=0.2,
     )
 
     result = _execute(spec, repo, tmp_path)
