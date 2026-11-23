@@ -13,7 +13,7 @@ did a decision process add value after realistic costs, or did it merely get luc
 
 “Paper” is the important word. Orders, fills, cash, positions, and costs are simulated. The engine
 has no broker connection, no broker credentials, and no authority over real money. A future broker
-paper account is described in an internal proposal, but it is explicitly not work for now.
+paper account is described in an internal proposal; it is not planned for now.
 
 The engine runs unattended on a Linux server. An LLM can make bounded research decisions through a
 model gateway, while deterministic code controls the data it may see, the candidate list, position
@@ -42,36 +42,33 @@ candidates. Costs are charged to the strategy. Attempts are counted. Results mus
 was not used during development. A policy that fails its registered test is stopped rather than
 tuned after the fact.
 
-The live profitability evidence loop (P15) scores a wider candidate set and runs three matched
+The live profitability evidence loop scores a wider candidate set and runs three matched
 paper books: AI-ranked, rule-ranked, and a rule book with an AI veto. It has run since September
 2026 and is still collecting evidence. Its scoring, books, and pass/fail gates have not changed
 since it started; later registration revisions only fixed the infrastructure around them.
 
-The challenger lab, text edge, and evaluation science plan (P16) has built stronger evaluation,
+The challenger lab, text edge, and evaluation science plan has built stronger evaluation,
 shadow challengers, filing and replay paths, portfolio construction, and execution measurement.
 Those parts remain inert until their own registration, rehearsal, and activation gates pass. The
-shared backtest core (P18) is complete and available for public, reusable studies.
+shared backtest core is complete and available for public, reusable studies.
 
 No policy has yet beaten its frozen control prospectively. That is the honest current status. The
 system has working infrastructure and accumulating paper evidence; it does not have a proven edge.
 
 ## What is running now
 
-As of 22 October 2026:
+The live state (which paper books are active, the registration revision, freshness of every
+producer and the status of each forward record) is published by the engine's `GET /meta` endpoint
+and the generated reports in `data/reports/`, not restated here. The shape is stable:
 
-- **Engine v2 is live on paper.** Since 18 October 2026 the engine has been the single executor
-  and ledger for every paper book and paper account. From 19 October each book pays a registered
-  commission schedule, and its evaluation clock restarted on that date so old and new cost rules
-  are never mixed in one result.
-- **17 paper books are active.** On 21 October eight books that showed no edge after costs were
-  retired. Their history stays in the record; they simply stop trading.
+- **Engine v2 runs on paper.** The engine is the single executor and ledger for every paper book
+  and paper account. Every book pays a registered commission schedule from a recorded break date,
+  and its evaluation clock restarted there so old and new cost rules are never mixed.
+- **Books that show no edge after costs are retired.** Their history stays in the record; they
+  simply stop trading.
 - **Three frozen forward records keep accumulating**: a weekly SPY Monday experiment, a sector
-  momentum rule, and a 12-1 stock momentum comparison. None has reached the date when its verdict
-  is allowed.
-- **A senior-quant review is under way.** This in-depth technical review of the whole pipeline
-  fixed data-integrity and statistics defects, made the nightly jobs, simulator, and test suite
-  faster while proving identical outputs, and repaired stored price history on 22 October. A
-  storage reorganization from the same review is still being rehearsed and is not live.
+  momentum rule, and a 12-1 stock momentum comparison. Each reaches a verdict only on its
+  pre-registered date.
 
 ## Public engine, private research
 

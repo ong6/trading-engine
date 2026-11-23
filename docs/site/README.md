@@ -11,9 +11,8 @@ This directory is the site-rendering contract. Pages appear in the order below. 
 page has a one-sentence summary, one of four section labels, and a source-path comment that points
 reviewers back to the implementation or internal record.
 
-The guide is written for a curious reader who does not know the engine’s internal plan codes. The
-main pages explain the product first; the glossary translates codes when a reader needs to inspect
-the internal plans.
+The guide is written for a curious reader who does not know the engine’s internal plan codes, so no
+page uses them. The main pages explain the product first; the glossary explains research terms.
 
 | Order | Page | Section | Summary |
 |---:|---|---|---|
@@ -27,7 +26,7 @@ the internal plans.
 | 8 | [Evidence and reliability](evidence-and-reliability.md) | Operations | Frozen identities, validators, snapshots, backups, and stage timing make a result reproducible and a failure diagnosable. |
 | 9 | [Operations](operations.md) | Operations | Locks, schedule checks, read-only fallbacks, verified backups, and on-demand investigation keep unattended paper research recoverable. |
 | 10 | [Roadmap](roadmap.md) | Start here | Near-term work finishes the senior-quant review, moves private research onto its own paper account, and keeps the evidence clean; broker paper remains later, separate work. |
-| 11 | [Glossary](glossary.md) | Start here | Plain names for the engine’s plan codes, workstreams, research safeguards, and paper-trading terms. |
+| 11 | [Glossary](glossary.md) | Start here | Plain meanings for the engine’s research safeguards and paper-trading terms. |
 
 ## Suggested paths
 

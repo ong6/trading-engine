@@ -49,7 +49,7 @@ failed queue job keeps its state and error instead of disappearing into a retry 
 
 ## Current operating profile
 
-The profitability evidence loop is at registration revision 17 (October 2026). Its research rules
+The profitability evidence loop's current registration revision is published by `GET /meta`. Its research rules
 have stayed fixed while the revisions changed how work is measured, written, and scheduled:
 
 | Area | Current operating contract |
