@@ -637,4 +637,19 @@ earlier logs listed in that index.
 - **Metrics:** engine, server, sim and farm unchanged; tests +14 lines; docs and BUILDLOG lines down.
 - **Next:** P25 scope item 8, the extension guide in `docs/extend/README.md`.
 
+## 2026-11-23 — Remove one-shot deploy scripts and superseded agent schema migrations
+
+- **Why:** P25 scope item 7 (code cleanup).
+- **What:** deleted `ops/storage-r21/` and its test (they ran at the revision-21 deploy, whose
+  receipts the host keeps), and `tools.migrate_agent_human_approval`, `_paper_attribution` and
+  `_release_review` with their tests, fault-drill cases and release-manifest audit entries
+  (migration 0000, applied at revision 21, creates their tables). Registration revision 27
+  re-pins `tools/release_manifest.py`; no registered value changes. Kept: the paper-authority
+  store migration (migration 0000 calls it), `migrate_cost_profiles` (the sector and XS
+  forward-record continuity tests replay it), `convert_raw_payloads` (not yet run).
+- **Evidence:** `pytest -q -W error -n 8` exits 0 under `TZ=UTC` and `TZ=Asia/Singapore`;
+  `python -m tools.repin --check` prints "registration is current".
+- **Metrics:** server -45, tools -711, tests -1418 lines; ops scripts -663.
+- **Next:** P25 scope item 7, stale remote branches and lane clones.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
