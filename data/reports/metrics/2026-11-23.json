@@ -4,35 +4,35 @@
     "violations": []
   },
   "code_size": {
-    "buildlog": 5855,
+    "buildlog": 5976,
     "docs_md": 31337,
     "engine": 30306,
     "farm": 32657,
     "product": 75729,
-    "server": 68182,
+    "server": 68571,
     "sim": 12766,
-    "tests": 119572,
-    "tools": 28472,
-    "ui_app": 7120
+    "tests": 121803,
+    "tools": 29847,
+    "ui_app": 7118
   },
   "commit_shape": {
     "largest_insertions": 1332,
     "largest_sha": "79cf9961",
     "largest_subject": "Accept deployed runtime closures and prove frozen readers before release",
-    "non_screen_commits": 113,
-    "product_touching": 23,
-    "research_touching": 9,
-    "support_only": 90,
+    "non_screen_commits": 139,
+    "product_touching": 27,
+    "research_touching": 10,
+    "support_only": 112,
     "window_days": 30
   },
   "date": "2026-11-23",
   "ledger": {
-    "entries_total": 566,
+    "entries_total": 575,
     "recent_entries": 10,
     "recent_max_lines": 16,
-    "recent_mean_lines": 12.6,
+    "recent_mean_lines": 12.3,
     "recent_sha256_mentions": 0,
-    "v2_entries": 566,
+    "v2_entries": 575,
     "v2_max_lines": 19,
     "v2_max_sha256": 0
   },
