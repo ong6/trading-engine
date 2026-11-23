@@ -5,7 +5,7 @@ reused. Issues and pull requests are welcome; expect slow replies.
 
 - **Agents read `AGENTS.md` first** and stay inside `docs/scope.md`; the hygiene budgets in
   `docs/scope-budget.json` are a test, not advice.
-- **Humans: read `docs/architecture-reference.md` first**, then `docs/how-it-works.md` (the operations runbook). The honesty rules are not negotiable:
+- **Humans: read `docs/architecture/architecture-reference.md` first**, then `docs/operate/how-it-works.md` (the operations runbook). The honesty rules are not negotiable:
   never invent a price, point-in-time tables are append-only, no same-bar fills,
   every strategy is pre-registered with a kill criterion before evidence accrues.
 - **Tests:** `.venv/bin/python -m pytest -q -W error -n auto` must pass (CI runs it under UTC and Asia/Singapore on `main`; branches and pull requests run the fast tier, `python -m tools.affected_tests --run`, which is feedback, not the gate). Tests use in-memory DuckDB only and

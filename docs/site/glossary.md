@@ -105,4 +105,4 @@ For examples, see [How research earns a verdict](research-process.md),
 [Paper books and the league](paper-books.md), and
 [Evidence and reliability](evidence-and-reliability.md).
 
-<!-- sources: docs/glossary.md, docs/plans/README.md, docs/plans/p15-profitability-evidence-loop.md, docs/plans/p16-challenger-lab-and-text-edge.md, farm/study/protocol.py, farm/study/stats.py, sim/league.py, tools/p15_evidence_validation.py -->
+<!-- sources: docs/architecture/glossary.md, docs/plans/README.md, docs/plans/p15-profitability-evidence-loop.md, docs/plans/p16-challenger-lab-and-text-edge.md, farm/study/protocol.py, farm/study/stats.py, sim/league.py, tools/p15_evidence_validation.py -->

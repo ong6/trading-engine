@@ -29,7 +29,7 @@ nightly log from ~600 to ~13,900 lines; nothing rotates in `logs/`.
 - `server/trading-engine-ops-digest.{service,timer}` (:08 UTC hourly; moved from :05 on
   2026-10-15 because its `/meta` probe blocked the P15 pre-open writer), registered in
   `tools/install_automation.py` and enabled with the other timers.
-- `tests/test_ops_digest.py`; runbook section in `docs/how-it-works.md`.
+- `tests/test_ops_digest.py`; runbook section in `docs/operate/how-it-works.md`.
 - Host (outside the repo): persistent journald storage (30 days, 2 GB cap) so `journalctl --user`
   works for every unit; done 2026-10-10.
 

@@ -148,7 +148,7 @@ standard are the only new documentation files.
 ## Done when
 
 Checkpoint `p18-plan` is complete when this approved plan, its index row, the P18 budget key and
-owner-feedback entry, and `docs/backtest-standard.md` are committed and pushed on
+owner-feedback entry, and `docs/change/backtest-standard.md` are committed and pushed on
 `p18/backtest-core` after the operating-contract tests and full suite pass.
 
 Checkpoint `p18-core` is complete when items 1–7 and focused `tests/test_study_*.py` tests pass,

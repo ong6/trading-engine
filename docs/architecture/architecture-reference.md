@@ -11,9 +11,9 @@ state; `local-only` means local commits are not an off-machine backup.
 
 Specs: [`design/trading-engine-design.md`](design/trading-engine-design.md) (§12 wins on
 conflict) and [`design/trading-execution-design.md`](design/trading-execution-design.md).
-Documentation index: [`README.md`](README.md). Operations:
-[`how-it-works.md`](how-it-works.md). Build history + every decision:
-[`BUILDLOG.md`](../BUILDLOG.md). This is the architecture map, not the law—when it disagrees
+Documentation index: [`README.md`](../README.md). Operations:
+[`how-it-works.md`](../operate/how-it-works.md). Build history + every decision:
+[`BUILDLOG.md`](../../BUILDLOG.md). This is the architecture map, not the law—when it disagrees
 with the specs or BUILDLOG, they win.
 
 ## The honesty rules (why the design looks like this)
@@ -570,7 +570,7 @@ its locked tool; multi-cadence agent tools (P9) adds shadow cadences; forward ag
 (P11) joins decisions to append-only outcomes; the agent research product (P12) exposes the
 bounded research product; and P15 adds
 candidate-wide scoring plus inactive comparator books. Full versioned requirements and evidence
-boundaries remain in the corresponding [`plans/`](plans/README.md).
+boundaries remain in the corresponding [`plans/`](../plans/README.md).
 
 All proposal context is retained for replay, model/provider identity is observable, and a failed or
 unknown identity cannot silently fall through to another provider. Human review and any temporary
@@ -740,7 +740,7 @@ snapshots stay ledger-only, and Alpaca remains dormant without credentials. The 
 a frozen, explicitly survivor-biased current-liquid cohort in resumable windows through the job
 queue (nightly enqueue is a fallback to the timer). Neither source writes `prices`, prices fills, or
 grants execution authority. Details: [`product-agent-research-platform.md`](product-agent-research-platform.md#optional-market-data-sources),
-[P13](history/plans/p13-market-data-source-hardening.md), [P14](history/plans/p14-tradingview-history-archive.md).
+[P13](../history/plans/p13-market-data-source-hardening.md), [P14](../history/plans/p14-tradingview-history-archive.md).
 
 **P15 flow.** The 02:30 scorer snapshots up to 40 positive movers and 20 distinct trend names,
 runs three retained samples per chunk, and feeds three identical-mechanics US$10,000 comparator
@@ -775,7 +775,7 @@ never rewrites or retries a recorded decision.
 ## Operations
 
 Day-to-day checks, service management, recovery, and the P15 activation record are in the
-[`how-it-works.md`](how-it-works.md) operations runbook.
+[`how-it-works.md`](../operate/how-it-works.md) operations runbook.
 
 ## Challenger lab (P16) extensions (built, inactive)
 

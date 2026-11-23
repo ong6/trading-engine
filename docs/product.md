@@ -4,7 +4,7 @@ The central product document: where the engine is going, what "makes money" mean
 decision (made and open), and the order in which admitted work matters. `AGENTS.md` governs *how*
 sessions work, `scope.md` governs *what is admitted*, `feedback.md` keeps the dated verdicts in
 full, and [`plans/README.md`](plans/README.md) holds plan status.
-[`system-blueprint.md`](system-blueprint.md) is the picture of what is being built and why it
+[`system-blueprint.md`](architecture/system-blueprint.md) is the picture of what is being built and why it
 might make money. When two admitted items compete, pick the one higher on this page. Precedence
 between documents is defined once, in `AGENTS.md`.
 
@@ -113,7 +113,7 @@ is a dated summary of them.
 registered 3,000-stock × 3,800-session benchmark, 16-worker simulation fell from 989.05 to 0.847
 seconds (1,167.5×) with all 295 captured JSON outputs (53,391,323 bytes) byte-identical. The
 [offline market-data auditor (P19)](history/plans/p19-market-data-auditor.md), the
-[paper-account boundary (P21)](paper-account-contract.md) and the
+[paper-account boundary (P21)](architecture/paper-account-contract.md) and the
 [hourly operations digest (P23)](history/plans/p23-hourly-ops-digest.md) are complete.
 
 ## Stages
@@ -254,7 +254,7 @@ Each row has the default that applies until the owner decides.
 **Build only what the next verdict needs.** The engine already has more built-but-inert
 capability than evidence. A new layer, endpoint, or ledger needs a plan and a verdict that asks
 for it (the 2026-09-18 failure mode). How a candidate moves from idea to authority is the
-[research funnel](system-blueprint.md#research-funnel-screen-wide-confirm-narrow).
+[research funnel](architecture/system-blueprint.md#research-funnel-screen-wide-confirm-narrow).
 
 ## Expansion candidates (after Stage 1, each needs its own plan)
 

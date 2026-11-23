@@ -474,7 +474,7 @@ scheduler, trust loader, selected policy, adapter, or broker path and has not be
 the live store.
 
 The future durable state machine is now specified in
-`docs/design/paper-authority-state-machine.md`, and
+`docs/architecture/design/paper-authority-state-machine.md`, and
 `server/broker_paper_authority_transcript.py` provides a pure verifier for its proposed
 hash-chained activation, consumption, and revocation transcript. The design preserves the
 one-way halt ledger: activation anchors an epoch to the latest halt event rather than clearing it;

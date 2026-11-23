@@ -195,4 +195,4 @@ existing study artifacts remain independently readable.
   audit, wheel build, lint, compilation and UI build. Closure documentation is verified on its
   own final head before merge; this completed plan admits no real-data or visual follow-up.
 
-<!-- sources: farm/study/data.py, farm/study/universe.py, farm/study/panel.py, farm/study/simulate.py, farm/study/report.py, tools/free_source_audit.py, docs/backtest-standard.md -->
+<!-- sources: farm/study/data.py, farm/study/universe.py, farm/study/panel.py, farm/study/simulate.py, farm/study/report.py, tools/free_source_audit.py, docs/change/backtest-standard.md -->

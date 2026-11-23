@@ -6,7 +6,7 @@ This document preserves the governing design decisions and historical build plan
 implemented `trading-engine`. Statements below about future scaffolding or milestones describe
 the document's 2026-07-16 planning state; use
 [`../architecture-reference.md`](../architecture-reference.md) for current architecture,
-[`../how-it-works.md`](../how-it-works.md) for operations, and [`../README.md`](../README.md) for
+[`../how-it-works.md`](../../operate/how-it-works.md) for operations, and [`../README.md`](../../README.md) for
 current evidence status.
 
 > **Related research (2026-07-15):** _Retail algo trading — viability & direction_
@@ -349,7 +349,7 @@ so their future-tense bullets are provenance, not promises about files that exis
 | **1 — Screener** (this spec's target) | `trading-engine` repo, collect + screen + sync, daily ranked candidates syncing back | host cron |
 | 2 — Local-first skills | `/watchlist-scan` + `/analyze-stock` read the engine's cache | any machine |
 | 3 — Trigger watcher | always-on Python daemon: checks written triggers/stops vs live quotes every ~10 min RTH → local inbox and health state only; failures are investigated on demand. **No LLM and no push alerting.** | host systemd |
-| 4 — Autonomous weekly run (**retired 2026-08-18**) | The former model-runner review loop was removed with the agentic layer after repeated authentication failures and no decision value. Current algorithm cron remains deterministic. A replacement agent may affect only separately registered agent-only or hybrid paper books after the structured-proposal and automatic-paper gates in [`../history/live-readiness-goal.md`](../history/live-readiness-goal.md); it cannot alter algorithm-only books, promote a strategy, or trade live capital. | retired implementation; replacement gated |
+| 4 — Autonomous weekly run (**retired 2026-08-18**) | The former model-runner review loop was removed with the agentic layer after repeated authentication failures and no decision value. Current algorithm cron remains deterministic. A replacement agent may affect only separately registered agent-only or hybrid paper books after the structured-proposal and automatic-paper gates in [`../history/live-readiness-goal.md`](../../history/live-readiness-goal.md); it cannot alter algorithm-only books, promote a strategy, or trade live capital. | retired implementation; replacement gated |
 | 5 — Universe expansion / backtest | screen thousands of names; backtest on stored history (where the spare cores finally matter). **First two jobs (2026-07-15):** (a) re-run the trend template on the engine's own point-in-time universe with next-open fills — the honest test; (b) validate the regime gate + any mean-reversion sleeve before either touches sizing | host |
 
 ---
@@ -476,7 +476,7 @@ store's `trades/` (that folder remains reserved for the owner's real/graded trad
 | **M2** | Fill simulator + paper league (auto portfolios) + daily league report |
 | **M3** | Local UI (FastAPI + Next.js, loopback-only via SSH tunnel): dashboard, ticket flow for the discretionary paper portfolio, league views |
 | **M4** | Backtest farm + intraday/fundamentals mining + weekly review integration (§11 loop in the execution doc) |
-| **M5 (deferred, gated)** | Real execution on personal hardware only after every strategy-evidence, recoverability, broker-paper, independent-risk, reconciliation, and recovery gate in [`../history/live-readiness-goal.md`](../history/live-readiness-goal.md) passes |
+| **M5 (deferred, gated)** | Real execution on personal hardware only after every strategy-evidence, recoverability, broker-paper, independent-risk, reconciliation, and recovery gate in [`../history/live-readiness-goal.md`](../../history/live-readiness-goal.md) passes |
 
 ### 12.7 Resource governance (2026-07-16) — capped by construction
 

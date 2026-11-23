@@ -105,7 +105,7 @@ passed both UTC and Asia/Singapore suites and the UI build. Independent account-
 review passed ten engine and nine private-alpha checks; all 32 advisory complexity findings
 were removed at the unchanged threshold of ten.
 
-The generic [paper-account contract](../../paper-account-contract.md) is implemented. Private
+The generic [paper-account contract](../../architecture/paper-account-contract.md) is implemented. Private
 alpha owns generation, versioned trade specifications and manual/all/auto capital-tier planning;
 the engine owns independently funded USD 10k/50k/100k accounts, holdings, orders, fills, cash
 and equity. Account creation is idempotent and starts inactive. Tier selection and feasibility

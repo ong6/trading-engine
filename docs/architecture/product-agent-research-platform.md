@@ -134,7 +134,7 @@ trend-perturbation diagnostics. Date recall chose cash in all four windows, prom
 the original XOM choices, and the synthetic perturbation fell to 25% accuracy and -11.02% compounded.
 These are sensitivity diagnostics only; the post-cutoff prospective cohort is collecting.
 
-Phase 5 status: [the provider-neutral manifest example](pit-import-manifest.example.json) defines the
+Phase 5 status: [the provider-neutral manifest example](../data/pit-import-manifest.example.json) defines the
 only accepted CSV envelope for future licensed datasets. `python -m engine.pit_import MANIFEST
 --data-root ROOT` audits by default; `--apply` is required to write isolated `pit_import_*` staging
 tables. The importer validates an accepted license declaration, path containment, regular-file and

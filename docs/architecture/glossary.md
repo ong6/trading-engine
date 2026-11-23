@@ -33,7 +33,7 @@ claim that the work made money.
 | P23 | Hourly operations digest | Summarizes every scheduled run, stage and log signal each hour so an agent can investigate failures on demand. |
 | P24 | Senior-quant review | The active 2026-10-21 review: pipeline and data-integrity fixes, statistics audit, output-identical speed work, and new private research studies. |
 
-The single source of truth for plan status is [`plans/README.md`](plans/README.md). Completed plans
+The single source of truth for plan status is [`plans/README.md`](../plans/README.md). Completed plans
 remain part of the system's history, but completion does not imply a profitable result.
 
 ## Workstream codes

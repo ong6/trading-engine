@@ -385,8 +385,8 @@ execution gates from the model.
    challenger lab's cleanup, docs, and activation workstream (P16 W9).
 4. `metrics.md`, `scope.md`, and the backlog header drop the appliance framing and stale counts;
    the backlog is scoped to deterministic strategies.
-5. New `docs/system-blueprint.md` (target system, edge hypotheses, idea register) and
-   `docs/design/prompt-review.md`. P15's scoring prompt must follow the prompt requirements added
+5. New `docs/architecture/system-blueprint.md` (target system, edge hypotheses, idea register) and
+   `docs/architecture/design/prompt-review.md`. P15's scoring prompt must follow the prompt requirements added
    to P15 before W2.
 6. P16 (challenger lab, filing reader, time-locked text lab, optimizer books, fill calibration,
    digest, Stage 2 design) is filed as `proposed`; the owner approves it and its ceilings after
@@ -923,4 +923,4 @@ also have some self recovery in place that auto fixes when it breaks".
 **Rule change.** Scheduled work may now be restarted automatically: the driver watchdog
 terminates a cron driver that is idle past its declared runtime, clears failed engine units and
 runs one catch-up nightly when it can end before the pre-open. Diagnoses stay read-only
-everywhere else. → `tools/driver_watchdog.py`, `docs/how-it-works.md` (Scheduled work).
+everywhere else. → `tools/driver_watchdog.py`, `docs/operate/how-it-works.md` (Scheduled work).

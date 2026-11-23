@@ -1,6 +1,6 @@
 # Stage 2: personal-host IBKR paper execution
 
-**Draft for `docs/design/stage2-broker-paper.md`; the challenger lab's Stage 2 design workstream
+**Draft for `docs/architecture/design/stage2-broker-paper.md`; the challenger lab's Stage 2 design workstream
 (P16 W8), documents only.** This design is proposed.
 It authorizes no account creation, credentials, broker connection, installation, order, or capital
 on the current host. The separate execution plan in `execution-layer-plan.proposed.md` must be

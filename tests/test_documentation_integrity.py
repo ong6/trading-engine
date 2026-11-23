@@ -213,10 +213,10 @@ def test_documentation_index_reaches_every_owned_document():
 
 
 def test_operations_guide_matches_runtime_constants():
-    operations = (REPO_ROOT / "docs" / "how-it-works.md").read_text()
-    architecture = (REPO_ROOT / "docs" / "architecture-reference.md").read_text()
-    execution = (REPO_ROOT / "docs" / "design" / "trading-execution-design.md").read_text()
-    engine_design = (REPO_ROOT / "docs" / "design" / "trading-engine-design.md").read_text()
+    operations = (REPO_ROOT / "docs" / "operate" / "how-it-works.md").read_text()
+    architecture = (REPO_ROOT / "docs" / "architecture" / "architecture-reference.md").read_text()
+    execution = (REPO_ROOT / "docs" / "architecture" / "design" / "trading-execution-design.md").read_text()
+    engine_design = (REPO_ROOT / "docs" / "architecture" / "design" / "trading-engine-design.md").read_text()
 
     for control in RISK_CONTROL_NAMES:
         assert f"`{control}`" in operations

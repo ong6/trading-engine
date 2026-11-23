@@ -143,7 +143,7 @@ host inspection and independent acceptance. Frozen strategy and execution rules 
 ## Completed from this ledger
 
 - 2026-09-28 · Retired the prose-pinning `tests/test_docs*.py` suite and split
-  `docs/how-it-works.md` into the operations runbook plus `docs/architecture-reference.md` under
+  `docs/operate/how-it-works.md` into the operations runbook plus `docs/architecture/architecture-reference.md` under
   P16 W9.
 - 2026-09-18 · Move dated audits under `docs/history/`. Done 2026-09-24 on owner request
   (`feedback.md`); doc tests' path constants followed the move.

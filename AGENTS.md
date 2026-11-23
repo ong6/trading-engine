@@ -36,7 +36,7 @@ real capital and loss limits, and public presentation.
 1. `AGENTS.md` (this file).
 2. The newest entries of `docs/feedback.md`, the owner's verdict ledger.
 3. `docs/product.md`: north star, every owner decision, and the focus order.
-4. `docs/system-blueprint.md`: what is being built and why. Read it before drafting or building
+4. `docs/architecture/system-blueprint.md`: what is being built and why. Read it before drafting or building
    a plan.
 5. `docs/scope.md`: what is admitted now and what is frozen.
 6. The active plan you are working on, or `data/reports/metrics/README.md` for a verify-only
@@ -52,7 +52,7 @@ the generated reports under `data/reports/`; these beat any prose. The documenta
 `docs/strategy-research-backlog.md` is the queue for *deterministic* strategy research only; AI
 policy work is ordered by `product.md` ("Focus now").
 
-Open `docs/how-it-works.md` only for the ops runbook when a scheduled run misbehaved. Do not
+Open `docs/operate/how-it-works.md` only for the ops runbook when a scheduled run misbehaved. Do not
 read `docs/history/live-readiness-goal.md` as a work queue; it is reference, and its workstreams C, D
 and E are frozen (see `docs/scope.md`).
 

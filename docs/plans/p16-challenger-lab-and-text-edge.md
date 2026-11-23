@@ -14,7 +14,7 @@ owner_decision: approved 2026-09-26 (feedback.md), including P15 remediation and
 
 ## Goal
 
-Build the second layer of the [system blueprint](../system-blueprint.md) on top of the profitability
+Build the second layer of the [system blueprint](../architecture/system-blueprint.md) on top of the profitability
 evidence loop (P15). P15 answers
 "does one model policy beat one rule?". P16 turns the engine into a **research lab** that tests
 many well-defined hypotheses at once, on identical inputs, and judges them honestly. When this
@@ -339,7 +339,7 @@ integrity; authority and safety).
   - Then complete P15 W8 exactly as P15 describes: activation commit, `AUTOSTART_UNITS`, and
     first-cycle verification. Mark P15 `active` in its plan and the plan table.
   - Run a **prompt review** of every live model prompt, and write findings into
-    `docs/design/prompt-review.md`. These feed `prompt-v2`; live prompts are not edited.
+    `docs/architecture/design/prompt-review.md`. These feed `prompt-v2`; live prompts are not edited.
   - Record the P15 pre-activation dispersion that the mSPRT mixing variance needs.
   - Fold "P15 follow-ups" below into the P16 workstreams named against each item.
 - **W1: Evaluation science v2** in `farm/`: factor-neutral IC, mSPRT, trial register and deflated
@@ -379,7 +379,7 @@ integrity; authority and safety).
 
   Generate it Sunday after walk-forward.
 - **W8: Stage 2 design** (docs only; no broker code, credentials, or connections):
-  `docs/design/stage2-broker-paper.md`. It covers:
+  `docs/architecture/design/stage2-broker-paper.md`. It covers:
   - what moves to a personal host and how (packaging, config and secret separation, data sync);
   - how the existing inert IBKR adapters would be exercised against a paper account;
   - reconciliation against the simulator;
@@ -393,7 +393,7 @@ integrity; authority and safety).
     miss; prove the 10:00/12:00 retries recover 09:30, keep the first valid capture, and count any
     still-missing selected names without replacement.
   - Retire the doc-pinning tests (`tests/test_docs*.py`), carried over from the closed P1, and
-    split `docs/how-it-works.md` into an ops runbook and an architecture reference.
+    split `docs/operate/how-it-works.md` into an ops runbook and an architecture reference.
   - Delete P16-obsoleted code before activation.
   - Update `system-blueprint.md` (layers table), `product.md`, `how-it-works.md`, and `scope.md`.
   - Run the refine gate on the P16 registration and each new module before the registration
@@ -433,7 +433,7 @@ integrity; authority and safety).
     verify the first live cycle of each new producer.
 - **W10: Final refine pass.** After activation, run the refine loop on each written deliverable:
   `system-blueprint.md`, `product.md`, the text lab and replay reports, the first weekly digest,
-  and `docs/design/stage2-broker-paper.md`. Registered code is out of bounds here.
+  and `docs/architecture/design/stage2-broker-paper.md`. Registered code is out of bounds here.
 
 ## P15 remediation before activation
 
@@ -457,7 +457,7 @@ safety and operations), run on 2026-09-26. File references are as of that commit
 | R12 | One missing mature label anywhere marks the whole test `invalid` (`engine/p15_evaluation.py` ~311/329), including rows the test never uses | Count only rows the test uses, with a grace period after maturity |
 | R13 | Look results are recomputed every run | Persist each look's result the first time it is reached (append-only, hashed) so the verdict is tamper-evident |
 | R14 | The public report `data/reports/agent-evaluation.json` carries internal runtime strings (the vendor CLI identity), against the public-hygiene rule | Publish a runtime identity hash instead; keep the literal in the private database |
-| R15 | The W8 rehearsal logged 17 model calls where 60 candidates in chunks of 10 with k = 3 means 18, and reported no unavailable count. `docs/how-it-works.md` (~1504) still says the P15 units are absent | Explain the count on the new dry-run and record `unavailable_count`; fix the doc |
+| R15 | The W8 rehearsal logged 17 model calls where 60 candidates in chunks of 10 with k = 3 means 18, and reported no unavailable count. `docs/operate/how-it-works.md` (~1504) still says the P15 units are absent | Explain the count on the new dry-run and record `unavailable_count`; fix the doc |
 | R16 | The scoring prompt doesn't say that a negative `expected_excess_bp_5` exits a held name in the AI book | Add one sentence before the registration is issued again |
 
 ## P15 follow-ups (after activation, as new versions; fold into the named workstream)
@@ -553,7 +553,7 @@ then run evaluation loops on the agent.
 - `data/reports/research/replay.md` exists with probe results, development and lockbox results for
   the champion and `c-notes`, and the news source used.
 - The first weekly digest exists.
-- `docs/design/stage2-broker-paper.md` exists, and the draft execution plan is `proposed`.
+- `docs/architecture/design/stage2-broker-paper.md` exists, and the draft execution plan is `proposed`.
 - P15 is active, with registration revision 3, and R1–R16 are closed, each with its test.
 - Independent reviews of W0–W9 have no open findings.
 - Every refine gate and the W10 refine pass ended with an eligible version scoring ≥ 8/10. The

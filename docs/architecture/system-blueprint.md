@@ -1,7 +1,7 @@
 # System blueprint
 
 What this engine is being built into, why that design might make money, and how each plan fits.
-[`product.md`](product.md) holds the goal, decisions, and focus order; this page is the picture
+[`product.md`](../product.md) holds the goal, decisions, and focus order; this page is the picture
 behind them. Read it before drafting a plan. Update it when a plan changes the target, not when a
 plan merely makes progress.
 
@@ -18,7 +18,7 @@ prospective, after-cost evidence under tests that stay honest about how many ide
 
 ## Where the edge could come from
 
-The research verdicts ([`strategy-research-backlog.md`](strategy-research-backlog.md)
+The research verdicts ([`strategy-research-backlog.md`](../strategy-research-backlog.md)
 and the external literature below) rule most things out. The design bets on the few that remain:
 
 | Source | Why it might work for this engine | Evidence and prior |
@@ -122,7 +122,7 @@ Many ideas are tried and few earn authority. Each stage differs in cost and in w
 |---|---|---|---|
 | **Screen** | A registered historical study: price history, or for an LLM policy only events after its model's training cutoff. Every variant counts in the trial census | Pass (the study's own bar and one-shot holdout), admit (beats the expected best of N noise trials and every control, short of the full bar), or kill | Only to confirmation |
 | **Confirm** | The frozen candidate run only on data dated after its freeze, in monthly epochs, with one decision at a registered horizon inside a Bonferroni family of at most eight live candidates | Pass or kill | To a simulator book |
-| **Book** | A simulator book here with its paired control (P15-style), then the stages in [`product.md`](product.md) | Stage 1 verdict | To broker-paper, then capital, each with owner approval |
+| **Book** | A simulator book here with its paired control (P15-style), then the stages in [`product.md`](../product.md) | Stage 1 verdict | To broker-paper, then capital, each with owner approval |
 
 Two principles decide what gets admitted. A signal that ranks stocks is not an edge until a
 construction monetizes it after cost at the owner's capital size. And more variants on the same

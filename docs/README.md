@@ -1,259 +1,71 @@
-# Documentation map
+# Documentation index
 
-- **What we are building:** a public, paper-only trading engine that collects market data, tests strategies and runs paper books, plus a separate private research programme that looks for strategies worth running on it, with AI deciding inside deterministic controls.
-- **End goal:** the [north star](https://github.com/ong6/trading-engine/blob/main/docs/product.md#north-star), "An engine that runs on its own and makes money, with AI in the decision loop" (owner, 2026-09-24).
-- **Live now (2026-10-22):** engine v2 runs 17 paper books, three frozen forward records and the AI profitability evidence loop, on paper only (no broker, no real capital); no strategy, public or private, has a proven edge yet.
-- **Working on now:** P24, the senior-quant review (pipeline fixes, speed, new pre-registered studies), then moving the private research onto its own engine paper account.
+Agents start at [`../AGENTS.md`](../AGENTS.md). Docs state current rules and structure; anything
+that changes (books, revisions, live producers, counts) comes from `GET /meta` and the generated
+reports under [`../data/reports/`](../data/reports/README.md). Every top-level directory has a short
+`README.md` with its entry points.
 
-Use this page to distinguish current operating truth from dated evidence. A date in a
-document filename or top-level title marks a snapshot: preserve it for provenance, but do
-not assume its counts, process state, or recommendations supersede the current guides. The
-central product document is the current decision ledger; the strategy backlog is only the
-deterministic research queue, and dates inside it label historical measurements.
+## Decide what to work on
 
-The dated summary of what is live, in flight and decided is [`product.md`](product.md) ("Where it
-stands"); plan status is [`plans/README.md`](plans/README.md); runtime truth is `GET /meta` and the
-generated reports.
+- [`product.md`](product.md) — north star, what "makes money" means, decisions, focus order.
+- [`scope.md`](scope.md) — what runs, what is frozen and why, the "proposed, not approved" list.
+- [`plans/README.md`](plans/README.md) — open plans and their status.
+- [`strategy-research-backlog.md`](strategy-research-backlog.md) — the deterministic research
+  queue and its [next admissible actions](strategy-research-backlog.md#next-admissible-actions).
+- [`feedback.md`](feedback.md) — the owner verdict ledger.
 
-For the plain-language product guide, start with [`site/index.md`](site/index.md), then follow the
-ordered page contract in [`site/README.md`](site/README.md). Internal codes and research terms are
-decoded in [`glossary.md`](glossary.md).
+## Operate
 
-Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](site/data.md),
-[`Paper books and the league`](site/paper-books.md), [`AI agents`](site/ai-agents.md),
-[`How research earns a verdict`](site/research-process.md),
-[`The shared backtest core`](site/backtest-engine.md),
-[`Evidence and reliability`](site/evidence-and-reliability.md),
-[`Operations`](site/operations.md), [`Roadmap`](site/roadmap.md), and the site
-[`Glossary`](site/glossary.md).
+- [`operate/how-it-works.md`](operate/how-it-works.md) — runbook: first response, schedules,
+  watchdog, snapshots, API and UI, recovery.
+- [`settlement-runbook.md`](settlement-runbook.md) — dead and delisted positions (stays at this
+  path because the provider contract scans `docs/*runbook*.md`).
+- [`metrics.md`](metrics.md) — what the drift snapshot measures.
 
-## Operating contract (read first if you are an agent)
+## Change
 
-- [`../AGENTS.md`](../AGENTS.md) — the contract: document precedence, session rules, admission
-  test, budgets, BUILDLOG v2 format.
-- [`system-blueprint.md`](system-blueprint.md) — what is being built, where the edge could
-  come from, the layered architecture, and the idea register.
-- [`product.md`](product.md) — the central product document: north star, what "makes money"
-  means, every owner decision (made and open), stages to live capital, and the order admitted
-  work matters in.
-- [`feedback.md`](feedback.md) — the owner's dated verdicts and the rule each one changed.
-  Newest entry wins.
-- [`scope.md`](scope.md) — in scope now, approved plans, frozen "not yet" areas with their
-  unfreeze triggers, and the "proposed, not approved" parking list.
-- [`scope-budget.json`](scope-budget.json) — hygiene budgets (BUILDLOG entry size, commit size,
-  doc-test freeze), enforced by `tests/test_operating_contract.py`. No per-layer LOC ceilings.
-- [`metrics.md`](metrics.md) — what the drift snapshot measures and how to read it; the
-  generated table is [`../data/reports/metrics/README.md`](../data/reports/metrics/README.md).
-- [`plans/README.md`](plans/README.md) — the single plan status table (status and one-line
-  outcome per plan):
-  [P1 appliance mode](history/plans/p1-appliance-mode.md), [P2 league collapse](plans/p2-league-collapse.md),
-  [P3 point-in-time data](plans/p3-point-in-time-data.md), [P4 broker decision](history/plans/p4-broker-decision.md),
-  [P5 agent paper decisions](history/plans/p5-agent-paper-decisions.md),
-  [P6 alpha experiment](history/plans/p6-alpha-experiment.md),
-  [P7 autonomous paper trial](plans/p7-autonomous-paper-trial.md),
-  [P8 daily opportunity agent](plans/p8-daily-opportunity-agent.md),
-  [P9 multi-cadence agent tools](plans/p9-multi-cadence-agent-tools.md),
-  [P10 contamination-aware 2022 agent replay](history/plans/p10-2022-agent-replay.md),
-  [P11 forward agent evaluation](history/plans/p11-forward-agent-evaluation.md),
-  [P12 agent research product](history/plans/p12-agent-research-product.md),
-  [P13 market-data source hardening](history/plans/p13-market-data-source-hardening.md),
-  [P14 TradingView historical archive](history/plans/p14-tradingview-history-archive.md),
-  [P15 profitability evidence loop](plans/p15-profitability-evidence-loop.md),
-  [P16 challenger lab and text edge](plans/p16-challenger-lab-and-text-edge.md),
-  [P17 personal-host IBKR paper execution](plans/p17-personal-host-ibkr-paper-execution.md),
-  [P18 shared backtest core](history/plans/p18-backtest-core.md),
-  [P19 offline market-data auditor](history/plans/p19-market-data-auditor.md),
-  [P20 engine and paper dashboard review](history/plans/p20-engine-and-board-review.md),
-  [P21 operational issue closure and separate accounts](history/plans/p21-operational-issues-and-account-isolation.md),
-  [P22 engine v2 accounts and money foundation](plans/p22-engine-v2-accounts.md),
-  [P23 hourly operations digest](history/plans/p23-hourly-ops-digest.md),
-  [P24 senior-quant review, fixes, speed and research lanes](plans/p24-quant-review-and-speed.md), and
-  [P25 continuous deploy and cleanup](plans/p25-ship-autodeploy-cleanup.md).
-- [`glossary.md`](glossary.md) — plain names for P1–P24, the P15/P16 workstreams, and research
-  terms such as registration, holdout, census, DSR, and walk-forward.
+- [`change/testing.md`](change/testing.md) — fast tier, full suite, lint, doc-test rules.
+- [`change/deploy.md`](change/deploy.md) — how merged `main` reaches the host.
+- [`change/backtest-standard.md`](change/backtest-standard.md) — requirements for historical studies.
+- [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — contribution rules and tool details for humans.
+- `scope-budget.json` — hygiene budgets enforced by `tests/test_operating_contract.py`.
 
-## Current operating documents
+## Extend
 
-- [`product-agent-research-platform.md`](product-agent-research-platform.md) — P12 requirements (reference; `product.md` is canonical) for the
-  requirements for point-in-time data, agent decisions, execution, evaluation, and external gates.
-- [`how-it-works.md`](how-it-works.md) — concise operations runbook: schedules, health checks,
-  recovery, services, and gated activation procedure.
-- [`paper-account-contract.md`](paper-account-contract.md) — independent capital tiers, private strategy specifications and engine-owned next-open accounting.
-- [`architecture-reference.md`](architecture-reference.md) — detailed component, data-flow,
-  paper-league, agent-service, UI/API, and authority-boundary reference.
-- [`settlement-runbook.md`](settlement-runbook.md) — manual adjudication of dead or
-  untradeable positions.
-- [`revision-22-basis-recovery.md`](history/revision-22-basis-recovery.md) — basis recovery and the XS migration at release.
-- [`revision-21-storage-deploy-checklist.md`](history/revision-21-storage-deploy-checklist.md) — storage
-  revision deploy and rollback checklist with its store-copy rehearsal (blocked).
-- [`../BUILDLOG.md`](../BUILDLOG.md) — v2 implementation log since 2026-09-18; earlier entries
-  are in [`history/buildlog-2026-07-15-to-2026-09-17.md`](history/buildlog-2026-07-15-to-2026-09-17.md),
-  and the 42-entry 2026-09-19 C90 series in
-  [`history/buildlog-2026-09-19-c90-complexity-series.md`](history/buildlog-2026-09-19-c90-complexity-series.md).
+- [`extend/README.md`](extend/README.md) — adding a strategy or experiment.
+- [`charters/`](charters/) — frozen research charters: [credit-confirmed trend](charters/credit_confirmed_equity_trend.md),
+  [EW drawdown throttle](charters/ew_dd_throttle.md), [EW gross vol target](charters/ew_gross_voltarget.md),
+  [EW sector capped](charters/ew_sector_capped.md), [fixed-ETF rebalancing](charters/fixed_etf_rebalancing_premium.md),
+  [multi-asset trend](charters/multi_asset_trend.md), [sell in May](charters/sell_in_may_spy.md),
+  [turn of month](charters/turn_of_month_spy.md), [VIX term](charters/vix_term_spy_timing.md),
+  [XS momentum 12-1](charters/xs_momentum_12_1.md), [XS reversal 1m](charters/xs_reversal_1m.md).
 
-## Design and specification
+## Architecture
 
-- [`backtest-standard.md`](backtest-standard.md) — common point-in-time, cost, benchmark,
-  statistics, holdout, proof, and reporting requirements for historical studies.
-- [`design/prompt-review.md`](design/prompt-review.md) — review of the live model prompts and
-  requirements for P15/P16 scoring, challenger, pre-open, and filing-reader prompts.
-- [`design/trading-engine-design.md`](design/trading-engine-design.md) — governing engine
-  design; §12 wins on conflicts.
-- [`design/trading-execution-design.md`](design/trading-execution-design.md) — execution
-  process and exit criteria.
-- [`design/paper-authority-state-machine.md`](design/paper-authority-state-machine.md) —
-  capital-disabled design for future short-lived paper authority, atomic consumption,
-  revocation, and fail-closed recovery; no writer or runtime authority exists.
-- [`design/stage2-broker-paper.md`](design/stage2-broker-paper.md) — proposed personal-host IBKR
-  paper-execution design; it authorizes no account action, broker connection, credential, or capital.
+- [`architecture/system-blueprint.md`](architecture/system-blueprint.md) — what is being built,
+  where an edge could come from, the research funnel.
+- [`architecture/architecture-reference.md`](architecture/architecture-reference.md) — components,
+  data flow, league, agents, API and authority boundaries.
+- [`architecture/paper-account-contract.md`](architecture/paper-account-contract.md) — engine-owned
+  paper accounts and the accounting invariants.
+- [`architecture/glossary.md`](architecture/glossary.md) — plan codes and research terms.
+- [`architecture/product-agent-research-platform.md`](architecture/product-agent-research-platform.md) — agent research platform requirements.
+- Design specs: [engine design](architecture/design/trading-engine-design.md) (§12 wins on
+  conflict), [execution design](architecture/design/trading-execution-design.md),
+  [paper-authority state machine](architecture/design/paper-authority-state-machine.md),
+  [Stage 2 broker paper](architecture/design/stage2-broker-paper.md) (design only),
+  [prompt review](architecture/design/prompt-review.md).
 
-## Current strategy and evidence status
+## Data
 
-- [`strategy-research-backlog.md`](strategy-research-backlog.md) — what has been ruled
-  out, what remains uncertain, and the
-  [ordered next admissible actions](strategy-research-backlog.md#next-admissible-actions).
-- [`charters/credit_confirmed_equity_trend.md`](charters/credit_confirmed_equity_trend.md) —
-  the frozen P6 registration for one credit-confirmed SPY/BIL alpha experiment.
-- `GET /meta` and the dashboard prospective-evidence cards — live authority for scheduler,
-  source, nightly/miner, walk-forward-cohort, and frozen forward-monitor state. In particular,
-  `miner_evidence` reconciles the five canonical producers, while `friday_postflight` interprets
-  the auxiliary receipt against its Saturday schedule and grace window. Read the projected state,
-  not `logs/friday-postflight.json` alone: a well-formed old receipt can still be stale. Generated
-  forward reports remain the authority for each monitor's full evidence detail;
-  dated narrative documents are snapshots.
-- `GET /research/readiness` and the dashboard readiness cards — live, read-only admission
-  gates for stock-selection, fundamentals, and intraday research. They require both elapsed
-  time and per-date breadth and never imply profitability or activate a strategy.
-- [`pit-free-audit-2026-10-01.md`](history/pit-free-audit-2026-10-01.md) — P3 Phase 0 snapshot of the
-  free Tiingo security master against a consistent operational-store copy, including annual
-  exact-ticker survivor gaps and the remaining free-source limits.
-- [`sec-free-audit-2026-10-01.md`](history/sec-free-audit-2026-10-01.md) — P3 Phase 0 Form 25 and insider
-  coverage against the Tiingo master and a consistent operational-store copy, with explicit
-  filing-date availability and symbol-quality limits.
-- [`frozen-archive-census-2026-10-02.md`](history/frozen-archive-census-2026-10-02.md) — P3's census of
-  the 2017 frozen Kaggle archive; its delisted-name gate failed, so no price rows were ingested.
-- [`sec-bulk-audit-2026-10-02.md`](history/sec-bulk-audit-2026-10-02.md) — P3 nightly Companyfacts and
-  Submissions coverage, ordered fundamental-tag fallbacks, ticker matching, and earnings-date
-  overlap under the filing-acceptance availability rule.
-- The dated “Live decision checkpoint” in
-  [`strategy-research-backlog.md`](strategy-research-backlog.md) records the latest reconciled
-  counts and the next permitted action. The endpoints and generated reports supersede that
-  checkpoint as soon as a scheduled producer publishes newer evidence.
-- [`../data/reports/walkforward/GUIDE.md`](../data/reports/walkforward/GUIDE.md) — the evidence map
-  for the latest generated walk-forward cohort (18 active, replayable books). Cohort, source, and
-  data identities live in the generated artifacts, not in prose; the `walkforward_evidence` object
-  in `GET /meta` is the authority on whether that cohort still matches every active config and the
-  deployed source.
-- [`execution-capital-data-hardening-2026-09-06.md`](history/execution-capital-data-hardening-2026-09-06.md#measured-five-year-capital-and-cost-sensitivity--2026-09-07)
-  — capital and doubled-cost sensitivity summary; machine-readable cells are under
-  `data/reports/capital-sensitivity/`.
-- [`../data/reports/league.md`](../data/reports/league.md) — latest completed nightly paper
-  standings snapshot for active portfolios. Its companion `league.csv` is the complete historical
-  equity export, including retired books; current between-run stale exposure comes from `/meta`,
-  and none of these is proof of an edge.
-- [`../data/reports/agent-eval/p15.md`](../data/reports/agent-eval/p15.md) — generated P15
-  primary, comparator, pre-open, event, P8-readiness, and trial-count status. It is evidence,
-  never activation or promotion authority.
-- [`../data/reports/forward/sector_momentum.md`](../data/reports/forward/sector_momentum.md)
-  — maturity-aware nightly check of the selected strategy's frozen 12-month kill rule,
-  with an exact baseline-state and append-only execution-ledger checkpoint.
-- [`../data/reports/forward/xs_momentum_12_1.md`](../data/reports/forward/xs_momentum_12_1.md)
-  — prospective 12-1 momentum comparison, frozen before its first signal. The generated
-  report is authoritative for its current boundary and status.
-- [`../data/reports/experiments/e1-spy-monday-forward.md`](../data/reports/experiments/e1-spy-monday-forward.md)
-  — the shorter-horizon frozen SPY Monday experiment. Its generated report is authoritative
-  for the current count; the immutable-prefix checkpoint is the sibling JSON file. After
-  exactly 40 eligible observations, the predeclared `KILL`/`SURVIVE` gate runs once.
+- [`data/README.md`](data/README.md) — stores, the dataset catalogue, data rules.
 
-The current conclusion is deliberately conservative: no strategy has established positive
-excess return over a prospectively frozen proper control. The engine remains paper-only.
+## Public site
 
-## Strategy research charters
+- [`site/README.md`](site/README.md) — plain-language product pages, starting at
+  [`site/index.md`](site/index.md).
 
-All hypotheses, expectations, controls, and kill criteria are under [`charters/`](charters/):
+## Background
 
-- [`charters/fixed_etf_rebalancing_premium.md`](charters/fixed_etf_rebalancing_premium.md)
-  records the completed quarterly equal-weight ETF candidate versus the identical
-  unrebalanced basket. Its confidence gate failed, so v1 is closed; neither rule is
-  registered as a paper book.
-- [`charters/ew_dd_throttle.md`](charters/ew_dd_throttle.md) and
-  [`charters/ew_sector_capped.md`](charters/ew_sector_capped.md) are completed,
-  rejected candidate studies; neither became a league book.
-- [`charters/ew_gross_voltarget.md`](charters/ew_gross_voltarget.md) is closed as
-  `INCONCLUSIVE-LEGACY`. Its matched-static review found no established timing edge,
-  and its old artifacts lack complete provenance.
-- [`charters/vix_term_spy_timing.md`](charters/vix_term_spy_timing.md) records the
-  completed VIX/VIX3M SPY/BIL timing experiment. Its timing excess was significantly
-  negative against a static exposure-matched control, so v1 is rejected and closed.
-- [`charters/turn_of_month_spy.md`](charters/turn_of_month_spy.md) records the completed
-  four-session turn-of-month SPY/BIL experiment. Its timing excess and confidence
-  interval were negative against the exposure-matched static control under baseline
-  and doubled costs, so v1 is rejected and closed.
-- [`charters/sell_in_may_spy.md`](charters/sell_in_may_spy.md) records the completed
-  November-April SPY/BIL experiment. It trailed the exposure-matched static control,
-  its confidence interval crossed zero, and its worst drawdown was materially worse,
-  so v1 is rejected and closed.
-- [`charters/xs_momentum_12_1.md`](charters/xs_momentum_12_1.md) records the original
-  historical-control charter and its dated prospective-forward addendum. The book is
-  active but the fair forward comparison is waiting for its first frozen signal.
-- [`charters/multi_asset_trend.md`](charters/multi_asset_trend.md) was tested and retired
-  after validation.
-- [`charters/xs_reversal_1m.md`](charters/xs_reversal_1m.md) was withdrawn before
-  registration after its diversification premise failed the initial check.
-
-## Historical audits and snapshots
-
-- 2026-10-30: [paper league thinning](history/league-thin-2026-10-30.md), exact gated-twin comparisons and power estimates for the proposed retirements.
-
-Dated snapshots live in [`history/`](history/README.md), whose index says what each one is and
-why it is kept. They remain valuable evidence about what was known on their dates; their old
-strategy counts, fold counts, process state, and recommendations are not current configuration.
-[`history/live-readiness-goal.md`](history/live-readiness-goal.md) is the former handoff objective
-and does not authorize work or live trading; `scope.md` is the queue.
-
-- 2026-08-20: [`data-sources-audit`](history/data-sources-audit-2026-08-20.md),
-  [`evidence-ceiling`](history/evidence-ceiling-2026-08-20.md),
-  [`fill-model-audit`](history/fill-model-audit-2026-08-20.md),
-  [`leveraged-etf-audit`](history/leveraged-etf-audit-2026-08-20.md),
-  [`synthesis-price-adjustment-and-fills`](history/synthesis-price-adjustment-and-fills-2026-08-20.md)
-- 2026-09-02 to 09-06: [`architecture-review`](history/architecture-review-2026-09-02.md),
-  [`evaluation`](history/evaluation-2026-09-02.md),
-  [`split-restatements-reaudit`](history/split-restatements-reaudit-2026-09-03.md),
-  [`review-2026-09-06.md`](history/review-2026-09-06.md),
-  [`execution-capital-data-hardening-2026-09-06.md`](history/execution-capital-data-hardening-2026-09-06.md)
-- 2026-09-11: [`recoverability-audit-2026-09-11.md`](history/recoverability-audit-2026-09-11.md),
-  [`worktree-review-2026-09-11.md`](history/worktree-review-2026-09-11.md)
-- 2026-09-22 to 09-23: [`agent-trading-review`](history/agent-trading-review-2026-09-22.md),
-  [`agent-backtesting-roadmap`](history/agent-backtesting-roadmap-2026-09-23.md),
-  [`agent-research-product-completion-audit`](history/agent-research-product-completion-audit-2026-09-23.md)
-- 2026-10-05 to 10-18: [`P21 source amendments`](history/p21-source-amendments-2026-10-05.md),
-  [`P22 round-4 rehearsals`](history/p22-round4-rehearsals.md),
-  [`P22 lifecycle brief`](history/p22-lifecycle-brief-2026-10-10.md) (formerly `P22-BRIEF.md`),
-  [`retired PIT restore identities`](history/retired-pit-restore-2026-10-18.md)
-
-## Generated reports
-
-Generated artifacts live under [`../data/reports/`](../data/reports/). Start with the
-[`generated-evidence map`](../data/reports/README.md), which classifies every top-level report and
-identifies the live authority for its status. Read each applicable family guide—and each
-experiment directory's own guide—before individual rankings: they record the cohort, benchmark,
-evidence limitations, trial count, and statistical interpretation. The
-  [`../data/reports/experiments/README.md`](../data/reports/experiments/README.md) separates the
-accumulating E1 record from closed historical studies, while
-[`../data/reports/capital-sensitivity/README.md`](../data/reports/capital-sensitivity/README.md)
-explains why sampled capacity and cost tolerance are not evidence of profitability. The
-[`../data/reports/sweeps/README.md`](../data/reports/sweeps/README.md) marks the unversioned sweep
-directories as historical archives and points back to the current decision ledger.
-
-## Source and lint policy
-
-Ruff covers active Python and tests. `archive/` is excluded because it is immutable retired
-source retained for historical reproducibility; changing it solely to satisfy current
-style rules would alter the snapshot. Archived code is not imported by active runtime
-paths. The UI, generated scratch trees, and `.venv` remain outside Python lint scope. CI audits
-the locked Python runtime and installed UI production dependencies; Dependabot proposes weekly
-`uv`, GitHub Actions, and npm updates as reviewable pull requests and never merges or deploys them
-automatically.
-
-<!-- sources: docs/plans/README.md, docs/product.md, docs/scope.md -->
-
+- [`history/README.md`](history/README.md) — archive of dated audits, finished plans, old BUILDLOG
+  entries and superseded rules. Background only; never current.

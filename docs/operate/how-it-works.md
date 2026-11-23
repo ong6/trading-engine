@@ -1,8 +1,8 @@
 # Operations runbook
 
 Use this guide when a scheduled run, API, UI, or evidence projection misbehaves. The system
-design and component map live in [`architecture-reference.md`](architecture-reference.md);
-[`system-blueprint.md`](system-blueprint.md) explains the target architecture. The repository is
+design and component map live in [`architecture-reference.md`](../architecture/architecture-reference.md);
+[`system-blueprint.md`](../architecture/system-blueprint.md) explains the target architecture. The repository is
 paper-only: there is no broker connection, credential, or real-money authority on this host.
 
 ## First response
