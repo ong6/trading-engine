@@ -538,7 +538,7 @@ class Deployer:
                         env={"UV_PROJECT_ENVIRONMENT": str(venv)}, timeout=1800)
         if done.returncode:
             raise Stop("skipped", "check-venv", error=(done.stderr or done.stdout)[-300:])
-        stamp.write_text(digest + "\n")
+        write_text_atomic(stamp, digest + "\n")
         self.steps.append("check-venv:built")
         return venv
 
