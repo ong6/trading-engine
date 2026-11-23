@@ -5998,4 +5998,20 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** auto-deployer in dry run (P25 scope items 2–4, registration revision 26).
 
+## 2026-11-23 — Deployer review: schedule-aware mutation, self-heal, no alerts
+
+- **Why:** P25 scope items 2–4; the owner-side review of the deployer and the owner's decision
+  to self-heal rather than alert.
+- **What:** refuse to mutate when an engine timer or engine cron line is due within 15 minutes or
+  an engine unit runs; remember refused targets until `main` moves; let a dependency, schema or
+  contract-version commit hold back only itself; keep the 70 GiB reserve; require an API restart
+  after a migration. Self-heal: record the last verified commit and an in-flight marker, recover
+  a crashed deploy, failed rollback or unhealthy unverified code back to it with backoff, and
+  clear failed units and restart the apps after three failed recoveries. Producers are matched by
+  both checkout spellings; the minute capture no longer blocks deploys. `--drill-rollback` added.
+- **Evidence:** `pytest -q -W error -n 8` passes under `TZ=UTC` and `TZ=Asia/Singapore`; 41
+  deployer tests cover each rule.
+- **Metrics:** see the metrics snapshot.
+- **Next:** deploy revision 26 with the deployer timer in dry run, then a supervised drill.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
