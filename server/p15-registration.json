@@ -95,7 +95,7 @@
       "engine/price_quarantine.py": "546fefcf618e0b7d66b8b6316f0666fd813e4ec2e4659a132ef5cc6b00d1033c",
       "engine/queue_runner.py": "9f76ab42ee5d7a17fb738d80257fc58515d425401c55aef8ecef82483c60ab29",
       "engine/repair_integrity.py": "f3d2ae86bb60c2671fadb2732eba264ee056a13d905ba4f37359764abd07676a",
-      "engine/run_daily.sh": "c0acf6f08c708adebe80769ef0c254a62a42aa37f386a2d10892ff23976755f8",
+      "engine/run_daily.sh": "9177f11c04eeccd101075952c592827089551435ca49bcdcb6290bc0f8f0175d",
       "engine/screen.py": "10ad75b95fd8d9f6280365b648105d2eaf5ff26fe6e13966423d0133a43787b3",
       "engine/sec_acceptance.py": "39beda3cfbdd6c281a34044dd188418ee7a56a80d1ca8adbd7a7ad3bfbf72279",
       "engine/signals.py": "fbfa3fb9fc570d170b0ddc48ace41e3891b587c3778e772ea8291d6674d89e81",
@@ -227,7 +227,7 @@
       "tools/sec_edgar_capture.py": "8e7a705262f44532d2c812ed22ccd66c9b35d9633c0f89288d1347fe2a52ea6d",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "11a697176c4aaea91e2572b4eec1415dd38ba506"
+    "source_commit": "6ba6f07b3e471a22eed940e0118838cab9e48c17"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -409,9 +409,9 @@
   },
   "registered_at": "2026-10-03T02:52:40Z",
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registration_revision": 25,
-  "registration_sha256": "e6bc767c4f05dd06607ae7360607329e710ce2a5b12c6b75b10061d38b337716",
-  "revision_reason": "Revision 25 after deployed revision 24: the nightly holds the producer lock only while it captures the store snapshot, a separate running guard keeps overlapping drivers, the watchdog and the digest aware of the snapshot tail, publication waits on its own lock for at most 50 minutes, snapshot verification checks multiset equality with exact counts and one containment pass, and the hourly observers wait up to 300 seconds for a capture. E1 v8, sector v12 and XS v23 are unchanged. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 to revision-24 collection, storage and recovery behavior remain in force.",
+  "registration_revision": 26,
+  "registration_sha256": "19d88c495fbdbfc84c1a6acae8d66ba3ddfa9a673602b00f8f842e6bf73abd74",
+  "revision_reason": "Revision 26 after deployed revision 25: the nightly takes only data-only commits from its upstream and otherwise runs on the current code, so pinned code reaches the host only through the deployer, the deploy gate and any migration. E1 v8, sector v12 and XS v23 are unchanged. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 to revision-25 collection, storage and recovery behavior remain in force.",
   "schema_version": 1,
   "scoring": {
     "actions": [
