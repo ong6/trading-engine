@@ -986,6 +986,41 @@ service_unit = "trading-engine-driver-watchdog.service"
 
 
 [[jobs]]
+job_id = "auto-deploy"
+version = 1
+argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.auto_deploy"]
+schedules = ["*-*-* *:06,21,36,51:00 UTC"]
+
+[jobs.timeout]
+attempt_seconds = 3000
+overall_seconds = 3000
+
+[jobs.retry]
+deadline_seconds = 3000
+
+[jobs.alert]
+severity = "WARN"
+grace_seconds = 300
+
+[jobs.legacy.service]
+unit = "trading-engine-auto-deploy.service"
+description = "Trading engine continuous deployer (dry run unless --execute)"
+exec_start = [{ argv = ["%h/trading-engine/.venv/bin/python", "-m", "tools.auto_deploy"] }]
+environment = ["PYTHONUNBUFFERED=1"]
+nice = 10
+timeout_start = "50min"
+umask = "0077"
+
+[jobs.legacy.timer]
+unit = "trading-engine-auto-deploy.timer"
+description = "Deploy the newest green main commit outside the protected windows"
+on_calendar = ["*-*-* *:06,21,36,51:00 UTC"]
+persistent = false
+accuracy_sec = "1min"
+service_unit = "trading-engine-auto-deploy.service"
+
+
+[[jobs]]
 job_id = "registry-audit"
 version = 1
 runner_enabled = true

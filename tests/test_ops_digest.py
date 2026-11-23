@@ -572,6 +572,25 @@ def test_registered_job_receipts_project_and_fail_the_digest_visibly(tmp_path):
         ).fetchall() == [("registry-audit", 2, "terminal_failure", "terminal-exit-2")]
 
 
+def test_deployer_receipts_show_only_the_last_decision(tmp_path):
+    from tools import auto_deploy
+
+    deployer = auto_deploy.Deployer(engine_root=tmp_path, state_dir=tmp_path / "state",
+                                    logs_dir=tmp_path / "logs")
+    for minute, decision in ((21, auto_deploy.Decision("skipped", "up-to-date")),
+                             (51, auto_deploy.Decision("would-deploy",
+                                                       detail={"target": "ab" * 20}))):
+        moment = NOW.replace(hour=2, minute=minute)
+        deployer.record(decision, moment, moment)
+
+    [hour] = _collect(tmp_path, {})
+
+    assert hour["status"] == "OK"
+    assert "## Deployer" in hour["text"] and "## Registered job receipts" not in hour["text"]
+    assert ("Last decision 2026-10-10T02:51:00Z: dry-run would-deploy target=abababababab "
+            "(2 run(s) since the last digest).") in hour["text"]
+
+
 def test_direct_receipt_projection_is_idempotent(tmp_path):
     receipt = _registered_receipt()
     ops_digest.project_job_receipt(receipt, tmp_path / "ops")
