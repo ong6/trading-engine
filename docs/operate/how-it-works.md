@@ -281,7 +281,7 @@ path with `read_only=True`; never take a second writer or copy the changing live
 A snapshot proves its own publication time, so compare its manifest with current API freshness
 before interpreting counts. A successful driver and a current evidence cohort are separate:
 `walkforward_evidence.status=stale-source` means the result's executable source hash differs from
-the current tree. The final sync can pull a newer source after a successful weekly calculation.
+the current tree. A newer source can reach the checkout after a successful weekly calculation.
 Inspect result `git_sha` and `source_sha256`, then the source diff; retain the original evidence
 and let the next admitted revalidation create a current cohort. Do not relabel old results.
 

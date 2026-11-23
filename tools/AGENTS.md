@@ -3,7 +3,8 @@
 Operator and maintenance commands, run as `.venv/bin/python -m tools.<name>`. None of them takes
 part in research execution.
 
-- **Change and ship**: `affected_tests` (fast tier and CI plan), `deploy_gate`, `release_deploy`,
+- **Change and ship**: `affected_tests` (fast tier and CI plan), `land`, `repin`, `auto_deploy`
+  (the deployer), `deploy_gate`, `release_deploy`,
   `install_automation`, `service_deploy`, `release_manifest`, `registration_identity`,
   `worktree_audit`, `lane` (lane worktrees), `public_hygiene` (+ `public_hygiene_pre_push.sh`).
   Deploy path: [`../docs/change/deploy.md`](../docs/change/deploy.md).

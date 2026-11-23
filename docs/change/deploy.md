@@ -38,7 +38,7 @@ live checkout and run `python -m tools.install_automation --apply`. Once the tim
 4. It fast-forwards the live checkout (rebasing data-only local commits). When a forward-record
    closure changed, it runs `--migrate-runtime-contract` after a digest-only rehearsal.
 5. It runs `tools.install_automation --apply` (changed units; API or UI restart only when their
-   code changed) and post-checks `/health`, `/ready` and `/meta`.
+   code changed) and post-checks `/health`, `/ready`, `/meta` and the automation audit.
 6. A failed post-check rolls back automatically. A rolled-back target is refused until `main`
    moves; newer green commits still deploy.
 
@@ -58,7 +58,10 @@ live checkout and run `python -m tools.install_automation --apply`. Once the tim
 - There are no notifications: decisions and recovery actions appear in the receipts and the hourly
   digest.
 
-Decisions appear under "Deployer" in the hourly digest. State lives in
+Each run records one decision: `deployed`, `would-deploy` (dry run), `skipped:<reason>`
+(`window`, `producer-running`, `release-transaction`, `timer-soon`, `unit-active`, `low-disk`,
+`refused-target`, ...), `needs-human:<reason>`, `rolled-back`, `recovered`, `would-recover` or
+`recovery-failed`. Decisions appear under "Deployer" in the hourly digest. State lives in
 `~/.local/state/trading-engine/auto-deploy/state.json`; receipts in `logs/job-runs/auto-deploy/`.
 The nightly does not pull code; it takes only data-only commits.
 
