@@ -1671,9 +1671,19 @@ print(json.dumps(applied, sort_keys=True))
             prior = state.inventory["units"][name].get("UnitFileState")
             observed = self._unit_properties(name).get("UnitFileState")
             if observed != prior:
-                if name not in install_automation.AUTOSTART_UNITS or observed != "enabled":
+                # A unit this release adds (absent before, now the planned file) that a timer
+                # triggers has no install section, so systemd reports it "static".
+                newly_static = (
+                    original.get("kind") == "absent"
+                    and current.get("kind") == "file"
+                    and observed == "static"
+                )
+                if not newly_static and (
+                    name not in install_automation.AUTOSTART_UNITS or observed != "enabled"
+                ):
                     raise DeployError(f"unit enablement changed outside installer policy: {name}")
-                enablement.append(name)
+                if not newly_static:
+                    enablement.append(name)
         state.automation.update(
             {
                 "installed_unit_files": sorted(changed_files),

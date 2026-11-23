@@ -725,4 +725,18 @@ earlier logs listed in that index.
 - **Metrics:** tests +3 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-23 — A release may add a timer-triggered service
+
+- **Why:** reproduced on the host: the revision-27 release failed at `install-automation` with
+  `unit enablement changed outside installer policy: trading-engine-local-prune.service`. A new
+  service that a timer triggers has no install section, so systemd reports it `static`, which the
+  policy only allowed for autostart units that end `enabled`.
+- **What:** a unit absent before the release, installed as the planned file and now `static`, is
+  accepted without counting as an enablement change; any other change of enablement still refuses.
+- **Evidence:** `pytest -q -W error tests/test_release_deploy.py` passes (new parametrized cases:
+  new static service accepted, an existing unit turning static refused); the resumed host release
+  completed `install-automation`.
+- **Metrics:** tools +10 lines, tests +20.
+- **Next:** verify revision 27 and release producers.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

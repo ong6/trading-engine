@@ -2379,11 +2379,21 @@ def test_reader_processes_are_bound_to_selected_source_and_runtime(tmp_path, mon
         operations._verify_reader_processes(state, rolled_back=False)
 
 
-def test_actual_unit_mutations_are_derived_from_saved_inventory(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("name", "before", "after", "enabled", "error"),
+    [
+        ("trading-engine-api.service", "disabled", "enabled", True, None),
+        # a timer-triggered service this release adds has no install section
+        ("trading-engine-local-prune.service", "", "static", False, None),
+        ("trading-engine-api.service", "enabled", "static", False, "installer policy"),
+    ],
+)
+def test_actual_unit_mutations_are_derived_from_saved_inventory(
+    tmp_path, monkeypatch, name, before, after, enabled, error
+):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _write_fake_host(bin_dir)
-    name = "trading-engine-api.service"
     host_state = tmp_path / "host.json"
     host_state.write_text(
         json.dumps(
@@ -2392,7 +2402,7 @@ def test_actual_unit_mutations_are_derived_from_saved_inventory(tmp_path, monkey
                     name: {
                         "LoadState": "loaded",
                         "ActiveState": "inactive",
-                        "UnitFileState": "enabled",
+                        "UnitFileState": after,
                         "MainPID": "0",
                     }
                 }
@@ -2423,12 +2433,14 @@ def test_actual_unit_mutations_are_derived_from_saved_inventory(tmp_path, monkey
         adapter_set="none",
         d0=None,
         inventory={
-            "unit_files": {name: {"kind": "absent"}},
+            "unit_files": {
+                name: {"kind": "absent"} if before != "enabled" else {"kind": "file", "sha256": "0" * 64}
+            },
             "units": {
                 name: {
                     "LoadState": "not-found",
                     "ActiveState": "inactive",
-                    "UnitFileState": "disabled",
+                    "UnitFileState": before,
                 }
             },
         },
@@ -2442,9 +2454,13 @@ def test_actual_unit_mutations_are_derived_from_saved_inventory(tmp_path, monkey
         ui_url="http://invalid",
         minimum_free_bytes=0,
     )
+    if error:
+        with pytest.raises(release_deploy.DeployError, match=error):
+            operations._record_automation_mutations(state)
+        return
     recorded = operations._record_automation_mutations(state)
     assert recorded["installed_unit_files"] == [name]
-    assert recorded["enablement_units"] == [name]
+    assert recorded["enablement_units"] == ([name] if enabled else [])
 
 
 def _probe_operations(tmp_path, monkeypatch, responses):
