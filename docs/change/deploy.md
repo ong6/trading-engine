@@ -62,6 +62,9 @@ The nightly does not pull code; it takes only data-only commits.
 
 - **Dry run by hand**: `python -m tools.auto_deploy` (without `--execute`) reports what the timer
   would do and changes nothing.
+- **Release directories are load-bearing**: the live `.venv` links into the newest release's
+  `prepared/` environment under `~/.local/state/trading-engine/releases/`. Only `recovery/` may be
+  deleted (the retention job does that); never delete a release directory.
 - **Pause**: `systemctl --user stop trading-engine-auto-deploy.timer`.
 - **Manual rollback**: restore reports from `auto-deploy/backups/<time>/` (the newest two are
   kept; see [local retention](../operate/how-it-works.md#local-retention)), run

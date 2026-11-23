@@ -754,4 +754,16 @@ earlier logs listed in that index.
 - **Metrics:** tools +15 lines, tests +25.
 - **Next:** deploy `main` through the deployer.
 
+## 2026-11-23 — Public docs describe the self-deploying engine
+
+- **Why:** the public docs still described deployment as a manual, admitted step, the index said
+  the glossary "translates the internal plan codes", and the backtest page named an internal
+  version code.
+- **What:** `docs/site/operations.md` describes the deployer, its rollback and self-recovery, and
+  the release tool's self-restore; the index and backtest page drop the internal names;
+  `docs/change/deploy.md` warns that the live `.venv` links into the newest release directory.
+- **Evidence:** `tools.affected_tests --run` passes.
+- **Metrics:** unchanged.
+- **Next:** re-sync the public docs into the personal site.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

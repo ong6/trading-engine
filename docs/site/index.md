@@ -88,6 +88,6 @@ without revealing its logic.
 Read [Paper books and the league](paper-books.md) to understand what a simulated trade means,
 [AI agents](ai-agents.md) to see the model's narrow authority, and
 [How research earns a verdict](research-process.md) for the safeguards against overfitting. The
-[glossary](glossary.md) translates the internal plan codes and statistical terms.
+[glossary](glossary.md) explains the statistical and trading terms.
 
 <!-- sources: README.md, BUILDLOG.md, docs/product.md, docs/plans/README.md, data/reports/league.md, server/p15-registration.json, server/p16-registration.json, sim/fills.py, sim/league.py -->
