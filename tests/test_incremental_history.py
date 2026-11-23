@@ -10,12 +10,21 @@ from yfinance.scrapers.history import PriceHistory
 from server import p15_incremental_collect as incremental
 
 
+@pytest.fixture(autouse=True)
+def _restore_debug_flag():
+    # yfinance serves this flag dynamically, which pytest's monkeypatch no longer accepts.
+    debug = incremental.collect.yf.config.debug
+    saved = debug.hide_exceptions
+    yield
+    debug.hide_exceptions = saved
+
+
 @pytest.mark.parametrize("previous", [True, False])
 def test_history_raises_without_deprecation_and_restores_config(monkeypatch, previous):
     # Actual installed history code, with missing timezone, fails before any HTTP.
     provider = PriceHistory(None, "XP", None)
     monkeypatch.setattr(incremental.collect.yf, "Ticker", lambda _: provider)
-    monkeypatch.setattr(incremental.collect.yf.config.debug, "hide_exceptions", previous)
+    incremental.collect.yf.config.debug.hide_exceptions = previous
     with warnings.catch_warnings(record=True) as seen:
         warnings.simplefilter("always")
         with pytest.raises(YFTzMissingError):
@@ -33,7 +42,7 @@ def test_success_restores_config_and_preserves_request(monkeypatch):
 
     monkeypatch.setattr(incremental.collect.yf, "Ticker",
                         lambda _: SimpleNamespace(history=history))
-    monkeypatch.setattr(incremental.collect.yf.config.debug, "hide_exceptions", True)
+    incremental.collect.yf.config.debug.hide_exceptions = True
     assert incremental._history("XP", date(2026, 10, 26), date(2026, 10, 27)) == "response"
     assert incremental.collect.yf.config.debug.hide_exceptions is True
 
