@@ -358,3 +358,21 @@ def test_rollback_restores_migrated_reports(host, monkeypatch):
     assert _git(host["live"], "rev-parse", "HEAD") == before
     assert _git(host["live"], "status", "--porcelain") == ""
     assert "migrate:xs:0" in deployer.steps
+
+
+def test_running_producers_matches_both_root_spellings_and_exempts_minute_capture(tmp_path):
+    real = tmp_path / "data" / "engine"
+    real.mkdir(parents=True)
+    link = tmp_path / "engine"
+    link.symlink_to(real)
+    listing = "\n".join([
+        f"101 /bin/bash {link}/engine/run_daily.sh",
+        f"102 {real}/.venv/bin/python -m engine.collect",
+        f"103 {link}/.venv/bin/python -m tools.free_massive_minute --max-runtime-hours 23",
+        f"104 {link}/.venv/bin/python -m server.main",
+        "105 /usr/bin/python -m engine.collect",
+        f"106 /bin/bash {link}/engine/run_daily.sh",
+    ])
+    found = auto_deploy.running_producers(listing, link, own_pid=106)
+    assert found == [f"/bin/bash {link}/engine/run_daily.sh",
+                     f"{real}/.venv/bin/python -m engine.collect"]

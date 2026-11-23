@@ -741,6 +741,7 @@ def test_evaluation_code_identity_is_fixed_when_the_api_imports():
     assert main.evaluation_code_sha256.cache_info().currsize == 1
 
 
+@pytest.mark.slow  # about 25 s on CI runners: rehashes the evaluation projection code
 def test_evaluation_key_changes_with_the_projection_code(con, monkeypatch, tmp_path):
     monkeypatch.setattr(main, "P15_AUDITED_TABLES", ())
     monkeypatch.setattr(main.p15_evaluation, "registration_sha256", lambda: "a" * 64)

@@ -35,6 +35,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -69,7 +70,12 @@ WORKFLOW = "ci"
 BLOCKED_WINDOWS = ((time(14, 5), time(14, 35)), (time(22, 30), time(3, 0)))
 MUTATION_LEAD = timedelta(minutes=20)  # the mutating half must end before a window opens
 HUMAN_PATHS = ("uv.lock", "pyproject.toml", "engine/requirements.txt", "ui/package.json",
-               "ui/package-lock.json")
+               "ui/package-lock.json",
+               # The long-running minute capture is exempt from the producer check, so a
+               # change to its own code waits for a person to restart it.
+               "engine/free_massive_minute.py", "tools/free_massive_minute.py")
+# Runs most of the day against its own database, never the market store: not a deploy blocker.
+LONG_RUNNING_EXEMPT = re.compile(r"(?:engine|tools)\.free_massive_minute\b")
 MIGRATIONS = "engine/migrations/"
 FORWARD_TESTS = ("tests/test_p15_registration.py", "tests/test_forward_review.py",
                  "tests/test_xs_forward_review.py", "tests/test_experiment_runner.py")
@@ -109,6 +115,25 @@ def in_blocked_window(moment: datetime) -> bool:
         if (start <= clock < end) if start < end else (clock >= start or clock < end):
             return True
     return False
+
+
+def running_producers(listing: str, root: Path, *, own_pid: int) -> list[str]:
+    """Producer commands under ``root`` in a ``ps -eo pid=,args=`` listing.
+
+    The checkout is matched by its given and its resolved path (a symlinked home spells it
+    two ways); the long-running minute capture is exempt.
+    """
+    roots = {str(root), str(root.resolve())}
+    found = []
+    for line in listing.splitlines():
+        pid, _sep, command = line.strip().partition(" ")
+        if not pid.isdigit() or int(pid) == own_pid:
+            continue
+        if (any(spelling in command for spelling in roots)
+                and release_deploy.PRODUCER_PATTERN.search(command)
+                and not LONG_RUNNING_EXEMPT.search(command)):
+            found.append(command.strip())
+    return found
 
 
 def github_token(hosts: Path = GH_HOSTS) -> str | None:
@@ -172,7 +197,8 @@ class Deployer:
         return _lock_held(path) if path.exists() else False
 
     def producers(self) -> list[str]:
-        return self.ops._surviving_producers(self.root)
+        listing = self.run(["ps", "-eo", "pid=,args="], cwd=self.root, timeout=30).stdout
+        return running_producers(listing, self.root, own_pid=os.getpid())
 
     def http_get(self, url: str, headers: dict) -> tuple[int, dict, bytes]:
         request = urllib.request.Request(url, headers=headers)
