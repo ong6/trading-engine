@@ -296,7 +296,8 @@ class Deployer:
         common = Path(self.git(self.root, "rev-parse", "--git-common-dir"))
         transaction = (common if common.is_absolute() else self.root / common) / \
             "release-deploy.lock"
-        if self.lock_held(transaction) is not False:
+        # Inside mutation_locks this process holds that lock itself; only another holder counts.
+        if not self.ops.transaction_lock_held and self.lock_held(transaction) is not False:
             return "release-transaction"
         return None
 

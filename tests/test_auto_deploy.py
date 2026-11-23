@@ -661,3 +661,19 @@ def test_full_tier_reads_the_runs_test_shards(host, monkeypatch):
             200, {}, json.dumps(answers[label]).encode())
         assert deployer.full_tier("a" * 40) is expected
     assert deployer.full_tier("b" * 40) is False
+
+
+def test_the_recheck_inside_the_mutation_lock_ignores_its_own_transaction_lock(host):
+    from server.driver_log import _lock_held
+
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    deployer = _deployer(host, green={target})
+    real = lambda path: _lock_held(path) if path.exists() else False  # noqa: E731
+    deployer.lock_held = real  # the real /proc/locks observer
+    decision = deployer.decide(execute=True)
+    assert decision.outcome == "deployed", decision
+    with deployer.ops.transaction_lock(deployer.root, "someone-else"):
+        other = _deployer(host, green={target})
+        other.lock_held = real
+        with pytest.raises(auto_deploy.Stop, match="skipped:release-transaction"):
+            other.decide(execute=False)
