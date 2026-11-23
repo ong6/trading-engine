@@ -140,6 +140,9 @@ same-bar.
 
 ## Scheduled work
 
+Every scheduled job, with its argv (the module it runs), unit, locks, timeouts and retries, is
+in the job registry [`ops/jobs.toml`](../../ops/jobs.toml).
+
 There are five deterministic production cron schedules, and one evidence-only Saturday
 postflight. The production schedules are:
 

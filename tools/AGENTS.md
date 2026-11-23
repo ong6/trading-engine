@@ -8,8 +8,9 @@ part in research execution.
   `install_automation`, `service_deploy`, `release_manifest`, `registration_identity`,
   `worktree_audit`, `lane` (lane worktrees), `public_hygiene` (+ `public_hygiene_pre_push.sh`).
   Deploy path: [`../docs/change/deploy.md`](../docs/change/deploy.md).
-- **Operate**: `ops_digest` (hourly digest), `driver_watchdog`, `schedule_contract_check`,
-  `stage_timings`, `check_invariants` with `invariants/`, `log_retention`, `prune_local`,
+- **Operate**: `ops_digest` (hourly digest) with `model_gateway_check` (its model-gateway
+  preflight), `driver_watchdog`, `schedule_contract_check`, `stage_timings`, `check_invariants`
+  with `invariants/`, `log_retention`, `prune_local`,
   `publish_snapshot`, `backup_database`, `verify_friday_postflight`, `run_job`, `metrics_snapshot`.
 - **Data capture**: `free_sources`, `free_sec`, `free_sec_bulk`, `free_massive_minute`,
   `free_massive_options`, `free_frozen_archive`, `free_source_audit`, `sec_edgar_capture`,
@@ -24,3 +25,6 @@ part in research execution.
 Local rules: dry-run by default, mutate only with an explicit flag (`--apply`, `--execute`); never
 hold the live store writer outside a declared window; no new operator CLI without a plan. Runbook:
 [`../docs/operate/how-it-works.md`](../docs/operate/how-it-works.md).
+Some files here are pinned by the P15 registration; changing one needs a re-pin
+([`../docs/change/deploy.md`](../docs/change/deploy.md#land-a-branch)). Check a file with
+`grep -F '"tools/x.py":' server/*-registration.json` (a printed line means pinned).

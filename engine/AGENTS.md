@@ -26,6 +26,7 @@ the nightly screen, the job queue and the engine-owned paper accounts.
   stored rows only through one of these tools inside a maintenance window, keeping the evidence.
 
 Local rules: never fabricate a price or bar; point-in-time tables are append-only; one writer at a
-time, heavy work through the queue; network waits release the writer. Files pinned by a
-registration (`server/*-registration.json`) change only with a registration revision
-(`python -m tools.registration_identity`). Design: [`../docs/architecture/architecture-reference.md`](../docs/architecture/architecture-reference.md).
+time, heavy work through the queue; network waits release the writer. Files pinned by the
+P15 registration change only with a re-pin
+([`../docs/change/deploy.md`](../docs/change/deploy.md#land-a-branch)); check a file with
+`grep -F '"engine/x.py":' server/*-registration.json` (a printed line means pinned). Design: [`../docs/architecture/architecture-reference.md`](../docs/architecture/architecture-reference.md).

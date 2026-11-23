@@ -68,13 +68,13 @@ marker, at most 25 lines and one SHA-256:
 | Doing | Read |
 |---|---|
 | Choose what to work on | `docs/product.md` (Focus now) |
-| A scheduled run failed | `docs/operate/how-it-works.md` |
+| A scheduled run failed | `docs/operate/how-it-works.md`; job → module table: `ops/jobs.toml` |
 | Fix a data defect | `engine/AGENTS.md` |
 | Add a strategy or experiment | `docs/extend/README.md` |
 | Add a data source | `docs/data/README.md` |
-| Change a pinned or registered file | `server/AGENTS.md` |
+| Change a pinned or registered file | `server/AGENTS.md`; the pin list is `code_identity.files` in `server/p15-registration.json` |
 | Deploy or land a branch | `docs/change/deploy.md` |
 | Run a backtest | `docs/change/backtest-standard.md` |
 | Read today's evidence | `data/reports/README.md` |
 | Write public docs | `docs/site/README.md` |
-| Anything else | `docs/README.md` |
+| Anything else | `docs/README.md`; codes such as P15 or W9b: `docs/architecture/glossary.md` |

@@ -17,5 +17,8 @@ design: no same-bar fills, no invented prices.
 Local rules: a strategy is pre-registered with a kill criterion before it trades; new strategies
 belong in the private alpha repo, so add only generic mechanics here. Accounting is one fold from
 inception ([`../docs/architecture/paper-account-contract.md`](../docs/architecture/paper-account-contract.md)).
-Changing a pinned file needs a registration revision. Proofs: `sim/backtest_shakedown.py` and
-`sim/corp_actions_shakedown.py` are plumbing tests, not evidence.
+Changing a pinned file needs a re-pin
+([`../docs/change/deploy.md`](../docs/change/deploy.md#land-a-branch)); check a file with
+`grep -F '"sim/x.py":' server/*-registration.json` (a printed line means pinned).
+Proofs: `sim/backtest_shakedown.py` and `sim/corp_actions_shakedown.py` are plumbing tests, not
+evidence.

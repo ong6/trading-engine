@@ -69,6 +69,7 @@ while P16 W8 is broker-paper design.
 | W7 | Operator digest | Produces a compact weekly view of gates, books, activity, and health. |
 | W8 | Stage 2 design | Describes a possible broker paper deployment without building or connecting it. |
 | W9 | Cleanup, docs, and activation | Cleans the build, freezes registrations, rehearses, and activates only eligible parts. |
+| W9b | Registration and activation | The open part of W9: issue the P16 registration, rehearse, and activate only the components whose gates permit it. |
 | W10 | Final refine pass | Reviews written outputs after activation without changing frozen evidence. |
 | W11 | Synthetic proving ground | Tests whether the evaluation system finds a planted edge and rejects pure noise. |
 

@@ -21,3 +21,6 @@ Local rules: every study declares its control, costs, sample rule, trial count a
 before running; never tune a frozen rule after seeing results; historical output stays isolated
 from canonical evidence until its cohort identity validates. Strategy-specific studies belong in
 the private alpha repo. Speed changes must prove identical outputs.
+Some files here are pinned by the P15 registration; changing one needs a re-pin
+([`../docs/change/deploy.md`](../docs/change/deploy.md#land-a-branch)). Check a file with
+`grep -F '"farm/x.py":' server/*-registration.json` (a printed line means pinned).

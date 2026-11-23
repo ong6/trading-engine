@@ -6,6 +6,9 @@
 - **Full suite** once before you finish: `.venv/bin/python -m pytest -q -W error -n 8`; warnings
   are failures; `-n 0` debugs serially; `-m "not slow"` is for local iteration only. CI runs every
   test under `TZ=UTC` and `TZ=Asia/Singapore` on each `main` push that changes code.
+- **Research control-plane tests** live in `farm/research/tests`, outside `testpaths`, so the
+  full suite skips them: run `.venv/bin/python -m pytest -q -W error -n 2 farm/research/tests`.
+  CI runs them in its `checks` job whenever code changes.
 - **Lint**: `.venv/bin/ruff check .` blocks. `ruff check --select C90 server tools` is advisory
   (complexity findings are not defects); the other selections in CI block.
 - **UI**: `npm test` and `npm run build` from `ui/`.

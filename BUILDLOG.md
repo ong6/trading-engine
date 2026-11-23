@@ -783,4 +783,19 @@ earlier logs listed in that index.
 - **Metrics:** farm -1494, tools -37, tests -678 lines.
 - **Next:** P25 scope item 5, agent-facing docs and search hygiene.
 
+## 2026-11-23 — Agent manuals name the pins, the job registry and every server file
+
+- **Why:** P25 scope item 5 (docs): an audit found 57 server files outside `server/AGENTS.md`, no
+  pin check in the folder manuals, `model_gateway_check` missing from `tools/AGENTS.md`, W9b
+  used but not defined, and no note that `farm/research/tests` is outside `testpaths`.
+- **What:** the root map names the pin list, `ops/jobs.toml` and the glossary on existing rows;
+  the `engine`, `farm`, `sim` and `tools` manuals give a one-line pin check and point at the
+  re-pin procedure; `server/AGENTS.md` indexes read models, monitors, evidence projections,
+  readiness, sources, prompts, wrappers and the Massive units; the glossary defines W9b; the
+  runbook links the job registry; the testing docs give the research-test command.
+- **Evidence:** `tools.affected_tests --run` passes; a coverage script matches every tracked
+  `server/*.py` except `__init__.py` to a named file or glob in `server/AGENTS.md`.
+- **Metrics:** docs only; root `AGENTS.md` stays at 80 lines.
+- **Next:** search hygiene and the add-a-data-source checklist.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

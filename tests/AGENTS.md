@@ -6,6 +6,7 @@ the end; details in [`../docs/change/testing.md`](../docs/change/testing.md).
 ```bash
 .venv/bin/python -m tools.affected_tests --run      # fast tier
 .venv/bin/python -m pytest -q -W error -n 8         # full suite; warnings are failures
+.venv/bin/python -m pytest -q -W error -n 2 farm/research/tests   # outside testpaths; CI runs it
 ```
 
 - One `test_<module>.py` per module or feature; shared helpers in `*_test_helpers.py` and
