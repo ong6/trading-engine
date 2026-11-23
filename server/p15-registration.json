@@ -223,11 +223,11 @@
       "tools/invariants/results.py": "f807b584d3a654b22cd62b6708c92f6abc5ab8ecb10b4bfca47fae2e7abe90e4",
       "tools/p15_evidence_validation.py": "731b0e9ea8d47141686e885c71c3812074709c9fbde255922e6bbda05b3ccf52",
       "tools/publish_snapshot.py": "1299a9aca135d097895c42a55d87252a2960709ed21dd2be976252396c77ae93",
-      "tools/release_manifest.py": "03e7517aac05b0800629307fe46f874ea5478adc47e87be933aa3b991fb7c0ea",
+      "tools/release_manifest.py": "2d2ccd561327ea05a393f42da8062580c448d23fcd95433fb03ef0f3b5d72ba0",
       "tools/sec_edgar_capture.py": "8e7a705262f44532d2c812ed22ccd66c9b35d9633c0f89288d1347fe2a52ea6d",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "e9867334c1817f01c8887d2f4de979fe7aeccac8"
+    "source_commit": "feea451b098764a17bf315c1bcfea8b4627b7a76"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -409,9 +409,9 @@
   },
   "registered_at": "2026-10-03T02:52:40Z",
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registration_revision": 26,
-  "registration_sha256": "2b18c52e935d8046650a3d6d08b4990ab8f29ddebc658fff5a9def7fdb2151e4",
-  "revision_reason": "Revision 26 after deployed revision 25: the nightly takes only data-only commits from its upstream and otherwise runs on the current code, so pinned code reaches the host only through the deployer, the deploy gate and any migration. E1 v8, sector v12 and XS v23 are unchanged. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 to revision-25 collection, storage and recovery behavior remain in force.",
+  "registration_revision": 27,
+  "registration_sha256": "eb9905375e5f11e91a88644d5c88b4f48d5887fc816c60858ca8880afe616dd5",
+  "revision_reason": "Revision 27 after deployed revision 26: Code cleanup removes three superseded agent schema migrations from the release manifest's audit file list; no registered value changes. E1 v8, sector v12 and XS v23 are unchanged. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 to revision-26 collection, storage and recovery behavior remain in force.",
   "schema_version": 1,
   "scoring": {
     "actions": [
