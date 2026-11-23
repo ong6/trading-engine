@@ -1663,3 +1663,44 @@ def test_publication_sweeps_stale_scratch_files_in_subdirectories_too(tmp_path):
     assert (directory / second["snapshot"]).exists() and all(
         (directory / record["path"]).exists() for record in second["parts"])
     assert any(p in survivors for p in kept)
+
+
+def test_blocking_publication_wait_is_bounded(tmp_path):
+    import fcntl
+
+    lock = tmp_path / ".generation-publish.lock"
+    with lock.open("a+b") as holder:
+        fcntl.flock(holder.fileno(), fcntl.LOCK_EX)
+        started = time.monotonic()
+        with pytest.raises(publish_snapshot.PublicationBusy, match="after waiting"):
+            with publish_snapshot._publication_window(tmp_path, wait_seconds=0.3):
+                pytest.fail("acquired a held publication lock")
+        assert 0.25 <= time.monotonic() - started < 5
+    with publish_snapshot._publication_window(tmp_path, wait_seconds=0.3):
+        pass
+
+
+def test_blocking_publication_wait_acquires_when_holder_releases(tmp_path):
+    import fcntl
+
+    lock = tmp_path / ".generation-publish.lock"
+    holder = lock.open("a+b")
+    fcntl.flock(holder.fileno(), fcntl.LOCK_EX)
+    threading.Timer(0.2, holder.close).start()
+    with publish_snapshot._publication_window(tmp_path, wait_seconds=10):
+        pass
+
+
+def test_releasing_a_closed_inherited_descriptor_is_not_an_error(tmp_path, monkeypatch):
+    import errno
+
+    descriptor = os.open(tmp_path / "held.lock", os.O_CREAT | os.O_RDWR, 0o600)
+    os.close(descriptor)
+    publish_snapshot._unlock_inherited(descriptor)  # EBADF: nothing is held
+
+    def broken(fd, op):
+        raise OSError(errno.EIO, "io error")
+
+    monkeypatch.setattr(publish_snapshot.fcntl, "flock", broken)
+    with pytest.raises(OSError):
+        publish_snapshot._unlock_inherited(0)

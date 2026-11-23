@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import fcntl
 import hashlib
 import json
@@ -93,9 +94,29 @@ class PublicationBusy(SnapshotError):
     """A publish-on-change run found a publication or producer already running."""
 
 
+# A blocking wait outlasts one publish-on-change run (its unit stops it after 45 minutes)
+# and then fails instead of holding the nightly forever.
+PUBLICATION_WAIT_SECONDS = 50 * 60
+PUBLICATION_POLL_SECONDS = 1.0
+
+
+def _unlock_inherited(descriptor: int) -> None:
+    """Release a caller-owned flock; a descriptor that is already closed holds no lock."""
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+    except OSError as exc:
+        if exc.errno != errno.EBADF:
+            raise
+
+
 @contextmanager
-def _publication_window(directory: Path, *, blocking: bool = True):
-    """Serialize install, pointer publication, verification, and garbage collection."""
+def _publication_window(directory: Path, *, blocking: bool = True,
+                        wait_seconds: float | None = None):
+    """Serialize install, pointer publication, verification, and garbage collection.
+
+    A blocking caller waits at most ``wait_seconds`` (default ``PUBLICATION_WAIT_SECONDS``)
+    and then raises ``PublicationBusy``; a non-blocking caller fails at once.
+    """
     lock_path = directory / ".generation-publish.lock"
     created = not lock_path.exists()
     flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -105,10 +126,17 @@ def _publication_window(directory: Path, *, blocking: bool = True):
             _sync_directory(directory)
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise SnapshotError("generation publication lock is not a regular file")
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
-        except BlockingIOError as exc:
-            raise PublicationBusy("another publication is running") from exc
+        limit = PUBLICATION_WAIT_SECONDS if wait_seconds is None else wait_seconds
+        deadline = time.monotonic() + (limit if blocking else 0.0)
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                if time.monotonic() >= deadline:
+                    detail = "" if not blocking else f" after waiting {limit:.0f}s"
+                    raise PublicationBusy(f"another publication is running{detail}") from exc
+                time.sleep(min(PUBLICATION_POLL_SECONDS, max(deadline - time.monotonic(), 0.0)))
         token = _PUBLICATION_LOCK_HELD.set(True)
         try:
             yield
@@ -961,7 +989,7 @@ def publish_snapshot(
         nonlocal released
         if release_lock_fd is not None and not released:
             # Unlock the shared open-file description, including the parent and tee aliases.
-            fcntl.flock(release_lock_fd, fcntl.LOCK_UN)
+            _unlock_inherited(release_lock_fd)
             released = True
 
     try:
@@ -1449,7 +1477,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     finally:
         if args.release_lock_fd is not None:
-            fcntl.flock(args.release_lock_fd, fcntl.LOCK_UN)
+            _unlock_inherited(args.release_lock_fd)
 
 
 if __name__ == "__main__":
