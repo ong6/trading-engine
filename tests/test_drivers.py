@@ -401,6 +401,48 @@ def test_liquid_is_fatal_with_stage_timing(fake_repo):
     assert "stage=refresh-liquid" in out
 
 
+def _git(repo: Path, *args: str) -> str:
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid",
+               GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    return subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+
+def test_daily_takes_only_data_commits_from_upstream(fake_repo, tmp_path):
+    (fake_repo / ".gitignore").write_text("logs/\nargv.log\n.*.lock\n.venv/\n")
+    _git(fake_repo, "checkout", "-q", "-b", "main")
+    _git(fake_repo, "add", "-A")
+    _git(fake_repo, "commit", "-q", "-m", "engine")
+    origin = tmp_path / "origin.git"
+    _git(tmp_path, "init", "-q", "--bare", str(origin))
+    _git(fake_repo, "remote", "add", "origin", str(origin))
+    _git(fake_repo, "push", "-q", "-u", "origin", "main")
+    other = tmp_path / "other"
+    _git(tmp_path, "clone", "-q", "-b", "main", str(origin), str(other))
+    (other / "data").mkdir()
+    (other / "data" / "result.json").write_text("{}\n")
+    _git(other, "add", "-A")
+    _git(other, "commit", "-q", "-m", "nightly data")
+    _git(other, "push", "-q", "origin", "main")
+
+    code, out, _ = run_driver(fake_repo, "run_daily.sh")
+    assert code == 0, out
+    assert _git(fake_repo, "rev-parse", "HEAD") == _git(other, "rev-parse", "HEAD")
+
+    (other / "engine" / "new.py").write_text("x = 1\n")
+    (other / "data" / "result.json").write_text("{\"n\": 2}\n")
+    _git(other, "add", "-A")
+    _git(other, "commit", "-q", "-m", "code")
+    _git(other, "push", "-q", "origin", "main")
+    before = _git(fake_repo, "rev-parse", "HEAD")
+    code, out, _ = run_driver(fake_repo, "run_daily.sh")
+    assert code == 0, out
+    assert _git(fake_repo, "rev-parse", "HEAD") == before
+    assert not (fake_repo / "engine" / "new.py").exists()
+    assert "carries code changes; running on the current code" in out
+
+
 def test_appended_logs_vs_truncated_nightly(fake_repo):
     for _ in range(2):
         run_driver(fake_repo, "run_weekly_liquid.sh")
