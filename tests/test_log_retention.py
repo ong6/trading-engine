@@ -174,6 +174,29 @@ def test_busy_or_recent_cumulative_logs_are_not_rotated(tmp_path, monkeypatch):
         "liquid-cron.log": "written in the last 15 minutes"}
 
 
+def test_quiet_snapshot_tail_uses_real_kernel_running_guard(tmp_path):
+    import fcntl
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    log = logs / "cron.log"
+    log.write_text("=== run_daily 2026-10-20T09:30:00Z ===\n" + "snapshot work\n" * 1000)
+    _age(log)
+    producer = tmp_path / ".nightly.lock"
+    producer.touch()
+    running = tmp_path / ".nightly.running.lock"
+    running.touch()
+    with running.open("a") as guard:
+        fcntl.flock(guard, fcntl.LOCK_EX)
+        # These readers inspect the real /proc/locks path, without kernel-record mocks.
+        assert driver_log._driver_lock_held(producer) is True
+        assert driver_log.driver_status(log, lock_path=producer, now=NOW)["status"] == "running"
+        result = log_retention.plan(logs, repo_root=tmp_path, now=NOW,
+                                    config=_config(), run=_no_evidence)
+        assert result.rotate == []
+        assert result.kept[0]["reason"] == "driver running (lock held)"
+
+
 def test_rotation_aborts_if_the_log_grows_mid_read(tmp_path, monkeypatch):
     logs = tmp_path / "logs"
     _cron_logs(logs)

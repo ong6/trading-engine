@@ -5841,6 +5841,46 @@ the 42-entry 2026-09-19 C90 complexity series is in
   → 252 pass; restored/new checks fail on the preceding head. Ruff and metrics budget pass.
 - **Metrics:** session server +1, tools +54, product unchanged LOC.
 - **Next:** orchestrator updates the local overlay and runs full acceptance before deployment.
+## 2026-11-20 — Hand snapshot capture lock ownership to the publisher
+
+- **Why:** revision-25 snapshot brief; `pytest -q -n 0 tests/test_drivers.py::test_snapshot_releases_producer_lock_after_capture_keeps_run_guard` fails on main with `BlockingIOError` after capture: the driver parent and tee still hold fd 9.
+- **What:** explicitly unlock the shared fd 9 before publishing; the publisher acquires producer locks only for capture. A separate running lock excludes overlapping drivers through the done marker, and the watchdog observes that guard and defers catch-up.
+  The digest reader is outside the authorized scope and still reports the tail interrupted; its proposed guard-reader change remains blocked on scope approval. Weekly drivers have no held-lock publisher invocation.
+- **Evidence:** `pytest -q -n 0 'tests/test_drivers.py::test_snapshot_releases_producer_lock_after_capture_keeps_run_guard[locks]' tests/test_driver_watchdog.py::test_watchdog_observes_snapshot_tail_and_defers_catch_up` → two passed; the digest variant fails until its reader changes.
+- **Metrics:** lane delta: server 0, tools +5, product 0 LOC; tests +123.
+- **Next:** orchestrator admits the status-reader change and completes capture rehearsal with enough free space.
+
+## 2026-11-20 — Verify snapshot multisets with counts and one containment pass
+
+- **Why:** P24 nightly-speed and the revision-25 snapshot brief admit an output-identical removal of the reverse EXCEPT ALL pass.
+- **What:** count both relations exactly and retain source EXCEPT ALL generation; equal cardinality plus containment proves multiset equality. Count verified cold rows from the actual source.
+  Document the schema-v2 metric names: cold_verification_seconds covers all tables, while cold_verification_rows reports only cold rows.
+- **Evidence:** `pytest -q -n 0 tests/test_publish_snapshot.py::test_semantic_equality_multiset_property` → 105 multiset cases pass, including duplicates, NULLs and empty relations; final focused five-test runs pass under both timezones.
+  Both checks pass on the same verified 160-table, 99,904,744-row generation copies: 1,000.94 → 552.24 seconds (44.8% less). Both cold sides are Parquet views, so this is not a full publication-stage timing.
+  Full capture refused its unchanged 70 GiB reserve (67.1 GiB free, 33.7 GiB additional need); both full suites and the affected tier stalled at 98% and were interrupted, with failures observed.
+- **Metrics:** lane delta: server 0, tools +12, product 0 LOC; tests +72; the combined metrics snapshot passes budget.
+- **Next:** orchestrator resolves the reader scope and completes full capture, publication timing and timezone suites before the shared re-pin.
+
+## 2026-11-20 — Revision-25 round two: publication retries and observer capture waits
+
+- **Why:** orchestrator journal evidence shows every daytime capture timing out at 25 minutes; the 17:15 hourly observer gives up after 60 seconds inside a roughly 120-second capture.
+  `pytest -q -n 0` on the new timeout, failure-backoff, observer-lease and digest regression cases fails before the fix: 25-minute timeout, immediate second failure, 60-second lease, and interrupted digest status.
+- **What:** the digest reads the running guard through the done marker. Publish-on-change gets 45 minutes (16 minutes above the recorded 29-minute stage); its single oneshot and publication mutex prevent timer overlap.
+  Durable attempt state backs off an hour after failure, or an hour after detecting a killed attempt; ordinary producer contention remains a skip. Both P9 cadences wait up to 300 seconds with one shared store deadline inside the ten-minute unit.
+  P15 pre-open already has a sufficient deadline-bound wait; events exclude capture with the nightly guard across lease releases. The out-folder rehearsal checks the reserve, full publication, concurrent writer access and post-capture failure preserving the served generation.
+- **Evidence:** `pytest -W error -n 0 tests/test_publish_snapshot.py -k 'publish_on_change or semantic_equality or writer_wins or publication_tail'` → 12 passed; another 320 focused tests pass in each timezone. Ruff and metrics budget pass; full suite and full-store rehearsal stay with the orchestrator.
+- **Metrics:** round-two delta: server +23, tools +60, product 0 LOC; tests +165.
+- **Next:** orchestrator runs the full source-copy rehearsal and suite, then performs the shared registration revision.
+
+## 2026-11-20 — Revision-25 final round: inherited capture lock and retention guard
+
+- **Why:** orchestrator round-three review; regressions on b1d050ac fail for the missing inherited-fd hand-off, corrupt/non-UTC backoff markers, and quiet snapshot-tail retention. The current real producer-lock error path already passes its new PublicationBusy test.
+- **What:** retain the inherited nightly descriptor through capture and explicitly unlock its shared open description afterward, including parent/tee aliases; all early exits unlock it too. The running guard still covers the tail.
+  Invalid backoff state expires with a warning. Retention uses the shared running-guard reader; the repo audit found no other missed nightly-liveness reader. The rehearsal reports wall time at verified nice 19 and margin against 45 minutes.
+  Real kernel/queued-writer and DuckDB lock-error tests close the coverage gaps. Watchdog fixtures acquire their flock before exec so the real holder stays visible in a PID namespace and test-owned children are cleaned up.
+- **Evidence:** `pytest -W error -n 0 tests/test_publish_snapshot.py` → all 85 publication cases pass (UTC 84 plus the added real-DuckDB case; Singapore 85); another 349 focused cases pass in each timezone. Ruff, rehearsal compilation/real priority helper and metrics budget pass; full suite stays with the orchestrator.
+- **Metrics:** final-round delta: server 0, tools +34, product 0 LOC; tests +198.
+- **Next:** orchestrator runs the quiet-window full-store rehearsal and full suite, then performs the shared re-pin.
 
 ## 2026-11-23 — Admit P25: continuous deploy, docs and code cleanup
 

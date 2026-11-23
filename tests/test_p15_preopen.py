@@ -528,6 +528,7 @@ def test_store_wait_leaves_the_preopen_inside_its_deadline_and_unit_timeout():
     model_s = 4 * agent_model_client.STATUS_TIMEOUT_SECONDS \
         + agent_model_client.GENERATION_TIMEOUT_SECONDS
     worst_s = p15_preopen.store_wait_s(start) + model_s
+    assert p15_preopen.store_wait_s(start) >= 300  # capture plus load margin already fits
     window_s = (datetime.combine(date.min, p15_preopen.DEADLINE)
                 - datetime.combine(date.min, p15_preopen.START)).total_seconds()
     assert model_s < p15_preopen.STORE_WAIT_RESERVE_S

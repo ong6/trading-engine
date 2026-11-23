@@ -6,6 +6,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -16,7 +17,8 @@ import subprocess
 import sys
 import tempfile
 import time
-from contextlib import contextmanager
+from collections.abc import Callable
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from datetime import time as clock_time
@@ -47,6 +49,7 @@ COLD_TABLES = COLD_TABLE_LAYOUTS
 _PUBLICATION_LOCK_HELD: ContextVar[bool] = ContextVar(
     "generation_publication_lock_held", default=False,
 )
+_LOG = logging.getLogger(__name__)
 
 
 # Every DuckDB connection publication opens is capped and spills to the snapshot directory;
@@ -61,6 +64,8 @@ SPILL_DIRECTORY = ".spill"
 # 09:30-16:00) and only while the newest generation (from any publisher) is at least this
 # old: once every three hours on the half-hour timer. Weekends carry only job publications.
 PUBLISH_ON_CHANGE_MIN_INTERVAL = timedelta(minutes=175)
+PUBLISH_ON_CHANGE_FAILURE_BACKOFF = timedelta(hours=1)
+PUBLISH_ON_CHANGE_ATTEMPT_FILE = ".publish-on-change-attempt.json"
 MARKET_HOURS_ET = (clock_time(9, 30), clock_time(16, 0))
 _NEW_YORK = ZoneInfo("America/New_York")
 # Each generation's per-table storage signatures, beside the generations (retention only
@@ -720,7 +725,14 @@ def _build_hot_database(
 def _verify_semantic_equality(
     capture: Path, hot: Path, row_counts: dict[str, int], cold_tables: set[str],
 ) -> dict[str, float | int]:
+    """Verify every hot and cold relation, including duplicate and NULL multiplicities.
+
+    The manifest's legacy cold_verification_seconds times ALL tables; its
+    cold_verification_rows counts only cold rows. Keep those schema-v2 keys compatible
+    with existing readers; the row counter is not the number of rows this check visits.
+    """
     started = time.monotonic()
+    verified_rows = 0
     connection = _bounded(duckdb.connect(), hot.parent)
     try:
         connection.execute(
@@ -733,23 +745,28 @@ def _verify_semantic_equality(
             schema, table = qualified_name.split(".", 1)
             original = _qualified(schema, table, database="original")
             generation = _qualified(schema, table, database="generation")
+            source_count = connection.execute(f"SELECT COUNT(*) FROM {original}").fetchone()[0]
+            generation_count = connection.execute(
+                f"SELECT COUNT(*) FROM {generation}"
+            ).fetchone()[0]
+            if source_count != generation_count:
+                raise SnapshotError(f"generation differs from source table: {qualified_name}")
+            # Equal cardinality plus multiset containment proves equality in both directions.
             missing = connection.execute(
                 f"SELECT COUNT(*) FROM ((SELECT * FROM {original}) EXCEPT ALL "
                 f"(SELECT * FROM {generation}))"
             ).fetchone()[0]
-            extra = connection.execute(
-                f"SELECT COUNT(*) FROM ((SELECT * FROM {generation}) EXCEPT ALL "
-                f"(SELECT * FROM {original}))"
-            ).fetchone()[0]
-            if missing or extra:
+            if missing:
                 raise SnapshotError(f"generation differs from source table: {qualified_name}")
+            if qualified_name in cold_tables:
+                verified_rows += source_count
     except duckdb.Error as exc:
         raise SnapshotError(f"generation equality verification failed: {exc}") from exc
     finally:
         connection.close()
     return {
         "seconds": time.monotonic() - started,
-        "rows": sum(row_counts[name] for name in cold_tables),
+        "rows": verified_rows,
     }
 
 
@@ -926,38 +943,115 @@ def publish_snapshot(
     held_locks: frozenset[str] = frozenset(),
     min_age_minutes: float | None = None,
     if_changed: bool = False,
+    release_lock_fd: int | None = None,
 ) -> dict:
     """Publish a verified hot/cold generation; retain latest plus one verified generation.
 
     ``if_changed`` is the publish-on-change timer's mode: it skips successfully when the
     newest generation was captured from the primary's current bytes, and never waits for
     a running publication or producer (it skips instead), so it cannot delay one.
+
+    A producer may pass its held lock's descriptor as ``release_lock_fd``. Keep that
+    shared open description locked through capture, unlock it before build, and unlock
+    on every early exit. The descriptor itself remains caller-owned.
     """
-    repo_root = repo_root.resolve()
-    source = source.resolve(strict=True)
-    directory = snapshot_directory(source)
-    _mkdir_durable(source.parent, directory)
-    if if_changed:
-        unchanged = _unchanged_generation(source, now or datetime.now(timezone.utc))
-        if unchanged is not None:
-            return unchanged
+    released = False
+
+    def release_capture_lock() -> None:
+        nonlocal released
+        if release_lock_fd is not None and not released:
+            # Unlock the shared open-file description, including the parent and tee aliases.
+            fcntl.flock(release_lock_fd, fcntl.LOCK_UN)
+            released = True
+
     try:
-        with _publication_window(directory, blocking=not if_changed):
-            return _publish_locked(
-                repo_root, source, directory, now=now, held_locks=held_locks,
-                min_age_minutes=min_age_minutes,
-                capture_wait_s=0.0 if if_changed else CAPTURE_LOCK_WAIT_S,
-            )
-    except PublicationBusy as exc:
-        if not if_changed:
-            raise
-        return {"status": "skipped", "reason": str(exc)}
-    except SnapshotError as exc:
-        # A cooperating producer holds its lock, or a writer (an API POST, a unit without
-        # the legacy locks) has the primary open: try again at the next timer slot.
-        if if_changed and ("active process holds" in str(exc) or engine_db.is_lock_error(exc)):
-            return {"status": "skipped", "reason": f"producer active: {exc}"}
+        repo_root = repo_root.resolve()
+        source = source.resolve(strict=True)
+        directory = snapshot_directory(source)
+        _mkdir_durable(source.parent, directory)
+        try:
+            with _publication_window(directory, blocking=not if_changed):
+                if if_changed:
+                    at = now or datetime.now(timezone.utc)
+                    skipped = _change_failure_backoff(directory, at) or _unchanged_generation(source, at)
+                    if skipped is not None:
+                        return skipped
+                attempt = _change_attempt(directory, now) if if_changed else nullcontext()
+                with attempt:
+                    return _publish_locked(
+                        repo_root, source, directory, now=now, held_locks=held_locks,
+                        min_age_minutes=min_age_minutes,
+                        capture_wait_s=0.0 if if_changed else CAPTURE_LOCK_WAIT_S,
+                        release_capture_lock=release_capture_lock,
+                    )
+        except PublicationBusy as exc:
+            if not if_changed:
+                raise
+            return {"status": "skipped", "reason": str(exc)}
+    finally:
+        release_capture_lock()  # also covers missing source, busy publication and early skips
+
+
+def _write_change_attempt(directory: Path, started_at: str, failed_at: str | None) -> None:
+    _write_manifest(directory / PUBLISH_ON_CHANGE_ATTEMPT_FILE,
+                    {"started_at": started_at, "failed_at": failed_at})
+    _sync_directory(directory)
+
+
+def _clear_change_attempt(directory: Path) -> None:
+    (directory / PUBLISH_ON_CHANGE_ATTEMPT_FILE).unlink(missing_ok=True)
+    _sync_directory(directory)
+
+
+def _change_failure_backoff(directory: Path, at: datetime) -> dict | None:
+    try:
+        raw = backup_database._read_source_file(
+            directory, PUBLISH_ON_CHANGE_ATTEMPT_FILE, "publication attempt",
+        )
+    except backup_database.SourceFileMissing:
+        return None
+    except backup_database.BackupError as exc:
+        _LOG.warning("Discarding invalid publication attempt state: %s", exc)
+        _clear_change_attempt(directory)
+        return None
+    try:
+        state = json.loads(raw)
+        started = datetime.fromisoformat(state["started_at"])
+        failed = None if state["failed_at"] is None else datetime.fromisoformat(state["failed_at"])
+        if started.utcoffset() != timedelta(0) or (
+            failed is not None and failed.utcoffset() != timedelta(0)
+        ):
+            raise ValueError("attempt timestamps must be UTC")
+    except (ValueError, TypeError, KeyError) as exc:
+        _LOG.warning("Discarding invalid publication attempt state: %s", exc)
+        _clear_change_attempt(directory)
+        return None
+    if failed is None:
+        # The publication mutex is ours: an unfinished marker belongs to a killed run.
+        # Start the hour at detection, which is after the unknown termination time.
+        failed = at
+        _write_change_attempt(directory, started.isoformat(), failed.isoformat())
+    retry_at = failed + PUBLISH_ON_CHANGE_FAILURE_BACKOFF
+    if at < retry_at:
+        return {"status": "skipped", "reason": f"publication failure backoff until {retry_at.isoformat()}"}
+    _clear_change_attempt(directory)
+    return None
+
+
+@contextmanager
+def _change_attempt(directory: Path, now: datetime | None):
+    started = (now or datetime.now(timezone.utc)).isoformat()
+    _write_change_attempt(directory, started, None)
+    try:
+        yield
+    except BaseException as exc:
+        if isinstance(exc, PublicationBusy):
+            _clear_change_attempt(directory)  # normal producer contention never copied data
+        else:
+            _write_change_attempt(directory, started, (now or datetime.now(timezone.utc)).isoformat())
         raise
+    else:
+        _clear_change_attempt(directory)
 
 
 def _unchanged_generation(source: Path, now: datetime) -> dict | None:
@@ -1092,6 +1186,7 @@ def _publish_locked(
     held_locks: frozenset[str],
     min_age_minutes: float | None,
     capture_wait_s: float = CAPTURE_LOCK_WAIT_S,
+    release_capture_lock: Callable[[], None] | None = None,
 ) -> dict:
     _sweep_stale_publication_files(directory)
     checked_at = datetime.now(timezone.utc)
@@ -1135,7 +1230,7 @@ def _publish_locked(
     destination = _unique_destination(directory, now or datetime.now(timezone.utc))
     temporary = directory / f".{destination.name}.{secrets.token_hex(8)}.tmp"
     manifest_path = destination.with_suffix(".json")
-    published = pointer_advanced = False
+    published = pointer_advanced = captured = False
     capture = directory / f".capture-{destination.stem}.{secrets.token_hex(8)}.duckdb"
     try:
         lock_started = time.monotonic()
@@ -1171,6 +1266,9 @@ def _publish_locked(
                 as_of = datetime.now(timezone.utc)
             finally:
                 source_connection.close()
+        if release_capture_lock is not None:
+            release_capture_lock()
+        captured = True
         writer_lock_seconds = time.monotonic() - lock_started
         capture_connection = _bounded(
             duckdb.connect(str(capture), read_only=True), directory,
@@ -1277,6 +1375,8 @@ def _publish_locked(
     ) as exc:
         if pointer_advanced:
             _restore_latest(directory, previous_target)
+        if not captured and ("active process holds" in str(exc) or engine_db.is_lock_error(exc)):
+            raise PublicationBusy(f"producer active: {exc}") from exc
         raise SnapshotError(str(exc)) from exc
     finally:
         if previous_pin is not None:
@@ -1321,29 +1421,35 @@ def main(argv: list[str] | None = None) -> int:
         choices=backup_database.LOCK_FILES,
         help="producer lock already inherited by this process",
     )
+    parser.add_argument("--release-lock-fd", type=int, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    signal.signal(signal.SIGTERM, _terminate)
-    repo_root = args.repo_root.resolve()
-    source = args.source if args.source.is_absolute() else repo_root / args.source
-    if args.retention_dry_run:
-        print(json.dumps(retention_listing(source), sort_keys=True))
-        return 0
     try:
-        result = publish_snapshot(
-            repo_root,
-            source,
-            held_locks=frozenset(args.held_lock),
-            min_age_minutes=args.min_age_minutes,
-            if_changed=args.if_changed,
-        )
-    except SnapshotError as exc:
-        print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))
-        return 1
-    if result.get("status") == "skipped":
-        print(json.dumps(result, sort_keys=True))
-    else:
-        print(json.dumps({"status": "published", **result}, sort_keys=True))
-    return 0
+        signal.signal(signal.SIGTERM, _terminate)
+        repo_root = args.repo_root.resolve()
+        source = args.source if args.source.is_absolute() else repo_root / args.source
+        if args.retention_dry_run:
+            print(json.dumps(retention_listing(source), sort_keys=True))
+            return 0
+        try:
+            result = publish_snapshot(
+                repo_root,
+                source,
+                held_locks=frozenset(args.held_lock),
+                min_age_minutes=args.min_age_minutes,
+                if_changed=args.if_changed,
+                release_lock_fd=args.release_lock_fd,
+            )
+        except SnapshotError as exc:
+            print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))
+            return 1
+        if result.get("status") == "skipped":
+            print(json.dumps(result, sort_keys=True))
+        else:
+            print(json.dumps({"status": "published", **result}, sort_keys=True))
+        return 0
+    finally:
+        if args.release_lock_fd is not None:
+            fcntl.flock(args.release_lock_fd, fcntl.LOCK_UN)
 
 
 if __name__ == "__main__":

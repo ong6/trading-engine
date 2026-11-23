@@ -291,6 +291,20 @@ def _directive(unit: str, name: str) -> str | None:
     return values[-1] if values else None
 
 
+def test_publish_on_change_timeout_covers_full_stage_with_margin():
+    service = _unit("server/trading-engine-publish-on-change.service")
+    timer = _unit("server/trading-engine-publish-on-change.timer")
+    assert _directive(service, "TimeoutStartSec") == "45min"
+    assert _directive(service, "Type") == "oneshot"
+    assert _directive(service, "Restart") is None
+    assert _directive(timer, "Unit") == "trading-engine-publish-on-change.service"
+    assert _directive(timer, "OnCalendar") == "*-*-* *:12,42:00 UTC"
+    manifest = json.loads(_unit("server/schedule-contract.json"))
+    entry = next(row for row in manifest["units"]
+                 if row["unit"] == "trading-engine-publish-on-change.service")
+    assert entry["max_runtime"] == "45min"
+
+
 def test_timer_driven_exec_units_bound_their_runtime():
     # systemd 241 applies TimeoutStartSec to Type=exec only until execve succeeds, so
     # without RuntimeMaxSec a run blocked on an engine lock would never be stopped.

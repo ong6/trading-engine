@@ -7,6 +7,7 @@ import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from time import monotonic
 from typing import Callable
 
 import duckdb
@@ -30,14 +31,18 @@ from .file_utils import read_bytes
 REGISTRATION = REPO_ROOT / "server" / "agent-cadence-registration.json"
 MAX_QUOTES = 5
 LOCK_PATH = REPO_ROOT / ".hourly-opportunity.lock"
+# Capture takes roughly two minutes, longer under load. Both P9 cadences use this lease.
+STORE_WAIT_S = 300.0
+STORE_DEADLINE_S = 580.0  # inside the ten-minute unit, with twenty seconds to unwind
 
 
 class _DatabaseLease:
     """Writer owned by _observe, released while news/model generation is in flight."""
 
-    def __init__(self, database: Path):
+    def __init__(self, database: Path, *, deadline: float | None = None):
         self.database = database
-        self.connection = db.connect(database, wait_s=60)
+        self.deadline = monotonic() + STORE_DEADLINE_S if deadline is None else deadline
+        self.connection = db.connect(database, wait_s=STORE_WAIT_S, deadline=self.deadline)
 
     def __getattr__(self, name):
         if self.connection is None:
@@ -52,7 +57,7 @@ class _DatabaseLease:
     def reacquire(self) -> None:
         if self.connection is not None:
             raise RuntimeError("observer database lease is already acquired")
-        self.connection = db.connect(self.database, wait_s=60)
+        self.connection = db.connect(self.database, wait_s=STORE_WAIT_S, deadline=self.deadline)
 
 
 def _tradingview_symbol(ticker: str, exchange: str | None) -> str:
@@ -76,7 +81,9 @@ def _capture_quotes(
 ) -> tuple[list[dict], list[dict]]:
     """Retain exact responses before admitting bounded quotes to a prompt."""
     quotes, failures = [], []
-    write_con = connection or db.connect(database, wait_s=60)
+    write_con = connection or db.connect(
+        database, wait_s=STORE_WAIT_S, deadline=monotonic() + STORE_DEADLINE_S,
+    )
     try:
         for ticker, provider_ticker in tickers[:MAX_QUOTES]:
             try:
@@ -382,8 +389,9 @@ def _observe(
     fetch_news=daily_opportunity_news._fetch,
     fetch_quote=intraday_source._fetch, capture_cross_checks=_capture_cross_checks,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    store_deadline: float | None = None,
 ) -> dict:
-    connection = _DatabaseLease(database)
+    connection = _DatabaseLease(database, deadline=store_deadline)
     try:
         return _observe_connected(
             variant_id,
@@ -407,10 +415,12 @@ def observe(
     fetch_quote=intraday_source._fetch, capture_cross_checks=_capture_cross_checks,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
-    with advisory_file_lock(LOCK_PATH):
+    deadline = monotonic() + STORE_DEADLINE_S
+    with advisory_file_lock(LOCK_PATH, deadline=deadline):
         return _observe(variant_id, database=database, now=now, generate=generate,
                         fetch_news=fetch_news, fetch_quote=fetch_quote,
-                        capture_cross_checks=capture_cross_checks, clock=clock)
+                        capture_cross_checks=capture_cross_checks, clock=clock,
+                        store_deadline=deadline)
 
 
 def main() -> int:
