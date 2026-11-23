@@ -120,19 +120,6 @@ DRILL_CASES = (
         ),
     },
     {
-        "id": "paper_attribution_schema_migration_rollback",
-        "runner": "pytest",
-        "target": (
-            "tests/test_migrate_agent_paper_attribution.py::"
-            "test_post_migration_scope_failure_rolls_back"
-        ),
-        "mode": "shared_attribution",
-        "property": (
-            "backup-gated attribution schema installation rolls back when its "
-            "post-DDL scope proof fails"
-        ),
-    },
-    {
         "id": "inactive_paper_book_initialization_rollback",
         "runner": "pytest",
         "target": (
@@ -303,32 +290,6 @@ DRILL_CASES = (
         ),
     },
     {
-        "id": "release_review_schema_migration_rollback",
-        "runner": "pytest",
-        "target": (
-            "tests/test_migrate_agent_release_review.py::"
-            "test_post_migration_scope_failure_rolls_back"
-        ),
-        "mode": "shared_authority",
-        "property": (
-            "backup-gated release-review schema installation rolls back when "
-            "its post-DDL scope proof fails"
-        ),
-    },
-    {
-        "id": "human_approval_schema_migration_rollback",
-        "runner": "pytest",
-        "target": (
-            "tests/test_migrate_agent_human_approval.py::"
-            "test_post_migration_scope_failure_rolls_back"
-        ),
-        "mode": "shared_authority",
-        "property": (
-            "backup-gated human-approval schema installation rolls back when "
-            "its post-DDL scope proof fails"
-        ),
-    },
-    {
         "id": "paper_authority_store_schema_migration_rollback",
         "runner": "pytest",
         "target": (
@@ -423,9 +384,7 @@ SOURCE_FILES = tuple(
             "tests/test_agent_paper_evidence.py",
             "tests/test_agent_release_readiness.py",
             "tests/test_agent_release_review_store.py",
-            "tests/test_migrate_agent_human_approval.py",
             "tests/test_migrate_agent_paper_authority_store.py",
-            "tests/test_migrate_agent_release_review.py",
             "tests/test_agent_authority_read_models.py",
             "tests/test_agent_shadow_runner.py",
             "tests/test_broker_human_paper_approval.py",
@@ -445,15 +404,11 @@ SOURCE_FILES = tuple(
             "tests/test_broker_risk_snapshot.py",
             "tests/test_broker_startup_readiness.py",
             "tests/test_initialize_agent_paper_book.py",
-            "tests/test_migrate_agent_paper_attribution.py",
             "tests/test_review_agent_paper_intent.py",
             "tools/backup_database.py",
             "tools/adjudicate_agent_data_discrepancy.py",
             "tools/initialize_agent_paper_book.py",
-            "tools/migrate_agent_human_approval.py",
-            "tools/migrate_agent_paper_attribution.py",
             "tools/migrate_agent_paper_authority_store.py",
-            "tools/migrate_agent_release_review.py",
             "tools/review_agent_paper_intent.py",
             "tools/review_agent_data_discrepancy.py",
         }

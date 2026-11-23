@@ -288,8 +288,8 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 26
-    assert registration["revision_reason"] == "Revision 26 after deployed revision 25: the nightly takes only data-only commits from its upstream and otherwise runs on the current code, so pinned code reaches the host only through the deployer, the deploy gate and any migration. E1 v8, sector v12 and XS v23 are unchanged. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 to revision-25 collection, storage and recovery behavior remain in force."
+    assert registration["registration_revision"] == 27
+    assert registration["revision_reason"] == "Revision 27 after deployed revision 26: Code cleanup removes three superseded agent schema migrations from the release manifest's audit file list; no registered value changes. E1 v8, sector v12 and XS v23 are unchanged. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 to revision-26 collection, storage and recovery behavior remain in force."
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
     assert recorded == canonical_sha256(registration)

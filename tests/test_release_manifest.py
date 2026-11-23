@@ -152,10 +152,7 @@ def test_clean_manifest_is_deterministic_and_release_eligible(tmp_path):
     assert first["independent_risk_sources"]["sha256"] is not None
     assert set(first["audit_sources"]["files"]) == {
         "tools/initialize_agent_paper_book.py",
-        "tools/migrate_agent_human_approval.py",
-        "tools/migrate_agent_paper_attribution.py",
         "tools/migrate_agent_paper_authority_store.py",
-        "tools/migrate_agent_release_review.py",
         "tools/market_data_source.py",
         "tools/release_manifest.py",
         "tools/worktree_audit.py",
