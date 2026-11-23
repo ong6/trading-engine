@@ -1139,7 +1139,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.31" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.51" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.53.0" },
     { name = "websockets", specifier = ">=17.1" },
     { name = "xlrd", specifier = ">=2.0" },
     { name = "yfinance", specifier = ">=1.5" },
