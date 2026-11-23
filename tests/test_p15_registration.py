@@ -288,8 +288,8 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 24
-    assert registration["revision_reason"] == "Revision 24 after deployed revision 23: the league step no longer treats P15 window marks for a session as that session being stepped, outside a rerun, and the P15 window waits until every active league book has stepped the session, so a missed or stalled nightly can no longer leave the books on divergent checkpoints. Sector v12 and XS v23 keep their contract versions and migrate only the literal deployed revision-23 digests; E1 v8 is unchanged. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 to revision-23 collection, storage and recovery behavior remain in force."
+    assert registration["registration_revision"] == 25
+    assert registration["revision_reason"] == "Revision 25 after deployed revision 24: the nightly holds the producer lock only while it captures the store snapshot, a separate running guard keeps overlapping drivers, the watchdog and the digest aware of the snapshot tail, publication waits on its own lock for at most 50 minutes, snapshot verification checks multiset equality with exact counts and one containment pass, and the hourly observers wait up to 300 seconds for a capture. E1 v8, sector v12 and XS v23 are unchanged. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 to revision-24 collection, storage and recovery behavior remain in force."
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
     assert recorded == canonical_sha256(registration)

@@ -73,7 +73,7 @@
       "engine/lib/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "engine/lib/data_quality.py": "8025ff4323d1e6698bbb4be9858d2b33289b1981f05cf311ccc10a1e4c0c1299",
       "engine/lib/db.py": "6c836322a5d5b2cb96db8cd76cfa1a85aeb18d28bd7586a41aa0104487ca6542",
-      "engine/lib/driver.sh": "3aa594fc39982ce5b085848d0d459cbf2a1d092a10518574df4eec209e08b4e2",
+      "engine/lib/driver.sh": "3455a6d3409eb2aa57a9f6a20df5cf68a6d6b65f5bd848b28642ca7026db3ab6",
       "engine/lib/leverage.py": "12295fc760792e5026dc7dbd6b2f3ccd8610a4e4038f5b9699764e14fe3fea68",
       "engine/lib/log.py": "02fd05ba4da797ec62bb467a6bcce93e07929029cdfde21db302fece2ce79bd3",
       "engine/lib/provenance.py": "971bc3f8517c5b626bde31b51a18faacfa2860b3345b46239a49a0e12de881f8",
@@ -95,7 +95,7 @@
       "engine/price_quarantine.py": "546fefcf618e0b7d66b8b6316f0666fd813e4ec2e4659a132ef5cc6b00d1033c",
       "engine/queue_runner.py": "9f76ab42ee5d7a17fb738d80257fc58515d425401c55aef8ecef82483c60ab29",
       "engine/repair_integrity.py": "f3d2ae86bb60c2671fadb2732eba264ee056a13d905ba4f37359764abd07676a",
-      "engine/run_daily.sh": "33d758b9e41ad4e923665bdd33375fdd0b92ada8fc5c156b4fb153a93cee3f9e",
+      "engine/run_daily.sh": "c0acf6f08c708adebe80769ef0c254a62a42aa37f386a2d10892ff23976755f8",
       "engine/screen.py": "10ad75b95fd8d9f6280365b648105d2eaf5ff26fe6e13966423d0133a43787b3",
       "engine/sec_acceptance.py": "39beda3cfbdd6c281a34044dd188418ee7a56a80d1ca8adbd7a7ad3bfbf72279",
       "engine/signals.py": "fbfa3fb9fc570d170b0ddc48ace41e3891b587c3778e772ea8291d6674d89e81",
@@ -137,10 +137,10 @@
       "server/daily_opportunity_runner.py": "5b3897b6c04ec8bb1e876896eaf0bc120a190265ae443f91f3c97e34d6b06dd2",
       "server/daily_opportunity_store.py": "5d0198d8d0fe120933b50b0d210abf1cee6a7b39a7d898ff7beebc8094690dca",
       "server/daily_opportunity_tools.py": "39079a13376324c4f228efd3fc6438ec42a82a488c677fd6b50d319e73f2e7ef",
-      "server/driver_log.py": "5fc397573b907da2fe0ade7cdb64c01f0119c3ee4610d9ae5c68c8407e9693e5",
+      "server/driver_log.py": "21501a393b8057802fbb6ae053757abda2263da3eebb005dfd4843e7e847b169",
       "server/driver_monitor.py": "79d8577855156344d34745ad89e6fd0035a1e008556a93825bdc33a07db60873",
       "server/file_utils.py": "79d3fccabe4fadc0467c82bfc5c442f7eb74aee77ef199c15979634b451cbedf",
-      "server/hourly_opportunity_observer.py": "59da9372648083885ca7dd7eac43550f8efea8da8f54c96b803daacd6eaf66d8",
+      "server/hourly_opportunity_observer.py": "3492a73609a77e629b009cb28fea00c7ddfd505e3d572f4ecc657e478e5d299f",
       "server/intraday_source.py": "83a85c249f51cfd7b0cfc3120376d2c14be628cf51806f79719c184307aeb9a2",
       "server/json_utils.py": "e08ff1e169c9f2b183f27b43c27a762fa046a1283e0c75c56055db81e80539fc",
       "server/market_data_sources.py": "cf006d701e6025c0c4b2eb926982cb54833f84ce4caaacb2068ac581503aa062",
@@ -222,12 +222,12 @@
       "tools/invariants/registry.py": "0e218afaf0f942fcda6d988246b0cae98fdce2459f75a114474f144897a36ab3",
       "tools/invariants/results.py": "f807b584d3a654b22cd62b6708c92f6abc5ab8ecb10b4bfca47fae2e7abe90e4",
       "tools/p15_evidence_validation.py": "731b0e9ea8d47141686e885c71c3812074709c9fbde255922e6bbda05b3ccf52",
-      "tools/publish_snapshot.py": "4c9ee5aa5030c59859893aa989b36bb9888a21f1b6ca13004f23d649a0bbc0d9",
+      "tools/publish_snapshot.py": "1299a9aca135d097895c42a55d87252a2960709ed21dd2be976252396c77ae93",
       "tools/release_manifest.py": "03e7517aac05b0800629307fe46f874ea5478adc47e87be933aa3b991fb7c0ea",
       "tools/sec_edgar_capture.py": "8e7a705262f44532d2c812ed22ccd66c9b35d9633c0f89288d1347fe2a52ea6d",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "a8976404853b973c364dfaa83bead9eb43257db6"
+    "source_commit": "11a697176c4aaea91e2572b4eec1415dd38ba506"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -409,9 +409,9 @@
   },
   "registered_at": "2026-10-03T02:52:40Z",
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registration_revision": 24,
-  "registration_sha256": "ba4f5570a936f55304244b106be6a8406d75aa58d12275404dc577671c9be3b1",
-  "revision_reason": "Revision 24 after deployed revision 23: the league step no longer treats P15 window marks for a session as that session being stepped, outside a rerun, and the P15 window waits until every active league book has stepped the session, so a missed or stalled nightly can no longer leave the books on divergent checkpoints. Sector v12 and XS v23 keep their contract versions and migrate only the literal deployed revision-23 digests; E1 v8 is unchanged. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 to revision-23 collection, storage and recovery behavior remain in force.",
+  "registration_revision": 25,
+  "registration_sha256": "e6bc767c4f05dd06607ae7360607329e710ce2a5b12c6b75b10061d38b337716",
+  "revision_reason": "Revision 25 after deployed revision 24: the nightly holds the producer lock only while it captures the store snapshot, a separate running guard keeps overlapping drivers, the watchdog and the digest aware of the snapshot tail, publication waits on its own lock for at most 50 minutes, snapshot verification checks multiset equality with exact counts and one containment pass, and the hourly observers wait up to 300 seconds for a capture. E1 v8, sector v12 and XS v23 are unchanged. No admission gate, label rule, fetch limit, frozen statistic, strategy, model, schedule or retained outcome is tuned. The deployed revision-20 model amendment and revision-21 to revision-24 collection, storage and recovery behavior remain in force.",
   "schema_version": 1,
   "scoring": {
     "actions": [
