@@ -52,6 +52,7 @@ from typing import Iterator
 import yaml
 
 from engine import job_contract
+from engine.lib import store_limits
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import REPO_ROOT
 from server.driver_log import _lock_held
@@ -68,7 +69,14 @@ RUNS_URL = (f"https://api.github.com/repos/{REPOSITORY}/actions/runs"
             "?branch=main&event=push&per_page=100")
 WORKFLOW = "ci"
 BLOCKED_WINDOWS = ((time(14, 5), time(14, 35)), (time(22, 30), time(3, 0)))
-MUTATION_LEAD = timedelta(minutes=20)  # the mutating half must end before a window opens
+MUTATION_LEAD = timedelta(minutes=15)  # the mutating half must end before a window or a start
+# Scheduled engine starts that must not land inside a mutation. The deployer itself, the
+# read-only digest and the ten-minute watchdog are excluded (the watchdog's catch-up takes the
+# nightly lock, which the producer-lock check sees).
+ENGINE_UNIT = re.compile(r"^(?:trading-engine-|massive-)")
+SCHEDULE_EXEMPT = frozenset({"trading-engine-auto-deploy", "trading-engine-ops-digest",
+                             "trading-engine-driver-watchdog", "massive-minute-capture"})
+HALTING = ("rolled-back", "needs-human:rollback")
 HUMAN_PATHS = ("uv.lock", "pyproject.toml", "engine/requirements.txt", "ui/package.json",
                "ui/package-lock.json",
                # The long-running minute capture is exempt from the producer check, so a
@@ -115,6 +123,52 @@ def in_blocked_window(moment: datetime) -> bool:
         if (start <= clock < end) if start < end else (clock >= start or clock < end):
             return True
     return False
+
+
+def _cron_field(spec: str, value: int, low: int, high: int) -> bool:
+    for part in spec.split(","):
+        step = 1
+        if "/" in part:
+            part, raw_step = part.split("/", 1)
+            step = int(raw_step)
+        if part == "*":
+            start, end = low, high
+        elif "-" in part:
+            start, end = (int(x) for x in part.split("-", 1))
+        else:
+            start = end = int(part)
+        if start <= value <= end and (value - start) % step == 0:
+            return True
+    return False
+
+
+def cron_fires(spec: str, moment: datetime) -> bool:
+    """Whether a five-field cron spec (no names) fires at ``moment`` (UTC host)."""
+    minute, hour, day, month, weekday = spec.split()
+    dow = (moment.weekday() + 1) % 7  # cron: Sunday is 0
+    return (_cron_field(minute, moment.minute, 0, 59) and _cron_field(hour, moment.hour, 0, 23)
+            and _cron_field(day, moment.day, 1, 31) and _cron_field(month, moment.month, 1, 12)
+            and (_cron_field(weekday, dow, 0, 7) or (dow == 0 and _cron_field(weekday, 7, 0, 7))))
+
+
+def scheduled_soon(crontab: str, timers: dict[str, datetime | None], moment: datetime,
+                   lead: timedelta) -> str | None:
+    """The first engine start (timer or engine cron line) due within ``lead`` of ``moment``."""
+    for unit, due in sorted(timers.items()):
+        if due is not None and moment <= due <= moment + lead:
+            return unit
+    minute = moment.replace(second=0, microsecond=0)
+    for line in crontab.splitlines():
+        fields = line.split(None, 5)
+        if len(fields) < 6 or line.lstrip().startswith("#") or "trading-engine" not in fields[5]:
+            continue
+        spec = " ".join(fields[:5])
+        probe = minute
+        while probe <= moment + lead:
+            if probe >= moment - timedelta(minutes=1) and cron_fires(spec, probe):
+                return f"cron:{fields[5].split('>>')[0].strip()[:80]}"
+            probe += timedelta(minutes=1)
+    return None
 
 
 def running_producers(listing: str, root: Path, *, own_pid: int) -> list[str]:
@@ -172,7 +226,8 @@ class Deployer:
         self.ops = release_deploy.ReleaseOperations(
             release_deploy.StateStore(state_dir), home=Path.home(),
             command_runner=release_deploy.CommandRunner(), api_url=self.api_url,
-            ui_url="http://127.0.0.1:3000", minimum_free_bytes=0)
+            ui_url="http://127.0.0.1:3000",
+            minimum_free_bytes=store_limits.reserve_bytes())
 
     # ---- host seams -------------------------------------------------------------------
     def now(self) -> datetime:
@@ -228,6 +283,59 @@ class Deployer:
             return "release-transaction"
         return None
 
+    def engine_schedule(self) -> tuple[dict[str, datetime | None], list[str], str]:
+        """Engine timers' next starts, engine units now activating, and the crontab."""
+        listed = self.run(["systemctl", "--user", "list-units", "--all", "--no-legend",
+                           "--plain", "--type=timer,service"], cwd=self.root, timeout=30)
+        if listed.returncode:
+            raise Stop("skipped", "schedule-unknown", error=listed.stderr.strip()[-200:])
+        timers, activating = [], []
+        for line in listed.stdout.splitlines():
+            fields = line.split()
+            if len(fields) < 4:
+                continue
+            name, _load, active = fields[0], fields[1], fields[2]
+            stem = name.rsplit(".", 1)[0]
+            if not ENGINE_UNIT.match(stem) or stem in SCHEDULE_EXEMPT:
+                continue
+            if name.endswith(".timer"):
+                timers.append(name)
+            elif active in {"activating", "reloading"} or fields[3] in {"start", "running"} \
+                    and active == "active" and not name.endswith(("api.service", "ui.service")):
+                activating.append(name)
+        due: dict[str, datetime | None] = {}
+        if timers:
+            shown = self.run(["systemctl", "--user", "show", "-p", "Id",
+                              "-p", "NextElapseUSecRealtime", *timers], cwd=self.root, timeout=30)
+            unit = None
+            for line in shown.stdout.splitlines():
+                key, _sep, value = line.partition("=")
+                if key == "Id":
+                    unit = value
+                elif key == "NextElapseUSecRealtime" and unit:
+                    try:
+                        due[unit] = datetime.strptime(value.strip(), "%a %Y-%m-%d %H:%M:%S %Z"
+                                                      ).replace(tzinfo=UTC)
+                    except ValueError:
+                        due[unit] = None
+        crontab = self.run(["crontab", "-l"], cwd=self.root, timeout=30).stdout
+        return due, activating, crontab
+
+    def disk_problem(self) -> str | None:
+        """Keep the store reserve: a rollback must still work on a full day."""
+        try:
+            store_limits.require_free_space(self.root / "store", purpose="a deploy")
+        except store_limits.DiskSpaceError as exc:
+            return str(exc)
+        return None
+
+    def load_state(self) -> dict:
+        try:
+            state = json.loads((self.state_dir / "state.json").read_text())
+        except (OSError, ValueError):
+            return {}
+        return state if isinstance(state, dict) else {}
+
     def _gate_now(self, *, lead: timedelta = timedelta(0)) -> None:
         moment = self.now()
         if in_blocked_window(moment) or in_blocked_window(moment + lead):
@@ -235,6 +343,16 @@ class Deployer:
         reason = self.busy()
         if reason:
             raise Stop("skipped", reason)
+        low = self.disk_problem()
+        if low:
+            raise Stop("skipped", "low-disk", error=low[:200])
+        if lead:
+            timers, activating, crontab = self.engine_schedule()
+            if activating:
+                raise Stop("skipped", "unit-active", units=activating)
+            soon = scheduled_soon(crontab, timers, moment, lead)
+            if soon:
+                raise Stop("skipped", "timer-soon", unit=soon)
 
     # ---- step 2: target -------------------------------------------------------------------
     def refresh_mirror(self) -> tuple[str, str]:
@@ -500,6 +618,10 @@ class Deployer:
                 if code:
                     raise release_deploy.DeployError(f"install_automation --apply: "
                                                      f"{summary.get('errors')}")
+                restarted = (summary.get("changes") or {}).get("restarted_services") or {}
+                if families and "trading-engine-api.service" not in restarted:
+                    # /meta compares against the API's imported contract constants.
+                    raise release_deploy.DeployError("migrated without an API restart")
                 checked = self.post_check(expected)
             except Exception as exc:  # noqa: BLE001 - any failure after the move rolls back
                 return self.roll_back(previous, moved, families, backup,
@@ -526,14 +648,48 @@ class Deployer:
         return Decision("rolled-back", detail={"error": error, "previous": previous})
 
     # ---- one run ------------------------------------------------------------------------------
+    def blocking_commit(self, deployed: str, target: str) -> tuple[str, list[str]] | None:
+        """The oldest first-parent commit in the range that needs a person, with its reasons."""
+        for commit in reversed(self.git(self.mirror, "rev-list", "--first-parent",
+                                        f"{deployed}..{target}").split()):
+            reasons = self.human_reasons(f"{commit}^", commit)
+            if reasons:
+                return commit, reasons
+        return None
+
     def decide(self, *, execute: bool) -> Decision:
+        state = self.load_state()
+        if state.get("halted"):
+            raise Stop("skipped", "halted", **state["halted"])
         self._gate_now()
         origin, live_head = self.refresh_mirror()
+        refused = state.get("refused") or {}
+        if refused.get("origin") == origin:
+            raise Stop("skipped", "refused-target", target=refused.get("target"),
+                       refused_for=refused.get("reason"))
+        try:
+            return self._decide(execute=execute, origin=origin, live_head=live_head)
+        except Stop as stop:
+            if stop.outcome == "needs-human":
+                stop.detail.setdefault("origin", origin)
+            raise
+
+    def _decide(self, *, execute: bool, origin: str, live_head: str) -> Decision:
         deployed = self.git(self.mirror, "merge-base", live_head, origin)
         target = self.pick_target(deployed, origin)
-        reasons = self.human_reasons(deployed, target)
-        if reasons:
-            raise Stop("needs-human", ",".join(reasons), target=target)
+        held_back = None
+        if self.human_reasons(deployed, target):
+            commit, reasons = self.blocking_commit(deployed, target)
+            limit = self.git(self.mirror, "rev-parse", f"{commit}^")
+            if limit == deployed or self.git(self.mirror, "merge-base", limit,
+                                             deployed) != deployed:
+                raise Stop("needs-human", ",".join(reasons), target=target, blocking=commit)
+            try:
+                target = self.pick_target(deployed, limit)
+            except Stop as stop:  # nothing green before the blocking commit
+                raise Stop("needs-human", ",".join(reasons), target=target,
+                           blocking=commit) from stop
+            held_back = {"commit": commit, "reasons": reasons}
         local = self.live_state(live_head, origin)
         families = self.migrations_needed(target)
         expected = {family.key: repin._literal(
@@ -548,6 +704,8 @@ class Deployer:
                 raise Stop("needs-human", "rehearsal", error=str(exc)[:300]) from exc
         detail = {"deployed": deployed, "target": target, "local_data_commits": len(local),
                   "migrations": families, **checks}
+        if held_back:
+            detail["held_back"] = held_back
         if not execute:
             return Decision("would-deploy", detail=detail)
         decision = self.deploy(target, local, families, expected)
@@ -584,6 +742,14 @@ class Deployer:
             state = json.loads(state_path.read_text())
         except (OSError, ValueError):
             state = {}
+        if decision.label.startswith(HALTING):
+            # Stop safely: no further deploys until a person runs --clear-halt.
+            state["halted"] = {"at": _iso(ended), "decision": decision.label,
+                               "receipt": str(path)}
+        elif decision.outcome == "needs-human" and decision.detail.get("origin"):
+            state["refused"] = {"origin": decision.detail["origin"],
+                                "target": decision.detail.get("target"),
+                                "reason": decision.label, "receipt": str(path)}
         if decision.outcome == "deployed":
             state["deployed_sha"] = decision.detail["target"]
         elif decision.detail.get("deployed") and decision.outcome != "rolled-back":
@@ -604,7 +770,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--logs-dir", type=Path, help="receipt root (default ENGINE_ROOT/logs)")
     parser.add_argument("--api-url", default=API_URL)
     parser.add_argument("--autopush-lock", type=Path, default=AUTOPUSH_LOCK)
+    parser.add_argument("--clear-halt", action="store_true",
+                        help="after a person has checked a rollback: allow deploys again")
     args = parser.parse_args(argv)
+    if args.clear_halt:
+        state_path = args.state_dir.expanduser() / "state.json"
+        try:
+            state = json.loads(state_path.read_text())
+        except (OSError, ValueError):
+            state = {}
+        cleared = state.pop("halted", None)
+        state.pop("refused", None)
+        write_text_atomic(state_path, json.dumps(state, indent=1, sort_keys=True) + "\n")
+        print(json.dumps({"cleared": cleared}, sort_keys=True))
+        return 0
     deployer = Deployer(engine_root=args.engine_root.expanduser(),
                         state_dir=args.state_dir.expanduser(), logs_dir=args.logs_dir,
                         api_url=args.api_url, autopush_lock=args.autopush_lock.expanduser())

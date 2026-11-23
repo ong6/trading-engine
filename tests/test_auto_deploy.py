@@ -57,6 +57,11 @@ class FakeDeployer(auto_deploy.Deployer):
         self.running: list[str] = []
         self.calls: list[str] = []
         self.post_ok = True
+        self.timers: dict = {}
+        self.activating: list[str] = []
+        self.crontab = ""
+        self.low_disk = None
+        self.api_restarts = True
 
     def now(self):
         return self.moment
@@ -66,6 +71,12 @@ class FakeDeployer(auto_deploy.Deployer):
 
     def producers(self):
         return self.running
+
+    def engine_schedule(self):
+        return self.timers, self.activating, self.crontab
+
+    def disk_problem(self):
+        return self.low_disk
 
     def ci_conclusions(self):
         return {sha: True for sha in self.green}
@@ -79,7 +90,8 @@ class FakeDeployer(auto_deploy.Deployer):
 
     def automation(self, mode):
         self.calls.append(mode)
-        return 0, {"status": "ok"}
+        restarted = {"trading-engine-api.service": {"status": "ok"}} if self.api_restarts else {}
+        return 0, {"status": "ok", "changes": {"restarted_services": restarted}}
 
     def post_check(self, expected):
         self.calls.append("post-check")
@@ -376,3 +388,100 @@ def test_running_producers_matches_both_root_spellings_and_exempts_minute_captur
     found = auto_deploy.running_producers(listing, link, own_pid=106)
     assert found == [f"/bin/bash {link}/engine/run_daily.sh",
                      f"{real}/.venv/bin/python -m engine.collect"]
+
+
+def test_execute_refuses_when_an_engine_start_is_due_or_a_unit_is_active(host):
+    from datetime import timedelta
+
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    deployer = _deployer(host, green={target})
+    before = _git(host["live"], "rev-parse", "HEAD")
+    deployer.timers = {"trading-engine-publish-on-change.timer": SAFE + timedelta(minutes=10)}
+    with pytest.raises(auto_deploy.Stop, match="skipped:timer-soon"):
+        deployer.decide(execute=True)
+    assert deployer.decide(execute=False).outcome == "would-deploy"  # deciding is harmless
+    deployer.timers = {"trading-engine-publish-on-change.timer": SAFE + timedelta(minutes=40)}
+    deployer.activating = ["trading-engine-p15-events.service"]
+    with pytest.raises(auto_deploy.Stop, match="skipped:unit-active"):
+        deployer.decide(execute=True)
+    assert _git(host["live"], "rev-parse", "HEAD") == before
+
+
+def test_scheduled_soon_reads_engine_cron_lines_only():
+    from datetime import timedelta
+
+    crontab = ("17 * * * * ~/news-scraper/ensure_scraper.sh >> log 2>&1\n"
+               "15 5 * * 6 cd ~/trading-engine && .venv/bin/python -m tools.verify_friday_postflight\n"
+               "0 2 * * 0 ~/trading-engine/engine/run_weekly_liquid.sh >> log 2>&1\n")
+    saturday = datetime(2026, 11, 28, 5, 5, tzinfo=UTC)
+    lead = timedelta(minutes=15)
+    assert auto_deploy.scheduled_soon(crontab, {}, saturday, lead).startswith("cron:cd ~/trading")
+    assert auto_deploy.scheduled_soon(crontab, {}, saturday.replace(hour=4), lead) is None
+    assert auto_deploy.scheduled_soon(crontab, {}, saturday.replace(minute=10, hour=6), lead) is None
+    sunday = datetime(2026, 11, 29, 1, 50, tzinfo=UTC)
+    assert "run_weekly_liquid" in auto_deploy.scheduled_soon(crontab, {}, sunday, lead)
+    assert auto_deploy.scheduled_soon("", {"x.timer": None}, sunday, lead) is None
+
+
+def test_a_refused_target_is_not_rechecked_until_main_moves(host):
+    target = _push(host, "risky", {"uv.lock": "x\n"})
+    deployer = _deployer(host, green={target})
+    with pytest.raises(auto_deploy.Stop) as refused:
+        deployer.decide(execute=False)
+    stop = refused.value
+    deployer.record(auto_deploy.Decision(stop.outcome, stop.reason, stop.detail), SAFE, SAFE)
+    with pytest.raises(auto_deploy.Stop, match="skipped:refused-target"):
+        _deployer(host, green={target}).decide(execute=False)
+    later = _push(host, "fix", {"engine/x.py": "x = 2\n"})
+    with pytest.raises(auto_deploy.Stop, match="needs-human:dependencies"):
+        _deployer(host, green={target, later}).decide(execute=False)
+
+
+def test_a_dependency_bump_holds_back_only_itself(host):
+    code = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    bump = _push(host, "bump", {"uv.lock": "x\n"})
+    deployer = _deployer(host, green={code, bump})
+    decision = deployer.decide(execute=True)
+    assert decision.outcome == "deployed", decision
+    assert _git(host["live"], "rev-parse", "HEAD") == code
+    assert decision.detail["held_back"] == {"commit": bump, "reasons": ["dependencies"]}
+    with pytest.raises(auto_deploy.Stop, match="needs-human:dependencies"):
+        _deployer(host, green={code, bump}).decide(execute=False)
+
+
+def test_a_rollback_halts_the_deployer_until_cleared(host, capsys):
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    deployer = _deployer(host, green={target})
+    deployer.post_ok = False
+    deployer.ops._wait_health = lambda: ({"ok": True}, {})
+    decision = deployer.decide(execute=True)
+    assert decision.label == "rolled-back"
+    deployer.record(decision, SAFE, SAFE)
+    with pytest.raises(auto_deploy.Stop, match="skipped:halted"):
+        _deployer(host, green={target}).decide(execute=True)
+    assert auto_deploy.main(["--clear-halt", "--state-dir", str(host["tmp"] / "state")]) == 0
+    assert "rolled-back" in capsys.readouterr().out
+    assert _deployer(host, green={target}).decide(execute=False).outcome == "would-deploy"
+
+
+def test_low_disk_skips_before_any_work(host):
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    deployer = _deployer(host, green={target})
+    deployer.low_disk = "refusing a deploy: 60.0 GiB free"
+    with pytest.raises(auto_deploy.Stop, match="skipped:low-disk"):
+        deployer.decide(execute=False)
+
+
+def test_a_migration_without_an_api_restart_rolls_back(host, monkeypatch):
+    target = _push(host, "closure", {"engine/xs_forward_review.py": _module(digest="e" * 64)})
+    deployer = _deployer(host, green={target})
+    deployer.api_restarts = False
+    deployer.ops._wait_health = lambda: ({"ok": True}, {})
+    monkeypatch.setattr(repin, "rehearse", lambda *args: {"status": "ok"})
+    real_run = deployer.run
+    deployer.run = lambda argv, **kw: (subprocess.CompletedProcess(argv, 0, "", "")
+                                       if "--migrate-runtime-contract" in argv
+                                       else real_run(argv, **kw))
+    decision = deployer.decide(execute=True)
+    assert decision.label == "rolled-back"
+    assert "without an API restart" in decision.detail["error"]
