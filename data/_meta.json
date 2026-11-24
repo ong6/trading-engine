@@ -54,8 +54,8 @@
     "store_gb": 58.1
   },
   "price_verify": {
-    "last_run": "2026-11-20T22:49:14.427949+00:00",
-    "as_of": "2026-11-20",
+    "last_run": "2026-11-23T22:50:54.514652+00:00",
+    "as_of": "2026-11-23",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -69,12 +69,13 @@
       "close"
     ],
     "names_selected": 174,
-    "names_checked": 173,
-    "names_agreeing": 173,
-    "names_disagreeing": 0,
-    "names_not_checked": 1,
+    "names_checked": 172,
+    "names_agreeing": 171,
+    "names_disagreeing": 1,
+    "names_not_checked": 2,
     "not_checked_reasons": {
-      "symbol_not_found": 1
+      "symbol_not_found": 1,
+      "fetch_failed": 1
     },
     "not_checked_names": [
       {
@@ -82,86 +83,199 @@
         "why": "held",
         "reason": "symbol_not_found",
         "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "LEN.B",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "source symbol identity differs: None"
       }
     ],
-    "bars_compared": 693,
-    "field_comparisons": 2772,
+    "bars_compared": 689,
+    "field_comparisons": 2756,
     "worst": {
-      "ticker": "SLS",
-      "date": "2026-11-16",
-      "field": "low",
-      "store": 7.24,
-      "source": 7.235,
-      "diff_bp": 6.91
+      "ticker": "SNDK",
+      "date": "2026-11-18",
+      "field": "high",
+      "store": 813.183228,
+      "source": 101.6479,
+      "diff_bp": 8750.0
     },
-    "worst_is_disagreement": false,
-    "disagreements": [],
+    "worst_is_disagreement": true,
+    "disagreements": [
+      {
+        "ticker": "SNDK",
+        "date": "2026-11-12",
+        "field": "open",
+        "store": 887.39502,
+        "source": 110.9244,
+        "diff_bp": 8750.0
+      },
+      {
+        "ticker": "SNDK",
+        "date": "2026-11-12",
+        "field": "high",
+        "store": 953.200012,
+        "source": 119.15,
+        "diff_bp": 8750.0
+      },
+      {
+        "ticker": "SNDK",
+        "date": "2026-11-12",
+        "field": "low",
+        "store": 869.460022,
+        "source": 108.6825,
+        "diff_bp": 8750.0
+      },
+      {
+        "ticker": "SNDK",
+        "date": "2026-11-12",
+        "field": "close",
+        "store": 937.460022,
+        "source": 117.1825,
+        "diff_bp": 8750.0
+      },
+      {
+        "ticker": "SNDK",
+        "date": "2026-11-17",
+        "field": "open",
+        "store": 809.825012,
+        "source": 101.2281,
+        "diff_bp": 8750.0
+      },
+      {
+        "ticker": "SNDK",
+        "date": "2026-11-17",
+        "field": "high",
+        "store": 821.460022,
+        "source": 102.6825,
+        "diff_bp": 8750.0
+      },
+      {
+        "ticker": "SNDK",
+        "date": "2026-11-17",
+        "field": "low",
+        "store": 749.390015,
+        "source": 93.6737,
+        "diff_bp": 8750.0
+      },
+      {
+        "ticker": "SNDK",
+        "date": "2026-11-17",
+        "field": "close",
+        "store": 797.23999,
+        "source": 99.655,
+        "diff_bp": 8750.0
+      },
+      {
+        "ticker": "SNDK",
+        "date": "2026-11-18",
+        "field": "open",
+        "store": 805.869995,
+        "source": 100.7338,
+        "diff_bp": 8750.0
+      },
+      {
+        "ticker": "SNDK",
+        "date": "2026-11-18",
+        "field": "high",
+        "store": 813.183228,
+        "source": 101.6479,
+        "diff_bp": 8750.0
+      },
+      {
+        "ticker": "SNDK",
+        "date": "2026-11-18",
+        "field": "low",
+        "store": 753.830017,
+        "source": 94.2288,
+        "diff_bp": 8750.0
+      },
+      {
+        "ticker": "SNDK",
+        "date": "2026-11-18",
+        "field": "close",
+        "store": 776.219971,
+        "source": 97.0275,
+        "diff_bp": 8750.0
+      }
+    ],
     "price_basis": {
       "store": "Yahoo auto_adjust=False; provider split adjustments",
       "reference": "Nasdaq displayed historical OHLC",
       "equivalence": "unverified: corporate actions may use different adjustment bases",
       "currency": "USD expected; raw provider identity retained, never converted"
     },
-    "n_disagreements": 0,
-    "disagreements_by_field": {},
-    "disagreements_by_date": {},
-    "n_material": 0,
+    "n_disagreements": 12,
+    "disagreements_by_field": {
+      "open": 3,
+      "high": 3,
+      "low": 3,
+      "close": 3
+    },
+    "disagreements_by_date": {
+      "2026-11-12": 4,
+      "2026-11-17": 4,
+      "2026-11-18": 4
+    },
+    "n_material": 12,
     "parse_errors": [],
     "n_parse_errors": 0,
     "volume_note": "volume differs by design on the newest session (same-day volume settles after the close); measured, never alarmed on",
     "volume_median_abs_diff_pct_latest_session": null,
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
-    "volume_bars_compared": 693,
+    "volume_bars_compared": 689,
     "newest_session": {
-      "session": "2026-11-20",
+      "session": "2026-11-23",
       "status": "not_checked",
       "reason": "source_lag",
-      "names_with_store_bar": 172,
+      "names_with_store_bar": 171,
       "names_compared": 0,
-      "source_latest_session": "2026-11-19"
+      "source_latest_session": "2026-11-20"
     },
-    "provisional_note": "on 2026-11-20 (newest stored session) the source had a bar for 0 of 172 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
+    "provisional_note": "on 2026-11-23 (newest stored session) the source had a bar for 0 of 171 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
     "provisional_ohl_median_bp": null,
     "provisional_ohl_max_bp": null,
     "provisional_ohl_over_tolerance": 0,
     "provisional_comparisons": 0,
     "store_missing_sessions": {
       "SNDK": [
-        "2026-11-16"
+        "2026-11-16",
+        "2026-11-20"
       ]
     },
     "n_names_store_missing_sessions": 1,
-    "secs": 102.1,
+    "secs": 112.0,
     "evidence_receipt": {
-      "sha256": "2cedcc5e29435c9a679db93b65abc555ef6307117635b5f56cb701eb4ef6d2f3",
-      "path": "price-verify/2cedcc5e29435c9a679db93b65abc555ef6307117635b5f56cb701eb4ef6d2f3.json",
-      "bytes": 672676
+      "sha256": "3b72a66c632730b2a96a9ff529f4d7ea5e37d2fd89ae24248fd539f5c657fb15",
+      "path": "price-verify/3b72a66c632730b2a96a9ff529f4d7ea5e37d2fd89ae24248fd539f5c657fb15.json",
+      "bytes": 711128
     },
     "name_results_report": {
       "path": "reports/producer-detail/price-verify.json",
       "names": 174,
-      "bytes": 59240,
-      "sha256": "d0e99980dd2f19aa0019deee31fedd2c9e08193450ba75f9a100349c1524fe7f"
+      "bytes": 60309,
+      "sha256": "b1f5f9bf85f033e550859c25e76b09b2db0de3219f7a14645b3e75af00783c2e"
     }
   },
   "intraday": {
-    "last_run": "2026-11-20T23:20:58.104653+00:00",
-    "tickers_requested": 731,
-    "tickers_with_data": 731,
-    "new_rows_1m": 279068,
-    "new_rows_5m": 87674,
+    "last_run": "2026-11-23T23:33:31.045530+00:00",
+    "tickers_requested": 798,
+    "tickers_with_data": 798,
+    "new_rows_1m": 337763,
+    "new_rows_5m": 124845,
     "failed_tickers": 0,
     "failed_batches": 0,
-    "store_gb": 56.61,
+    "store_gb": 58.1,
     "coverage_report": {
       "path": "reports/producer-detail/intraday-coverage.json",
       "tickers": {
-        "1m": 731,
-        "5m": 731
+        "1m": 798,
+        "5m": 798
       }
     },
-    "fetched_rows": 2790567,
-    "payload_bytes": 422576616
+    "fetched_rows": 3217118,
+    "payload_bytes": 487266595
   },
   "signals_incremental": {
     "mode": "incremental",
@@ -169,27 +283,27 @@
     "sources": {
       "squeezemetrics": {
         "status": "ok",
-        "rows_fetched": 7828,
+        "rows_fetched": 7830,
         "rows_inserted": 2,
         "series": [
           "dix",
           "gex"
         ],
-        "secs": 2.2
+        "secs": 4.3
       },
       "vix": {
         "status": "ok",
-        "rows_fetched": 13641,
+        "rows_fetched": 13643,
         "rows_inserted": 2,
         "series": [
           "vix",
           "vix3m"
         ],
-        "secs": 0.7
+        "secs": 0.8
       },
       "fred": {
         "status": "ok",
-        "rows_fetched": 103,
+        "rows_fetched": 99,
         "rows_inserted": 2,
         "series": [
           "hy_oas",
@@ -197,7 +311,7 @@
           "nfci",
           "t10y2y"
         ],
-        "secs": 1.9
+        "secs": 1.8
       },
       "putcall": {
         "status": "ok",
@@ -207,7 +321,7 @@
           "pc_equity",
           "pc_total"
         ],
-        "secs": 5.8
+        "secs": 6.9
       },
       "aaii": {
         "status": "ok",
@@ -217,7 +331,7 @@
           "aaii_bear",
           "aaii_bull"
         ],
-        "secs": 3.2
+        "secs": 1.9
       },
       "finra_margin": {
         "status": "ok",
@@ -227,7 +341,7 @@
           "free_credit",
           "margin_debt"
         ],
-        "secs": 1.0
+        "secs": 1.1
       },
       "short_interest": {
         "status": "ok",
@@ -236,7 +350,7 @@
         "series": [
           "short_interest_dtc"
         ],
-        "secs": 11.5
+        "secs": 12.3
       },
       "breadth": {
         "status": "ok",
@@ -247,67 +361,67 @@
           "breadth_pct_200",
           "zweig_ratio"
         ],
-        "secs": 1.3
+        "secs": 1.2
       },
       "cot": {
         "status": "ok",
         "rows_fetched": 10,
-        "rows_inserted": 1,
+        "rows_inserted": 0,
         "series": [
           "cot_es_lev_net"
         ],
-        "secs": 2.6
+        "secs": 1.3
       }
     },
-    "rows_inserted": 12,
+    "rows_inserted": 11,
     "warnings": [],
     "series_totals": {
       "aaii_bear": 2051,
       "aaii_bull": 2051,
-      "breadth_nh_nl": 3739,
-      "breadth_pct_200": 3739,
+      "breadth_nh_nl": 3740,
+      "breadth_pct_200": 3740,
       "cot_es_lev_net": 1067,
-      "dix": 3914,
+      "dix": 3915,
       "free_credit": 201,
-      "gex": 3914,
-      "hy_oas": 867,
+      "gex": 3915,
+      "hy_oas": 868,
       "icsa": 3124,
       "margin_debt": 358,
       "nfci": 2915,
-      "pc_equity": 4229,
-      "pc_total": 4229,
+      "pc_equity": 4230,
+      "pc_total": 4230,
       "short_interest_dtc": 78,
-      "t10y2y": 12615,
-      "vix": 9320,
-      "vix3m": 4321,
-      "zweig_ratio": 3739
+      "t10y2y": 12616,
+      "vix": 9321,
+      "vix3m": 4322,
+      "zweig_ratio": 3740
     },
-    "last_run": "2026-11-20T23:21:31.672498+00:00",
-    "store_gb": 56.61
+    "last_run": "2026-11-23T23:34:05.844344+00:00",
+    "store_gb": 58.1
   },
   "earnings": {
-    "last_run": "2026-11-20T23:37:01.938832+00:00",
-    "as_of": "2026-11-20",
-    "universe": 2826,
+    "last_run": "2026-11-23T23:54:37.732476+00:00",
+    "as_of": "2026-11-23",
+    "universe": 2793,
     "universe_source": "fundamentals-coverage \u222a screen-passers",
     "selection": {
-      "mode": "nightly-bounded",
+      "mode": "weekly-full",
       "near_sessions": 21,
       "stale_after_days": 7,
-      "unknown": 1915,
-      "near": 207,
+      "unknown": 0,
+      "near": 0,
       "stale": 0,
-      "deferred": 704
+      "deferred": 0
     },
-    "selected_for_refresh": 2122,
-    "deferred_this_run": 704,
-    "pulled_this_run": 2122,
-    "with_upcoming_date": 2047,
-    "no_upcoming_date": 75,
+    "selected_for_refresh": 2793,
+    "deferred_this_run": 0,
+    "pulled_this_run": 2793,
+    "with_upcoming_date": 2719,
+    "no_upcoming_date": 74,
     "failed_tickers": 0,
-    "rows_inserted_this_run": 2047,
-    "rows_for_as_of": 2047,
-    "store_gb": 56.61
+    "rows_inserted_this_run": 2719,
+    "rows_for_as_of": 2719,
+    "store_gb": 58.1
   },
   "screen_date": "2026-11-23",
   "last_screen": "2026-11-23T22:47:39.937147+00:00",
@@ -544,20 +658,20 @@
     "target_symbols": 4063,
     "limitation": "current-liquid-universe snapshot; survivor-biased and retrieval-time-only; not historical membership or promotion-quality stock-selection evidence",
     "attempts": {
-      "complete": 10317,
-      "empty": 896,
-      "failed": 140,
+      "complete": 10365,
+      "empty": 897,
+      "failed": 141,
       "refused": 22
     },
     "unresolved_failed_windows": 5,
     "refused_windows": 21,
-    "fact_count": 3767806,
-    "symbols_with_facts": 3966,
+    "fact_count": 3785810,
+    "symbols_with_facts": 3968,
     "symbols_checkpointed": 4060,
     "symbols_unstarted": 3,
     "checkpoint_start": "2023-07-05",
     "checkpoint_end": "2026-07-11",
-    "target_through": "2026-11-20",
+    "target_through": "2026-11-23",
     "symbols_caught_up": 0,
     "symbols_pending": 4063,
     "fact_start": "2022-01-03",
@@ -567,11 +681,11 @@
     "operational_price_mutation": false,
     "attempted_this_run": 50,
     "completed_this_run": 48,
-    "empty_this_run": 0,
-    "failed_this_run": 2,
+    "empty_this_run": 1,
+    "failed_this_run": 1,
     "refused_this_run": 0,
-    "through": "2026-11-20",
-    "last_run": "2026-11-23T21:52:59.791721+00:00"
+    "through": "2026-11-23",
+    "last_run": "2026-11-24T00:02:44.522487+00:00"
   },
   "price_verify_full": {
     "last_run": "2026-11-21T02:41:23.562062+00:00",
