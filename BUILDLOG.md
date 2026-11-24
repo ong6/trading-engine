@@ -813,4 +813,17 @@ earlier logs listed in that index.
 - **Metrics:** docs only.
 - **Next:** plan status and the scope table for P25.
 
+## 2026-11-23 — P25 status and the scope table state current truth
+
+- **Why:** P25 scope item 5 (docs): the plan still read item 2 as dry run and items 6–8 as open,
+  and `docs/scope.md` did not list the two timers P25 added.
+- **What:** P25 status marks the deployer (on `--execute`), local retention, cleanup and the
+  extension guide done; the "Done when" bullet for the deployer names the supervised rollback
+  drill and real deploy that replaced the dry-run nightly cycle, and the folder bullet names
+  per-folder `AGENTS.md`. The scope table lists the auto-deploy and local-prune timers.
+- **Evidence:** `tools.affected_tests --run` passes; the unit files run
+  `tools.auto_deploy --execute` and `tools.prune_local --apply`.
+- **Metrics:** docs only; metrics snapshot refreshed.
+- **Next:** review and land this branch.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

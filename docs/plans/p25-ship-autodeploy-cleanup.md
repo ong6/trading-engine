@@ -58,11 +58,12 @@ Disturbing running producers or the E1, sector and XS forward records.
 ## Done when
 
 - Revision 25 is deployed, with a BUILDLOG entry, and `GET /meta` reports it.
-- `tools/auto_deploy.py` has run in dry-run through at least one full nightly cycle with correct
-  decisions, then runs unattended; a merge to `main` reaches the host with no session open.
+- `tools/auto_deploy.py` passes a supervised rollback drill and a real deploy, then runs
+  unattended; a merge to `main` reaches the host with no session open.
 - `python -m tools.registration_identity` passes on `main` and the re-pin tool reproduces the
   revision-25 pin byte for byte.
-- Root `AGENTS.md` is under about 80 lines and every top-level directory has a short README;
+- Root `AGENTS.md` is under about 80 lines and every top-level code folder has a short
+  `AGENTS.md`;
   no doc on the read path carries a dated status block or an attributed quote.
 - Local backups and lane clones follow the retention rules; stale remote branches are gone.
 - The full suite passes under `TZ=UTC` and `TZ=Asia/Singapore` on the final `main`.
@@ -90,15 +91,17 @@ change: excluded files need a written proof, and the identity check still covers
 Edited in place as items close.
 
 1. Done: revision 25 deployed (batch B, release-check and readiness fixes).
-2. Built and deployed as revision 26 in dry run: `tools/auto_deploy.py` with schedule-aware
-   mutation, refused-target memory, held-back dependency commits and self-heal; the nightly takes
-   only data-only commits. `--execute` goes on the timer after a supervised drill and one full
-   nightly cycle of correct dry-run decisions.
+2. Done: the auto-deploy timer runs `tools/auto_deploy.py --execute` (schedule-aware mutation,
+   refused-target memory, held-back dependency commits, automatic rollback and self-heal); the
+   nightly takes only data-only commits. A supervised rollback drill and real deploys replaced
+   the planned dry-run nightly cycle.
 3. Done: `tools/repin.py` reproduces the revision-25 pin byte for byte. The pinned set is
    unchanged; narrowing it needs a write-path proof and is open.
 4. Done: `tools/land.py` lands a reviewed branch from any session.
 5. Done: agent-first docs (short `AGENTS.md` map, per-folder notes, task-organised `docs/`,
    dated material under `docs/history/`).
-6. Open: backup retention and lane-clone retention.
-7. Open: code and branch cleanup.
-8. Open: the add-a-strategy-or-experiment path in `docs/extend/`.
+6. Done: `tools/prune_local.py` keeps the newest two deploy and store backups and removes
+   finished lane clones; the local-prune timer runs it daily.
+7. Done: one-shot deploy scripts, superseded agent migrations and closed-study runners are
+   removed, and stale remote branches are deleted.
+8. Done: [`docs/extend/README.md`](../extend/README.md) is the add-a-strategy-or-experiment path.
