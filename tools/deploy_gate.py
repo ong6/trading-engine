@@ -46,7 +46,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RECEIPTS = Path.home() / ".local/state/trading-engine/deploy-gate"
 DEFAULT_ENGINE_ROOT = Path.home() / "trading-engine"
 INVARIANTS_RESULT = Path("logs/ops/invariants.json")
-STEP_TIMEOUT_S = 1800
+STEP_TIMEOUT_S = 600  # under the deployer's 900 s gate timeout
 TAIL_LINES = 25
 CANNOT_CHECK = 3
 

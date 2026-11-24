@@ -1133,4 +1133,19 @@ earlier logs listed in that index.
 - **Metrics:** tools +5, tests +29 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — Check timeouts escalate, a check that cannot start needs a person
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py` fails three new tests
+  (`assert 124 == 127`, `assert 1800 < 900`, and no `refused` after three timeouts):
+  `Deployer.run` reported an `OSError` (a missing interpreter) as 124, so a broken environment
+  became a quiet `skipped:*-timeout` forever; repeated timeouts never escalated; and the gate's
+  own per-step timeout (1800 s) exceeded the deployer's 900 s gate timeout.
+- **What:** a command that cannot start returns 127, so the gate or forward tests stay
+  `needs-human`. The third consecutive gate or forward-test timeout on one target is
+  `needs-human` (recorded as refused); a passing gate clears the count. `tools/deploy_gate.py`
+  (not pinned) steps time out after 600 s. `docs/change/deploy.md` says so.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py tests/test_deploy_gate.py` passes.
+- **Metrics:** tools +23, tests +22, docs +1 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

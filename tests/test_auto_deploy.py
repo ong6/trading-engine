@@ -581,7 +581,7 @@ def test_a_rolled_back_target_is_refused_and_a_newer_green_commit_deploys(host):
 
 @pytest.mark.parametrize("code, label", [
     (3, "skipped:gate-cannot-check"), (124, "skipped:gate-timeout"),
-    (2, "needs-human:gate-refused"),
+    (2, "needs-human:gate-refused"), (127, "needs-human:gate-refused"),
 ])
 def test_a_gate_that_cannot_check_is_retried_and_a_refusal_needs_a_human(host, code, label):
     deployer = _deployer(host)
@@ -604,6 +604,26 @@ def test_a_rolled_back_target_is_not_redeployed_after_data_only_pushes(host):
         _deployer(host, green={bad, data}).decide(execute=True)
     decision = _deployer(host, green={bad, data, fix}).decide(execute=True)
     assert decision.outcome == "deployed" and decision.detail["target"] == fix
+
+
+def test_a_missing_interpreter_is_not_a_timeout(host):
+    done = auto_deploy.Deployer.run(_deployer(host), ["/nonexistent/python", "-V"],
+                                    cwd=host["live"])
+    assert done.returncode == 127
+
+
+def test_three_check_timeouts_on_one_target_need_a_human(host):
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    for attempt in range(1, 4):
+        deployer = _deployer(host, green={target})
+        deployer.gate = lambda worktree, deployed: (_ for _ in ()).throw(
+            auto_deploy.Stop("skipped", "gate-timeout", exit=124, tail=["x"]))
+        with pytest.raises(auto_deploy.Stop) as stop:
+            deployer.decide(execute=True)
+        deployer.record(auto_deploy.Decision(stop.value.outcome, stop.value.reason,
+                                             stop.value.detail), SAFE, SAFE)
+        assert ("refused" in _state(host)) == (attempt == 3), stop.value
+    assert stop.value.outcome == "needs-human" and stop.value.detail["timeouts"] == 3
 
 
 def test_a_forward_test_timeout_is_retried(host):
@@ -704,6 +724,8 @@ def test_pre_mutation_timeouts_fit_inside_the_unit_timeout():
     # a hung gate or test run ends with a receipt, and a mutation still fits after it
     assert (auto_deploy.GATE_TIMEOUT + auto_deploy.FORWARD_TESTS_TIMEOUT
             + auto_deploy.MUTATION_LEAD.total_seconds()) <= minutes * 60
+    from tools import deploy_gate  # a hung gate step ends inside the gate, with its receipt
+    assert deploy_gate.STEP_TIMEOUT_S < auto_deploy.GATE_TIMEOUT
 
 
 def test_a_failed_rollback_is_recovered_on_the_next_run(host):

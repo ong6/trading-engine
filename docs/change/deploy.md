@@ -32,7 +32,8 @@ clear of them, two per half hour.
    (`skipped:refused-target`). A gate refusal (exit 2) is `needs-human:gate-refused`; a gate
    that cannot check (exit 3) or times out is `skipped:gate-cannot-check` or
    `skipped:gate-timeout`, and timed-out forward tests are `skipped:forward-tests-timeout`; both
-   are retried on the next tick.
+   are retried on the next tick, and the third timeout in a row on one target makes it
+   `needs-human`. A gate or test run that cannot start (a missing interpreter) is `needs-human`.
 4. It fast-forwards the live checkout (rebasing data-only local commits). When a forward-record
    closure changed, it runs `--migrate-runtime-contract` after a digest-only rehearsal.
 5. It runs `tools.install_automation --apply` (changed units; API or UI restart only when their

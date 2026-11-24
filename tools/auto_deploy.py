@@ -98,6 +98,8 @@ PROBE_ONLY = "unhealthy-unverified-code"  # recovery found by the health probe a
 # Gate and forward tests take about a minute; with MUTATION_LEAD they fit inside the unit's
 # TimeoutStartSec (50 min), so a hung check ends with a receipt instead of a systemd kill.
 GATE_TIMEOUT = FORWARD_TESTS_TIMEOUT = 900
+CHECK_TIMEOUTS = frozenset({"gate-timeout", "forward-tests-timeout"})
+CHECK_TIMEOUT_LIMIT = 3  # consecutive timeouts on one target before it needs a person
 # Scheduled engine starts that must not land inside a mutation. The deployer itself, the
 # read-only digest and the ten-minute watchdog are excluded (the watchdog's catch-up takes the
 # nightly lock, which the producer-lock check sees).
@@ -284,8 +286,10 @@ class Deployer:
             return subprocess.run(argv, cwd=cwd, env={**os.environ, **(env or {})},
                                   capture_output=True, text=True, timeout=timeout, check=False,
                                   stdin=subprocess.DEVNULL)
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except subprocess.TimeoutExpired as exc:
             return subprocess.CompletedProcess(argv, 124, "", str(exc))
+        except OSError as exc:  # could not start (a missing interpreter): not a timeout
+            return subprocess.CompletedProcess(argv, 127, "", str(exc))
 
     def git(self, root: Path, *args: str, check: bool = True) -> str:
         done = self.run(["git", "--no-optional-locks", *args], cwd=root, timeout=300)
@@ -628,13 +632,25 @@ class Deployer:
                               "-n", "2", *FORWARD_TESTS], cwd=worktree,
                              env={"PYTHONPATH": str(worktree), "TMPDIR": private,
                                   "PYTHONDONTWRITEBYTECODE": "1"}, timeout=FORWARD_TESTS_TIMEOUT)
-        if tests.returncode == 124:  # timed out (or did not start): retried next tick
+        if tests.returncode == 124:  # timed out: retried next tick
             raise Stop("skipped", "forward-tests-timeout",
                        tail=(tests.stdout + tests.stderr).strip().splitlines()[-6:])
         if tests.returncode:
             raise Stop("needs-human", "forward-tests",
                        tail=(tests.stdout + tests.stderr).strip().splitlines()[-6:])
         return {"gate": tail[-1] if tail else "", "forward_tests": "pass"}
+
+    def count_check_timeout(self, target: str, stop: Stop) -> None:
+        """Count consecutive gate or forward-test timeouts on one target; the third one makes
+        the target ``needs-human`` (recorded as refused) instead of another retry."""
+        seen = self.load_state().get("check_timeouts") or {}
+        count = seen.get("count", 0) + 1 if seen.get("target") == target else 1
+        if count < CHECK_TIMEOUT_LIMIT:
+            self.save_state(check_timeouts={"target": target, "count": count})
+            return
+        self.save_state(check_timeouts=None)
+        raise Stop("needs-human", stop.reason, target=target, timeouts=count,
+                   **stop.detail) from stop
 
     def migrations_needed(self, target: str) -> list[str]:
         """Families whose target closure digest differs from the live published report."""
@@ -1069,7 +1085,14 @@ class Deployer:
             self.git(self.mirror, "show", f"{target}:{family.path}"),
             "EXPECTED_RUNTIME_CONTRACT_SHA256") for family in repin.FAMILIES}
         worktree = self.prepare_worktree(target)
-        checks = self.gate(worktree, deployed)
+        try:
+            checks = self.gate(worktree, deployed)
+        except Stop as stop:
+            if stop.reason in CHECK_TIMEOUTS and self.execute:
+                self.count_check_timeout(target, stop)
+            raise
+        if self.execute and self.load_state().get("check_timeouts"):
+            self.save_state(check_timeouts=None)
         if families:
             try:
                 checks["rehearsal"] = repin.rehearse(worktree, families, self.root)
