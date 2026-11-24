@@ -42,7 +42,8 @@ clear of them, two per half hour.
 6. A failed post-check rolls back automatically. A rolled-back target's code is refused
    (`skipped:refused-target`) until a green commit outside `data/` changes it; data-only pushes
    do not retry it. A rollback drill, or a target whose code is the deployed code, is not
-   remembered this way.
+   remembered this way; the memory is dropped once newer code is the target or a hand deploy of
+   that code is adopted healthy.
 
 ## Self-heal
 

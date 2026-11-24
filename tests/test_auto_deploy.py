@@ -604,6 +604,21 @@ def test_a_rolled_back_target_is_not_redeployed_after_data_only_pushes(host):
         _deployer(host, green={bad, data}).decide(execute=True)
     decision = _deployer(host, green={bad, data, fix}).decide(execute=True)
     assert decision.outcome == "deployed" and decision.detail["target"] == fix
+    assert "rolled_back" not in _state(host)  # newer code took over
+
+
+def test_adopting_a_hand_deploy_of_rolled_back_code_forgets_it(host):
+    bad = _push(host, "bad", {"engine/x.py": "x = 1\n"})
+    deployer = _deployer(host, green={bad})
+    deployer.post_ok = False
+    deployer.ops._wait_health = lambda: ({"ok": True}, {})
+    deployer.record(deployer.decide(execute=True), SAFE, SAFE)
+    assert _state(host)["rolled_back"]["target"] == bad
+    _git(host["live"], "pull", "-q", "--ff-only", "origin", "main")  # a person deploys it by hand
+    data = _push(host, "data", {"data/reports/a.json": "{}"})
+    decision = _deployer(host, green={bad, data}).decide(execute=True)
+    assert decision.outcome == "deployed" and decision.detail["target"] == data, decision
+    assert "rolled_back" not in _state(host)
 
 
 def test_a_missing_interpreter_is_not_a_timeout(host):

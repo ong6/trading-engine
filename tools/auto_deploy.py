@@ -974,10 +974,11 @@ class Deployer:
             return {}
         return {"data_kept": {"dir": str(saved["dir"]), "paths": kept}}
 
-    def same_code(self, first: str, second: str) -> bool:
-        """Whether two mirror commits have the same tracked tree outside ``data/``."""
+    def same_code(self, first: str, second: str, *, root: Path | None = None) -> bool:
+        """Whether two commits (in the mirror, or ``root``) have the same tracked tree outside
+        ``data/``."""
         done = self.run(["git", "diff", "--quiet", first, second, "--", ".", ":(exclude)data"],
-                        cwd=self.mirror, timeout=120)
+                        cwd=root or self.mirror, timeout=120)
         return done.returncode == 0
 
     def _data_only(self, commit: str) -> bool:
@@ -1005,7 +1006,11 @@ class Deployer:
             if self.host_healthy():  # a person deployed by hand and the host is healthy
                 head = self.git(self.root, "rev-parse", "HEAD")
                 if execute:
-                    self.save_state(last_good_sha=head)
+                    rolled = (state.get("rolled_back") or {}).get("target")
+                    # The rolled-back code now runs healthy by hand: stop refusing it.
+                    forget = bool(rolled) and self.same_code(rolled, head, root=self.root)
+                    self.save_state(last_good_sha=head,
+                                    rolled_back=None if forget else state.get("rolled_back"))
                 self.steps.append(f"adopted:{head[:12]}")
                 return None
             why = PROBE_ONLY
@@ -1079,6 +1084,8 @@ class Deployer:
             # Only data-only commits since the rolled-back target: the same code would fail
             # again. Refused until a commit outside data/ changes the code.
             raise Stop("skipped", "refused-target", target=target, rolled_back=rolled_back)
+        if rolled_back and self.execute:
+            self.save_state(rolled_back=None)  # newer code: nothing left to refuse
         local = self.live_state(live_head, origin)
         families = self.migrations_needed(target)
         expected = {family.key: repin._literal(

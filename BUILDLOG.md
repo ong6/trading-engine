@@ -1199,4 +1199,17 @@ earlier logs listed in that index.
 - **Metrics:** tests +9 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — The rolled-back code memory is dropped once it has done its job
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py -k "forgets_it or not_redeployed_after"`
+  fails with `tools.auto_deploy.Stop: skipped:refused-target` after a healthy hand deploy of
+  the rolled-back code was adopted (every later data push was refused), and the memory stayed
+  after newer code deployed.
+- **What:** the memory is cleared when a chosen target's code differs from it, and when an
+  adopted healthy hand deploy runs that same code (compared in the live checkout). Real runs
+  only. `docs/change/deploy.md` says so.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (70 tests).
+- **Metrics:** tools +7, tests +15, docs +1 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
