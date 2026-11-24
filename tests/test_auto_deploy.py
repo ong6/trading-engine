@@ -500,6 +500,23 @@ def test_execute_refuses_when_an_engine_start_is_due_or_a_unit_is_active(host):
     assert _git(host["live"], "rev-parse", "HEAD") == before
 
 
+def test_deploy_ticks_keep_the_publish_on_change_starts_out_of_the_look_ahead():
+    from datetime import timedelta
+
+    def minutes(unit):
+        text = (auto_deploy.REPO_ROOT / "server" / unit).read_text()
+        line = next(row for row in text.splitlines() if row.startswith("OnCalendar="))
+        return [int(value) for value in line.split(":")[1].split(",")]
+
+    starts = {f"{minute}+{hour}": SAFE.replace(minute=minute) + timedelta(hours=hour)
+              for minute in minutes("trading-engine-publish-on-change.timer") for hour in (0, 1)}
+    for tick in minutes("trading-engine-auto-deploy.timer"):
+        for delay in (1, 2, 3):  # the timer-soon check runs after the gate, about a minute in
+            moment = SAFE.replace(minute=tick) + timedelta(minutes=delay)
+            assert auto_deploy.scheduled_soon("", starts, moment, auto_deploy.MUTATION_LEAD) \
+                is None, (tick, delay)
+
+
 def test_scheduled_soon_reads_engine_cron_lines_only():
     from datetime import timedelta
 

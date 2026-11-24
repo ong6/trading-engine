@@ -999,4 +999,21 @@ earlier logs listed in that index.
 - **Metrics:** tools +16, tests +13, docs +2 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — Move the deployer ticks to the minutes the publish job leaves free
+
+- **Why:** reproduced defect: `pytest tests/test_auto_deploy.py::test_deploy_ticks_keep_the_publish_on_change_starts_out_of_the_look_ahead`
+  fails with `AssertionError: (6, 1)`: `trading-engine-publish-on-change.timer` starts at :12 and
+  :42, inside the 15-minute look-ahead of the :06 and :36 ticks, so those ticks can never deploy.
+- **What:** the timer, `ops/jobs.toml`, `server/schedule-contract.json`, `docs/change/deploy.md`,
+  `docs/scope.md` and the public operations page move the ticks from :06, :21, :36, :51 to :15,
+  :22, :45, :52 UTC (two per half hour between publish starts; still four runs an hour).
+- **Evidence:** a week model driving `in_blocked_window` and `scheduled_soon` with every repo
+  engine timer, the host-only Massive timer and the live engine cron lines, checked one to three
+  minutes after each tick, gives eligible ticks Mon..Sun before `[23, 22, 22, 22, 22, 33, 34]`
+  (178) and after `[45, 43, 43, 43, 43, 66, 68]` (351) in a New York winter week; summer 178 to
+  356. No evenly spaced 15-minute set beats 178; the weekday market session stays fully blocked
+  by the P15 event runs every 15 minutes.
+- **Metrics:** tests +17 lines; schedule files and docs only otherwise.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

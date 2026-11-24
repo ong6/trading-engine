@@ -14,7 +14,7 @@ Live state (which books are active, the registration revision, freshness) is in 
 | Late account settlement (P22, `trading-engine-accounts-settle.timer`) | 07:45 and 11:55 UTC Tue–Sat | Same; any fold, settle or verify failure halts the account |
 | Hourly operations digest (P23, `trading-engine-ops-digest.timer`) with the schedule contract and the snapshot invariant monitor in shadow mode | Hourly at :08 UTC; invariants on each new snapshot | Same; shadow regressions are reported, never acted on automatically |
 | Driver watchdog (`trading-engine-driver-watchdog.timer`) | Every 10 minutes from :03 UTC | Same; it may terminate a stalled driver and run one catch-up nightly |
-| Auto-deployer (`trading-engine-auto-deploy.timer`) | :06, :21, :36 and :51 UTC, outside its skip windows | Same; a failed post-check rolls back automatically |
+| Auto-deployer (`trading-engine-auto-deploy.timer`) | :15, :22, :45 and :52 UTC, outside its skip windows | Same; a failed post-check rolls back automatically |
 | Local retention (`trading-engine-local-prune.timer`) | Daily 12:20 UTC | Same |
 | Three frozen forward records: sector momentum, XS 12-1, E1 Monday | Nightly / per signal | Never touch the rule; only the monitor may append |
 | Sunday walk-forward revalidation | Weekly | Same |

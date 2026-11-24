@@ -106,7 +106,7 @@ badges, reports, and logs can show a problem; they do not send a push message or
 ## Deployment
 
 A merged change reaches the server by itself once its tests pass under both UTC and Singapore
-time. A deployer checks every 15 minutes and acts only in a quiet moment: no scheduled job due
+time. A deployer checks four times an hour and acts only in a quiet moment: no scheduled job due
 soon, nothing running, and enough free disk. It runs the deployment gate and the frozen-record
 tests on a private copy, moves the server to the new version, installs changed services, and
 checks the live status routes.

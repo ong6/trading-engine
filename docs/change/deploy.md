@@ -14,7 +14,9 @@ refreshes the pins. Never change a registered value.
 
 ## The deployer
 
-`trading-engine-auto-deploy.timer` runs `tools/auto_deploy.py` at :06, :21, :36 and :51 UTC.
+`trading-engine-auto-deploy.timer` runs `tools/auto_deploy.py` at :15, :22, :45 and :52 UTC:
+the minutes between the publish-on-change starts (:12 and :42) whose 15-minute look-ahead stays
+clear of them, two per half hour.
 
 1. Before changing anything it skips 14:05–14:35 and 22:30–03:00 UTC; while a producer lock,
    producer process or release transaction is active; when an engine timer or engine cron job is

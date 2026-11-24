@@ -158,7 +158,7 @@
 
     {"unit": "trading-engine-auto-deploy.timer", "origin": "repo",
      "source": "server/trading-engine-auto-deploy.timer", "state": "enabled",
-     "service": "trading-engine-auto-deploy.service", "calendar": ["*-*-* *:06,21,36,51:00 UTC"]},
+     "service": "trading-engine-auto-deploy.service", "calendar": ["*-*-* *:15,22,45,52:00 UTC"]},
     {"unit": "trading-engine-auto-deploy.service", "origin": "repo",
      "source": "server/trading-engine-auto-deploy.service", "state": "enabled",
      "activation": "timer", "timer": "trading-engine-auto-deploy.timer", "max_runtime": "50min",
