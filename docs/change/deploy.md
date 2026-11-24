@@ -26,7 +26,8 @@ clear of them, two per half hour.
 3. On a private worktree it runs `tools.deploy_gate` plus the registration and forward-record
    tests. A dependency, schema-migration or contract-version commit is `needs-human`: everything
    before it deploys, and that commit waits to be released through `tools/release_deploy.py`
-   (dry by default, `--execute` to mutate). Each release transaction keeps its state under
+   (dry by default, `--execute` to mutate; a dry `rollback` reports `would-refuse` and the
+   reason when `--execute` would refuse). Each release transaction keeps its state under
    `~/.local/state/trading-engine/releases/<name>/` (its `state.json` phase and its store backup
    in `recovery/`). A `needs-human` target is not re-checked until `main` moves
    (`skipped:refused-target`). A gate refusal (exit 2) is `needs-human:gate-refused`; a gate

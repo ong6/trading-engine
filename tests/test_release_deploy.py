@@ -770,6 +770,21 @@ def test_rollback_refuses_an_unusable_bundle_before_pausing(transaction):
     assert "quiesce" not in operations.calls and deployment.store.load().phase == phase
 
 
+def test_a_dry_rollback_reports_that_execute_would_refuse(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    deployment.fail_after = "source-switch"
+    with pytest.raises(release_deploy.DeployError):
+        deployment.apply(execute=True, approve_plan=None)
+    deployment.fail_after = None
+    operations.head = NEW_SHA
+    assert deployment.rollback(execute=False)["status"] == "planned"
+    operations.head = "3" * 40
+    planned = deployment.rollback(execute=False)
+    assert planned["status"] == "would-refuse"
+    assert "unrecognized source SHA" in planned["refusal"]
+
+
 def test_reconciled_source_refuses_detached_head_in_real_repository(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()

@@ -1175,4 +1175,16 @@ earlier logs listed in that index.
 - **Metrics:** tools +9, tests +23 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A dry rollback reports when the real one would refuse
+
+- **Why:** review finding, reproduced: `pytest tests/test_release_deploy.py::test_a_dry_rollback_reports_that_execute_would_refuse`
+  fails with `assert 'planned' == 'would-refuse'`: a dry `rollback` printed "planned" even when
+  `--execute` would refuse (an unrecognized live commit, a moved checkout, an unusable bundle).
+- **What:** the rollback pre-checks move into `_rollback_precheck`, which the execute path runs
+  before saving the phase and the dry path runs too; a dry refusal returns status
+  `would-refuse` with the reason. `docs/change/deploy.md` says so.
+- **Evidence:** `pytest -q tests/test_release_deploy.py tests/test_basis_release.py` passes.
+- **Metrics:** tools +11, tests +15, docs +1 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

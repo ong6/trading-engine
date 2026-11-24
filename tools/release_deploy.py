@@ -3007,24 +3007,15 @@ class ReleaseDeployment:
             "rollback-release-producers",
         ]
         if not execute:
-            return self._plan_existing(state, "rollback", actions)
-        if not self.journal.completed("create-backup"):
-            raise DeployError("rollback has no completed recovery bundle")
-        if state.phase == "resumed":
-            raise DeployError(f"rollback is not allowed from phase {state.phase}")
+            planned = self._plan_existing(state, "rollback", actions)
+            try:
+                self._rollback_precheck(state)
+            except DeployError as exc:
+                planned.update(status="would-refuse", refusal=str(exc))
+            return planned
+        self._rollback_precheck(state)
         if state.phase == "rolled-back":
             return {"status": "rolled-back", "idempotent": True, "state": asdict(state)}
-        # Refuse while the host is untouched: quiescence stops timers, the API and the crontab.
-        head = self.operations._head(Path(state.repo_root))
-        if self.journal.completed("restore-source") is None:
-            if head not in {state.approved_sha, state.original_sha}:
-                raise DeployError(
-                    "cannot roll back an unrecognized source SHA; this run changed nothing"
-                )
-        elif head != state.original_sha:  # a resumed rollback would overwrite the store first
-            raise DeployError("live source moved after restore-source; this run changed nothing")
-        if self.journal.completed("restore-database") is None:
-            self.operations.validate_recovery_bundle(state)  # the check restore_database runs
         state.phase = "rolling-back"
         self.store.save(state)
         try:
@@ -3098,6 +3089,26 @@ class ReleaseDeployment:
         except BaseException as exc:
             self._save_failure(state, exc)
             raise
+
+    def _rollback_precheck(self, state: ReleaseState) -> None:
+        """Refuse while the host is untouched: quiescence stops timers, the API and the crontab.
+        The dry run reports the same refusal."""
+        if not self.journal.completed("create-backup"):
+            raise DeployError("rollback has no completed recovery bundle")
+        if state.phase == "resumed":
+            raise DeployError(f"rollback is not allowed from phase {state.phase}")
+        if state.phase == "rolled-back":
+            return
+        head = self.operations._head(Path(state.repo_root))
+        if self.journal.completed("restore-source") is None:
+            if head not in {state.approved_sha, state.original_sha}:
+                raise DeployError(
+                    "cannot roll back an unrecognized source SHA; this run changed nothing"
+                )
+        elif head != state.original_sha:  # a resumed rollback would overwrite the store first
+            raise DeployError("live source moved after restore-source; this run changed nothing")
+        if self.journal.completed("restore-database") is None:
+            self.operations.validate_recovery_bundle(state)  # the check restore_database runs
 
     @serialized_phase
     def resume(self, *, reconciled_sha: str, execute: bool) -> dict[str, Any]:
