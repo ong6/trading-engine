@@ -636,6 +636,22 @@ def test_failed_recoveries_back_off_and_then_heal_services(host):
     assert "recovery" not in _state(host)
 
 
+def test_a_failed_git_step_counts_as_a_failed_recovery(host):
+    _good, target = _failed_rollback(host)
+    deployer = _deployer(host, green={target})
+    real_git = deployer.git
+
+    def git(root, *args, check=True):
+        if args[0] == "update-ref":
+            raise auto_deploy.Stop("failed", "git", command="update-ref", error="locked")
+        return real_git(root, *args, check=check)
+
+    deployer.git = git
+    decision = deployer.decide(execute=True)
+    assert decision.label == "recovery-failed:unverified-deploy", decision
+    assert decision.detail["failures"] == 1 and _state(host)["recovery"]["failures"] == 1
+
+
 def test_a_healthy_hand_deploy_is_adopted_and_unhealthy_code_is_recovered(host):
     _deployer(host).save_state(last_good_sha=_git(host["live"], "rev-parse", "HEAD"))
     good = _git(host["live"], "rev-parse", "HEAD")

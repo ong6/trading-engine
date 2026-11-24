@@ -835,7 +835,12 @@ class Deployer:
                 self.steps.append(f"apply:{summary.get('status')}")
                 if code or not self.host_healthy():
                     raise release_deploy.DeployError("host unhealthy after recovery")
-            except (OSError, RuntimeError, release_deploy.DeployError) as exc:
+            except (Stop, OSError, RuntimeError, release_deploy.DeployError) as exc:
+                if isinstance(exc, Stop) and exc.outcome != "failed":
+                    raise
+                if isinstance(exc, Stop):  # a failed git step: keep its command and error
+                    exc = RuntimeError(f"{exc}: {exc.detail.get('command')}: "
+                                       f"{exc.detail.get('error')}")
                 failures = int(attempts.get("failures", 0)) + 1
                 delay = min(RECOVERY_BASE * 2 ** (failures - 1), RECOVERY_CAP)
                 if failures >= HEAL_AFTER:

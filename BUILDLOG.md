@@ -870,4 +870,17 @@ earlier logs listed in that index.
 - **Metrics:** docs only.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A failed git step inside deployer recovery counts as a failed recovery
+
+- **Why:** reproduced defect: `pytest tests/test_auto_deploy.py::test_a_failed_git_step_counts_as_a_failed_recovery`
+  fails with `tools.auto_deploy.Stop: failed:git`: `recover()` caught only `OSError`,
+  `RuntimeError` and `DeployError`, so a failing git command escaped the failure counter, the
+  backoff and the heal-services backstop.
+- **What:** a `failed` `Stop` raised inside the recovery try (only `self.git` raises one there)
+  is recorded as a recovery failure with its git command and error; any other `Stop` still
+  propagates, and the skip gates before the try are unchanged.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (50 tests).
+- **Metrics:** tools +5 net (+6/-1), tests +16 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
