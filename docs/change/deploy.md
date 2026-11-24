@@ -73,9 +73,13 @@ clear of them, two per half hour.
   digest.
 
 Each run records one decision: `deployed`, `would-deploy` (dry run), `skipped:<reason>`
-(`window`, `producer-running`, `release-transaction`, `timer-soon`, `unit-active`, `low-disk`,
-`refused-target`, ...), `needs-human:<reason>`, `rolled-back`, `recovered`, `would-recover` or
-`recovery-failed`. A skip at the first gate (window, lock, producer, release transaction,
+(`window`, `producer-lock:<file>`, `producer-running`, `release-transaction`, `timer-soon`,
+`unit-active`, `low-disk`, `up-to-date`, `no-green-ci`, `refused-target`, `run-in-progress`,
+`recovery-backoff`, `would-recover`, `gate-cannot-check`, `gate-timeout`,
+`forward-tests-timeout`, `check-venv`, `check-venv-timeout`, ...), `needs-human:<reason>`
+(`dependencies`, `schema-migration`, `contract-version:<family>`, `gate-refused`,
+`gate-cannot-start`, `forward-tests`, `forward-tests-cannot-start`, `check-venv-cannot-start`,
+a third `*-timeout` in a row, ...), `rolled-back`, `recovered` or `recovery-failed`. A skip at the first gate (window, lock, producer, release transaction,
 low disk) adds `waiting_at_last_fetch`: how many `main` commits the private mirror's last fetch
 has past the live checkout's base on `main`, as of the live checkout's last fetch (neither is
 fetched before the gates pass). Decisions appear under "Deployer" in the hourly digest. State lives in

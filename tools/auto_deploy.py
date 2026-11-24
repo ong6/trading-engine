@@ -643,6 +643,8 @@ class Deployer:
         if done.returncode in (3, 124):  # cannot check (dirty or moved tree), or timed out
             reason = "gate-cannot-check" if done.returncode == 3 else "gate-timeout"
             raise Stop("skipped", reason, exit=done.returncode, tail=tail or [done.stderr[-300:]])
+        if done.returncode == 127:  # the gate could not start, not a refusal
+            raise Stop("needs-human", "gate-cannot-start", tail=[done.stderr[-300:]])
         if done.returncode:
             raise Stop("needs-human", "gate-refused", exit=done.returncode, tail=tail)
         with tempfile.TemporaryDirectory(prefix="auto-deploy-tests-") as private:
@@ -654,6 +656,8 @@ class Deployer:
         if tests.returncode == 124:  # timed out: retried next tick
             raise Stop("skipped", "forward-tests-timeout",
                        tail=(tests.stdout + tests.stderr).strip().splitlines()[-6:])
+        if tests.returncode == 127:
+            raise Stop("needs-human", "forward-tests-cannot-start", tail=[tests.stderr[-300:]])
         if tests.returncode:
             raise Stop("needs-human", "forward-tests",
                        tail=(tests.stdout + tests.stderr).strip().splitlines()[-6:])

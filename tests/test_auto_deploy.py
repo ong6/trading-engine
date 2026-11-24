@@ -581,7 +581,7 @@ def test_a_rolled_back_target_is_refused_and_a_newer_green_commit_deploys(host):
 
 @pytest.mark.parametrize("code, label", [
     (3, "skipped:gate-cannot-check"), (124, "skipped:gate-timeout"),
-    (2, "needs-human:gate-refused"), (127, "needs-human:gate-refused"),
+    (2, "needs-human:gate-refused"), (127, "needs-human:gate-cannot-start"),
 ])
 def test_a_gate_that_cannot_check_is_retried_and_a_refusal_needs_a_human(host, code, label):
     deployer = _deployer(host)

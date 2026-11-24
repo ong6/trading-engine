@@ -1304,4 +1304,18 @@ earlier logs listed in that index.
 - **Metrics:** tools 0 net, tests +13 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A check that cannot start has its own decision name
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py -k cannot_check_is_retried`
+  fails for exit 127 with `Actual message: 'needs-human:gate-refused'`: a gate that could not
+  start was labelled like a real gate refusal.
+- **What:** exit 127 is `needs-human:gate-cannot-start` for the gate and
+  `needs-human:forward-tests-cannot-start` for the forward tests. The decision list in
+  `docs/change/deploy.md` now names the skip and needs-human reasons this branch added
+  (`run-in-progress`, `gate-cannot-check`, the `*-timeout` and `*-cannot-start` reasons and
+  the check-environment ones) next to the older ones.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (78 tests).
+- **Metrics:** tools +4, docs +4 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
