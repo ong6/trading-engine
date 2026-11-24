@@ -102,6 +102,7 @@ Edited in place as items close.
    dated material under `docs/history/`).
 6. Done: `tools/prune_local.py` keeps the newest two deploy and store backups and removes
    finished lane clones; the local-prune timer runs it daily.
-7. Done: one-shot deploy scripts, superseded agent migrations and closed-study runners are
-   removed, and stale remote branches are deleted.
+7. Done: the code cleanup (one-shot deploy scripts, superseded agent migrations and closed-study
+   runners) and the stale remote branch cleanup are done; the remaining dependency-update pull
+   request is handled separately.
 8. Done: [`docs/extend/README.md`](../extend/README.md) is the add-a-strategy-or-experiment path.

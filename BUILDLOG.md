@@ -860,4 +860,14 @@ earlier logs listed in that index.
 - **Metrics:** unchanged.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — P25 status item 7 names the open dependency-update pull request
+
+- **Why:** doc fix: P25 status item 7 read as complete while scope item 7 also lists dependency
+  update pull requests, one of which remains open.
+- **What:** item 7 says the code and stale-branch cleanup is done and that the remaining
+  dependency-update pull request is handled separately.
+- **Evidence:** `tools.affected_tests --run` passes.
+- **Metrics:** docs only.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
