@@ -435,6 +435,13 @@ class Deployer:
                 raise Stop("skipped", "timer-soon", unit=soon)
 
     # ---- step 2: target -------------------------------------------------------------------
+    def waiting_at_last_fetch(self) -> int | None:
+        """First-parent ``main`` commits past the live HEAD as of the mirror's last refresh
+        (local and read-only; None when the mirror cannot say)."""
+        done = self.run(["git", "rev-list", "--count", "--first-parent",
+                         "refs/live/head..refs/remotes/origin/main"], cwd=self.mirror, timeout=30)
+        return int(done.stdout) if done.returncode == 0 and done.stdout.strip().isdigit() else None
+
     def refresh_mirror(self) -> tuple[str, str]:
         """Fetch origin/main and the live HEAD into the private mirror; never write the live tree."""
         if not (self.mirror / ".git").exists() and not (self.mirror / "HEAD").exists():
@@ -986,7 +993,14 @@ class Deployer:
         self.execute = execute
         state = self.load_state()
         pending = bool(state.get("in_flight") or state.get("recovery"))
-        self._gate_now(recovery=pending)
+        try:
+            self._gate_now(recovery=pending)
+        except Stop as stop:
+            # Say whether a commit was waiting (fetching now would need the gates to pass).
+            waiting = self.waiting_at_last_fetch()
+            if stop.outcome == "skipped" and waiting is not None:
+                stop.detail["waiting_at_last_fetch"] = waiting
+            raise
         healed = self.converge(execute=execute)
         if healed is not None:
             return healed
@@ -1057,6 +1071,8 @@ class Deployer:
         reason = decision.label
         if decision.detail.get("target"):
             reason += f" target={decision.detail['target'][:12]}"
+        if "waiting_at_last_fetch" in decision.detail:
+            reason += f" waiting_at_last_fetch={decision.detail['waiting_at_last_fetch']}"
         if decision.detail.get("error"):
             reason += f" ({decision.detail['error']})"
         status = WORK_STATUS[decision.outcome]

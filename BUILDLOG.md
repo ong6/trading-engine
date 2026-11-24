@@ -984,4 +984,19 @@ earlier logs listed in that index.
 - **Metrics:** tools +14, tests +16, docs +1 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — Deployer skips say whether a commit was waiting
+
+- **Why:** reproduced defect: `pytest tests/test_auto_deploy.py::test_a_lock_skip_says_whether_a_commit_was_waiting_at_the_last_fetch`
+  fails with `KeyError: 'waiting_at_last_fetch'`: a skip at the first gate (for example
+  `producer-lock:.nightly.lock`) is decided before the up-to-date check, so receipts never
+  showed whether a newer commit was waiting.
+- **What:** a skip at the first gate adds `waiting_at_last_fetch`, the count of first-parent
+  `main` commits past the live HEAD in the private mirror as of its last fetch, and the receipt
+  reason shows it. It is a local, read-only `git rev-list` with a 30-second timeout; computing
+  a fresh green target would need a fetch and the CI API before the gates, so no gate moves or
+  weakens and the decision is unchanged.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (61 tests).
+- **Metrics:** tools +16, tests +13, docs +2 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

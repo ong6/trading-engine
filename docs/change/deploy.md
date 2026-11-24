@@ -63,7 +63,9 @@ refreshes the pins. Never change a registered value.
 Each run records one decision: `deployed`, `would-deploy` (dry run), `skipped:<reason>`
 (`window`, `producer-running`, `release-transaction`, `timer-soon`, `unit-active`, `low-disk`,
 `refused-target`, ...), `needs-human:<reason>`, `rolled-back`, `recovered`, `would-recover` or
-`recovery-failed`. Decisions appear under "Deployer" in the hourly digest. State lives in
+`recovery-failed`. A skip at the first gate (window, lock, producer, release transaction,
+low disk) adds `waiting_at_last_fetch`: how many `main` commits were past the live checkout when
+the private mirror was last fetched (the fetch itself waits until the gates pass). Decisions appear under "Deployer" in the hourly digest. State lives in
 `~/.local/state/trading-engine/auto-deploy/state.json`; receipts in `logs/job-runs/auto-deploy/`.
 The nightly does not pull code; it takes only data-only commits.
 

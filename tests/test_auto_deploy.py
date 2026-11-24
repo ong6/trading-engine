@@ -179,6 +179,19 @@ def test_skips_in_a_window_while_a_producer_runs_or_a_lock_is_held(host):
         deployer.decide(execute=False)
 
 
+def test_a_lock_skip_says_whether_a_commit_was_waiting_at_the_last_fetch(host):
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    deployer = _deployer(host, green={target})
+    assert deployer.decide(execute=False).outcome == "would-deploy"  # refreshes the mirror
+    deployer.held = {".nightly.lock"}
+    with pytest.raises(auto_deploy.Stop, match="producer-lock") as stop:
+        deployer.decide(execute=True)
+    assert stop.value.detail["waiting_at_last_fetch"] == 1
+    receipt = json.loads(deployer.record(auto_deploy.Decision(
+        stop.value.outcome, stop.value.reason, stop.value.detail), SAFE, SAFE).read_text())
+    assert receipt["reason"] == "skipped:producer-lock:.nightly.lock waiting_at_last_fetch=1"
+
+
 def test_lock_globs_find_running_guards(host):
     (host["live"] / ".nightly.running.lock").write_text("")
     deployer = _deployer(host)
