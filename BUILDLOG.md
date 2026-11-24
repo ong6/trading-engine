@@ -798,4 +798,19 @@ earlier logs listed in that index.
 - **Metrics:** docs only; root `AGENTS.md` stays at 80 lines.
 - **Next:** search hygiene and the add-a-data-source checklist.
 
+## 2026-11-24 — Keep bulky output out of search; document adding a data source
+
+- **Why:** P25 scope item 5 (docs): agent search tools read about 53 MB of screens, sweep results
+  and lock files; `ui/.next/` does not match the host's `ui/.next` symlink; the data guide had no
+  path for adding a source.
+- **What:** a root `.ignore` hides `data/screens/`, every `results/` and `cells/` folder under
+  `data/` and the two lock files from ripgrep-based tools, and `data/reports/AGENTS.md` gives
+  the matching `git grep` pathspec; `.gitignore` matches `ui/.next` as a file or link;
+  `docs/data/README.md` lists the touch set for a new source, taken from the Massive options
+  source and the newest scheduled job.
+- **Evidence:** `tools.affected_tests --run` passes; `rg --files` skips 443 tracked files, all
+  under those globs, and still lists every tracked `README.md` and `AGENTS.md`.
+- **Metrics:** docs only.
+- **Next:** plan status and the scope table for P25.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

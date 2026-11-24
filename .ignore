@@ -1,0 +1,7 @@
+# Bulky generated output kept out of ripgrep-based search (git still tracks it).
+# The equivalent git grep pathspec is in data/reports/AGENTS.md.
+data/screens/
+data/**/results/
+data/**/cells/
+uv.lock
+ui/package-lock.json
