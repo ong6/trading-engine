@@ -1226,4 +1226,17 @@ earlier logs listed in that index.
 - **Metrics:** tools +1, tests +13, docs +1 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — Deploy docs: the crontab during a release, and the waiting count
+
+- **Why:** doc fix from review: `docs/change/deploy.md` did not say that a release restores the
+  crontab exactly as captured, and its `waiting_at_last_fetch` wording no longer matched how the
+  count is taken.
+- **What:** a new operate bullet says a release removes the crontab while the host is paused and
+  restores it as captured, so external lines do not run meanwhile and a cron line added during
+  the release is not kept. The waiting count is described as counted from the live checkout's
+  base on `main` as of its last fetch, against the private mirror's last fetch.
+- **Evidence:** `tools.affected_tests --run` passes.
+- **Metrics:** docs only; snapshot refreshed (whole branch: tools +236, tests +440).
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

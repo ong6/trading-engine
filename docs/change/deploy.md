@@ -74,8 +74,9 @@ Each run records one decision: `deployed`, `would-deploy` (dry run), `skipped:<r
 (`window`, `producer-running`, `release-transaction`, `timer-soon`, `unit-active`, `low-disk`,
 `refused-target`, ...), `needs-human:<reason>`, `rolled-back`, `recovered`, `would-recover` or
 `recovery-failed`. A skip at the first gate (window, lock, producer, release transaction,
-low disk) adds `waiting_at_last_fetch`: how many `main` commits were past the live checkout when
-the private mirror was last fetched (the fetch itself waits until the gates pass). Decisions appear under "Deployer" in the hourly digest. State lives in
+low disk) adds `waiting_at_last_fetch`: how many `main` commits the private mirror's last fetch
+has past the live checkout's base on `main`, as of the live checkout's last fetch (neither is
+fetched before the gates pass). Decisions appear under "Deployer" in the hourly digest. State lives in
 `~/.local/state/trading-engine/auto-deploy/state.json`; receipts in `logs/job-runs/auto-deploy/`.
 The nightly does not pull code; it takes only data-only commits.
 
@@ -84,6 +85,9 @@ The nightly does not pull code; it takes only data-only commits.
 - **Dry run by hand**: `python -m tools.auto_deploy` (without `--execute`) reports what the timer
   would do and changes nothing, `state.json` included. One run at a time holds `run.lock` in the
   state directory; a second exits `skipped:run-in-progress`.
+- **Crontab during a release**: a release removes the whole crontab while the host is paused
+  and restores it exactly as captured, external lines included, so those lines do not run
+  meanwhile and a cron line added during the release is not kept.
 - **Release directories are load-bearing**: the live `.venv` links into the newest release's
   `prepared/` environment under `~/.local/state/trading-engine/releases/`. Only `recovery/` may be
   deleted (the retention job does that); never delete a release directory.
