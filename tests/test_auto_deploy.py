@@ -720,13 +720,19 @@ def test_a_failed_rollback_is_recovered_on_the_next_run(host):
     assert _git(host["live"], "for-each-ref", "refs/auto-deploy/")
 
 
-def test_pending_recovery_ignores_windows_and_timers_but_not_locks(host):
+def test_pending_recovery_skips_the_nightly_window_but_not_pre_open_timers_or_locks(host):
     from datetime import timedelta
 
     good, target = _failed_rollback(host)
     deployer = _deployer(host, green={target})
+    deployer.moment = SAFE.replace(hour=14, minute=22)  # pre-open: non-engine jobs run then
+    with pytest.raises(auto_deploy.Stop, match="skipped:window"):
+        deployer.decide(execute=True)
     deployer.moment = SAFE.replace(hour=23)  # inside the nightly window
-    deployer.timers = {"trading-engine-p15-scoring.timer": deployer.moment + timedelta(minutes=5)}
+    deployer.timers = {"trading-engine-p15-scoring.timer": deployer.moment + timedelta(minutes=2)}
+    with pytest.raises(auto_deploy.Stop, match="skipped:timer-soon"):
+        deployer.decide(execute=True)
+    deployer.timers = {"trading-engine-p15-scoring.timer": deployer.moment + timedelta(minutes=9)}
     deployer.held = {".nightly.lock"}
     with pytest.raises(auto_deploy.Stop, match="skipped:producer-lock"):
         deployer.decide(execute=True)

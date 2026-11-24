@@ -28,8 +28,9 @@ receipt names the saved copy, and a ``refs/auto-deploy/pre-recovery-*`` ref keep
 re-applies data-only commits, re-runs ``install_automation --apply`` and checks the host. Dry
 runs report ``would-recover``.
 
-A recorded recovery (an in-flight marker or a failed recovery) skips the windows and the
-timer-soon check below, never a held lock, a producer, a release transaction or a running unit.
+A recorded recovery (an in-flight marker or a failed recovery) skips the 22:30-03:00 window
+and looks ahead 5 minutes instead of 15 for a timer; it keeps the 14:05-14:35 window and never
+runs past a held lock, a producer, a release transaction or a running unit.
 
 Steps: (1) skip inside 14:05-14:35 and 22:30-03:00 UTC, while any producer lock is held
 (observed through ``/proc/locks``, never acquired), a producer process runs or a release
@@ -92,6 +93,7 @@ RUNS_URL = (f"https://api.github.com/repos/{REPOSITORY}/actions/runs"
 WORKFLOW = "ci"
 BLOCKED_WINDOWS = ((time(14, 5), time(14, 35)), (time(22, 30), time(3, 0)))
 MUTATION_LEAD = timedelta(minutes=15)  # the mutating half must end before a window or a start
+RECOVERY_LEAD = timedelta(minutes=5)  # a recovery takes seconds to a few minutes
 # Gate and forward tests take about a minute; with MUTATION_LEAD they fit inside the unit's
 # TimeoutStartSec (50 min), so a hung check ends with a receipt instead of a systemd kill.
 GATE_TIMEOUT = FORWARD_TESTS_TIMEOUT = 900
@@ -146,9 +148,9 @@ class Decision:
         return f"{self.outcome}:{self.reason}" if self.reason else self.outcome
 
 
-def in_blocked_window(moment: datetime) -> bool:
+def in_blocked_window(moment: datetime, windows=BLOCKED_WINDOWS) -> bool:
     clock = moment.astimezone(UTC).time()
-    for start, end in BLOCKED_WINDOWS:
+    for start, end in windows:
         if (start <= clock < end) if start < end else (clock >= start or clock < end):
             return True
     return False
@@ -416,9 +418,13 @@ class Deployer:
 
     def _gate_now(self, *, lead: timedelta = timedelta(0), recovery: bool = False) -> None:
         """Skip unless the host may change now. A recorded recovery (a broken or unverified
-        host) is not held for the windows or a timer due soon, only for what is running."""
+        host) may run in the nightly window, whose producers show as locks and processes, and
+        looks ahead only RECOVERY_LEAD for a timer; the pre-open window still holds it."""
         moment = self.now()
-        if not recovery and (in_blocked_window(moment) or in_blocked_window(moment + lead)):
+        windows = BLOCKED_WINDOWS[:1] if recovery else BLOCKED_WINDOWS
+        if recovery and lead:
+            lead = RECOVERY_LEAD
+        if in_blocked_window(moment, windows) or in_blocked_window(moment + lead, windows):
             raise Stop("skipped", "window")
         reason = self.busy()
         if reason:
@@ -430,7 +436,7 @@ class Deployer:
             timers, activating, crontab = self.engine_schedule()
             if activating:
                 raise Stop("skipped", "unit-active", units=activating)
-            soon = None if recovery else scheduled_soon(crontab, timers, moment, lead)
+            soon = scheduled_soon(crontab, timers, moment, lead)
             if soon:
                 raise Stop("skipped", "timer-soon", unit=soon)
 

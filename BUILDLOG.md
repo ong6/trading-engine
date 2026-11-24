@@ -1093,4 +1093,18 @@ earlier logs listed in that index.
 - **Metrics:** tools +6, tests +5 lines; snapshot refreshed (whole branch: tools +166, tests +271).
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A recorded recovery keeps the pre-open window and a short timer look-ahead
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py::test_pending_recovery_skips_the_nightly_window_but_not_pre_open_timers_or_locks`
+  fails with `DID NOT RAISE Stop` at 14:22 UTC: a recorded recovery ignored every window and
+  `timer-soon`, but a non-engine job using the checkout runs in the pre-open window and is
+  invisible to the unit and timer checks, so the window was its only protection.
+- **What:** a recorded recovery keeps the 14:05–14:35 window and looks ahead 5 minutes
+  (`RECOVERY_LEAD`) instead of 15 for an engine start; it may still run in the 22:30–03:00
+  window, whose producers show as locks and processes. Docstring and `docs/change/deploy.md`
+  updated.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (64 tests).
+- **Metrics:** tools +6, tests +6, docs +2 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

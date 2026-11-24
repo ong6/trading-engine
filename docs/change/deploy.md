@@ -55,10 +55,12 @@ clear of them, two per half hour.
   `install_automation --apply` and a health check.
 - Failed recoveries retry with backoff from 15 minutes to 4 hours; after three it clears failed
   engine units and restarts the API and UI.
-- A recorded recovery (in-flight marker or failed recovery) ignores the skip windows and
-  `timer-soon`, so a broken host is not left for hours; it still waits for producer locks,
-  producer processes, a release transaction, a running engine unit and low disk. Unhealthy
-  unverified code found only by the health probe is gated like a deploy.
+- A recorded recovery (in-flight marker or failed recovery) may run in the 22:30–03:00 window
+  and looks ahead 5 minutes instead of 15 for an engine start, so a broken host is not left for
+  hours. It keeps the 14:05–14:35 window (non-engine jobs that use the checkout run then) and
+  still waits for producer locks, producer processes, a release transaction, a running engine
+  unit and low disk. Unhealthy unverified code found only by the health probe is gated like a
+  deploy.
 - Dry runs report `would-recover` and never act. `--drill-rollback` (with `--execute`) proves the
   rollback path.
 - There are no notifications: decisions and recovery actions appear in the receipts and the hourly
