@@ -1058,7 +1058,7 @@ class Deployer:
             state["deployed_sha"] = decision.detail["target"]
         elif decision.detail.get("deployed") and decision.outcome not in {
                 "rolled-back", "recovered", "recovery-failed"}:
-            state.setdefault("deployed_sha", decision.detail["deployed"])
+            state["deployed_sha"] = decision.detail["deployed"]  # follows an adopted hand deploy
         state["last_attempt"] = {"at": _iso(ended), "decision": decision.label,
                                  "receipt": str(path)}
         self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)

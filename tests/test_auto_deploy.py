@@ -754,6 +754,19 @@ def test_a_healthy_hand_deploy_is_adopted_and_unhealthy_code_is_recovered(host):
     assert _git(host["live"], "rev-parse", "HEAD") == good
 
 
+def test_deployed_sha_follows_an_adopted_hand_deploy(host):
+    first = _git(host["live"], "rev-parse", "HEAD")
+    _deployer(host).save_state(last_good_sha=first, deployed_sha=first)
+    hand = _push(host, "hand", {"engine/x.py": "x = 9\n"})
+    _git(host["live"], "pull", "-q", "--ff-only", "origin", "main")
+    deployer = _deployer(host, green={hand})
+    with pytest.raises(auto_deploy.Stop, match="skipped:up-to-date") as stop:
+        deployer.decide(execute=True)
+    deployer.record(auto_deploy.Decision(stop.value.outcome, stop.value.reason,
+                                         stop.value.detail), SAFE, SAFE)
+    assert _state(host)["deployed_sha"] == hand
+
+
 def test_a_rollback_drill_rolls_back_a_good_deploy(host):
     before = _git(host["live"], "rev-parse", "HEAD")
     target = _push(host, "code", {"engine/x.py": "x = 1\n"})

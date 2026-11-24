@@ -942,4 +942,16 @@ earlier logs listed in that index.
 - **Metrics:** tools +3, tests +11, docs +2 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — The deployer's recorded deployed commit follows an adopted hand deploy
+
+- **Why:** reproduced defect: `pytest tests/test_auto_deploy.py::test_deployed_sha_follows_an_adopted_hand_deploy`
+  fails with `assert '7c1d4aa5dd85...' == '6fd08a7ae1d6...'`: `record()` kept the first
+  `deployed_sha` it saw (`setdefault`), so after a healthy hand deploy was adopted the state (read
+  by `tools.repin` as its default deployed commit) still named the older commit.
+- **What:** a decision that reports the deployed commit now overwrites `deployed_sha`; rolled-back
+  and recovery decisions still leave it alone.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (58 tests).
+- **Metrics:** tools 0 net, tests +13 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
