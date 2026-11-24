@@ -584,6 +584,9 @@ class Deployer:
                          "--receipts", str(self.state_dir / "gate-receipts")],
                         cwd=REPO_ROOT, env={"PYTHONPATH": str(REPO_ROOT)}, timeout=GATE_TIMEOUT)
         tail = done.stdout.strip().splitlines()[-6:]
+        if done.returncode in (3, 124):  # cannot check (dirty or moved tree), or timed out
+            reason = "gate-cannot-check" if done.returncode == 3 else "gate-timeout"
+            raise Stop("skipped", reason, exit=done.returncode, tail=tail or [done.stderr[-300:]])
         if done.returncode:
             raise Stop("needs-human", "gate-refused", exit=done.returncode, tail=tail)
         with tempfile.TemporaryDirectory(prefix="auto-deploy-tests-") as private:

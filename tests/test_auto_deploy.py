@@ -535,6 +535,17 @@ def test_a_rolled_back_target_is_refused_and_a_newer_green_commit_deploys(host):
     decision = _deployer(host, green={bad, fix}).decide(execute=True)
     assert decision.outcome == "deployed" and decision.detail["target"] == fix
 
+@pytest.mark.parametrize("code, label", [
+    (3, "skipped:gate-cannot-check"), (124, "skipped:gate-timeout"),
+    (2, "needs-human:gate-refused"),
+])
+def test_a_gate_that_cannot_check_is_retried_and_a_refusal_needs_a_human(host, code, label):
+    deployer = _deployer(host)
+    deployer.run = lambda argv, **kw: subprocess.CompletedProcess(argv, code, "verdict\n", "")
+    with pytest.raises(auto_deploy.Stop, match=label):
+        auto_deploy.Deployer.gate(deployer, host["live"], "a" * 40)
+
+
 def test_low_disk_skips_before_any_work(host):
     target = _push(host, "code", {"engine/x.py": "x = 1\n"})
     deployer = _deployer(host, green={target})

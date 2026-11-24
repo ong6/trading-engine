@@ -930,4 +930,16 @@ earlier logs listed in that index.
 - **Metrics:** tools +11, tests +19, docs +4 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A deploy gate that cannot check is retried, not refused as needs-human
+
+- **Why:** reproduced defect: `pytest tests/test_auto_deploy.py -k cannot_check` fails for exits
+  3 and 124 with `Actual message: 'needs-human:gate-refused'`: a gate that could not check (a
+  dirty or moved worktree) or timed out blocked the target until `main` moved.
+- **What:** gate exit 3 is `skipped:gate-cannot-check` and a timeout (or a gate that did not
+  start) is `skipped:gate-timeout`; neither records a refused target, so the next tick retries.
+  Exit 2, a real refusal, stays `needs-human:gate-refused`. `docs/change/deploy.md` says so.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (57 tests).
+- **Metrics:** tools +3, tests +11, docs +2 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

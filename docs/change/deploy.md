@@ -27,7 +27,9 @@ refreshes the pins. Never change a registered value.
    (dry by default, `--execute` to mutate). Each release transaction keeps its state under
    `~/.local/state/trading-engine/releases/<name>/` (its `state.json` phase and its store backup
    in `recovery/`). A `needs-human` target is not re-checked until `main` moves
-   (`skipped:refused-target`).
+   (`skipped:refused-target`). A gate refusal (exit 2) is `needs-human:gate-refused`; a gate
+   that cannot check (exit 3) or times out is `skipped:gate-cannot-check` or
+   `skipped:gate-timeout` and is retried on the next tick.
 4. It fast-forwards the live checkout (rebasing data-only local commits). When a forward-record
    closure changed, it runs `--migrate-runtime-contract` after a digest-only rehearsal.
 5. It runs `tools.install_automation --apply` (changed units; API or UI restart only when their
