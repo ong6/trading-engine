@@ -810,6 +810,35 @@ def test_a_hard_reset_recovery_keeps_uncommitted_producer_data(host):
     assert (Path(kept["dir"]) / "data/reports/r.json").read_text() == '{"producer": 2}'
 
 
+def test_a_failed_restore_of_saved_producer_data_names_the_saved_copy(host, monkeypatch):
+    import shutil
+
+    _commit(host["seed"], "meta", {"data/_meta.json": "{}"})
+    _git(host["seed"], "push", "-q", "origin", "main")
+    _git(host["live"], "pull", "-q", "--ff-only")
+    good = _git(host["live"], "rev-parse", "HEAD")
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    _git(host["live"], "pull", "-q", "--ff-only", "origin", "main")  # a deploy that crashed
+    _deployer(host).save_state(last_good_sha=good, in_flight={
+        "previous": good, "moved": target, "families": [],
+        "backup": str(host["tmp"] / "state/backups/none")})
+    (host["live"] / "engine/x.py").write_text("local edit\n")  # makes --keep refuse
+    _write(host["live"], "data/_meta.json", '{"fresh": true}')
+    real = shutil.copy2
+
+    def copy2(source, destination, **kwargs):
+        if "recovery-data" in str(source):
+            raise OSError(28, "No space left on device")
+        return real(source, destination, **kwargs)
+
+    monkeypatch.setattr(auto_deploy.shutil, "copy2", copy2)
+    decision = _deployer(host, green={target}).decide(execute=True)
+    assert decision.outcome == "recovery-failed", decision
+    saved = Path(decision.detail["data_saved"])
+    assert (saved / "data/_meta.json").read_text() == '{"fresh": true}'
+    assert _state(host)["recovery"]["data_saved"] == str(saved)
+
+
 def test_failed_recoveries_back_off_and_then_heal_services(host):
     from datetime import timedelta
 

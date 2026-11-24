@@ -1120,4 +1120,17 @@ earlier logs listed in that index.
 - **Metrics:** tools +4, tests +20 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A failed recovery names the saved producer data
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py::test_a_failed_restore_of_saved_producer_data_names_the_saved_copy`
+  fails with `KeyError: 'data_saved'`: when putting the saved `data/` edits back failed after the
+  hard reset (for example no space left), the receipt had no path to the saved copy, so the
+  producer edit was effectively lost.
+- **What:** the save directory goes into the decision detail as `data_saved` right after the
+  copy, before the reset, and into `state.recovery` when the recovery fails; it is dropped once
+  the edits are put back (a conflict is still named in `data_kept`).
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (66 tests).
+- **Metrics:** tools +5, tests +29 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

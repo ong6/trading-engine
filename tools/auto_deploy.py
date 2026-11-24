@@ -882,6 +882,8 @@ class Deployer:
                     # files are never touched; the pre-recovery ref keeps every commit), after
                     # copying the producers' uncommitted data/ edits aside.
                     saved = self.save_dirty_data(stamp)
+                    if saved:  # named before the reset, so a failed recovery's receipt keeps it
+                        detail["data_saved"] = str(saved["dir"])
                     self.git(self.root, "reset", "-q", "--hard", good)
                     self.steps.append("recover:hard-reset")
                 skipped = []
@@ -895,6 +897,7 @@ class Deployer:
                               backup_ref=f"refs/auto-deploy/pre-recovery-{stamp}")
                 if saved:
                     detail.update(self.restore_dirty_data(saved, head))
+                    detail.pop("data_saved")  # restored, or named again in data_kept
                 self.steps.append(f"recover:{head[:12]}->{good[:12]}")
                 code, summary = self.automation("--apply")
                 self.steps.append(f"apply:{summary.get('status')}")
@@ -911,7 +914,9 @@ class Deployer:
                 if failures >= HEAL_AFTER:
                     self.heal_services()
                 self.save_state(recovery={"failures": failures, "why": origin,
-                                          "next_at": _iso(self.now() + delay)})
+                                          "next_at": _iso(self.now() + delay),
+                                          **({"data_saved": detail["data_saved"]}
+                                             if "data_saved" in detail else {})})
                 return Decision("recovery-failed", why, {**detail, "error": str(exc)[:300],
                                                          "failures": failures})
         self.save_state(in_flight=None, recovery=None, last_good_sha=good)
