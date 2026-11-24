@@ -34,8 +34,9 @@ refreshes the pins. Never change a registered value.
    closure changed, it runs `--migrate-runtime-contract` after a digest-only rehearsal.
 5. It runs `tools.install_automation --apply` (changed units; API or UI restart only when their
    code changed) and post-checks `/health`, `/ready`, `/meta` and the automation audit.
-6. A failed post-check rolls back automatically. A rolled-back target is refused until `main`
-   moves; newer green commits still deploy.
+6. A failed post-check rolls back automatically. A rolled-back target's code is refused
+   (`skipped:refused-target`) until a green commit outside `data/` changes it; data-only pushes
+   do not retry it.
 
 ## Self-heal
 

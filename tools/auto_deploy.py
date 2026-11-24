@@ -11,7 +11,8 @@ state directory; another exits ``skipped:run-in-progress``. Each run records one
   skipped:<reason>         nothing to do now (a blocked window, a producer, up to date, ...)
   needs-human:<reason>     the range needs ``tools/release_deploy.py`` or a person
   rolled-back              the post-check failed: the previous commit was restored and the
-                           target is refused until ``main`` moves (newer green commits deploy)
+                           target's code is refused until a commit outside ``data/`` changes
+                           it (data-only pushes do not retry it; newer code deploys)
   recovered                an unverified host (a crashed deploy, a failed rollback, unhealthy
                            unverified code) was brought back to the last verified commit
   recovery-failed          recovery did not verify; it retries with backoff and, after three
@@ -930,6 +931,12 @@ class Deployer:
             return {}
         return {"data_kept": {"dir": str(saved["dir"]), "paths": kept}}
 
+    def same_code(self, first: str, second: str) -> bool:
+        """Whether two mirror commits have the same tracked tree outside ``data/``."""
+        done = self.run(["git", "diff", "--quiet", first, second, "--", ".", ":(exclude)data"],
+                        cwd=self.mirror, timeout=120)
+        return done.returncode == 0
+
     def _data_only(self, commit: str) -> bool:
         names = self.git(self.root, "diff-tree", "--no-commit-id", "--name-only", "-r",
                          commit).splitlines()
@@ -1016,6 +1023,11 @@ class Deployer:
                 raise Stop("needs-human", ",".join(reasons), target=target,
                            blocking=commit) from stop
             held_back = {"commit": commit, "reasons": reasons}
+        rolled_back = (self.load_state().get("rolled_back") or {}).get("target")
+        if rolled_back and self.same_code(rolled_back, target):
+            # Only data-only commits since the rolled-back target: the same code would fail
+            # again. Refused until a commit outside data/ changes the code.
+            raise Stop("skipped", "refused-target", target=target, rolled_back=rolled_back)
         local = self.live_state(live_head, origin)
         families = self.migrations_needed(target)
         expected = {family.key: repin._literal(
@@ -1074,6 +1086,8 @@ class Deployer:
             state["refused"] = {"origin": decision.detail["origin"],
                                 "target": decision.detail.get("target"),
                                 "reason": decision.label, "receipt": str(path)}
+        if decision.outcome == "rolled-back" and decision.detail.get("target"):
+            state["rolled_back"] = {"target": decision.detail["target"], "receipt": str(path)}
         if decision.outcome == "deployed":
             state["deployed_sha"] = decision.detail["target"]
         elif decision.detail.get("deployed") and decision.outcome not in {

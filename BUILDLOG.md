@@ -970,4 +970,18 @@ earlier logs listed in that index.
 - **Metrics:** tools +22, tests +8, docs +1 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A rolled-back target is not redeployed after data-only pushes
+
+- **Why:** reproduced defect: `pytest tests/test_auto_deploy.py::test_a_rolled_back_target_is_not_redeployed_after_data_only_pushes`
+  fails with `DID NOT RAISE Stop`: a rolled-back target was remembered only while `origin/main`
+  stayed at the same commit, so an automatic data-only push (or a newer code commit whose CI was
+  still running) made the same bad code the target again, to be deployed and rolled back again.
+- **What:** a rolled-back decision records its target as `rolled_back` in `state.json`; a chosen
+  target whose tracked tree outside `data/` equals it (checked in the mirror) is
+  `skipped:refused-target` until a commit outside `data/` changes the code. The module docstring
+  and `docs/change/deploy.md` say so.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (60 tests).
+- **Metrics:** tools +14, tests +16, docs +1 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
