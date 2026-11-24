@@ -1068,4 +1068,17 @@ earlier logs listed in that index.
 - **Metrics:** tools +3, tests +6 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — Only new code is remembered as rolled back
+
+- **Why:** reproduced defect: `pytest tests/test_auto_deploy.py::test_a_drill_or_a_data_only_rollback_is_not_remembered_as_bad_code`
+  fails with `assert 'rolled_back' not in {...}`: a `--drill-rollback` run ends `rolled-back`,
+  so healthy code was refused until a code commit landed; a rolled-back target whose code was
+  already deployed would likewise have refused every later data-only target.
+- **What:** `record()` remembers a rolled-back target only when it is not a drill and its code
+  outside `data/` differs from the deployed commit's. The origin-based refused-target memory is
+  unchanged. `docs/change/deploy.md` says so.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (64 tests).
+- **Metrics:** tools +3, tests +19, docs +2 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

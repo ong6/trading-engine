@@ -1108,8 +1108,11 @@ class Deployer:
             state["refused"] = {"origin": decision.detail["origin"],
                                 "target": decision.detail.get("target"),
                                 "reason": decision.label, "receipt": str(path)}
-        if decision.outcome == "rolled-back" and decision.detail.get("target"):
-            state["rolled_back"] = {"target": decision.detail["target"], "receipt": str(path)}
+        target = decision.detail.get("target")
+        if (decision.outcome == "rolled-back" and target and not self.drill_rollback
+                and not self.same_code(decision.detail.get("deployed", ""), target)):
+            # Only new code is remembered as bad: not a drill, not a data-only target.
+            state["rolled_back"] = {"target": target, "receipt": str(path)}
         if decision.outcome == "deployed":
             state["deployed_sha"] = decision.detail["target"]
         elif decision.detail.get("deployed") and decision.outcome not in {

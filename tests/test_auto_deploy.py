@@ -614,6 +614,25 @@ def test_a_forward_test_timeout_is_retried(host):
         auto_deploy.Deployer.gate(deployer, host["live"], "a" * 40)
 
 
+def test_a_drill_or_a_data_only_rollback_is_not_remembered_as_bad_code(host):
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    drill = _deployer(host, green={target})
+    drill.drill_rollback = True
+    drill.ops._wait_health = lambda: ({"ok": True}, {})
+    drill.record(drill.decide(execute=True), SAFE, SAFE)
+    assert "rolled_back" not in _state(host)
+    data = _push(host, "data", {"data/reports/a.json": "{}"})
+    decision = _deployer(host, green={target, data}).decide(execute=True)
+    assert decision.outcome == "deployed", decision
+    later = _push(host, "data", {"data/reports/b.json": "{}"})
+    failing = _deployer(host, green={later})
+    failing.post_ok = False
+    failing.ops._wait_health = lambda: ({"ok": True}, {})
+    failing.record(failing.decide(execute=True), SAFE, SAFE)
+    assert _state(host)["refused"]["reason"] == "rolled-back"
+    assert "rolled_back" not in _state(host)  # the code it ran is the deployed code
+
+
 def test_low_disk_skips_before_any_work(host):
     target = _push(host, "code", {"engine/x.py": "x = 1\n"})
     deployer = _deployer(host, green={target})
