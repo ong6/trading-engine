@@ -181,6 +181,7 @@ class FakeOperations:
         self.calls.append("create-backup")
         if self.fail_backup:
             raise release_deploy.DeployError("bundle verification refused")
+        (self.store.directory / "recovery").mkdir(exist_ok=True)
         return {"manifest_sha256": "e" * 64}
 
     def capture_artifacts(self, _state):
@@ -709,6 +710,24 @@ def test_rollback_then_resume_requires_current_reconciled_sha(transaction):
     result = deployment.resume(reconciled_sha=OLD_SHA, execute=True)
     assert result["status"] == "resumed"
     assert operations.releases[-1] is True
+
+
+def test_rollback_refuses_before_pausing_the_host(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    deployment.fail_after = "source-switch"
+    with pytest.raises(release_deploy.DeployError):
+        deployment.apply(execute=True, approve_plan=None)
+    deployment.fail_after = None
+    phase = deployment.store.load().phase
+    operations.head, operations.calls = "3" * 40, []  # a person moved the checkout
+    with pytest.raises(release_deploy.DeployError, match="unrecognized source SHA"):
+        deployment.rollback(execute=True)
+    operations.head = NEW_SHA
+    shutil.rmtree(deployment.store.directory / "recovery")  # retention removed the bundle
+    with pytest.raises(release_deploy.DeployError, match="recovery bundle"):
+        deployment.rollback(execute=True)
+    assert "quiesce" not in operations.calls and deployment.store.load().phase == phase
 
 
 def test_reconciled_source_refuses_detached_head_in_real_repository(tmp_path):

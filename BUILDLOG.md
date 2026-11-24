@@ -1029,4 +1029,20 @@ earlier logs listed in that index.
 - **Metrics:** tools +13, tests +35 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — Release rollback refuses before pausing the host
+
+- **Why:** reproduced defect: `pytest tests/test_release_deploy.py::test_rollback_refuses_before_pausing_the_host`
+  fails with `DID NOT RAISE DeployError`: `rollback --execute` quiesced first (stopping timers,
+  the API and UI and removing the crontab), and only then did `restore_source` refuse an
+  unrecognized live HEAD; nothing checked that retention had not deleted the `recovery/` bundle.
+- **What:** before saving the `rolling-back` phase or quiescing, rollback refuses when live HEAD
+  is neither the approved nor the original commit (unless `restore-source` already completed)
+  or when `recovery/` is missing (unless `restore-database` already completed), so a resumed
+  rollback still proceeds. Left as is: `restore_source` detaches HEAD by design (resume requires
+  reconciling onto the saved branch), and its `checkout HEAD -- data` loses nothing because the
+  incident capture copies `data/` first and `restore_artifacts` rebuilds it from the image.
+- **Evidence:** `pytest -q tests/test_release_deploy.py tests/test_basis_release.py` passes.
+- **Metrics:** tools +10, tests +19 lines; snapshot refreshed (these fixes: tools +151, tests +233).
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -2996,6 +2996,16 @@ class ReleaseDeployment:
             raise DeployError(f"rollback is not allowed from phase {state.phase}")
         if state.phase == "rolled-back":
             return {"status": "rolled-back", "idempotent": True, "state": asdict(state)}
+        # Refuse while the host is untouched: quiescence stops timers, the API and the crontab.
+        if self.journal.completed("restore-source") is None and self.operations._head(
+            Path(state.repo_root)
+        ) not in {state.approved_sha, state.original_sha}:
+            raise DeployError("cannot roll back an unrecognized source SHA; this run changed nothing")
+        if (
+            self.journal.completed("restore-database") is None
+            and not (self.store.directory / "recovery").is_dir()
+        ):
+            raise DeployError("rollback recovery bundle is missing; this run changed nothing")
         state.phase = "rolling-back"
         self.store.save(state)
         try:
