@@ -730,6 +730,23 @@ def test_rollback_refuses_before_pausing_the_host(transaction):
     assert "quiesce" not in operations.calls and deployment.store.load().phase == phase
 
 
+def test_a_resumed_rollback_refuses_a_moved_checkout_before_pausing(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    deployment.fail_after = "source-switch"
+    with pytest.raises(release_deploy.DeployError):
+        deployment.apply(execute=True, approve_plan=None)
+    deployment.fail_after = None
+    operations.restore_database = lambda _state: (_ for _ in ()).throw(
+        release_deploy.DeployError("restore-database interrupted"))
+    with pytest.raises(release_deploy.DeployError, match="interrupted"):
+        deployment.rollback(execute=True)  # restore-source completed, then it stopped
+    operations.head, operations.calls = "3" * 40, []  # then a person moved the checkout
+    with pytest.raises(release_deploy.DeployError, match="moved after restore-source"):
+        deployment.rollback(execute=True)
+    assert "quiesce" not in operations.calls
+
+
 def test_reconciled_source_refuses_detached_head_in_real_repository(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()

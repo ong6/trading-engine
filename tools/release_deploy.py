@@ -3003,10 +3003,14 @@ class ReleaseDeployment:
         if state.phase == "rolled-back":
             return {"status": "rolled-back", "idempotent": True, "state": asdict(state)}
         # Refuse while the host is untouched: quiescence stops timers, the API and the crontab.
-        if self.journal.completed("restore-source") is None and self.operations._head(
-            Path(state.repo_root)
-        ) not in {state.approved_sha, state.original_sha}:
-            raise DeployError("cannot roll back an unrecognized source SHA; this run changed nothing")
+        head = self.operations._head(Path(state.repo_root))
+        if self.journal.completed("restore-source") is None:
+            if head not in {state.approved_sha, state.original_sha}:
+                raise DeployError(
+                    "cannot roll back an unrecognized source SHA; this run changed nothing"
+                )
+        elif head != state.original_sha:  # a resumed rollback would overwrite the store first
+            raise DeployError("live source moved after restore-source; this run changed nothing")
         if (
             self.journal.completed("restore-database") is None
             and not (self.store.directory / "recovery").is_dir()

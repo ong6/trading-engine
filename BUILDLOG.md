@@ -1148,4 +1148,16 @@ earlier logs listed in that index.
 - **Metrics:** tools +23, tests +22, docs +1 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A resumed rollback refuses a moved checkout before pausing the host
+
+- **Why:** review finding, reproduced: `pytest tests/test_release_deploy.py::test_a_resumed_rollback_refuses_a_moved_checkout_before_pausing`
+  fails with `Actual message: 'restore-database interrupted'`: when `restore-source` had already
+  completed, the pre-check skipped the commit check, so a resumed rollback quiesced and went on
+  to restore the database before refusing late with "release checkout source changed".
+- **What:** once `restore-source` is complete, the pre-check requires live HEAD to be the
+  original commit, before the phase is saved or anything is paused.
+- **Evidence:** `pytest -q tests/test_release_deploy.py` passes.
+- **Metrics:** tools +4, tests +17 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
