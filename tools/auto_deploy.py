@@ -94,6 +94,7 @@ WORKFLOW = "ci"
 BLOCKED_WINDOWS = ((time(14, 5), time(14, 35)), (time(22, 30), time(3, 0)))
 MUTATION_LEAD = timedelta(minutes=15)  # the mutating half must end before a window or a start
 RECOVERY_LEAD = timedelta(minutes=5)  # a recovery takes seconds to a few minutes
+PROBE_ONLY = "unhealthy-unverified-code"  # recovery found by the health probe alone
 # Gate and forward tests take about a minute; with MUTATION_LEAD they fit inside the unit's
 # TimeoutStartSec (50 min), so a hung check ends with a receipt instead of a systemd kill.
 GATE_TIMEOUT = FORWARD_TESTS_TIMEOUT = 900
@@ -856,8 +857,10 @@ class Deployer:
         due = attempts.get("next_at")
         if due and self.now() < datetime.fromisoformat(due.replace("Z", "+00:00")):
             raise Stop("skipped", "recovery-backoff", next_at=due, why=why)
-        # Only state-recorded recovery skips the windows: an unhealthy probe alone stays gated.
-        recorded = why != "unhealthy-unverified-code"
+        # Only state-recorded recovery skips the nightly window: recovery that began with an
+        # unhealthy probe alone stays gated like a deploy on every retry.
+        origin = attempts.get("why") or why
+        recorded = origin != PROBE_ONLY
         self._gate_now(lead=MUTATION_LEAD, recovery=recorded)
         detail: dict = {"why": why, "good": good}
         with self.mutation_locks():
@@ -907,7 +910,7 @@ class Deployer:
                 delay = min(RECOVERY_BASE * 2 ** (failures - 1), RECOVERY_CAP)
                 if failures >= HEAL_AFTER:
                     self.heal_services()
-                self.save_state(recovery={"failures": failures, "why": why,
+                self.save_state(recovery={"failures": failures, "why": origin,
                                           "next_at": _iso(self.now() + delay)})
                 return Decision("recovery-failed", why, {**detail, "error": str(exc)[:300],
                                                          "failures": failures})
@@ -984,7 +987,7 @@ class Deployer:
                     self.save_state(last_good_sha=head)
                 self.steps.append(f"adopted:{head[:12]}")
                 return None
-            why = "unhealthy-unverified-code"
+            why = PROBE_ONLY
         if why is None:
             return None
         if not execute:
@@ -1004,7 +1007,8 @@ class Deployer:
     def decide(self, *, execute: bool) -> Decision:
         self.execute = execute
         state = self.load_state()
-        pending = bool(state.get("in_flight") or state.get("recovery"))
+        pending = bool(state.get("in_flight")) or (
+            (state.get("recovery") or {}).get("why", PROBE_ONLY) != PROBE_ONLY)
         try:
             self._gate_now(recovery=pending)
         except Stop as stop:

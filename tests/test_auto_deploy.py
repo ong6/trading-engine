@@ -745,6 +745,26 @@ def test_pending_recovery_skips_the_nightly_window_but_not_pre_open_timers_or_lo
     assert _git(host["live"], "rev-parse", "HEAD") == good
 
 
+def test_probe_only_recovery_stays_gated_on_every_retry(host):
+    from datetime import timedelta
+
+    _deployer(host).save_state(last_good_sha=_git(host["live"], "rev-parse", "HEAD"))
+    _push(host, "hand", {"engine/x.py": "x = 9\n"})
+    _git(host["live"], "pull", "-q", "--ff-only", "origin", "main")
+    failing = lambda mode: (1, {"status": "error"})  # noqa: E731
+    first = _deployer(host)
+    first.healthy, first.automation = False, failing
+    assert first.decide(execute=True).label == "recovery-failed:unhealthy-unverified-code"
+    retry = _deployer(host)
+    retry.healthy, retry.automation = False, failing
+    retry.moment = SAFE.replace(hour=23)  # past the backoff, inside the nightly window
+    with pytest.raises(auto_deploy.Stop, match="skipped:window"):
+        retry.decide(execute=True)
+    retry.moment = SAFE + timedelta(hours=1)
+    assert retry.decide(execute=True).outcome == "recovery-failed"
+    assert _state(host)["recovery"]["why"] == "unhealthy-unverified-code"
+
+
 def test_recovery_falls_back_to_a_hard_reset_and_keeps_data_commits(host):
     good = _git(host["live"], "rev-parse", "HEAD")
     target = _push(host, "code", {"engine/x.py": "x = 1\n"})

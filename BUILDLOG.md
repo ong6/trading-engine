@@ -1107,4 +1107,17 @@ earlier logs listed in that index.
 - **Metrics:** tools +6, tests +6, docs +2 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — Probe-only recovery stays gated on every retry
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py::test_probe_only_recovery_stays_gated_on_every_retry`
+  fails with `DID NOT RAISE Stop` at 23:00 UTC: after one failure a recovery begun by the health
+  probe alone was retried as `recovery-pending`, which counted as recorded recovery and skipped
+  the nightly window and the full timer look-ahead.
+- **What:** `state.recovery.why` keeps the reason the recovery began across failures, and both
+  the first gate and the recovery gates use it: probe-only recovery is gated like a deploy on
+  every retry.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (65 tests).
+- **Metrics:** tools +4, tests +20 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
