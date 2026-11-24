@@ -221,8 +221,16 @@ def test_dry_run_would_deploy_without_touching_the_live_checkout(host):
     receipt = json.loads(deployer.record(decision, SAFE, SAFE).read_text())
     assert receipt["work_status"] == "noop" and receipt["decision"] == "dry-run would-deploy"
     assert ops_digest._job_receipt_row(receipt)[2] == "auto-deploy"
-    state = json.loads((host["tmp"] / "state/state.json").read_text())
-    assert state["deployed_sha"] == before
+    assert not (host["tmp"] / "state/state.json").exists()  # a dry run writes no deploy state
+
+
+def test_one_run_at_a_time(host, capsys):
+    args = ["--engine-root", str(host["live"]), "--state-dir", str(host["tmp"] / "state"),
+            "--logs-dir", str(host["tmp"] / "logs")]
+    with _deployer(host).run_lock():
+        assert auto_deploy.main(args) == 0
+    assert json.loads(capsys.readouterr().out)["decision"] == "skipped:run-in-progress"
+    assert not (host["tmp"] / "state/state.json").exists()
 
 
 @pytest.mark.parametrize("path, reason", [
@@ -499,7 +507,7 @@ def test_a_refused_target_is_not_rechecked_until_main_moves(host):
     target = _push(host, "risky", {"uv.lock": "x\n"})
     deployer = _deployer(host, green={target})
     with pytest.raises(auto_deploy.Stop) as refused:
-        deployer.decide(execute=False)
+        deployer.decide(execute=True)
     stop = refused.value
     deployer.record(auto_deploy.Decision(stop.outcome, stop.reason, stop.detail), SAFE, SAFE)
     with pytest.raises(auto_deploy.Stop, match="skipped:refused-target"):

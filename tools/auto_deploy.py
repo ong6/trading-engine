@@ -2,8 +2,9 @@
 """Continuous deployer: bring the live checkout to the newest green ``main`` commit, or say why not.
 
 ``python -m tools.auto_deploy --execute`` is run by ``trading-engine-auto-deploy.timer``
-every 15 minutes. Without ``--execute`` it decides and reports but never
-changes the live checkout, its units or its reports. Each run records one decision:
+four times an hour. Without ``--execute`` it decides and reports but never changes the live
+checkout, its units, its reports or ``state.json``. One run at a time holds ``run.lock`` in the
+state directory; another exits ``skipped:run-in-progress``. Each run records one decision:
 
   deployed                 the live checkout was moved to the target and post-checked
   dry-run would-deploy     every check passed; ``--execute`` would deploy the target
@@ -249,11 +250,25 @@ class Deployer:
         self.worktree = state_dir / "worktree"
         self.steps: list[str] = []
         self.drill_rollback = False
+        self.execute = False  # set by decide(); a dry run writes no state.json
+        self.locked_out = False  # another run holds the run lock: write the receipt only
         self.ops = release_deploy.ReleaseOperations(
             release_deploy.StateStore(state_dir), home=Path.home(),
             command_runner=release_deploy.CommandRunner(), api_url=self.api_url,
             ui_url="http://127.0.0.1:3000",
             minimum_free_bytes=store_limits.reserve_bytes())
+
+    @contextmanager
+    def run_lock(self) -> Iterator[None]:
+        """One run at a time, dry runs included: they share the gate worktree and state.json."""
+        self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with open(self.state_dir / "run.lock", "a") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                self.locked_out = True
+                raise Stop("skipped", "run-in-progress") from exc
+            yield
 
     # ---- host seams -------------------------------------------------------------------
     def now(self) -> datetime:
@@ -927,7 +942,8 @@ class Deployer:
         in_flight = state.get("in_flight")
         if not good:
             head = self.git(self.root, "rev-parse", "HEAD")
-            self.save_state(last_good_sha=head)  # the first run trusts the deployed checkout
+            if execute:  # the first real run trusts the deployed checkout
+                self.save_state(last_good_sha=head)
             self.steps.append(f"bootstrap-good:{head[:12]}")
             return None
         why = None
@@ -938,7 +954,8 @@ class Deployer:
         elif self.code_differs(good):
             if self.host_healthy():  # a person deployed by hand and the host is healthy
                 head = self.git(self.root, "rev-parse", "HEAD")
-                self.save_state(last_good_sha=head)
+                if execute:
+                    self.save_state(last_good_sha=head)
                 self.steps.append(f"adopted:{head[:12]}")
                 return None
             why = "unhealthy-unverified-code"
@@ -959,6 +976,7 @@ class Deployer:
         return None
 
     def decide(self, *, execute: bool) -> Decision:
+        self.execute = execute
         state = self.load_state()
         pending = bool(state.get("in_flight") or state.get("recovery"))
         self._gate_now(recovery=pending)
@@ -1045,6 +1063,8 @@ class Deployer:
         write_text_atomic(path, json.dumps(receipt, indent=1, sort_keys=True) + "\n")
         if spec:  # 96 runs a day: keep only the registered retention
             run_job.prune_receipts(path.parents[2], spec.retention_days, ended)
+        if self.locked_out or not self.execute:  # deploy state belongs to real runs only
+            return path
         state_path = self.state_dir / "state.json"
         try:
             state = json.loads(state_path.read_text())
@@ -1083,13 +1103,15 @@ def main(argv: list[str] | None = None) -> int:
                         api_url=args.api_url, autopush_lock=args.autopush_lock.expanduser())
     deployer.drill_rollback = args.drill_rollback and args.execute
     started = deployer.now()
-    try:
-        decision = deployer.decide(execute=args.execute)
-    except Stop as stop:
-        decision = Decision(stop.outcome, stop.reason, stop.detail)
-    except (OSError, ValueError, KeyError, release_deploy.DeployError, repin.Refused) as exc:
-        decision = Decision("failed", type(exc).__name__, {"error": str(exc)[:300]})
-    receipt = deployer.record(decision, started, deployer.now())
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(deployer.run_lock())
+            decision = deployer.decide(execute=args.execute)
+        except Stop as stop:
+            decision = Decision(stop.outcome, stop.reason, stop.detail)
+        except (OSError, ValueError, KeyError, release_deploy.DeployError, repin.Refused) as exc:
+            decision = Decision("failed", type(exc).__name__, {"error": str(exc)[:300]})
+        receipt = deployer.record(decision, started, deployer.now())
     print(json.dumps({"decision": decision.label, "detail": decision.detail,
                       "steps": deployer.steps, "receipt": str(receipt)}, indent=1,
                      sort_keys=True))

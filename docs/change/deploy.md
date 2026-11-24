@@ -69,7 +69,8 @@ The nightly does not pull code; it takes only data-only commits.
 ## Operate the deployer
 
 - **Dry run by hand**: `python -m tools.auto_deploy` (without `--execute`) reports what the timer
-  would do and changes nothing.
+  would do and changes nothing, `state.json` included. One run at a time holds `run.lock` in the
+  state directory; a second exits `skipped:run-in-progress`.
 - **Release directories are load-bearing**: the live `.venv` links into the newest release's
   `prepared/` environment under `~/.local/state/trading-engine/releases/`. Only `recovery/` may be
   deleted (the retention job does that); never delete a release directory.

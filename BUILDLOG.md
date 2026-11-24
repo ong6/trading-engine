@@ -954,4 +954,20 @@ earlier logs listed in that index.
 - **Metrics:** tools 0 net, tests +13 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — One deployer run at a time; dry runs write no deploy state
+
+- **Why:** reproduced defect: `pytest tests/test_auto_deploy.py` fails `test_one_run_at_a_time`
+  (`no attribute 'run_lock'`) and the dry-run test (`state.json` exists): a dry run by hand
+  force-removed the gate worktree a concurrent timer run could be using, both read-modify-wrote
+  `state.json` without a lock, and a dry run could bootstrap `last_good_sha`, adopt a hand
+  deploy or record a refused target that real runs then act on.
+- **What:** `main` holds an exclusive non-blocking `flock` on `run.lock` in the state directory
+  for the whole run, receipt included; a second run records `skipped:run-in-progress` with no
+  state write. Dry runs write a receipt only: no bootstrap, adoption, `refused`, `deployed_sha`
+  or `last_attempt`. Two tests change deliberately: the dry-run test now asserts no `state.json`,
+  and the refused-target test records its refusal from a real run.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (59 tests).
+- **Metrics:** tools +22, tests +8, docs +1 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
