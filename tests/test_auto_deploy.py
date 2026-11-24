@@ -622,6 +622,25 @@ def test_a_failed_rollback_is_recovered_on_the_next_run(host):
     assert _git(host["live"], "for-each-ref", "refs/auto-deploy/")
 
 
+def test_pending_recovery_ignores_windows_and_timers_but_not_locks(host):
+    from datetime import timedelta
+
+    good, target = _failed_rollback(host)
+    deployer = _deployer(host, green={target})
+    deployer.moment = SAFE.replace(hour=23)  # inside the nightly window
+    deployer.timers = {"trading-engine-p15-scoring.timer": deployer.moment + timedelta(minutes=5)}
+    deployer.held = {".nightly.lock"}
+    with pytest.raises(auto_deploy.Stop, match="skipped:producer-lock"):
+        deployer.decide(execute=True)
+    deployer.held, deployer.activating = set(), ["trading-engine-p15-scoring.service"]
+    with pytest.raises(auto_deploy.Stop, match="skipped:unit-active"):
+        deployer.decide(execute=True)
+    deployer.activating = []
+    decision = deployer.decide(execute=True)
+    assert decision.label == "recovered:unverified-deploy", decision
+    assert _git(host["live"], "rev-parse", "HEAD") == good
+
+
 def test_recovery_falls_back_to_a_hard_reset_and_keeps_data_commits(host):
     good = _git(host["live"], "rev-parse", "HEAD")
     target = _push(host, "code", {"engine/x.py": "x = 1\n"})

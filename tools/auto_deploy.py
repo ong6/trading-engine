@@ -26,6 +26,9 @@ receipt names the saved copy, and a ``refs/auto-deploy/pre-recovery-*`` ref keep
 re-applies data-only commits, re-runs ``install_automation --apply`` and checks the host. Dry
 runs report ``would-recover``.
 
+A recorded recovery (an in-flight marker or a failed recovery) skips the windows and the
+timer-soon check below, never a held lock, a producer, a release transaction or a running unit.
+
 Steps: (1) skip inside 14:05-14:35 and 22:30-03:00 UTC, while any producer lock is held
 (observed through ``/proc/locks``, never acquired), a producer process runs or a release
 transaction holds its lock; (2) fetch ``origin/main`` into a private mirror under the state
@@ -395,9 +398,11 @@ class Deployer:
             return {}
         return state if isinstance(state, dict) else {}
 
-    def _gate_now(self, *, lead: timedelta = timedelta(0)) -> None:
+    def _gate_now(self, *, lead: timedelta = timedelta(0), recovery: bool = False) -> None:
+        """Skip unless the host may change now. A recorded recovery (a broken or unverified
+        host) is not held for the windows or a timer due soon, only for what is running."""
         moment = self.now()
-        if in_blocked_window(moment) or in_blocked_window(moment + lead):
+        if not recovery and (in_blocked_window(moment) or in_blocked_window(moment + lead)):
             raise Stop("skipped", "window")
         reason = self.busy()
         if reason:
@@ -409,7 +414,7 @@ class Deployer:
             timers, activating, crontab = self.engine_schedule()
             if activating:
                 raise Stop("skipped", "unit-active", units=activating)
-            soon = scheduled_soon(crontab, timers, moment, lead)
+            soon = None if recovery else scheduled_soon(crontab, timers, moment, lead)
             if soon:
                 raise Stop("skipped", "timer-soon", unit=soon)
 
@@ -813,10 +818,12 @@ class Deployer:
         due = attempts.get("next_at")
         if due and self.now() < datetime.fromisoformat(due.replace("Z", "+00:00")):
             raise Stop("skipped", "recovery-backoff", next_at=due, why=why)
-        self._gate_now(lead=MUTATION_LEAD)
+        # Only state-recorded recovery skips the windows: an unhealthy probe alone stays gated.
+        recorded = why != "unhealthy-unverified-code"
+        self._gate_now(lead=MUTATION_LEAD, recovery=recorded)
         detail: dict = {"why": why, "good": good}
         with self.mutation_locks():
-            self._gate_now(lead=MUTATION_LEAD)
+            self._gate_now(lead=MUTATION_LEAD, recovery=recorded)
             try:
                 head = self.git(self.root, "rev-parse", "HEAD")
                 stamp = self.now().strftime("%Y%m%dT%H%M%SZ")
@@ -949,10 +956,14 @@ class Deployer:
         return None
 
     def decide(self, *, execute: bool) -> Decision:
-        self._gate_now()
+        state = self.load_state()
+        pending = bool(state.get("in_flight") or state.get("recovery"))
+        self._gate_now(recovery=pending)
         healed = self.converge(execute=execute)
         if healed is not None:
             return healed
+        if pending:
+            self._gate_now()
         state = self.load_state()
         origin, live_head = self.refresh_mirror()
         refused = state.get("refused") or {}

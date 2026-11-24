@@ -914,4 +914,20 @@ earlier logs listed in that index.
 - **Metrics:** tools +10, tests +31 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A recorded deployer recovery no longer waits for windows or timers
+
+- **Why:** reproduced defect: `pytest tests/test_auto_deploy.py::test_pending_recovery_ignores_windows_and_timers_but_not_locks`
+  fails with `Actual message: 'skipped:window'`: recovery of an unverified host (in-flight marker
+  or failed recovery) was gated like a deploy by the skip windows and `timer-soon`, so a broken
+  host could wait hours.
+- **What:** when state records a recovery, the first gate, and the gates before and inside the
+  recovery's mutation locks, skip the windows and `timer-soon`. Still blocking: producer locks,
+  producer processes, a release transaction, a running engine unit, low disk and the backoff.
+  Unhealthy unverified code found only by the health probe stays fully gated, since a probe
+  during the nightly can fail for transient reasons. Choice: a recovery restores verified code
+  in seconds, and a job that starts then runs on the good commit; a running job still blocks.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (54 tests).
+- **Metrics:** tools +11, tests +19, docs +4 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
