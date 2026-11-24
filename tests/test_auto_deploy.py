@@ -602,9 +602,29 @@ def test_a_rolled_back_target_is_not_redeployed_after_data_only_pushes(host):
     fix = _push(host, "fix", {"engine/x.py": "x = 2\n"})  # CI not green yet: data is the target
     with pytest.raises(auto_deploy.Stop, match="skipped:refused-target"):
         _deployer(host, green={bad, data}).decide(execute=True)
-    decision = _deployer(host, green={bad, data, fix}).decide(execute=True)
+    deployer = _deployer(host, green={bad, data, fix})
+    decision = deployer.decide(execute=True)
     assert decision.outcome == "deployed" and decision.detail["target"] == fix
-    assert "rolled_back" not in _state(host)  # newer code took over
+    deployer.record(decision, SAFE, SAFE)
+    assert "rolled_back" not in _state(host)  # newer code deployed and verified
+
+
+def test_the_rolled_back_memory_survives_a_newer_target_that_did_not_deploy(host):
+    bad = _push(host, "bad", {"engine/x.py": "x = 1\n"})
+    deployer = _deployer(host, green={bad})
+    deployer.post_ok = False
+    deployer.ops._wait_health = lambda: ({"ok": True}, {})
+    deployer.record(deployer.decide(execute=True), SAFE, SAFE)
+    _push(host, "fix", {"engine/x.py": "x = 2\n"})
+    blocked = _deployer(host, green={bad} | {_git(host["origin"], "rev-parse", "main")})
+    blocked.gate = lambda worktree, deployed: (_ for _ in ()).throw(
+        auto_deploy.Stop("skipped", "gate-cannot-check", exit=3, tail=["x"]))
+    with pytest.raises(auto_deploy.Stop, match="gate-cannot-check"):
+        blocked.decide(execute=True)
+    assert _state(host)["rolled_back"]["target"] == bad
+    with pytest.raises(auto_deploy.Stop, match="skipped:refused-target"):
+        _deployer(host, green={bad}).decide(execute=True)  # the fix lost its green CI
+    assert _deployer(host).same_code(bad, "0" * 40)  # a git error keeps refusing
 
 
 def test_adopting_a_hand_deploy_of_rolled_back_code_forgets_it(host):

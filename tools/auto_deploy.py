@@ -975,12 +975,14 @@ class Deployer:
             return {}
         return {"data_kept": {"dir": str(saved["dir"]), "paths": kept}}
 
-    def same_code(self, first: str, second: str, *, root: Path | None = None) -> bool:
+    def same_code(self, first: str, second: str, *, root: Path | None = None,
+                  proven: bool = False) -> bool:
         """Whether two commits (in the mirror, or ``root``) have the same tracked tree outside
-        ``data/``."""
+        ``data/``. A git error counts as the same code (keep refusing) unless ``proven``
+        asks for a successful comparison."""
         done = self.run(["git", "diff", "--quiet", first, second, "--", ".", ":(exclude)data"],
                         cwd=root or self.mirror, timeout=120)
-        return done.returncode == 0
+        return done.returncode == 0 if proven else done.returncode != 1
 
     def _data_only(self, commit: str) -> bool:
         names = self.git(self.root, "diff-tree", "--no-commit-id", "--name-only", "-r",
@@ -1009,7 +1011,8 @@ class Deployer:
                 if execute:
                     rolled = (state.get("rolled_back") or {}).get("target")
                     # The rolled-back code now runs healthy by hand: stop refusing it.
-                    forget = bool(rolled) and self.same_code(rolled, head, root=self.root)
+                    forget = bool(rolled) and self.same_code(rolled, head, root=self.root,
+                                                             proven=True)
                     self.save_state(last_good_sha=head,
                                     rolled_back=None if forget else state.get("rolled_back"))
                 self.steps.append(f"adopted:{head[:12]}")
@@ -1085,8 +1088,6 @@ class Deployer:
             # Only data-only commits since the rolled-back target: the same code would fail
             # again. Refused until a commit outside data/ changes the code.
             raise Stop("skipped", "refused-target", target=target, rolled_back=rolled_back)
-        if rolled_back and self.execute:
-            self.save_state(rolled_back=None)  # newer code: nothing left to refuse
         local = self.live_state(live_head, origin)
         families = self.migrations_needed(target)
         expected = {family.key: repin._literal(
@@ -1156,9 +1157,14 @@ class Deployer:
                                 "reason": decision.label, "receipt": str(path)}
         target = decision.detail.get("target")
         if (decision.outcome == "rolled-back" and target and not self.drill_rollback
-                and not self.same_code(decision.detail.get("deployed", ""), target)):
+                and not self.same_code(decision.detail.get("deployed", ""), target,
+                                       proven=True)):
             # Only new code is remembered as bad: not a drill, not a data-only target.
             state["rolled_back"] = {"target": target, "receipt": str(path)}
+        remembered = (state.get("rolled_back") or {}).get("target")
+        if decision.outcome == "deployed" and remembered and not self.same_code(remembered,
+                                                                                 target):
+            state.pop("rolled_back")  # different code deployed and verified
         if decision.outcome == "deployed":
             state["deployed_sha"] = decision.detail["target"]
         elif decision.detail.get("deployed") and decision.outcome not in {

@@ -1239,4 +1239,18 @@ earlier logs listed in that index.
 - **Metrics:** docs only; snapshot refreshed (whole branch: tools +236, tests +440).
 - **Next:** nothing admitted.
 
+## 2026-11-24 — The rolled-back memory ends only with a verified deploy of different code
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py::test_the_rolled_back_memory_survives_a_newer_target_that_did_not_deploy`
+  fails with `KeyError: 'rolled_back'`: the memory was cleared as soon as different code was
+  chosen as the target, before the gate ran, so after a `gate-cannot-check` on the fix the bad
+  code could redeploy once the fix stopped being the green target.
+- **What:** `record()` clears the memory only on a `deployed` decision whose code differs (or
+  on an adopted healthy hand deploy of that code, as before). `same_code` treats a git error
+  as the same code, so refusal holds; the remember and adoption checks ask for a proven match.
+  The existing data-push test now records its deploy. `docs/change/deploy.md` says so.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (72 tests).
+- **Metrics:** tools +6, tests +20 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
