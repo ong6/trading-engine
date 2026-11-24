@@ -577,6 +577,37 @@ def _failed_rollback(host):
     return good, target
 
 
+def test_a_run_that_dies_after_moving_the_checkout_is_recovered(host):
+    good = _git(host["live"], "rev-parse", "HEAD")
+    _deployer(host).save_state(last_good_sha=good)
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    deployer = _deployer(host, green={target})
+    real_git = deployer.git
+
+    def git(root, *args, check=True):
+        out = real_git(root, *args, check=check)
+        if args[:1] == ("merge",):
+            raise SystemExit("killed")  # the unit timeout or a reboot, right after the move
+        return out
+
+    deployer.git = git
+    with pytest.raises(SystemExit):
+        deployer.decide(execute=True)
+    assert _git(host["live"], "rev-parse", "HEAD") == target
+    assert _state(host)["in_flight"]["previous"] == good
+    decision = _deployer(host, green={target}).decide(execute=True)
+    assert decision.label == "recovered:unverified-deploy", decision
+    assert _git(host["live"], "rev-parse", "HEAD") == good
+
+
+def test_pre_mutation_timeouts_fit_inside_the_unit_timeout():
+    unit = (auto_deploy.REPO_ROOT / "server/trading-engine-auto-deploy.service").read_text()
+    minutes = int(unit.split("TimeoutStartSec=", 1)[1].split("min", 1)[0])
+    # a hung gate or test run ends with a receipt, and a mutation still fits after it
+    assert (auto_deploy.GATE_TIMEOUT + auto_deploy.FORWARD_TESTS_TIMEOUT
+            + auto_deploy.MUTATION_LEAD.total_seconds()) <= minutes * 60
+
+
 def test_a_failed_rollback_is_recovered_on_the_next_run(host):
     good, target = _failed_rollback(host)
     assert _git(host["live"], "rev-parse", "HEAD") == good  # reset done, re-apply failed

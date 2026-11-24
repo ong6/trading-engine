@@ -898,4 +898,20 @@ earlier logs listed in that index.
 - **Metrics:** tools +42, tests +24, docs +2 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — The deployer writes its in-flight marker before moving the checkout
+
+- **Why:** reproduced defect: `pytest tests/test_auto_deploy.py::test_a_run_that_dies_after_moving_the_checkout_is_recovered`
+  fails with `KeyError: 'in_flight'`: the marker was written after the fast-forward, so a run
+  killed in between left unverified code that the next run adopted as good. Also the gate's
+  and forward tests' own 60-minute timeouts each exceeded the unit's `TimeoutStartSec=50min`
+  (`test_pre_mutation_timeouts_fit_inside_the_unit_timeout`: `no attribute 'GATE_TIMEOUT'`).
+- **What:** the marker (previous, target, families, backup) is saved before the rebase or merge
+  and gains `moved` after it; a rebase conflict or failed fast-forward that leaves HEAD at the
+  previous commit clears it. Gate and forward-test timeouts drop to 15 minutes each (both take
+  about a minute), so with the 15-minute mutation lead they fit the unchanged unit limit and a
+  hung check ends with a receipt; a kill mid-mutation is recovered from the marker.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (53 tests).
+- **Metrics:** tools +10, tests +31 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

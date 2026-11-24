@@ -39,7 +39,7 @@ refreshes the pins. Never change a registered value.
 
 - After every verified deploy the deployer records the last verified commit. Its first run trusts
   the deployed checkout, and a healthy hand deploy is adopted.
-- While it moves the checkout it leaves an in-flight marker. Each run first converges: a crashed
+- Before it moves the checkout it leaves an in-flight marker. Each run first converges: a crashed
   deploy, a failed rollback, or unhealthy code that was never verified is brought back to the last
   good commit by restoring the reports, `git reset --keep` (else a hard reset of tracked files;
   untracked store files are untouched, uncommitted `data/` edits are put back unless the reset

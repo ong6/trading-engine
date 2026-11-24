@@ -87,6 +87,9 @@ RUNS_URL = (f"https://api.github.com/repos/{REPOSITORY}/actions/runs"
 WORKFLOW = "ci"
 BLOCKED_WINDOWS = ((time(14, 5), time(14, 35)), (time(22, 30), time(3, 0)))
 MUTATION_LEAD = timedelta(minutes=15)  # the mutating half must end before a window or a start
+# Gate and forward tests take about a minute; with MUTATION_LEAD they fit inside the unit's
+# TimeoutStartSec (50 min), so a hung check ends with a receipt instead of a systemd kill.
+GATE_TIMEOUT = FORWARD_TESTS_TIMEOUT = 900
 # Scheduled engine starts that must not land inside a mutation. The deployer itself, the
 # read-only digest and the ten-minute watchdog are excluded (the watchdog's catch-up takes the
 # nightly lock, which the producer-lock check sees).
@@ -574,7 +577,7 @@ class Deployer:
         done = self.run([sys.executable, "-m", "tools.deploy_gate", "--check", str(worktree),
                          "--base", deployed, "--engine-root", str(self.root),
                          "--receipts", str(self.state_dir / "gate-receipts")],
-                        cwd=REPO_ROOT, env={"PYTHONPATH": str(REPO_ROOT)}, timeout=3600)
+                        cwd=REPO_ROOT, env={"PYTHONPATH": str(REPO_ROOT)}, timeout=GATE_TIMEOUT)
         tail = done.stdout.strip().splitlines()[-6:]
         if done.returncode:
             raise Stop("needs-human", "gate-refused", exit=done.returncode, tail=tail)
@@ -583,7 +586,7 @@ class Deployer:
                               "-p", "no:cacheprovider",
                               "-n", "2", *FORWARD_TESTS], cwd=worktree,
                              env={"PYTHONPATH": str(worktree), "TMPDIR": private,
-                                  "PYTHONDONTWRITEBYTECODE": "1"}, timeout=3600)
+                                  "PYTHONDONTWRITEBYTECODE": "1"}, timeout=FORWARD_TESTS_TIMEOUT)
         if tests.returncode:
             raise Stop("needs-human", "forward-tests",
                        tail=(tests.stdout + tests.stderr).strip().splitlines()[-6:])
@@ -724,23 +727,30 @@ class Deployer:
             overlap = self.dirty_overlap(target)
             if overlap:
                 raise Stop("skipped", "live-data-overlap", paths=overlap[:5])
-            if local:
-                # --autostash carries the producers' uncommitted data/ edits across the rebase;
-                # none of them overlaps the move (checked above).
-                done = self.run(["git", "rebase", "--autostash", "-q", target], cwd=self.root,
-                                timeout=600)
-                if done.returncode:
-                    self.run(["git", "rebase", "--abort"], cwd=self.root)
-                    raise Stop("skipped", "rebase-conflict")
-            else:
-                self.git(self.root, "merge", "-q", "--ff-only", target)
+            backup = self.state_dir / "backups" / self.now().strftime("%Y%m%dT%H%M%SZ")
+            # Written before the checkout moves: until this run verifies or rolls back, the next
+            # run treats the host as unverified, even if this process dies right after the move.
+            marker = {"previous": previous, "target": target, "families": families,
+                      "backup": str(backup), "at": _iso(self.now())}
+            self.save_state(in_flight=marker)
+            try:
+                if local:
+                    # --autostash carries the producers' uncommitted data/ edits across the
+                    # rebase; none of them overlaps the move (checked above).
+                    done = self.run(["git", "rebase", "--autostash", "-q", target],
+                                    cwd=self.root, timeout=600)
+                    if done.returncode:
+                        self.run(["git", "rebase", "--abort"], cwd=self.root)
+                        raise Stop("skipped", "rebase-conflict")
+                else:
+                    self.git(self.root, "merge", "-q", "--ff-only", target)
+            except Stop:
+                if self.git(self.root, "rev-parse", "HEAD", check=False) == previous:
+                    self.save_state(in_flight=None)  # the checkout never moved
+                raise
             moved = self.git(self.root, "rev-parse", "HEAD")
             self.steps.append(f"moved:{previous[:12]}->{moved[:12]}")
-            backup = self.state_dir / "backups" / self.now().strftime("%Y%m%dT%H%M%SZ")
-            # Until this run verifies or rolls back, the next run treats the host as unverified.
-            self.save_state(in_flight={"previous": previous, "moved": moved, "target": target,
-                                       "families": families, "backup": str(backup),
-                                       "at": _iso(self.now())})
+            self.save_state(in_flight={**marker, "moved": moved})
             try:
                 self.migrate(families, backup)
                 code, summary = self.automation("--apply")
