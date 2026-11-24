@@ -833,17 +833,17 @@ class Deployer:
             return Decision("deployed", detail={"target": target, "previous": previous,
                                                 "migrated": families, **checked})
 
-    def prune_backups(self) -> None:
-        """Once the host is verified, keep only the newest report backups (trading-data is the
-        backup of record)."""
+    def prune_backups(self, directory: str = "backups") -> None:
+        """Once the host is verified, keep only the newest two report backups (trading-data is
+        the backup of record), or saved producer data sets after a recovery."""
         try:
-            items = prune_local.prune_entries(self.state_dir / "backups", apply=True)
+            items = prune_local.prune_entries(self.state_dir / directory, apply=True)
         except OSError as exc:
-            self.steps.append(f"prune-backups:error:{exc}"[:200])
+            self.steps.append(f"prune-{directory}:error:{exc}"[:200])
             return
         removed = sum(item["action"] == "removed" for item in items)
         failed = sum(item["action"] == "remove-failed" for item in items)
-        self.steps.append(f"prune-backups:{removed}" + (f":failed:{failed}" if failed else ""))
+        self.steps.append(f"prune-{directory}:{removed}" + (f":failed:{failed}" if failed else ""))
 
     def roll_back(self, previous: str, moved: str, families: list[str], backup: Path,
                   error: str) -> Decision:
@@ -937,6 +937,7 @@ class Deployer:
                                                          "failures": failures})
         self.save_state(in_flight=None, recovery=None, last_good_sha=good)
         self.prune_backups()
+        self.prune_backups("recovery-data")
         return Decision("recovered", why, detail)
 
     def save_dirty_data(self, stamp: str) -> dict | None:

@@ -53,7 +53,8 @@ clear of them, two per half hour.
   deploy, a failed rollback, or unhealthy code that was never verified is brought back to the last
   good commit by restoring the reports, `git reset --keep` (else a hard reset of tracked files;
   untracked store files are untouched, uncommitted `data/` edits are put back unless the reset
-  changed that file, when the receipt's `data_kept` names the saved copy, and a
+  changed that file, when the receipt's `data_kept` names the saved copy (the newest two saved
+  sets are kept), and a
   `refs/auto-deploy/pre-recovery-*` ref keeps every commit), re-applying data-only commits,
   `install_automation --apply` and a health check.
 - Failed recoveries retry with backoff from 15 minutes to 4 hours; after three it clears failed

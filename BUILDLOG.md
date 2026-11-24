@@ -1212,4 +1212,18 @@ earlier logs listed in that index.
 - **Metrics:** tools +7, tests +15, docs +1 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A recovery keeps only the newest two saved producer data sets
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py::test_a_recovery_keeps_only_the_newest_two_saved_data_sets`
+  fails with `assert ['20261120T10...1122T100000Z'] == ['20261121T10...1122T100000Z']`:
+  `state/recovery-data/` (copies kept when a recovery could not put producer edits back) was
+  never pruned.
+- **What:** after a successful recovery the deployer keeps the newest two saved sets, the same
+  rule and helper as its report backups (`prune_backups` takes the directory; step
+  `prune-recovery-data:<n>`). `tools/prune_local.py` is unchanged. `docs/change/deploy.md`
+  says so.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (71 tests).
+- **Metrics:** tools +1, tests +13, docs +1 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

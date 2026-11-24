@@ -823,6 +823,19 @@ def test_recovery_falls_back_to_a_hard_reset_and_keeps_data_commits(host):
     assert data  # the original stays reachable through the pre-recovery ref
 
 
+def test_a_recovery_keeps_only_the_newest_two_saved_data_sets(host):
+    _good, target = _failed_rollback(host)
+    saved = host["tmp"] / "state/recovery-data"
+    for age, name in enumerate(("20261122T100000Z", "20261121T100000Z", "20261120T100000Z")):
+        (saved / name).mkdir(parents=True)
+        os.utime(saved / name, (1_000_000_000 - age,) * 2)
+    deployer = _deployer(host, green={target})
+    assert deployer.decide(execute=True).outcome == "recovered"
+    assert sorted(path.name for path in saved.iterdir()) == ["20261121T100000Z",
+                                                             "20261122T100000Z"]
+    assert "prune-recovery-data:1" in deployer.steps
+
+
 def test_a_hard_reset_recovery_keeps_uncommitted_producer_data(host):
     _commit(host["seed"], "meta", {"data/_meta.json": "{}", "data/reports/r.json": "{}"})
     _git(host["seed"], "push", "-q", "origin", "main")
