@@ -5,7 +5,8 @@
 
 1. clone the repository into ``--lane`` (default ``~/engine-lanes/land``) if it is missing,
    fetch ``origin`` and reset the lane's ``main`` to ``origin/main``;
-2. merge ``origin/BRANCH`` (a conflict stops the run with the merge aborted);
+2. merge ``origin/BRANCH`` (a conflict stops the run with the merge aborted), then
+   ``uv sync --frozen --extra dev`` so the merged ``uv.lock`` is what gets tested;
 3. ``tools.repin --check``; when a registration revision is needed, write it with
    ``--reason-file`` (one sentence) or stop and ask for one;
 4. the fast tier (``tools.affected_tests --run``), then the full suite;
@@ -42,12 +43,13 @@ def land(branch: str, lane: Path, reason_file: Path | None, push: bool,
         step(["git", "clone", "-q", url, str(lane)], lane.parent, "clone")
     step(["git", "fetch", "-q", "origin"], lane, "fetch")
     step(["git", "checkout", "-q", "-B", "main", "origin/main"], lane, "reset main")
-    step(["uv", "sync", "--frozen", "--extra", "dev", "-q"], lane, "environment")
     try:
         step(["git", "merge", "-q", "--no-edit", f"origin/{branch}"], lane, f"merge {branch}")
     except Refused:
         subprocess.run(["git", "merge", "--abort"], cwd=lane, check=False)
         raise
+    # After the merge, so a branch that changes uv.lock is tested in its own environment.
+    step(["uv", "sync", "--frozen", "--extra", "dev", "-q"], lane, "environment")
     python = str(lane / ".venv/bin/python")
     repin = [python, "-m", "tools.repin", *(["--deployed", deployed] if deployed else [])]
     check = subprocess.run([*repin, "--check"], cwd=lane, check=False).returncode

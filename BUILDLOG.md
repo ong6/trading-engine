@@ -826,4 +826,15 @@ earlier logs listed in that index.
 - **Metrics:** docs only; metrics snapshot refreshed.
 - **Next:** review and land this branch.
 
+## 2026-11-24 — Land syncs the environment after the merge
+
+- **Why:** reproduced defect: `pytest tests/test_land.py::test_the_environment_is_synced_after_the_merge`
+  fails with `'sync sees feature: '`; `tools.land` ran `uv sync` before merging, so a branch that
+  changes `uv.lock` was tested against main's environment.
+- **What:** `uv sync --frozen --extra dev` runs after the merge, before the re-pin check and the
+  tests; the docstring says so.
+- **Evidence:** `pytest -q tests/test_land.py` passes (5 tests).
+- **Metrics:** tools +2, tests +8 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -71,6 +71,14 @@ def test_lands_and_pushes_after_every_check(lanes):
         "tools.repin", "tools.affected_tests", "pytest"]
 
 
+def test_the_environment_is_synced_after_the_merge(lanes):
+    uv = lanes["lane"].parent / "bin/uv"
+    uv.write_text('#!/usr/bin/env bash\necho "sync sees feature: $(cat feature.txt 2>/dev/null)" '
+                  '>> "${LAND_LOG:?}"\n')
+    assert land.main(["feature", "--lane", str(lanes["lane"])]) == 0
+    assert "sync sees feature: feature" in lanes["log"].read_text().splitlines()
+
+
 def test_stops_before_push_without_flag_or_when_a_check_fails(lanes, monkeypatch):
     before = _git(lanes["origin"], "rev-parse", "main")
     assert land.main(["feature", "--lane", str(lanes["lane"])]) == 0
