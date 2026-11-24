@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GET-only preflight of the local Trae model gateway against the engine's client pins.
+"""GET-only preflight of the local model gateway against the engine's client pins.
 
 Reads ``/healthz`` and ``/v1/models`` from the loopback proxy (never ``/maintain`` or any
 POST) and the installed CLI's ``--version`` line, then checks:

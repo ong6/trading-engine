@@ -850,4 +850,14 @@ earlier logs listed in that index.
 - **Metrics:** tools +3, tests +3, docs +1 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — Name the model gateway generically in its preflight docstring
+
+- **Why:** doc fix: the `tools/model_gateway_check.py` docstring named an internal tool in this
+  public repository.
+- **What:** the first docstring line now says "the local model gateway". Code identifiers (unit
+  and binary names the check must read) are unchanged.
+- **Evidence:** `python -m tools.public_hygiene --range origin/main..HEAD` prints "PASS".
+- **Metrics:** unchanged.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
