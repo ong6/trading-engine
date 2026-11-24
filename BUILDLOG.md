@@ -1187,4 +1187,16 @@ earlier logs listed in that index.
 - **Metrics:** tools +11, tests +15, docs +1 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — Test that a CLAIMS.md table row protects its clone whatever its status
+
+- **Why:** review finding: the earlier claims change moved a "released" row out of the table in
+  an existing test, which hid the behaviour change. The new test fails against the main-branch
+  `tools/prune_local.py` with `assert set() == {'done-lane', 'old-lane'}`.
+- **What:** `test_a_claims_table_row_protects_its_clone_whatever_its_status` pins that any table
+  row naming a clone protects it, whatever its status words ("released", "done, merged"); rows
+  are removed when work ends.
+- **Evidence:** `pytest -q tests/test_prune_local.py` passes (13 tests).
+- **Metrics:** tests +9 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

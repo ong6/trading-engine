@@ -155,6 +155,15 @@ def test_stay_claimed_matches_whole_names_only(tmp_path):
     assert prune_local.stay_claimed(tmp_path / "missing.md", names) == set()
 
 
+def test_a_claims_table_row_protects_its_clone_whatever_its_status(tmp_path):
+    claims = tmp_path / "CLAIMS.md"
+    claims.write_text("| Clone | Branch | Owner | Scope |\n|---|---|---|---|\n"
+                      "| old-lane | p1/x | a session | released |\n"
+                      "| done-lane | p2/y | a session | done, merged |\n")
+    names = ["old-lane", "done-lane", "free-lane"]
+    assert prune_local.stay_claimed(claims, names) == {"old-lane", "done-lane"}
+
+
 def test_other_origins_failed_fetches_and_operations_in_progress_keep_the_clone(lanes):
     other = lanes["clone"]("other")
     _git(other, "remote", "set-url", "origin", str(lanes["root"].parent / "elsewhere.git"))
