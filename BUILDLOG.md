@@ -1280,4 +1280,16 @@ earlier logs listed in that index.
 - **Metrics:** tools +5, tests +24, docs +1 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — The check-timeout count follows the target's code
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py::test_a_data_only_push_does_not_reset_the_timeout_count`
+  fails with `assert 'skipped:gate-timeout' == 'needs-human:gate-timeout'`: the count was keyed
+  on the raw target commit, so an automatic data-only push reset it and the escalation never
+  came.
+- **What:** the count continues when the new target is the same commit or has the same code
+  outside `data/` (the existing same-code comparison; a git error counts as the same code).
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (77 tests).
+- **Metrics:** tools +2, tests +13 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

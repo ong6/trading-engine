@@ -660,10 +660,12 @@ class Deployer:
         return {"gate": tail[-1] if tail else "", "forward_tests": "pass"}
 
     def count_check_timeout(self, target: str, stop: Stop) -> None:
-        """Count consecutive gate or forward-test timeouts on one target; the third one makes
-        the target ``needs-human`` (recorded as refused) instead of another retry."""
+        """Count consecutive check timeouts on one target's code; the third one makes the
+        target ``needs-human`` (recorded as refused) instead of another retry."""
         seen = self.load_state().get("check_timeouts") or {}
-        count = seen.get("count", 0) + 1 if seen.get("target") == target else 1
+        previous = seen.get("target")  # keyed on the code: a data-only push keeps counting
+        same = bool(previous) and (previous == target or self.same_code(previous, target))
+        count = seen.get("count", 0) + 1 if same else 1
         if count < CHECK_TIMEOUT_LIMIT:
             self.save_state(check_timeouts={"target": target, "count": count})
             return

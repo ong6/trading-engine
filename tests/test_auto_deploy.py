@@ -685,6 +685,19 @@ def test_three_check_venv_timeouts_need_a_human(host):
     assert str(stop.value) == "needs-human:check-venv-timeout"
 
 
+def test_a_data_only_push_does_not_reset_the_timeout_count(host):
+    green = {_push(host, "code", {"engine/x.py": "x = 1\n"})}
+    for attempt in range(3):
+        if attempt == 2:
+            green.add(_push(host, "data", {"data/reports/a.json": "{}"}))
+        deployer = _deployer(host, green=green)
+        deployer.gate = lambda worktree, deployed: (_ for _ in ()).throw(
+            auto_deploy.Stop("skipped", "gate-timeout", exit=124, tail=["x"]))
+        with pytest.raises(auto_deploy.Stop) as stop:
+            deployer.decide(execute=True)
+    assert str(stop.value) == "needs-human:gate-timeout"
+
+
 def test_a_forward_test_timeout_is_retried(host):
     deployer = _deployer(host)
     deployer.run = lambda argv, **kw: subprocess.CompletedProcess(
