@@ -837,4 +837,17 @@ earlier logs listed in that index.
 - **Metrics:** tools +2, tests +8 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A CLAIMS.md table row keeps its lane clone
+
+- **Why:** reproduced defect: `pytest tests/test_prune_local.py::test_stay_claimed_matches_whole_names_only`
+  fails with `Extra items in the right set: 'mac-fixes'`: local retention protected a clone only
+  on a line containing "stay claimed", while `CLAIMS.md` tells writers to add a table row per
+  active clone, so a claimed clone with an ordinary row could be removed once idle for 24 hours.
+- **What:** any table row (a line starting with `|`) naming the clone as a whole word protects
+  it, as does a "stay claimed" line. The existing test's "released" mention moves out of the table
+  (rows are removed when work ends); the docstring and local-retention runbook say so.
+- **Evidence:** `pytest -q tests/test_prune_local.py` passes (12 tests).
+- **Metrics:** tools +3, tests +3, docs +1 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

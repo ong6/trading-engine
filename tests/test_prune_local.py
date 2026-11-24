@@ -134,7 +134,7 @@ def test_stay_claimed_recent_and_non_git_directories_are_kept(lanes):
     os.utime(fresh / "README.md", (LATER.timestamp() - 3600,) * 2)
     (lanes["root"] / "scratch").mkdir()
     lanes["claims"].write_text("| P25 | `~/engine-lanes/p25-docs` | docs; p25-docs stay claimed |\n"
-                               "| old | p25-docs-old | released |\n")
+                               "p25-docs-old released\n")
     verdicts = _verdicts(lanes, apply=True)
     assert verdicts["p25-docs"]["reason"] == "stay-claimed"
     assert verdicts["p25-docs-old"]["action"] == "removed"
@@ -146,9 +146,12 @@ def test_stay_claimed_recent_and_non_git_directories_are_kept(lanes):
 def test_stay_claimed_matches_whole_names_only(tmp_path):
     claims = tmp_path / "CLAIMS.md"
     claims.write_text("stay claimed: r25-api, p24-meta-split.\n"
-                      "p24-storage-r18 released\n")
-    names = ["r25-api", "r25", "p24-meta-split", "p24-meta-split.work", "p24-storage-r18"]
-    assert prune_local.stay_claimed(claims, names) == {"r25-api", "p24-meta-split"}
+                      "p24-storage-r18 released\n"
+                      "| Clone | Branch | Owner | Scope |\n|---|---|---|---|\n"
+                      "| mac-fixes | p25/deployer-fixes | a session | deployer fixes |\n")
+    names = ["r25-api", "r25", "p24-meta-split", "p24-meta-split.work", "p24-storage-r18",
+             "mac-fixes", "mac"]
+    assert prune_local.stay_claimed(claims, names) == {"r25-api", "p24-meta-split", "mac-fixes"}
     assert prune_local.stay_claimed(tmp_path / "missing.md", names) == set()
 
 

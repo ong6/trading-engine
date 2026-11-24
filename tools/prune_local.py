@@ -17,8 +17,8 @@ Backups:
     the point-in-time stores and the live store are never touched.
 
 Lane clones under ``~/engine-lanes/*`` are removed only when every rule holds: a git clone (not
-a linked worktree) whose ``origin`` is the engine repository; not named on a ``CLAIMS.md`` line
-that contains "stay claimed"; nothing outside ``.git`` and dependency caches, and no commit or
+a linked worktree) whose ``origin`` is the engine repository; not named in a ``CLAIMS.md`` table
+row or on a line that contains "stay claimed"; nothing outside ``.git`` and dependency caches, and no commit or
 checkout, changed in the last 24 hours; no merge, rebase or cherry-pick in progress; no tracked
 changes and no untracked files outside ``.gitignore``; no stash entries; ``git fetch origin`` and
 ``git ls-remote`` succeed; and every commit of every local branch and of ``HEAD`` is on
@@ -27,8 +27,9 @@ origin (reachable from a branch ``git ls-remote`` lists now) or patch-equivalent
 directories, linked worktrees and symlinks are reported, never removed.
 
 The CLAIMS.md convention: a lane stays claimed when its directory name appears as a whole word
-on any line containing "stay claimed" (case-insensitive), for example
-``stay claimed: p25-docs, p25-retention`` or a ledger row ending "... r25-api stay claimed".
+on a table row (a line starting with ``|``; the file asks writers to add one per active clone)
+or on any line containing "stay claimed" (case-insensitive), for example
+``| p25-docs | p25/docs | ... |`` or ``stay claimed: p25-docs, p25-retention``.
 """
 from __future__ import annotations
 
@@ -153,9 +154,11 @@ def prune_releases(releases: list[Path], *, keep: int = KEEP, apply: bool = Fals
 
 
 def stay_claimed(claims: Path, names: Iterable[str]) -> set[str]:
-    """Lane names that appear as a whole word on a CLAIMS.md line containing "stay claimed"."""
+    """Lane names that appear as a whole word on a CLAIMS.md table row or a line containing
+    "stay claimed"."""
     try:
-        lines = [line for line in claims.read_text().splitlines() if STAY_CLAIMED.search(line)]
+        lines = [line for line in claims.read_text().splitlines()
+                 if line.lstrip().startswith("|") or STAY_CLAIMED.search(line)]
     except OSError:
         return set()
     return {name for name in names if any(

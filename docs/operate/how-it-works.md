@@ -436,9 +436,10 @@ alone prints the plan as JSON and changes nothing):
 - a lane clone under `~/engine-lanes/` is removed only when its `origin` is this repository, it
   has no tracked changes, untracked files outside `.gitignore` or stash entries, every local
   branch's commits are on origin or patch-equivalent in `origin/main` (`git cherry`, after a
-  fetch), nothing in it changed for 24 hours, and its directory name is not on a
-  `~/engine-lanes/CLAIMS.md` line containing "stay claimed" (for example
-  `stay claimed: p25-docs`). Non-git directories and linked worktrees are reported, never removed.
+  fetch), nothing in it changed for 24 hours, and its directory name is not in a
+  `~/engine-lanes/CLAIMS.md` table row (one per active clone) or on a line containing
+  "stay claimed" (for example `stay claimed: p25-docs`). Non-git directories and linked worktrees
+  are reported, never removed.
 
 It never touches `~/trading-data`, the published snapshots (they keep their own two
 generations), the point-in-time stores or the live store.
