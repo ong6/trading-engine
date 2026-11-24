@@ -1081,4 +1081,16 @@ earlier logs listed in that index.
 - **Metrics:** tools +3, tests +19, docs +2 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A release leaves a run of its new timer alone
+
+- **Why:** reproduced defect: the extended `test_release_starts_a_timer_its_automation_step_newly_enabled`
+  fails with `assert 'active' == 'inactive'` for the timer's service: a service that was not
+  loaded at capture has no captured `Triggers` owner, so when a newly enabled timer had already
+  fired, `release_producers` stopped its run as an unexpected active unit.
+- **What:** the services a newly enabled timer triggers now count as timer-owned, like those of
+  captured timers: neither stopped nor required to match a captured state.
+- **Evidence:** `pytest -q tests/test_release_deploy.py` passes.
+- **Metrics:** tools +6, tests +5 lines; snapshot refreshed (whole branch: tools +166, tests +271).
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

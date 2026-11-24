@@ -1202,10 +1202,14 @@ def test_release_starts_a_timer_its_automation_step_newly_enabled(tmp_path, monk
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _write_fake_host(bin_dir)
-    name = "trading-engine-local-prune.timer"
+    name, service = "trading-engine-local-prune.timer", "trading-engine-local-prune.service"
     host_state = tmp_path / "host.json"
-    host_state.write_text(json.dumps({"units": {name: {
-        "LoadState": "loaded", "ActiveState": "inactive", "UnitFileState": "enabled"}}}))
+    host_state.write_text(json.dumps({"units": {
+        name: {"LoadState": "loaded", "ActiveState": "inactive", "UnitFileState": "enabled",
+               "Triggers": service},
+        # the new timer already fired once: its run belongs to the timer
+        service: {"LoadState": "loaded", "ActiveState": "active", "UnitFileState": "static",
+                  "MainPID": "18"}}}))
     monkeypatch.setenv("FAKE_HOST_STATE", str(host_state))
     monkeypatch.setenv("FAKE_CRONTAB", str(tmp_path / "cron"))
     monkeypatch.setenv("FAKE_PS_OUTPUT", "")
@@ -1221,14 +1225,15 @@ def test_release_starts_a_timer_its_automation_step_newly_enabled(tmp_path, monk
         phase="verifying", repo_root=str(tmp_path / "repo"), database=str(tmp_path / "db"),
         approved_sha=NEW_SHA, original_sha=OLD_SHA, adapter_set="none", d0=None,
         inventory={
-            "units": {name: {"LoadState": "not-found", "ActiveState": "inactive",
-                             "UnitFileState": ""}},
+            "units": {unit: {"LoadState": "not-found", "ActiveState": "inactive",
+                             "UnitFileState": ""} for unit in (name, service)},
             "crontab": {"present": False, "content": ""},
         },
         automation={"installed_unit_files": [name], "enablement_units": [name]},
     )
     assert operations.release_producers(state, include_autopush=True)["timers_started"] == [name]
-    assert json.loads(host_state.read_text())["units"][name]["ActiveState"] == "active"
+    observed = json.loads(host_state.read_text())["units"]
+    assert observed[name]["ActiveState"] == observed[service]["ActiveState"] == "active"
     host_state.write_text(json.dumps({"units": {}}))  # rolled back: restore_units removed it
     assert operations.release_producers(state, include_autopush=True)["timers_started"] == []
 

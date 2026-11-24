@@ -2146,6 +2146,12 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
             and self._unit_properties(name).get("UnitFileState") == "enabled"
         }
         desired |= enabled_timers
+        # Their services were not loaded at capture; a run the new timer starts is its own.
+        triggered |= {
+            service
+            for name in enabled_timers
+            for service in self._unit_properties(name).get("Triggers", "").split()
+        }
         discovered = self._unit_names()
         unexpected = {
             name
