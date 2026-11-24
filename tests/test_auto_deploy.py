@@ -162,6 +162,17 @@ def test_blocked_windows(clock, blocked):
     assert auto_deploy.in_blocked_window(SAFE.replace(hour=hour, minute=minute)) is blocked
 
 
+@pytest.mark.parametrize("moment, blocked", [
+    (datetime(2026, 11, 23, 14, 10, tzinfo=UTC), True),  # winter: 09:10 in New York
+    (datetime(2026, 11, 23, 13, 10, tzinfo=UTC), False),
+    (datetime(2027, 6, 7, 13, 10, tzinfo=UTC), True),  # summer: 09:10 in New York
+    (datetime(2027, 6, 7, 14, 10, tzinfo=UTC), False),
+    (datetime(2027, 6, 7, 23, 0, tzinfo=UTC), True),  # the nightly window stays in UTC
+])
+def test_the_pre_open_window_follows_new_york_time(moment, blocked):
+    assert auto_deploy.in_blocked_window(moment) is blocked
+
+
 def test_skips_in_a_window_while_a_producer_runs_or_a_lock_is_held(host):
     deployer = _deployer(host)
     deployer.moment = SAFE.replace(hour=23)

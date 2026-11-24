@@ -18,7 +18,8 @@ refreshes the pins. Never change a registered value.
 the minutes between the publish-on-change starts (:12 and :42) whose 15-minute look-ahead stays
 clear of them, two per half hour.
 
-1. Before changing anything it skips 14:05–14:35 and 22:30–03:00 UTC; while a producer lock,
+1. Before changing anything it skips 09:05–09:35 New York time (the pre-open; 14:05 UTC in
+   winter, 13:05 in summer) and 22:30–03:00 UTC; while a producer lock,
    producer process or release transaction is active; when an engine timer or engine cron job is
    due within 15 minutes or an engine unit is running (`skipped:timer-soon`, `skipped:unit-active`);
    and when free space is below the 70 GiB store reserve (`skipped:low-disk`).
@@ -63,7 +64,7 @@ clear of them, two per half hour.
   window or an engine start within 5 minutes (`heal_skipped` in the receipt).
 - A recorded recovery (in-flight marker or failed recovery) may run in the 22:30–03:00 window
   and looks ahead 5 minutes instead of 15 for an engine start, so a broken host is not left for
-  hours. It keeps the 14:05–14:35 window (non-engine jobs that use the checkout run then) and
+  hours. It keeps the pre-open window (non-engine jobs that use the checkout run then) and
   still waits for producer locks, producer processes, a release transaction, a running engine
   unit and low disk. Unhealthy unverified code found only by the health probe is gated like a
   deploy.

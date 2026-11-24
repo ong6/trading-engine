@@ -1318,4 +1318,17 @@ earlier logs listed in that index.
 - **Metrics:** tools +4, docs +4 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — The deployer's pre-open window follows New York time
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py::test_the_pre_open_window_follows_new_york_time`
+  fails for the summer dates (`assert False is True` at 13:10 UTC): the pre-open window was fixed
+  at 14:05–14:35 UTC, but the timers it protects (`trading-engine-p15-preopen.timer` at 09:05
+  and the market-hours timers) run on `America/New_York`, so from the US clock change the window
+  sat an hour after the pre-open.
+- **What:** the pre-open window is 09:05–09:35 `America/New_York` (zoneinfo); the nightly window
+  stays 22:30–03:00 UTC. The module docstring, `docs/change/deploy.md` and the P25 plan say so.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (83 tests).
+- **Metrics:** tools +4, tests +11 lines; snapshot refreshed (whole branch: tools +276, tests +540).
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

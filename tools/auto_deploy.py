@@ -29,10 +29,11 @@ re-applies data-only commits, re-runs ``install_automation --apply`` and checks 
 runs report ``would-recover``.
 
 A recorded recovery (an in-flight marker or a failed recovery) skips the 22:30-03:00 window
-and looks ahead 5 minutes instead of 15 for a timer; it keeps the 14:05-14:35 window and never
+and looks ahead 5 minutes instead of 15 for a timer; it keeps the pre-open window and never
 runs past a held lock, a producer, a release transaction or a running unit.
 
-Steps: (1) skip inside 14:05-14:35 and 22:30-03:00 UTC, while any producer lock is held
+Steps: (1) skip inside 09:05-09:35 New York time and 22:30-03:00 UTC, while any producer lock
+is held
 (observed through ``/proc/locks``, never acquired), a producer process runs or a release
 transaction holds its lock; (2) fetch ``origin/main`` into a private mirror under the state
 directory and pick the newest commit whose GitHub Actions ``ci`` push run succeeded, also
@@ -71,6 +72,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Iterator
+from zoneinfo import ZoneInfo
 
 import yaml
 
@@ -91,7 +93,9 @@ REPOSITORY = "ong6/trading-engine"
 RUNS_URL = (f"https://api.github.com/repos/{REPOSITORY}/actions/runs"
             "?branch=main&event=push&per_page=100")
 WORKFLOW = "ci"
-BLOCKED_WINDOWS = ((time(14, 5), time(14, 35)), (time(22, 30), time(3, 0)))
+NEW_YORK = ZoneInfo("America/New_York")
+# The pre-open window follows the New York timers it protects; the nightly window is UTC.
+BLOCKED_WINDOWS = ((time(9, 5), time(9, 35), NEW_YORK), (time(22, 30), time(3, 0), UTC))
 MUTATION_LEAD = timedelta(minutes=15)  # the mutating half must end before a window or a start
 RECOVERY_LEAD = timedelta(minutes=5)  # a recovery takes seconds to a few minutes
 PROBE_ONLY = "unhealthy-unverified-code"  # recovery found by the health probe alone
@@ -152,8 +156,8 @@ class Decision:
 
 
 def in_blocked_window(moment: datetime, windows=BLOCKED_WINDOWS) -> bool:
-    clock = moment.astimezone(UTC).time()
-    for start, end in windows:
+    for start, end, zone in windows:
+        clock = moment.astimezone(zone).time()
         if (start <= clock < end) if start < end else (clock >= start or clock < end):
             return True
     return False

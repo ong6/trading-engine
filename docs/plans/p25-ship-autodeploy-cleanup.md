@@ -72,8 +72,8 @@ Disturbing running producers or the E1, sector and XS forward records.
 
 The orchestrator runs the scope items in order. Workers (sub-agents or Codex sessions) each get
 one clone under `~/engine-lanes/` and one branch; at most three write at once. The orchestrator
-reviews every branch, merges to `main`, re-pins once per batch and deploys outside 14:05–14:35
-and 22:30–03:00 UTC. Once the deployer is live, merging to `main` is the deploy.
+reviews every branch, merges to `main`, re-pins once per batch and deploys outside 09:05–09:35
+New York time and 22:30–03:00 UTC. Once the deployer is live, merging to `main` is the deploy.
 
 ## Budget
 
