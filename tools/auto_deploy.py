@@ -406,6 +406,20 @@ class Deployer:
                         timeout=900)
         self.steps.append(f"heal:restart:{done.returncode}")
 
+    def heal_blocked(self) -> str | None:
+        """Why the backstop restart must wait, re-checked just before it: the pre-open window
+        or an engine start due within RECOVERY_LEAD."""
+        moment, preopen = self.now(), BLOCKED_WINDOWS[:1]
+        if in_blocked_window(moment, preopen) or in_blocked_window(moment + RECOVERY_LEAD,
+                                                                    preopen):
+            return "window"
+        try:
+            timers, _activating, crontab = self.engine_schedule()
+        except Stop:
+            return "schedule-unknown"
+        soon = scheduled_soon(crontab, timers, moment, RECOVERY_LEAD)
+        return f"timer-soon:{soon}" if soon else None
+
     def disk_problem(self) -> str | None:
         """Keep the store reserve: a rollback must still work on a full day."""
         try:
@@ -928,7 +942,12 @@ class Deployer:
                 failures = int(attempts.get("failures", 0)) + 1
                 delay = min(RECOVERY_BASE * 2 ** (failures - 1), RECOVERY_CAP)
                 if failures >= HEAL_AFTER:
-                    self.heal_services()
+                    blocked = self.heal_blocked()  # the recovery may have run long
+                    if blocked:
+                        self.steps.append(f"heal:skipped:{blocked}")
+                        detail["heal_skipped"] = blocked
+                    else:
+                        self.heal_services()
                 self.save_state(recovery={"failures": failures, "why": origin,
                                           "next_at": _iso(self.now() + delay),
                                           **({"data_saved": detail["data_saved"]}

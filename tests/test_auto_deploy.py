@@ -949,6 +949,25 @@ def test_a_failed_git_step_counts_as_a_failed_recovery(host):
     assert decision.detail["failures"] == 1 and _state(host)["recovery"]["failures"] == 1
 
 
+def test_the_heal_backstop_rechecks_the_pre_open_window(host):
+    _good, _target = _failed_rollback(host)
+    deployer = _deployer(host)
+    deployer.save_state(recovery={"failures": auto_deploy.HEAL_AFTER - 1,
+                                  "why": "unverified-deploy", "next_at": "2026-11-23T00:00:00Z"})
+    deployer.moment = SAFE.replace(hour=13, minute=59, second=59)
+
+    def slow_failing_apply(mode):
+        deployer.calls.append(mode)
+        deployer.moment = SAFE.replace(hour=14, minute=20)  # the apply ran into pre-open
+        return 1, {"status": "error"}
+
+    deployer.automation = slow_failing_apply
+    decision = deployer.decide(execute=True)
+    assert decision.outcome == "recovery-failed", decision
+    assert "heal" not in deployer.calls and "heal:skipped:window" in deployer.steps
+    assert decision.detail["heal_skipped"] == "window"
+
+
 def test_a_healthy_hand_deploy_is_adopted_and_unhealthy_code_is_recovered(host):
     _deployer(host).save_state(last_good_sha=_git(host["live"], "rev-parse", "HEAD"))
     good = _git(host["live"], "rev-parse", "HEAD")

@@ -1253,4 +1253,17 @@ earlier logs listed in that index.
 - **Metrics:** tools +6, tests +20 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — The heal backstop re-checks the pre-open window before restarting
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py::test_the_heal_backstop_rechecks_the_pre_open_window`
+  fails with `assert ('heal' not in ['--apply', 'heal'])`: after the third failed recovery the
+  API and UI were restarted with no re-check, so a recovery that started at 13:59 and ran a slow
+  failing apply restarted them at 14:20, inside the pre-open window.
+- **What:** just before healing, `heal_blocked` re-checks the pre-open window and any engine
+  start within 5 minutes (or an unreadable schedule); if blocked, the heal is skipped, the step
+  says why and the receipt carries `heal_skipped`. The next failed attempt tries again.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (73 tests).
+- **Metrics:** tools +19, tests +19, docs +1 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

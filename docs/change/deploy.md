@@ -58,7 +58,8 @@ clear of them, two per half hour.
   `refs/auto-deploy/pre-recovery-*` ref keeps every commit), re-applying data-only commits,
   `install_automation --apply` and a health check.
 - Failed recoveries retry with backoff from 15 minutes to 4 hours; after three it clears failed
-  engine units and restarts the API and UI.
+  engine units and restarts the API and UI, unless a re-check just before finds the pre-open
+  window or an engine start within 5 minutes (`heal_skipped` in the receipt).
 - A recorded recovery (in-flight marker or failed recovery) may run in the 22:30–03:00 window
   and looks ahead 5 minutes instead of 15 for an engine start, so a broken host is not left for
   hours. It keeps the 14:05–14:35 window (non-engine jobs that use the checkout run then) and
