@@ -98,7 +98,7 @@ PROBE_ONLY = "unhealthy-unverified-code"  # recovery found by the health probe a
 # Gate and forward tests take about a minute; with MUTATION_LEAD they fit inside the unit's
 # TimeoutStartSec (50 min), so a hung check ends with a receipt instead of a systemd kill.
 GATE_TIMEOUT = FORWARD_TESTS_TIMEOUT = 900
-CHECK_TIMEOUTS = frozenset({"gate-timeout", "forward-tests-timeout"})
+CHECK_TIMEOUTS = frozenset({"gate-timeout", "forward-tests-timeout", "check-venv-timeout"})
 CHECK_TIMEOUT_LIMIT = 3  # consecutive timeouts on one target before it needs a person
 # Scheduled engine starts that must not land inside a mutation. The deployer itself, the
 # read-only digest and the ten-minute watchdog are excluded (the watchdog's catch-up takes the
@@ -623,8 +623,13 @@ class Deployer:
         uv = shutil.which("uv") or str(Path.home() / ".local/bin/uv")
         done = self.run([uv, "sync", "--frozen", "--extra", "dev", "--quiet"], cwd=worktree,
                         env={"UV_PROJECT_ENVIRONMENT": str(venv)}, timeout=1800)
+        error = (done.stderr or done.stdout)[-300:]
+        if done.returncode == 127:  # uv could not start: retrying will not help
+            raise Stop("needs-human", "check-venv-cannot-start", error=error)
+        if done.returncode == 124:
+            raise Stop("skipped", "check-venv-timeout", error=error)
         if done.returncode:
-            raise Stop("skipped", "check-venv", error=(done.stderr or done.stdout)[-300:])
+            raise Stop("skipped", "check-venv", error=error)
         write_text_atomic(stamp, digest + "\n")
         self.steps.append("check-venv:built")
         return venv
@@ -1112,8 +1117,8 @@ class Deployer:
         expected = {family.key: repin._literal(
             self.git(self.mirror, "show", f"{target}:{family.path}"),
             "EXPECTED_RUNTIME_CONTRACT_SHA256") for family in repin.FAMILIES}
-        worktree = self.prepare_worktree(target)
         try:
+            worktree = self.prepare_worktree(target)
             checks = self.gate(worktree, deployed)
         except Stop as stop:
             if stop.reason in CHECK_TIMEOUTS and self.execute:

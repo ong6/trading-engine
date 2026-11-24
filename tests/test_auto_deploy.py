@@ -661,6 +661,30 @@ def test_three_check_timeouts_on_one_target_need_a_human(host):
     assert stop.value.outcome == "needs-human" and stop.value.detail["timeouts"] == 3
 
 
+@pytest.mark.parametrize("code, label", [
+    (127, "needs-human:check-venv-cannot-start"), (124, "skipped:check-venv-timeout"),
+])
+def test_a_check_venv_that_cannot_start_or_times_out(host, code, label):
+    worktree = host["tmp"] / "wt"
+    worktree.mkdir()
+    (worktree / "uv.lock").write_text("lock\n")
+    deployer = _deployer(host)
+    deployer.run = lambda argv, **kw: subprocess.CompletedProcess(argv, code, "", "uv: missing")
+    with pytest.raises(auto_deploy.Stop, match=label):
+        auto_deploy.Deployer.check_venv(deployer, worktree)
+
+
+def test_three_check_venv_timeouts_need_a_human(host):
+    target = _push(host, "code", {"engine/x.py": "x = 1\n"})
+    for _attempt in range(3):
+        deployer = _deployer(host, green={target})
+        deployer.check_venv = lambda worktree: (_ for _ in ()).throw(
+            auto_deploy.Stop("skipped", "check-venv-timeout", error="timed out"))
+        with pytest.raises(auto_deploy.Stop) as stop:
+            deployer.decide(execute=True)
+    assert str(stop.value) == "needs-human:check-venv-timeout"
+
+
 def test_a_forward_test_timeout_is_retried(host):
     deployer = _deployer(host)
     deployer.run = lambda argv, **kw: subprocess.CompletedProcess(

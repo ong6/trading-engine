@@ -1266,4 +1266,18 @@ earlier logs listed in that index.
 - **Metrics:** tools +19, tests +19, docs +1 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — The check environment escalates like the gate
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py -k "check_venv_that or check_venv_timeouts"`
+  fails with `Actual message: 'skipped:check-venv'` for exits 127 and 124: a missing `uv` or a
+  timed-out environment build was a quiet `skipped:check-venv` forever, and the timeout counter
+  did not cover it (the worktree is prepared before the gate's try).
+- **What:** `check_venv` maps exit 127 to `needs-human:check-venv-cannot-start` and a timeout
+  to `skipped:check-venv-timeout`; preparing the worktree moves inside the counted try, so the
+  third consecutive check-environment timeout on a target is `needs-human`. Other failures stay
+  `skipped:check-venv`. `docs/change/deploy.md` says so.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (76 tests).
+- **Metrics:** tools +5, tests +24, docs +1 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
