@@ -1,18 +1,25 @@
 {
-  "last_run": "2026-11-23T22:34:34.729815+00:00",
+  "last_run": "2026-11-24T22:34:22.641967+00:00",
   "mode": "incremental",
-  "universe_size": 12978,
-  "active_count": 11942,
+  "universe_size": 12982,
+  "active_count": 11940,
   "liquid_count": 3986,
-  "prices_rows": 21711621,
+  "prices_rows": 21715599,
   "tickers_with_data": 12830,
   "stale_tickers": {
-    "count": 1,
+    "count": 8,
     "list": [
-      "SIMI"
+      "BITI",
+      "BITO",
+      "DXD",
+      "QID",
+      "ROM",
+      "RWM",
+      "SA",
+      "SSG"
     ]
   },
-  "failed_this_run": 33,
+  "failed_this_run": 22,
   "sources": {
     "stooq": "blocked",
     "yfinance": "ok"
@@ -20,38 +27,37 @@
   "regime": "risk-off",
   "actions_incremental": {
     "mode": "incremental",
-    "universe": 1378,
+    "universe": 1361,
     "universe_source": "active-held \u222a active-pending \u222a core-ETFs \u222a screen-top-N \u222a split-like-rewrites \u222a liquid-rolling-slice",
-    "pulled_this_run": 1378,
-    "with_actions": 938,
-    "no_actions": 440,
+    "pulled_this_run": 1361,
+    "with_actions": 954,
+    "no_actions": 407,
     "failed_tickers": 0,
-    "rows_written_this_run": 51298,
-    "total_splits": 8983,
-    "total_dividends": 406383,
-    "last_run": "2026-11-23T22:47:25.727405+00:00",
-    "store_gb": 58.1
+    "rows_written_this_run": 51932,
+    "total_splits": 8989,
+    "total_dividends": 406431,
+    "last_run": "2026-11-24T22:47:24.674972+00:00",
+    "store_gb": 58.74
   },
   "disk_warning": null,
   "actions_reconcile": {
-    "candidates": 71,
+    "candidates": 6,
     "rows_restated": 0,
     "outcomes": {
-      "noop_restated": 20,
-      "noop_pre_history": 8,
-      "skipped_sanity": 3,
-      "skipped_no_bars": 40
+      "noop_pre_history": 4,
+      "noop_restated": 1,
+      "skipped_no_bars": 1
     },
-    "warnings": 47,
+    "warnings": 9,
     "no_bars_retry": {
       "eligible": 5,
       "aged_out": 0,
-      "attempted": 3,
+      "attempted": 2,
       "applied": 0,
       "rows_restated": 0
     },
-    "last_run": "2026-11-23T22:47:33.230595+00:00",
-    "store_gb": 58.1
+    "last_run": "2026-11-24T22:47:30.730156+00:00",
+    "store_gb": 58.74
   },
   "price_verify": {
     "last_run": "2026-11-23T22:50:54.514652+00:00",
@@ -423,14 +429,14 @@
     "rows_for_as_of": 2719,
     "store_gb": 58.1
   },
-  "screen_date": "2026-11-23",
-  "last_screen": "2026-11-23T22:47:39.937147+00:00",
-  "passing_count": 350,
-  "new_today_count": 91,
-  "screened": 3824,
-  "skipped_stale": 1,
-  "skipped_phantom": 0,
-  "skipped_short": 159,
+  "screen_date": "2026-11-24",
+  "last_screen": "2026-11-24T22:47:37.455721+00:00",
+  "passing_count": 383,
+  "new_today_count": 48,
+  "screened": 3817,
+  "skipped_stale": 8,
+  "skipped_phantom": 1,
+  "skipped_short": 158,
   "universe_policy": "all",
   "excluded_leveraged": 0,
   "screen_metadata_source": "fresh-run",
@@ -658,15 +664,15 @@
     "target_symbols": 4063,
     "limitation": "current-liquid-universe snapshot; survivor-biased and retrieval-time-only; not historical membership or promotion-quality stock-selection evidence",
     "attempts": {
-      "complete": 10365,
-      "empty": 897,
-      "failed": 141,
-      "refused": 22
+      "complete": 10551,
+      "empty": 904,
+      "failed": 145,
+      "refused": 25
     },
-    "unresolved_failed_windows": 5,
-    "refused_windows": 21,
-    "fact_count": 3785810,
-    "symbols_with_facts": 3968,
+    "unresolved_failed_windows": 3,
+    "refused_windows": 24,
+    "fact_count": 3849663,
+    "symbols_with_facts": 3996,
     "symbols_checkpointed": 4060,
     "symbols_unstarted": 3,
     "checkpoint_start": "2023-07-05",
@@ -681,11 +687,11 @@
     "operational_price_mutation": false,
     "attempted_this_run": 50,
     "completed_this_run": 48,
-    "empty_this_run": 1,
+    "empty_this_run": 0,
     "failed_this_run": 1,
-    "refused_this_run": 0,
+    "refused_this_run": 1,
     "through": "2026-11-23",
-    "last_run": "2026-11-24T00:02:44.522487+00:00"
+    "last_run": "2026-11-24T21:58:58.234173+00:00"
   },
   "price_verify_full": {
     "last_run": "2026-11-21T02:41:23.562062+00:00",
