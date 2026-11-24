@@ -190,6 +190,12 @@ def test_a_lock_skip_says_whether_a_commit_was_waiting_at_the_last_fetch(host):
     receipt = json.loads(deployer.record(auto_deploy.Decision(
         stop.value.outcome, stop.value.reason, stop.value.detail), SAFE, SAFE).read_text())
     assert receipt["reason"] == "skipped:producer-lock:.nightly.lock waiting_at_last_fetch=1"
+    deployer.held = set()
+    assert deployer.decide(execute=True).outcome == "deployed"
+    deployer.held = {".nightly.lock"}
+    with pytest.raises(auto_deploy.Stop, match="producer-lock") as stop:
+        deployer.decide(execute=True)
+    assert stop.value.detail["waiting_at_last_fetch"] == 0  # counted from the live checkout now
 
 
 def test_lock_globs_find_running_guards(host):

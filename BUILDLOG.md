@@ -1057,4 +1057,15 @@ earlier logs listed in that index.
 - **Metrics:** tools +3, tests +8, docs +1 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — The waiting count is taken from the live checkout, not the last refresh
+
+- **Why:** reproduced defect: the extended `test_a_lock_skip_says_whether_a_commit_was_waiting_at_the_last_fetch`
+  fails with `assert 1 == 0`: the count started from the mirror's `refs/live/head`, fetched
+  before the checkout moved, so the first lock skip after a deploy reported a waiting commit.
+- **What:** the count starts from the live checkout's merge base with its `origin/main` now
+  (local, `check=False`) and runs in the mirror; it is omitted when either is unknown.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (63 tests).
+- **Metrics:** tools +3, tests +6 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

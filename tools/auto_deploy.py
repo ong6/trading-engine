@@ -436,10 +436,13 @@ class Deployer:
 
     # ---- step 2: target -------------------------------------------------------------------
     def waiting_at_last_fetch(self) -> int | None:
-        """First-parent ``main`` commits past the live HEAD as of the mirror's last refresh
-        (local and read-only; None when the mirror cannot say)."""
+        """First-parent ``main`` commits past the live checkout's base on ``main`` now, as of
+        the mirror's last fetch (local and read-only; None when the mirror cannot say)."""
+        base = self.git(self.root, "merge-base", "HEAD", "refs/remotes/origin/main", check=False)
+        if not base:
+            return None
         done = self.run(["git", "rev-list", "--count", "--first-parent",
-                         "refs/live/head..refs/remotes/origin/main"], cwd=self.mirror, timeout=30)
+                         f"{base}..refs/remotes/origin/main"], cwd=self.mirror, timeout=30)
         return int(done.stdout) if done.returncode == 0 and done.stdout.strip().isdigit() else None
 
     def refresh_mirror(self) -> tuple[str, str]:
