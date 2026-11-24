@@ -1160,4 +1160,19 @@ earlier logs listed in that index.
 - **Metrics:** tools +4, tests +17 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — The rollback pre-check validates the recovery bundle
+
+- **Why:** review finding, reproduced: `pytest tests/test_release_deploy.py::test_rollback_refuses_an_unusable_bundle_before_pausing`
+  fails with `DID NOT RAISE DeployError`: the pre-check only tested that `recovery/` existed, so
+  an empty or part-deleted bundle passed, and the rollback paused the host, detached the
+  checkout and rewrote `data/` before `restore_database` failed.
+- **What:** `ReleaseOperations.validate_recovery_bundle` runs the checks `restore_database` uses
+  (`backup_database.verify_backup`, the manifest digest against the release state, the
+  manifest's source commit against the original commit), reporting a `BackupError` as a
+  `DeployError`; the rollback pre-check calls it before the phase is saved, and
+  `restore_database` calls it too. `tools/backup_database.py` (pinned) is unchanged.
+- **Evidence:** `pytest -q tests/test_release_deploy.py tests/test_basis_release.py` passes.
+- **Metrics:** tools +9, tests +23 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

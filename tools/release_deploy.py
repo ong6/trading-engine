@@ -2368,14 +2368,26 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
                 os.replace(saved, live)
         return {"restored": sorted(state.prior_runtimes)}
 
-    def restore_database(self, state: ReleaseState) -> dict[str, Any]:
+    def validate_recovery_bundle(self, state: ReleaseState) -> tuple[dict, dict[str, Any]]:
+        """The recovery bundle verifies and still matches this release (rollback pre-check and
+        ``restore_database``)."""
         bundle = self.store.directory / "recovery"
-        verified = backup_database.verify_backup(bundle)
+        if not bundle.is_dir():
+            raise DeployError("rollback recovery bundle is missing")
+        try:
+            verified = backup_database.verify_backup(bundle)
+        except backup_database.BackupError as exc:
+            raise DeployError(f"rollback recovery bundle is unusable: {exc}") from exc
         if verified["manifest_sha256"] != state.backup.get("manifest_sha256"):
             raise DeployError("recovery bundle no longer matches release state")
         manifest = _regular_json(bundle / backup_database.MANIFEST_FILENAME)
         if manifest.get("release_identity", {}).get("git_sha") != state.original_sha:
             raise DeployError("recovery bundle source identity changed")
+        return verified, manifest
+
+    def restore_database(self, state: ReleaseState) -> dict[str, Any]:
+        bundle = self.store.directory / "recovery"
+        verified, manifest = self.validate_recovery_bundle(state)
         source = bundle / backup_database.DATABASE_FILENAME
         target = Path(state.database)
         temporary = target.with_name(f".{target.name}.restore-{secrets.token_hex(6)}")
@@ -3011,11 +3023,8 @@ class ReleaseDeployment:
                 )
         elif head != state.original_sha:  # a resumed rollback would overwrite the store first
             raise DeployError("live source moved after restore-source; this run changed nothing")
-        if (
-            self.journal.completed("restore-database") is None
-            and not (self.store.directory / "recovery").is_dir()
-        ):
-            raise DeployError("rollback recovery bundle is missing; this run changed nothing")
+        if self.journal.completed("restore-database") is None:
+            self.operations.validate_recovery_bundle(state)  # the check restore_database runs
         state.phase = "rolling-back"
         self.store.save(state)
         try:

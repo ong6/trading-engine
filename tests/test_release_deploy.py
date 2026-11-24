@@ -184,6 +184,10 @@ class FakeOperations:
         (self.store.directory / "recovery").mkdir(exist_ok=True)
         return {"manifest_sha256": "e" * 64}
 
+    def validate_recovery_bundle(self, _state):
+        if not (self.store.directory / "recovery").is_dir():
+            raise release_deploy.DeployError("rollback recovery bundle is missing")
+
     def capture_artifacts(self, _state):
         self.calls.append("capture-artifacts")
         return {"schema_version": 1, "entries": {}, "sha256": "0" * 64}
@@ -745,6 +749,25 @@ def test_a_resumed_rollback_refuses_a_moved_checkout_before_pausing(transaction)
     with pytest.raises(release_deploy.DeployError, match="moved after restore-source"):
         deployment.rollback(execute=True)
     assert "quiesce" not in operations.calls
+
+
+def test_rollback_refuses_an_unusable_bundle_before_pausing(transaction):
+    prepare(transaction)
+    deployment, operations, _repo, _database = transaction
+    deployment.fail_after = "source-switch"
+    with pytest.raises(release_deploy.DeployError):
+        deployment.apply(execute=True, approve_plan=None)
+    deployment.fail_after = None
+    phase = deployment.store.load().phase
+    bundle = deployment.store.directory / "recovery"
+    shutil.rmtree(bundle)
+    bundle.mkdir()  # retention's removal stopped part-way
+    operations.validate_recovery_bundle = lambda state: (
+        release_deploy.ReleaseOperations.validate_recovery_bundle(operations, state))
+    operations.head, operations.calls = NEW_SHA, []
+    with pytest.raises(release_deploy.DeployError, match="recovery bundle is unusable"):
+        deployment.rollback(execute=True)
+    assert "quiesce" not in operations.calls and deployment.store.load().phase == phase
 
 
 def test_reconciled_source_refuses_detached_head_in_real_repository(tmp_path):
