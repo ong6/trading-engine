@@ -1016,4 +1016,17 @@ earlier logs listed in that index.
 - **Metrics:** tests +17 lines; schedule files and docs only otherwise.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A release starts a timer its own automation step newly enabled
+
+- **Why:** reproduced defect: `pytest tests/test_release_deploy.py::test_release_starts_a_timer_its_automation_step_newly_enabled`
+  fails with `assert [] == ['trading-engine-local-prune.timer']`: `release_producers` restarted
+  only timers active in the pre-release capture, so a timer the release added ended installed
+  and enabled but stopped.
+- **What:** a timer in the release's recorded `enablement_units` that was not active or enabled
+  at capture and is enabled now is started and expected active with the others. After a
+  rollback, `restore_units` has removed or disabled it, so it stays stopped (same test).
+- **Evidence:** `pytest -q tests/test_release_deploy.py` passes.
+- **Metrics:** tools +13, tests +35 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

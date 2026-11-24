@@ -1179,6 +1179,41 @@ def test_release_restores_exact_activation_and_crontab_with_autopush_held(tmp_pa
     assert cron.read_text() == "exact fixture cron\n"
 
 
+def test_release_starts_a_timer_its_automation_step_newly_enabled(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_host(bin_dir)
+    name = "trading-engine-local-prune.timer"
+    host_state = tmp_path / "host.json"
+    host_state.write_text(json.dumps({"units": {name: {
+        "LoadState": "loaded", "ActiveState": "inactive", "UnitFileState": "enabled"}}}))
+    monkeypatch.setenv("FAKE_HOST_STATE", str(host_state))
+    monkeypatch.setenv("FAKE_CRONTAB", str(tmp_path / "cron"))
+    monkeypatch.setenv("FAKE_PS_OUTPUT", "")
+    store = release_deploy.StateStore(tmp_path / "state")
+    os.mkdir(store.directory, 0o700)
+    operations = release_deploy.ReleaseOperations(
+        store, home=tmp_path, command_runner=release_deploy.CommandRunner(bin_dir),
+        api_url="http://invalid", ui_url="http://invalid", minimum_free_bytes=0,
+    )
+    operations.transaction_lock_held = True
+    state = release_deploy.ReleaseState(
+        schema_version=1, transaction_id="fixture", created_at="now", updated_at="now",
+        phase="verifying", repo_root=str(tmp_path / "repo"), database=str(tmp_path / "db"),
+        approved_sha=NEW_SHA, original_sha=OLD_SHA, adapter_set="none", d0=None,
+        inventory={
+            "units": {name: {"LoadState": "not-found", "ActiveState": "inactive",
+                             "UnitFileState": ""}},
+            "crontab": {"present": False, "content": ""},
+        },
+        automation={"installed_unit_files": [name], "enablement_units": [name]},
+    )
+    assert operations.release_producers(state, include_autopush=True)["timers_started"] == [name]
+    assert json.loads(host_state.read_text())["units"][name]["ActiveState"] == "active"
+    host_state.write_text(json.dumps({"units": {}}))  # rolled back: restore_units removed it
+    assert operations.release_producers(state, include_autopush=True)["timers_started"] == []
+
+
 def test_activation_verification_failure_requiesces_units_cron_and_autopush(tmp_path, monkeypatch):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

@@ -2133,6 +2133,19 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
             and (include_autopush or name not in AUTOPUSH_UNITS)
             and name not in triggered
         }
+        # A timer this release's automation step newly enabled was not active at capture: start
+        # it too. After a rollback restore_units removed or disabled it, so it stays stopped.
+        enabled_timers = {
+            name
+            for name in state.automation.get("enablement_units", [])
+            if name.endswith(".timer")
+            and name in units
+            and units[name].get("ActiveState") not in ACTIVE_STATES
+            and units[name].get("UnitFileState") != "enabled"
+            and (include_autopush or name not in AUTOPUSH_UNITS)
+            and self._unit_properties(name).get("UnitFileState") == "enabled"
+        }
+        desired |= enabled_timers
         discovered = self._unit_names()
         unexpected = {
             name
@@ -2166,7 +2179,7 @@ print(json.dumps({'cost_break_revisions': [row[0] for row in rows]}))
             if name.endswith(".timer")
             and values.get("ActiveState") in ACTIVE_STATES
             and (include_autopush or name not in AUTOPUSH_UNITS)
-        ]
+        ] + sorted(enabled_timers)
         try:
             self._stop_units(unexpected_active)
             if services:
