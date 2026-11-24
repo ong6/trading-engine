@@ -20,9 +20,11 @@ Self-heal, never alerts: state.json records ``last_good_sha`` after every verifi
 (the first run trusts the deployed checkout; a healthy hand deploy is adopted) and an
 ``in_flight`` marker while the checkout is moved. A run first converges: an in-flight marker,
 a pending recovery or unhealthy unverified code restores the reports, resets to the last good
-commit (``--keep``, else a hard reset of tracked files; untracked store files are untouched and
-a ``refs/auto-deploy/pre-recovery-*`` ref keeps every commit), re-applies data-only commits,
-re-runs ``install_automation --apply`` and checks the host. Dry runs report ``would-recover``.
+commit (``--keep``, else a hard reset of tracked files; untracked store files are untouched,
+uncommitted ``data/`` edits are put back unless the reset changed that file, in which case the
+receipt names the saved copy, and a ``refs/auto-deploy/pre-recovery-*`` ref keeps every commit),
+re-applies data-only commits, re-runs ``install_automation --apply`` and checks the host. Dry
+runs report ``would-recover``.
 
 Steps: (1) skip inside 14:05-14:35 and 22:30-03:00 UTC, while any producer lock is held
 (observed through ``/proc/locks``, never acquired), a producer process runs or a release
@@ -816,9 +818,12 @@ class Deployer:
                     self.root, "rev-list", "--reverse", "--no-merges", "--cherry-pick",
                     "--right-only", f"{good}...{head}").split() if self._data_only(commit)]
                 keep = self.run(["git", "reset", "-q", "--keep", good], cwd=self.root)
+                saved = None
                 if keep.returncode:
                     # --keep refuses over local edits: reset tracked files (untracked store
-                    # files are never touched; the pre-recovery ref keeps every commit).
+                    # files are never touched; the pre-recovery ref keeps every commit), after
+                    # copying the producers' uncommitted data/ edits aside.
+                    saved = self.save_dirty_data(stamp)
                     self.git(self.root, "reset", "-q", "--hard", good)
                     self.steps.append("recover:hard-reset")
                 skipped = []
@@ -830,6 +835,8 @@ class Deployer:
                         skipped.append(commit)
                 detail.update(reapplied=len(picks) - len(skipped), skipped=skipped,
                               backup_ref=f"refs/auto-deploy/pre-recovery-{stamp}")
+                if saved:
+                    detail.update(self.restore_dirty_data(saved, head))
                 self.steps.append(f"recover:{head[:12]}->{good[:12]}")
                 code, summary = self.automation("--apply")
                 self.steps.append(f"apply:{summary.get('status')}")
@@ -852,6 +859,41 @@ class Deployer:
         self.save_state(in_flight=None, recovery=None, last_good_sha=good)
         self.prune_backups()
         return Decision("recovered", why, detail)
+
+    def save_dirty_data(self, stamp: str) -> dict | None:
+        """Copy uncommitted tracked ``data/`` edits aside before a hard reset discards them."""
+        paths = sorted(path for path in self.live_dirty_paths() if path.startswith("data/"))
+        if not paths:
+            return None
+        saved = self.state_dir / "recovery-data" / stamp
+        for relative in paths:
+            source = self.root / relative
+            if source.is_file():  # a deleted path is restored as a deletion
+                (saved / relative).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                shutil.copy2(source, saved / relative)
+        return {"dir": saved, "paths": paths}
+
+    def restore_dirty_data(self, saved: dict, head: str) -> dict:
+        """Put saved edits back where the recovery left the committed file as it was before;
+        otherwise keep the reset file and leave the saved copy for a person (named here)."""
+        kept = []
+        for relative in saved["paths"]:
+            before, after = (self.git(self.root, "rev-parse", "-q", "--verify", f"{ref}:{relative}",
+                                      check=False) for ref in (head, "HEAD"))
+            if before != after:
+                kept.append(relative)
+                continue
+            copy, live = saved["dir"] / relative, self.root / relative
+            if copy.is_file():
+                live.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(copy, live)
+            else:
+                live.unlink(missing_ok=True)
+        self.steps.append(f"recover:data-restored:{len(saved['paths']) - len(kept)}")
+        if not kept:
+            shutil.rmtree(saved["dir"], ignore_errors=True)
+            return {}
+        return {"data_kept": {"dir": str(saved["dir"]), "paths": kept}}
 
     def _data_only(self, commit: str) -> bool:
         names = self.git(self.root, "diff-tree", "--no-commit-id", "--name-only", "-r",

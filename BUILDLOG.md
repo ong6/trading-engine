@@ -883,4 +883,19 @@ earlier logs listed in that index.
 - **Metrics:** tools +5 net (+6/-1), tests +16 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — Deployer recovery keeps producers' uncommitted data across a hard reset
+
+- **Why:** reproduced defect: `pytest tests/test_auto_deploy.py::test_a_hard_reset_recovery_keeps_uncommitted_producer_data`
+  fails with `assert '{}' == '{"fresh": true}'`: when `reset --keep` refused, recovery's
+  `reset --hard` discarded uncommitted tracked `data/` edits such as `data/_meta.json`, which
+  producers routinely leave dirty between commits.
+- **What:** before the hard reset, recovery copies dirty tracked `data/` paths to
+  `state/recovery-data/<time>/`; after re-applying data commits it puts each back (a deletion
+  stays deleted) when the path's committed content is unchanged from before the recovery.
+  Otherwise the reset file stays, the copy is kept and the receipt's `data_kept` names it;
+  recovery does not fail. The module docstring and `docs/change/deploy.md` say so.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (51 tests).
+- **Metrics:** tools +42, tests +24, docs +2 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -612,6 +612,30 @@ def test_recovery_falls_back_to_a_hard_reset_and_keeps_data_commits(host):
     assert data  # the original stays reachable through the pre-recovery ref
 
 
+def test_a_hard_reset_recovery_keeps_uncommitted_producer_data(host):
+    _commit(host["seed"], "meta", {"data/_meta.json": "{}", "data/reports/r.json": "{}"})
+    _git(host["seed"], "push", "-q", "origin", "main")
+    _git(host["live"], "pull", "-q", "--ff-only")
+    good = _git(host["live"], "rev-parse", "HEAD")
+    target = _push(host, "code", {"engine/x.py": "x = 1\n", "data/reports/r.json": '{"t": 1}'})
+    _git(host["live"], "pull", "-q", "--ff-only", "origin", "main")  # a deploy that crashed
+    _deployer(host).save_state(last_good_sha=good, in_flight={
+        "previous": good, "moved": target, "families": [],
+        "backup": str(host["tmp"] / "state/backups/none")})
+    (host["live"] / "engine/x.py").write_text("local edit\n")  # makes --keep refuse
+    _write(host["live"], "data/_meta.json", '{"fresh": true}')
+    _write(host["live"], "data/reports/r.json", '{"producer": 2}')  # recovery changes its base
+    deployer = _deployer(host, green={target})
+    decision = deployer.decide(execute=True)
+    assert decision.outcome == "recovered", decision
+    assert "recover:hard-reset" in deployer.steps
+    assert (host["live"] / "data/_meta.json").read_text() == '{"fresh": true}'
+    assert (host["live"] / "data/reports/r.json").read_text() == "{}"
+    kept = decision.detail["data_kept"]
+    assert kept["paths"] == ["data/reports/r.json"]
+    assert (Path(kept["dir"]) / "data/reports/r.json").read_text() == '{"producer": 2}'
+
+
 def test_failed_recoveries_back_off_and_then_heal_services(host):
     from datetime import timedelta
 
