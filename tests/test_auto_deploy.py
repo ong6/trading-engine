@@ -600,6 +600,14 @@ def test_a_rolled_back_target_is_not_redeployed_after_data_only_pushes(host):
     assert decision.outcome == "deployed" and decision.detail["target"] == fix
 
 
+def test_a_forward_test_timeout_is_retried(host):
+    deployer = _deployer(host)
+    deployer.run = lambda argv, **kw: subprocess.CompletedProcess(
+        argv, 124 if "pytest" in argv else 0, "verdict\n", "timed out")
+    with pytest.raises(auto_deploy.Stop, match="skipped:forward-tests-timeout"):
+        auto_deploy.Deployer.gate(deployer, host["live"], "a" * 40)
+
+
 def test_low_disk_skips_before_any_work(host):
     target = _push(host, "code", {"engine/x.py": "x = 1\n"})
     deployer = _deployer(host, green={target})

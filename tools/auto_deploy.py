@@ -618,6 +618,9 @@ class Deployer:
                               "-n", "2", *FORWARD_TESTS], cwd=worktree,
                              env={"PYTHONPATH": str(worktree), "TMPDIR": private,
                                   "PYTHONDONTWRITEBYTECODE": "1"}, timeout=FORWARD_TESTS_TIMEOUT)
+        if tests.returncode == 124:  # timed out (or did not start): retried next tick
+            raise Stop("skipped", "forward-tests-timeout",
+                       tail=(tests.stdout + tests.stderr).strip().splitlines()[-6:])
         if tests.returncode:
             raise Stop("needs-human", "forward-tests",
                        tail=(tests.stdout + tests.stderr).strip().splitlines()[-6:])

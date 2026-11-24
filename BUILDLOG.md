@@ -1045,4 +1045,16 @@ earlier logs listed in that index.
 - **Metrics:** tools +10, tests +19 lines; snapshot refreshed (these fixes: tools +151, tests +233).
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A forward-test timeout is retried, not refused as needs-human
+
+- **Why:** reproduced defect: `pytest tests/test_auto_deploy.py::test_a_forward_test_timeout_is_retried`
+  fails with `Actual message: 'needs-human:forward-tests'`: the earlier gate fix left a timed-out
+  forward-test run refusing the target until `main` moved, and its timeout is now 15 minutes.
+- **What:** a forward-test run that times out (or does not start) is
+  `skipped:forward-tests-timeout`, retried next tick; a failing test stays
+  `needs-human:forward-tests`. `docs/change/deploy.md` says so.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (63 tests).
+- **Metrics:** tools +3, tests +8, docs +1 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
