@@ -1005,6 +1005,19 @@ def test_the_heal_backstop_rechecks_the_pre_open_window(host):
     assert decision.detail["heal_skipped"] == "window"
 
 
+def test_a_recovery_recorded_without_its_reason_stays_gated(host):
+    good = _git(host["live"], "rev-parse", "HEAD")
+    _push(host, "hand", {"engine/x.py": "x = 9\n"})
+    _git(host["live"], "pull", "-q", "--ff-only", "origin", "main")
+    deployer = _deployer(host)
+    deployer.save_state(last_good_sha=good,  # state written before the reason was kept
+                        recovery={"failures": 1, "next_at": "2026-11-23T00:00:00Z"})
+    deployer.healthy = False
+    deployer.moment = SAFE.replace(hour=22, minute=20)  # the 15-minute lead reaches 22:30
+    with pytest.raises(auto_deploy.Stop, match="skipped:window"):
+        deployer.decide(execute=True)
+
+
 def test_a_healthy_hand_deploy_is_adopted_and_unhealthy_code_is_recovered(host):
     _deployer(host).save_state(last_good_sha=_git(host["live"], "rev-parse", "HEAD"))
     good = _git(host["live"], "rev-parse", "HEAD")

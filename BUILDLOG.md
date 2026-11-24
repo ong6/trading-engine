@@ -1292,4 +1292,16 @@ earlier logs listed in that index.
 - **Metrics:** tools +2, tests +13 lines.
 - **Next:** nothing admitted.
 
+## 2026-11-24 — A recovery recorded without its reason stays gated
+
+- **Why:** review finding, reproduced: `pytest tests/test_auto_deploy.py::test_a_recovery_recorded_without_its_reason_stays_gated`
+  fails with `DID NOT RAISE Stop`: for a `state.recovery` written before the reason was kept,
+  `decide` treated the missing reason as probe-only (gated) but `recover` treated it as
+  recorded (5-minute look-ahead, nightly window open), so at 22:20 it ran into the nightly.
+- **What:** `recover` also treats a missing reason as probe-only, so such a recovery is gated
+  like a deploy.
+- **Evidence:** `pytest -q tests/test_auto_deploy.py` passes (78 tests).
+- **Metrics:** tools 0 net, tests +13 lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

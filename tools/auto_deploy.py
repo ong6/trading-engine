@@ -896,7 +896,7 @@ class Deployer:
             raise Stop("skipped", "recovery-backoff", next_at=due, why=why)
         # Only state-recorded recovery skips the nightly window: recovery that began with an
         # unhealthy probe alone stays gated like a deploy on every retry.
-        origin = attempts.get("why") or why
+        origin = attempts.get("why", PROBE_ONLY) if attempts else why  # unknown: gated
         recorded = origin != PROBE_ONLY
         self._gate_now(lead=MUTATION_LEAD, recovery=recorded)
         detail: dict = {"why": why, "good": good}
