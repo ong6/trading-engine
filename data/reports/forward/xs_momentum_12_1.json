@@ -920,33 +920,33 @@
     "superseded_runtime_contract_sha256": "c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70"
   },
   "metrics": {
-    "cumulative_excess": -0.04411061794942139,
+    "cumulative_excess": -0.04912254211883926,
     "ew_benchmark": {
-      "end_equity": 32791.88171876115,
+      "end_equity": 32664.48860327079,
       "max_drawdown": -0.21254147607924245,
       "start_equity": 36175.08916501901,
-      "total_return": -0.0935231266694262
+      "total_return": -0.09704469685572847
     },
     "mean_monthly_excess": 0.030288383483760728,
     "mean_monthly_excess_ci": null,
     "xs_momentum_12_1": {
-      "end_equity": 28920.96566044793,
+      "end_equity": 28634.77995259422,
       "max_drawdown": -0.24402887975995247,
       "start_equity": 33536.75480688344,
-      "total_return": -0.1376337446188476
+      "total_return": -0.14616723897456774
     }
   },
   "observation": {
-    "as_of": "2026-11-24",
+    "as_of": "2026-11-25",
     "cost_break_session": "2026-10-19",
     "eligible_after": "2031-10-19",
-    "equity_sha256": "1d39e91ffca774791583a19b239f2c1e210b07eda759707e9a970d5446f90d34",
+    "equity_sha256": "ee09e06cbd455c3c2b18abd830f2a6c2c1615def39457f1a32a2f0cc001f1215",
     "evaluation_clock_start": "2026-10-19",
     "mature": false,
     "observation_start": "2026-10-01",
     "paired_complete_months": 1,
     "pre_break_shared_sessions": 12,
-    "shared_sessions": 27,
+    "shared_sessions": 28,
     "signal_date": "2026-09-30"
   },
   "paper_only": true,
