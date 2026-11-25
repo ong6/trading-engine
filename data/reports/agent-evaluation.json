@@ -45,7 +45,7 @@
       "model_version": "unversioned-catalog-alias",
       "policy_id": "four_hour_opportunity_review_v5",
       "prompt_role": "catalyst_and_structure_review",
-      "trace_count": 28
+      "trace_count": 30
     },
     {
       "cadence": "hourly",
@@ -90,7 +90,7 @@
       "model_version": "unversioned-catalog-alias",
       "policy_id": "hourly_market_watch_v5",
       "prompt_role": "rapid_catalyst_watch",
-      "trace_count": 95
+      "trace_count": 102
     },
     {
       "cadence": "nightly",
@@ -126,7 +126,7 @@
       "model_version": "unversioned-catalog-alias",
       "policy_id": "p15-scoring-v1",
       "prompt_role": "p15-scoring-v1",
-      "trace_count": 13
+      "trace_count": 14
     }
   ],
   "contamination": {
@@ -178,14 +178,14 @@
     }
   },
   "coverage": {
-    "available_decision_count": 3655,
-    "decision_count": 3882,
-    "expected_window_count": 416,
-    "immature_label_count": 2492,
+    "available_decision_count": 3749,
+    "decision_count": 3976,
+    "expected_window_count": 426,
+    "immature_label_count": 2556,
     "label_count": 5023,
-    "mature_expected_label_count": 12128,
-    "missing_mature_label_count": 7105,
-    "missing_window_count": 41,
+    "mature_expected_label_count": 12440,
+    "missing_mature_label_count": 7417,
+    "missing_window_count": 42,
     "missing_windows": [
       "four_hour_opportunity_review_v5:2026-09-28T12",
       "four_hour_opportunity_review_v5:2026-10-29T12",
@@ -227,30 +227,31 @@
       "nightly:2026-11-13",
       "nightly:2026-11-16",
       "nightly:2026-11-17",
-      "nightly:2026-11-18"
+      "nightly:2026-11-18",
+      "nightly:2026-11-24"
     ],
     "missing_windows_truncated": false,
-    "observed_expected_window_count": 375,
+    "observed_expected_window_count": 384,
     "scheduled_window_status": "incomplete",
-    "trace_count": 427,
+    "trace_count": 437,
     "unavailable_decision_count": 227
   },
   "data_provenance": {
-    "fact_count": 9374003,
+    "fact_count": 9543144,
     "historical_membership_authority": false,
     "pit_import_batch_count": 0,
     "pit_import_row_count": 0,
-    "receipt_count": 304000,
-    "sec_current_mapping_fact_count": 4365,
-    "sec_filing_fact_count": 97708
+    "receipt_count": 312205,
+    "sec_current_mapping_fact_count": 4487,
+    "sec_filing_fact_count": 98602
   },
   "evidence_class": "prospective_forward_only",
   "execution": {
-    "alert_open_count": 8,
+    "alert_open_count": 6,
     "alert_precision": 0.4492753623188406,
     "alert_precision_count": 69,
-    "alert_terminal_count": 108,
-    "alert_trigger_rate": 0.6388888888888888,
+    "alert_terminal_count": 110,
+    "alert_trigger_rate": 0.6454545454545455,
     "completed_exit_count": 6,
     "exit_rate": 0.6666666666666666,
     "exit_rule_count": 9,
@@ -266,14 +267,14 @@
     "turnover_notional": 13475.745756255199,
     "turnover_over_initial_cash": 1.34757457562552
   },
-  "generated_at": "2026-11-24T02:53:48.422125+00:00",
+  "generated_at": "2026-11-25T02:52:40.193275+00:00",
   "horizons": [
     1,
     5,
     10,
     20
   ],
-  "labels_source_revised": 7359,
+  "labels_source_revised": 7600,
   "labels_source_revised_ids": [
     1,
     2,
@@ -2297,6 +2298,67 @@
     11508,
     11509,
     11510,
+    11746,
+    11747,
+    11748,
+    11749,
+    11750,
+    11751,
+    11752,
+    11753,
+    11754,
+    11755,
+    11756,
+    11757,
+    11758,
+    11759,
+    11760,
+    11761,
+    11762,
+    11763,
+    11764,
+    11765,
+    11766,
+    11767,
+    11768,
+    11782,
+    11783,
+    11784,
+    11785,
+    11786,
+    11787,
+    11788,
+    11789,
+    11790,
+    11791,
+    11792,
+    11793,
+    11794,
+    11805,
+    11806,
+    11807,
+    11826,
+    11827,
+    11828,
+    11829,
+    11830,
+    11831,
+    11832,
+    11833,
+    11834,
+    11835,
+    11836,
+    11837,
+    11838,
+    11839,
+    11840,
+    11841,
+    11842,
+    11843,
+    11844,
+    11845,
+    11846,
+    11847,
     89,
     90,
     92,
@@ -6620,6 +6682,138 @@
     11715,
     11716,
     11719,
+    11849,
+    11850,
+    11851,
+    11852,
+    11853,
+    11855,
+    11856,
+    11857,
+    11858,
+    11859,
+    11860,
+    11861,
+    11862,
+    11864,
+    11865,
+    11868,
+    11869,
+    11870,
+    11871,
+    11873,
+    11874,
+    11875,
+    11877,
+    11878,
+    11880,
+    11881,
+    11882,
+    11886,
+    11887,
+    11888,
+    11889,
+    11891,
+    11892,
+    11893,
+    11894,
+    11895,
+    11896,
+    11898,
+    11899,
+    11900,
+    11904,
+    11905,
+    11906,
+    11907,
+    11912,
+    11914,
+    11918,
+    11919,
+    11920,
+    11921,
+    11924,
+    11926,
+    11927,
+    11928,
+    11929,
+    11930,
+    11931,
+    11934,
+    11935,
+    11938,
+    11940,
+    11941,
+    11942,
+    11943,
+    11944,
+    11946,
+    11947,
+    11951,
+    11952,
+    11953,
+    11954,
+    11955,
+    11956,
+    11958,
+    11959,
+    11961,
+    11962,
+    11963,
+    11964,
+    11966,
+    11968,
+    11970,
+    11971,
+    11973,
+    11974,
+    11975,
+    11977,
+    11978,
+    11979,
+    11980,
+    11984,
+    11986,
+    11987,
+    11988,
+    11990,
+    11991,
+    11993,
+    11994,
+    11995,
+    11996,
+    11997,
+    11999,
+    12000,
+    12001,
+    12002,
+    12003,
+    12004,
+    12005,
+    12006,
+    12007,
+    12008,
+    12009,
+    12011,
+    12014,
+    12016,
+    12017,
+    12018,
+    12019,
+    12020,
+    12022,
+    12023,
+    12026,
+    12027,
+    12029,
+    12030,
+    12031,
+    12033,
+    12037,
+    12041,
+    12042,
+    12043,
+    12044,
     11,
     24,
     156,
@@ -7633,9 +7827,57 @@
     4139,
     4141,
     4142,
-    4145
+    4145,
+    4171,
+    4172,
+    4173,
+    4175,
+    4178,
+    4179,
+    4180,
+    4182,
+    4183,
+    4184,
+    4185,
+    4187,
+    4189,
+    4191,
+    4207,
+    4208,
+    4209,
+    4210,
+    4212,
+    4214,
+    4215,
+    4216,
+    4217,
+    4218,
+    4219,
+    4220,
+    4221,
+    4222,
+    4225,
+    4226,
+    4227,
+    4228,
+    4229,
+    4230,
+    4234,
+    4235,
+    4238,
+    4241,
+    4242,
+    4243,
+    4244,
+    4283,
+    4284,
+    4286,
+    4289,
+    4292,
+    4295,
+    4297
   ],
-  "labels_source_unverifiable": 1067,
+  "labels_source_unverifiable": 1108,
   "labels_source_unverifiable_ids": [
     4,
     5,
@@ -8703,7 +8945,48 @@
     4155,
     4157,
     4160,
-    4161
+    4161,
+    4192,
+    4193,
+    4196,
+    4197,
+    4198,
+    4199,
+    4200,
+    4201,
+    4202,
+    4204,
+    4247,
+    4248,
+    4253,
+    4254,
+    4255,
+    4256,
+    4257,
+    4259,
+    4261,
+    4263,
+    4265,
+    4267,
+    4268,
+    4276,
+    4277,
+    4279,
+    4299,
+    4301,
+    4302,
+    4303,
+    4304,
+    4306,
+    4307,
+    4309,
+    4314,
+    4315,
+    4316,
+    4317,
+    4318,
+    4319,
+    4321
   ],
   "legacy_policy_ids": [
     "four_hour_opportunity_review_v1",
@@ -8718,23 +9001,23 @@
       "books": [
         {
           "active": true,
-          "calendar_days": 35,
-          "closed_trade_count": 29,
+          "calendar_days": 36,
+          "closed_trade_count": 30,
           "comparison_eligible": false,
-          "end_date": "2026-11-23",
+          "end_date": "2026-11-24",
           "evaluation_clock_start": "2026-10-19",
           "maximum_drawdown": -0.1376781398466257,
           "portfolio_id": "p15_ai_ranked",
           "start_date": "2026-10-19",
-          "turnover_notional": 63515.10411456463,
-          "turnover_over_initial_cash": 6.351510411456463
+          "turnover_notional": 64768.92221073518,
+          "turnover_over_initial_cash": 6.476892221073518
         },
         {
           "active": true,
-          "calendar_days": 35,
+          "calendar_days": 36,
           "closed_trade_count": 21,
           "comparison_eligible": false,
-          "end_date": "2026-11-23",
+          "end_date": "2026-11-24",
           "evaluation_clock_start": "2026-10-19",
           "maximum_drawdown": -0.11580275643818316,
           "portfolio_id": "p15_hybrid_veto",
@@ -8744,10 +9027,10 @@
         },
         {
           "active": true,
-          "calendar_days": 35,
+          "calendar_days": 36,
           "closed_trade_count": 20,
           "comparison_eligible": false,
-          "end_date": "2026-11-23",
+          "end_date": "2026-11-24",
           "evaluation_clock_start": "2026-10-19",
           "maximum_drawdown": -0.1240646362864638,
           "portfolio_id": "p15_rule_control",
@@ -8829,16 +9112,16 @@
           "top_bottom_quintile_spread": 0.019965425003558312
         }
       },
-      "decision_count": 763,
+      "decision_count": 777,
       "latency_target_ms": 600000,
-      "p95_latency_ms_all": 138673.047,
-      "p95_latency_ms_available": 138302.10199999998,
+      "p95_latency_ms_all": 141834.88700000002,
+      "p95_latency_ms_available": 138609.12099999998,
       "skipped_rate_limit_count": 23,
       "status": "invalid",
       "unavailable_count": 20,
-      "window_count": 958
+      "window_count": 984
     },
-    "generated_at": "2026-11-24T02:53:48.422125+00:00",
+    "generated_at": "2026-11-25T02:52:40.193275+00:00",
     "model_strata": {
       "attribution": "each decision keeps the model its scoring trace records",
       "decided_on": "2026-10-29",
@@ -8846,24 +9129,24 @@
       "pooled": "registered primary, looks and books (unchanged)",
       "post_switch_books": [
         {
-          "end_date": "2026-11-23",
+          "end_date": "2026-11-24",
           "includes_positions_opened_before_switch": true,
           "portfolio_id": "p15_ai_ranked",
-          "return": -0.042489534694366116,
+          "return": -0.04137566460969544,
           "start_date": "2026-10-30"
         },
         {
-          "end_date": "2026-11-23",
+          "end_date": "2026-11-24",
           "includes_positions_opened_before_switch": true,
           "portfolio_id": "p15_rule_control",
-          "return": -0.02756472402441623,
+          "return": -0.026187432174169634,
           "start_date": "2026-10-30"
         },
         {
-          "end_date": "2026-11-23",
+          "end_date": "2026-11-24",
           "includes_positions_opened_before_switch": true,
           "portfolio_id": "p15_hybrid_veto",
-          "return": -0.019185957471065995,
+          "return": -0.026131841971894554,
           "start_date": "2026-10-30"
         }
       ],
@@ -8923,12 +9206,12 @@
           "2026-10-20"
         ]
       },
-      "run_count": 36,
+      "run_count": 37,
       "status": "collecting"
     },
     "primary": {
       "book_look_dates": [],
-      "candidate_count": 2369,
+      "candidate_count": 2432,
       "diagnostics": {
         "baseline_logistic_brier": 0.25486157246981656,
         "by_scoring_model": [
@@ -9009,11 +9292,11 @@
         "mean_top_bottom_quintile_spread": -0.0008693307505523809,
         "model_brier": 0.2512812075471698
       },
-      "earliest_next_look_date": "2027-02-01",
+      "earliest_next_look_date": "2027-02-08",
       "immature_session_count": 9,
       "insufficient_session_count": 0,
       "looks": [],
-      "missing_mature_label_count": 2,
+      "missing_mature_label_count": 3,
       "next_look": 60,
       "origin_epoch": "2026-09-29",
       "scored_session_count": 29,
@@ -9028,7 +9311,7 @@
     "cohort_start": "2026-10-19",
     "completed_round_trip_count": 1,
     "completed_session_count": 21,
-    "elapsed_calendar_days": 36,
+    "elapsed_calendar_days": 37,
     "lower_bound_is_gate": false,
     "lower_confidence_bound": null,
     "mean_net_round_trip_return": 0.006407516989932471,
@@ -9214,7 +9497,7 @@
   ],
   "policies": {
     "four_hour_opportunity_review_v5": {
-      "abstention_rate": 0.9653333333333334,
+      "abstention_rate": 0.9662337662337662,
       "brier_score": 0.33035744680851065,
       "by_horizon": {
         "1": {
@@ -9323,7 +9606,7 @@
           "upper": 1.0
         }
       ],
-      "decision_count": 375,
+      "decision_count": 385,
       "directional_accuracy": 0.46808510638297873,
       "forecast_error": {
         "reason": "forward policy does not emit a numeric return forecast",
@@ -9333,14 +9616,14 @@
       "mean_adverse_excursion": -0.060732242417931605,
       "mean_excess_return": 0.011178728099705432,
       "mean_favorable_excursion": 0.05949976247463899,
-      "mean_latency_ms": 19821.95824633042,
+      "mean_latency_ms": 19853.069271843928,
       "mean_signed_return": -0.0034579653053533966,
       "p95_latency_ms": 26176.87613144517,
-      "total_tokens": 832464,
-      "trace_count": 75
+      "total_tokens": 854838,
+      "trace_count": 77
     },
     "hourly_market_watch_v5": {
-      "abstention_rate": 0.9821656050955414,
+      "abstention_rate": 0.9826302729528535,
       "brier_score": 0.32708367346938777,
       "by_horizon": {
         "1": {
@@ -9449,7 +9732,7 @@
           "upper": 1.0
         }
       ],
-      "decision_count": 785,
+      "decision_count": 806,
       "directional_accuracy": 0.46938775510204084,
       "forecast_error": {
         "reason": "forward policy does not emit a numeric return forecast",
@@ -9459,11 +9742,11 @@
       "mean_adverse_excursion": -0.07523279738433525,
       "mean_excess_return": -0.010254841421580457,
       "mean_favorable_excursion": 0.04480041509609875,
-      "mean_latency_ms": 14008.08946659413,
+      "mean_latency_ms": 14039.992443775689,
       "mean_signed_return": -0.022580083696879586,
       "p95_latency_ms": 18552.944906055927,
-      "total_tokens": 1945152,
-      "trace_count": 263
+      "total_tokens": 1998020,
+      "trace_count": 270
     },
     "nightly_opportunity_tool_v1": {
       "abstention_rate": 0.9358108108108109,
@@ -9592,7 +9875,7 @@
       "trace_count": 39
     },
     "p15-scoring-v1": {
-      "abstention_rate": 0.7143522833178005,
+      "abstention_rate": 0.7143503847894975,
       "brier_score": null,
       "by_horizon": {
         "1": {
@@ -9701,7 +9984,7 @@
           "upper": 1.0
         }
       ],
-      "decision_count": 2146,
+      "decision_count": 2209,
       "directional_accuracy": null,
       "forecast_error": {
         "reason": "forward policy does not emit a numeric return forecast",
@@ -9711,17 +9994,17 @@
       "mean_adverse_excursion": null,
       "mean_excess_return": null,
       "mean_favorable_excursion": null,
-      "mean_latency_ms": 1066284.5752857141,
+      "mean_latency_ms": 1069118.0332222222,
       "mean_signed_return": null,
       "p95_latency_ms": 1416026.038,
-      "total_tokens": 31201667,
-      "trace_count": 35
+      "total_tokens": 32106651,
+      "trace_count": 36
     }
   },
   "promotion_authority": "none",
   "schema_version": 2,
   "trial_count_register": {
-    "register_sha256": "fa453acd88349e409471271ed692619bec702207e685237b841445ca6999220e",
+    "register_sha256": "272c1e5960041be227400fa1b821067d75ddcbd574f6c84df55364c5c31bcc7e",
     "returned_version_count": 34,
     "selection_trial_count": 29,
     "status": "capturing",
@@ -9831,8 +10114,8 @@
           "f0fcdb221d1ebf2ceaf840bdbc975a26241c152f325ea60d9e6c758c3a91a1ba",
           "gpt-6.1-sol"
         ],
-        "last_observed_at": "2026-11-23T18:30:15.178627",
-        "observation_count": 8,
+        "last_observed_at": "2026-11-24T18:30:01.374783",
+        "observation_count": 10,
         "policy_id": "four_hour_opportunity_review_v5"
       },
       {
@@ -9939,8 +10222,8 @@
           "f0fcdb221d1ebf2ceaf840bdbc975a26241c152f325ea60d9e6c758c3a91a1ba",
           "gpt-6.1-sol"
         ],
-        "last_observed_at": "2026-11-23T21:15:20.331088",
-        "observation_count": 25,
+        "last_observed_at": "2026-11-24T21:15:55.142335",
+        "observation_count": 32,
         "policy_id": "hourly_market_watch_v5"
       },
       {
@@ -10047,8 +10330,8 @@
           "f0fcdb221d1ebf2ceaf840bdbc975a26241c152f325ea60d9e6c758c3a91a1ba",
           "gpt-6.1-sol"
         ],
-        "last_observed_at": "2026-11-24T02:30:54.337270",
-        "observation_count": 3,
+        "last_observed_at": "2026-11-25T02:30:54.344624",
+        "observation_count": 4,
         "policy_id": "p15-scoring-v1"
       },
       {
@@ -10057,7 +10340,7 @@
         "identity": [
           "aeb55f0436a06e6a625df3653e8fbf68319f4c814cb3c58996d740f337bdb5ad"
         ],
-        "observation_count": 47,
+        "observation_count": 48,
         "policy_id": "dual_momentum_agent_shadow_v1"
       },
       {
@@ -10140,7 +10423,7 @@
           "no_model_call",
           "no_pending_orders"
         ],
-        "observation_count": 5,
+        "observation_count": 6,
         "policy_id": "p15-preopen-v1"
       },
       {
@@ -10185,7 +10468,7 @@
           "gpt-6.1-sol",
           "5ef6bc1cd74302f70c5a28185be5237fd52377dc67c2830a80c4e276f0560fd2"
         ],
-        "observation_count": 52,
+        "observation_count": 60,
         "policy_id": "p15-events-v1"
       },
       {
@@ -10195,7 +10478,7 @@
           "no_model_call",
           "no_call"
         ],
-        "observation_count": 612,
+        "observation_count": 630,
         "policy_id": "p15-events-v1"
       },
       {
@@ -10215,7 +10498,7 @@
           "p15-book-v1",
           "0d0b6a39d87129471247ac586a12c462c8dacafce430d910c38d5b834e28cd71"
         ],
-        "observation_count": 40,
+        "observation_count": 41,
         "policy_id": "p15_ai_ranked"
       },
       {
@@ -10225,7 +10508,7 @@
           "p15-book-v1",
           "8ade3ed05e34089c53fdf62c267780a499b1f59fa5dea3f7aa52acb3aed1c2ed"
         ],
-        "observation_count": 40,
+        "observation_count": 41,
         "policy_id": "p15_hybrid_veto"
       },
       {
@@ -10235,7 +10518,7 @@
           "p15-book-v1",
           "1ef39be2e115b2ce273a015e392654aea7b7fdd47c3ae1d01c3f281775f34ad7"
         ],
-        "observation_count": 40,
+        "observation_count": 41,
         "policy_id": "p15_rule_control"
       }
     ],

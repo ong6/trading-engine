@@ -11,16 +11,14 @@
 | 7 | Momentum Top 10 (stop-managed) | 2026-07-28 | $35,981 | −7.74% | −5.02% | −32.81% | 11 | 244 | +3.59% |
 | 8 | Dual Momentum (GEM) | 2026-07-17 | $35,952 | −7.82% | −4.77% | −12.82% | 1 | 6 | −2.44% |
 | 9 | Template Top 5 | 2026-07-17 | $35,660 | −8.56% | −5.52% | −33.29% | 5 | 123 | +0.67% |
-| 10 | p15_hybrid_veto | 2026-09-26 | $8,548 ‡ | −14.52% | −7.70% | −19.70% | 2 | 86 | −1.03% |
-| 11 | p15_rule_control | 2026-09-26 | $8,473 ‡ | −15.27% | −8.46% | −20.64% | 2 | 87 | −2.20% |
-| 12 | p15_ai_ranked | 2026-09-26 | $8,470 ‡ | −15.30% | −8.48% | −20.40% | 3 | 123 | −1.95% |
+| 10 | p15_hybrid_veto | 2026-09-26 | $8,487 | −15.13% | −8.31% | −19.70% | 2 | 86 | −1.07% |
+| 11 | p15_rule_control | 2026-09-26 | $8,485 | −15.15% | −8.34% | −20.64% | 2 | 87 | −1.21% |
+| 12 | p15_ai_ranked | 2026-09-26 | $8,480 | −15.20% | −8.38% | −20.40% | 2 | 125 | −0.80% |
 | 13 | Equal-Weight Benchmark | 2026-07-17 | $32,792 | −15.92% | −12.87% | −28.53% | 52 | 271 | +3.24% |
 | 14 | EW Screen — Inverse-Vol Weighted | 2026-08-18 | $30,604 | −21.53% | −15.43% | −27.78% | 52 | 206 | +1.90% |
 | 15 | XS Momentum 12-1 (unscreened control) | 2026-09-02 | $28,921 | −25.84% | −20.03% | −30.33% | 50 | 110 | −4.99% |
 
 _Regime: **risk-off** · each return uses its book's persisted starting capital · as of 2026-11-24._
-
-_‡ marked through 2026-11-23: p15_hybrid_veto, p15_rule_control, p15_ai_ranked. A P15 book is marked by its own window after that session's P15 fills, never provisionally by the league._
 
 ## Commission break
 
@@ -35,9 +33,9 @@ _‡ marked through 2026-11-23: p15_hybrid_veto, p15_rule_control, p15_ai_ranked
 | Momentum Top 10 (stop-managed) | −7.76% | $51.31 |
 | Dual Momentum (GEM) | −5.31% | $3.10 |
 | Template Top 5 | −3.68% | $28.59 |
-| p15_hybrid_veto | −4.96% | $18.93 |
-| p15_rule_control | −4.72% | $18.79 |
-| p15_ai_ranked | −8.52% | $26.38 |
+| p15_hybrid_veto | −5.64% | $18.93 |
+| p15_rule_control | −4.59% | $18.79 |
+| p15_ai_ranked | −8.41% | $27.10 |
 | Equal-Weight Benchmark | −7.49% | $33.93 |
 | EW Screen — Inverse-Vol Weighted | −9.18% | $33.81 |
 | XS Momentum 12-1 (unscreened control) | −10.91% | $24.23 |
