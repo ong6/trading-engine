@@ -237,11 +237,11 @@
     "unavailable_decision_count": 227
   },
   "data_provenance": {
-    "fact_count": 9709285,
+    "fact_count": 9799509,
     "historical_membership_authority": false,
     "pit_import_batch_count": 0,
     "pit_import_row_count": 0,
-    "receipt_count": 320433,
+    "receipt_count": 320745,
     "sec_current_mapping_fact_count": 4613,
     "sec_filing_fact_count": 98806
   },
@@ -267,7 +267,7 @@
     "turnover_notional": 13475.745756255199,
     "turnover_over_initial_cash": 1.34757457562552
   },
-  "generated_at": "2026-11-26T02:55:14.558036+00:00",
+  "generated_at": "2026-11-27T02:32:18.053341+00:00",
   "horizons": [
     1,
     5,
@@ -9394,7 +9394,7 @@
       "unavailable_count": 20,
       "window_count": 1010
     },
-    "generated_at": "2026-11-26T02:55:14.558036+00:00",
+    "generated_at": "2026-11-27T02:32:18.053341+00:00",
     "model_strata": {
       "attribution": "each decision keeps the model its scoring trace records",
       "decided_on": "2026-10-29",
@@ -9584,7 +9584,7 @@
     "cohort_start": "2026-10-19",
     "completed_round_trip_count": 1,
     "completed_session_count": 22,
-    "elapsed_calendar_days": 38,
+    "elapsed_calendar_days": 39,
     "lower_bound_is_gate": false,
     "lower_confidence_bound": null,
     "mean_net_round_trip_return": 0.006407516989932471,
