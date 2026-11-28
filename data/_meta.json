@@ -72,8 +72,8 @@
     "store_gb": 59.73
   },
   "price_verify": {
-    "last_run": "2026-11-26T22:43:57.047829+00:00",
-    "as_of": "2026-11-25",
+    "last_run": "2026-11-27T23:03:56.649870+00:00",
+    "as_of": "2026-11-27",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -86,24 +86,15 @@
       "low",
       "close"
     ],
-    "names_selected": 176,
-    "names_checked": 175,
+    "names_selected": 174,
+    "names_checked": 174,
     "names_agreeing": 173,
-    "names_disagreeing": 2,
-    "names_not_checked": 1,
-    "not_checked_reasons": {
-      "symbol_not_found": 1
-    },
-    "not_checked_names": [
-      {
-        "ticker": "UTZ",
-        "why": "held",
-        "reason": "symbol_not_found",
-        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      }
-    ],
-    "bars_compared": 875,
-    "field_comparisons": 2978,
+    "names_disagreeing": 1,
+    "names_not_checked": 0,
+    "not_checked_reasons": {},
+    "not_checked_names": [],
+    "bars_compared": 697,
+    "field_comparisons": 2788,
     "worst": {
       "ticker": "SNDK",
       "date": "2026-11-18",
@@ -209,54 +200,6 @@
         "store": 776.219971,
         "source": 97.0275,
         "diff_bp": 8750.0
-      },
-      {
-        "ticker": "SONN",
-        "date": "2026-11-25",
-        "field": "close",
-        "store": 51.759998,
-        "source": 51.44,
-        "diff_bp": 61.82
-      },
-      {
-        "ticker": "SONN",
-        "date": "2026-11-19",
-        "field": "low",
-        "store": 50.599998,
-        "source": 50.9,
-        "diff_bp": 58.94
-      },
-      {
-        "ticker": "SONN",
-        "date": "2026-11-19",
-        "field": "close",
-        "store": 50.599998,
-        "source": 50.9,
-        "diff_bp": 58.94
-      },
-      {
-        "ticker": "SONN",
-        "date": "2026-11-23",
-        "field": "low",
-        "store": 50.689999,
-        "source": 50.95,
-        "diff_bp": 51.03
-      },
-      {
-        "ticker": "SONN",
-        "date": "2026-11-19",
-        "field": "high",
-        "store": 51.099998,
-        "source": 50.9,
-        "diff_bp": 39.14
-      },
-      {
-        "ticker": "SONN",
-        "date": "2026-11-23",
-        "field": "high",
-        "store": 51.150002,
-        "source": 51.04,
-        "diff_bp": 21.51
       }
     ],
     "price_basis": {
@@ -265,41 +208,38 @@
       "equivalence": "unverified: corporate actions may use different adjustment bases",
       "currency": "USD expected; raw provider identity retained, never converted"
     },
-    "n_disagreements": 18,
+    "n_disagreements": 12,
     "disagreements_by_field": {
       "open": 3,
-      "high": 5,
-      "low": 5,
-      "close": 5
+      "high": 3,
+      "low": 3,
+      "close": 3
     },
     "disagreements_by_date": {
       "2026-11-12": 4,
       "2026-11-17": 4,
-      "2026-11-18": 4,
-      "2026-11-25": 1,
-      "2026-11-19": 3,
-      "2026-11-23": 2
+      "2026-11-18": 4
     },
     "n_material": 12,
     "parse_errors": [],
     "n_parse_errors": 0,
     "volume_note": "volume differs by design on the newest session (same-day volume settles after the close); measured, never alarmed on",
-    "volume_median_abs_diff_pct_latest_session": 0.03,
+    "volume_median_abs_diff_pct_latest_session": null,
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
-    "volume_bars_compared": 873,
+    "volume_bars_compared": 697,
     "newest_session": {
-      "session": "2026-11-25",
-      "status": "checked",
-      "reason": null,
-      "names_with_store_bar": 174,
-      "names_compared": 174,
+      "session": "2026-11-27",
+      "status": "not_checked",
+      "reason": "source_lag",
+      "names_with_store_bar": 173,
+      "names_compared": 0,
       "source_latest_session": "2026-11-25"
     },
-    "provisional_note": "on 2026-11-25 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
-    "provisional_ohl_median_bp": 0.0,
-    "provisional_ohl_max_bp": 222.14,
-    "provisional_ohl_over_tolerance": 48,
-    "provisional_comparisons": 522,
+    "provisional_note": "on 2026-11-27 (newest stored session) the source had a bar for 0 of 173 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
+    "provisional_ohl_median_bp": null,
+    "provisional_ohl_max_bp": null,
+    "provisional_ohl_over_tolerance": 0,
+    "provisional_comparisons": 0,
     "store_missing_sessions": {
       "SNDK": [
         "2026-11-16",
@@ -310,37 +250,37 @@
       ]
     },
     "n_names_store_missing_sessions": 1,
-    "secs": 112.0,
+    "secs": 105.1,
     "evidence_receipt": {
-      "sha256": "c41c6686dcaf331bf45aa9d6cccf8e9404c48f1dcfcc1eaa0189eb8225d535ff",
-      "path": "price-verify/c41c6686dcaf331bf45aa9d6cccf8e9404c48f1dcfcc1eaa0189eb8225d535ff.json",
-      "bytes": 682099
+      "sha256": "b2ef46e8db19cf2f9812fbafd47222d7a534080e2d1291532d46f6100cb3a63b",
+      "path": "price-verify/b2ef46e8db19cf2f9812fbafd47222d7a534080e2d1291532d46f6100cb3a63b.json",
+      "bytes": 675979
     },
     "name_results_report": {
       "path": "reports/producer-detail/price-verify.json",
-      "names": 176,
-      "bytes": 61624,
-      "sha256": "af2ea427a9cf2a6539116adf6f6683c5df844c26fad9cf76b8a48fd409fcd5fa"
+      "names": 174,
+      "bytes": 60679,
+      "sha256": "4d45ae33407eac1071322bfd35ef10ce0cba29b0e8c2cfedeeecac8ab30b8ca1"
     }
   },
   "intraday": {
-    "last_run": "2026-11-26T23:31:33.902797+00:00",
-    "tickers_requested": 837,
-    "tickers_with_data": 837,
-    "new_rows_1m": 1,
-    "new_rows_5m": 0,
+    "last_run": "2026-11-27T23:54:31.835700+00:00",
+    "tickers_requested": 867,
+    "tickers_with_data": 867,
+    "new_rows_1m": 215864,
+    "new_rows_5m": 104449,
     "failed_tickers": 0,
     "failed_batches": 0,
-    "store_gb": 59.27,
+    "store_gb": 59.73,
     "coverage_report": {
       "path": "reports/producer-detail/intraday-coverage.json",
       "tickers": {
-        "1m": 837,
-        "5m": 837
+        "1m": 867,
+        "5m": 867
       }
     },
-    "fetched_rows": 3201208,
-    "payload_bytes": 484937274
+    "fetched_rows": 3366703,
+    "payload_bytes": 509986334
   },
   "signals_incremental": {
     "mode": "incremental",
@@ -348,18 +288,18 @@
     "sources": {
       "squeezemetrics": {
         "status": "ok",
-        "rows_fetched": 7834,
-        "rows_inserted": 0,
+        "rows_fetched": 7836,
+        "rows_inserted": 2,
         "series": [
           "dix",
           "gex"
         ],
-        "secs": 2.4
+        "secs": 2.2
       },
       "vix": {
         "status": "ok",
-        "rows_fetched": 13648,
-        "rows_inserted": 1,
+        "rows_fetched": 13650,
+        "rows_inserted": 2,
         "series": [
           "vix",
           "vix3m"
@@ -368,8 +308,8 @@
       },
       "fred": {
         "status": "ok",
-        "rows_fetched": 99,
-        "rows_inserted": 0,
+        "rows_fetched": 102,
+        "rows_inserted": 3,
         "series": [
           "hy_oas",
           "icsa",
@@ -380,8 +320,8 @@
       },
       "putcall": {
         "status": "ok",
-        "rows_fetched": 18,
-        "rows_inserted": 2,
+        "rows_fetched": 16,
+        "rows_inserted": 0,
         "series": [
           "pc_equity",
           "pc_total"
@@ -396,7 +336,7 @@
           "aaii_bear",
           "aaii_bull"
         ],
-        "secs": 1.8
+        "secs": 1.7
       },
       "finra_margin": {
         "status": "ok",
@@ -406,7 +346,7 @@
           "free_credit",
           "margin_debt"
         ],
-        "secs": 1.1
+        "secs": 1.0
       },
       "short_interest": {
         "status": "ok",
@@ -415,18 +355,18 @@
         "series": [
           "short_interest_dtc"
         ],
-        "secs": 11.0
+        "secs": 12.2
       },
       "breadth": {
         "status": "ok",
         "rows_fetched": 3,
-        "rows_inserted": 0,
+        "rows_inserted": 3,
         "series": [
           "breadth_nh_nl",
           "breadth_pct_200",
           "zweig_ratio"
         ],
-        "secs": 1.0
+        "secs": 1.2
       },
       "cot": {
         "status": "ok",
@@ -435,58 +375,58 @@
         "series": [
           "cot_es_lev_net"
         ],
-        "secs": 1.3
+        "secs": 1.1
       }
     },
-    "rows_inserted": 3,
+    "rows_inserted": 10,
     "warnings": [],
     "series_totals": {
       "aaii_bear": 2051,
       "aaii_bull": 2051,
-      "breadth_nh_nl": 3742,
-      "breadth_pct_200": 3742,
+      "breadth_nh_nl": 3743,
+      "breadth_pct_200": 3743,
       "cot_es_lev_net": 1067,
-      "dix": 3917,
+      "dix": 3918,
       "free_credit": 201,
-      "gex": 3917,
-      "hy_oas": 870,
+      "gex": 3918,
+      "hy_oas": 872,
       "icsa": 3125,
       "margin_debt": 358,
       "nfci": 2916,
       "pc_equity": 4233,
       "pc_total": 4233,
       "short_interest_dtc": 79,
-      "t10y2y": 12618,
-      "vix": 9324,
-      "vix3m": 4324,
-      "zweig_ratio": 3742
+      "t10y2y": 12619,
+      "vix": 9325,
+      "vix3m": 4325,
+      "zweig_ratio": 3743
     },
-    "last_run": "2026-11-26T23:32:05.612503+00:00",
-    "store_gb": 59.27
+    "last_run": "2026-11-27T23:55:04.186200+00:00",
+    "store_gb": 59.73
   },
   "earnings": {
-    "last_run": "2026-11-26T23:39:49.827162+00:00",
-    "as_of": "2026-11-26",
+    "last_run": "2026-11-28T00:06:47.078987+00:00",
+    "as_of": "2026-11-27",
     "universe": 2793,
     "universe_source": "fundamentals-coverage \u222a screen-passers",
     "selection": {
       "mode": "nightly-bounded",
       "near_sessions": 21,
       "stale_after_days": 7,
-      "unknown": 900,
-      "near": 147,
+      "unknown": 892,
+      "near": 149,
       "stale": 0,
-      "deferred": 1746
+      "deferred": 1752
     },
-    "selected_for_refresh": 1047,
-    "deferred_this_run": 1746,
-    "pulled_this_run": 1047,
-    "with_upcoming_date": 985,
-    "no_upcoming_date": 62,
+    "selected_for_refresh": 1041,
+    "deferred_this_run": 1752,
+    "pulled_this_run": 1041,
+    "with_upcoming_date": 977,
+    "no_upcoming_date": 64,
     "failed_tickers": 0,
-    "rows_inserted_this_run": 985,
-    "rows_for_as_of": 985,
-    "store_gb": 59.27
+    "rows_inserted_this_run": 977,
+    "rows_for_as_of": 977,
+    "store_gb": 59.73
   },
   "screen_date": "2026-11-27",
   "last_screen": "2026-11-27T23:00:40.448065+00:00",
@@ -500,16 +440,16 @@
   "excluded_leveraged": 0,
   "screen_metadata_source": "fresh-run",
   "fundamentals": {
-    "last_run": "2026-11-21T00:59:23.568557+00:00",
-    "as_of": "2026-11-20",
-    "universe": 4033,
-    "pulled_this_run": 4033,
-    "with_data": 4033,
-    "with_market_cap": 2798,
+    "last_run": "2026-11-28T01:02:18.104118+00:00",
+    "as_of": "2026-11-28",
+    "universe": 3984,
+    "pulled_this_run": 3984,
+    "with_data": 3984,
+    "with_market_cap": 2746,
     "failed_tickers": 0,
-    "rows_inserted_this_run": 4033,
-    "rows_for_as_of": 4033,
-    "store_gb": 56.64
+    "rows_inserted_this_run": 3984,
+    "rows_for_as_of": 3984,
+    "store_gb": 59.73
   },
   "liquid_refresh": {
     "admitted": [
@@ -723,38 +663,38 @@
     "target_symbols": 4063,
     "limitation": "current-liquid-universe snapshot; survivor-biased and retrieval-time-only; not historical membership or promotion-quality stock-selection evidence",
     "attempts": {
-      "complete": 11286,
+      "complete": 11335,
       "empty": 905,
-      "failed": 155,
+      "failed": 156,
       "refused": 29
     },
-    "unresolved_failed_windows": 3,
+    "unresolved_failed_windows": 4,
     "refused_windows": 28,
-    "fact_count": 4110193,
-    "symbols_with_facts": 4030,
+    "fact_count": 4114980,
+    "symbols_with_facts": 4031,
     "symbols_checkpointed": 4060,
     "symbols_unstarted": 3,
     "checkpoint_start": "2023-07-05",
-    "checkpoint_end": "2026-11-25",
-    "target_through": "2026-11-25",
-    "symbols_caught_up": 36,
-    "symbols_pending": 4027,
+    "checkpoint_end": "2026-11-27",
+    "target_through": "2026-11-27",
+    "symbols_caught_up": 49,
+    "symbols_pending": 4014,
     "fact_start": "2022-01-03",
-    "fact_end": "2026-11-25",
+    "fact_end": "2026-11-27",
     "historical_authority": "retrieval_time_research_only",
     "execution_authority": "none",
     "operational_price_mutation": false,
     "attempted_this_run": 50,
-    "completed_this_run": 48,
+    "completed_this_run": 49,
     "empty_this_run": 0,
-    "failed_this_run": 2,
+    "failed_this_run": 1,
     "refused_this_run": 0,
-    "through": "2026-11-25",
-    "last_run": "2026-11-27T21:57:41.139142+00:00"
+    "through": "2026-11-27",
+    "last_run": "2026-11-28T01:11:52.231758+00:00"
   },
   "price_verify_full": {
-    "last_run": "2026-11-21T02:41:23.562062+00:00",
-    "as_of": "2026-11-20",
+    "last_run": "2026-11-28T02:41:08.419351+00:00",
+    "as_of": "2026-11-27",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -767,49 +707,19 @@
       "low",
       "close"
     ],
-    "names_selected": 3979,
-    "names_checked": 3956,
-    "names_agreeing": 3954,
+    "names_selected": 3964,
+    "names_checked": 3936,
+    "names_agreeing": 3934,
     "names_disagreeing": 2,
-    "names_not_checked": 23,
+    "names_not_checked": 28,
     "not_checked_reasons": {
-      "symbol_not_found": 10,
+      "source_identity": 6,
       "fetch_failed": 7,
-      "source_identity": 6
+      "symbol_not_found": 15
     },
     "not_checked_names": [
       {
-        "ticker": "UTZ",
-        "why": "held",
-        "reason": "symbol_not_found",
-        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      },
-      {
-        "ticker": "UHAL.B",
-        "why": "sample",
-        "reason": "fetch_failed",
-        "detail": "source symbol identity differs: None"
-      },
-      {
-        "ticker": "BH.A",
-        "why": "sample",
-        "reason": "fetch_failed",
-        "detail": "source symbol identity differs: None"
-      },
-      {
-        "ticker": "BF.B",
-        "why": "sample",
-        "reason": "fetch_failed",
-        "detail": "source symbol identity differs: None"
-      },
-      {
-        "ticker": "DDS",
-        "why": "sample",
-        "reason": "symbol_not_found",
-        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      },
-      {
-        "ticker": "VFLO",
+        "ticker": "GFLW",
         "why": "sample",
         "reason": "source_identity",
         "detail": "etf answer has no volume on any of 15 rows: an index level or indicative value, not trades"
@@ -821,19 +731,25 @@
         "detail": "source symbol identity differs: None"
       },
       {
-        "ticker": "GEF.B",
-        "why": "sample",
-        "reason": "fetch_failed",
-        "detail": "source symbol identity differs: None"
-      },
-      {
-        "ticker": "CECO",
+        "ticker": "ETHB",
         "why": "sample",
         "reason": "symbol_not_found",
         "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
       },
       {
-        "ticker": "LEN.B",
+        "ticker": "VFLO",
+        "why": "sample",
+        "reason": "source_identity",
+        "detail": "etf answer has no volume on any of 15 rows: an index level or indicative value, not trades"
+      },
+      {
+        "ticker": "BF.B",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "source symbol identity differs: None"
+      },
+      {
+        "ticker": "BH.A",
         "why": "sample",
         "reason": "fetch_failed",
         "detail": "source symbol identity differs: None"
@@ -845,34 +761,34 @@
         "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
       },
       {
-        "ticker": "VTEC",
+        "ticker": "VTEI",
         "why": "sample",
         "reason": "source_identity",
         "detail": "etf answer has no volume on any of 15 rows: an index level or indicative value, not trades"
       },
       {
-        "ticker": "HEI.A",
+        "ticker": "DDS",
+        "why": "sample",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "LEN.B",
         "why": "sample",
         "reason": "fetch_failed",
         "detail": "source symbol identity differs: None"
       },
       {
-        "ticker": "ET",
+        "ticker": "GLDI",
         "why": "sample",
         "reason": "symbol_not_found",
         "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
       },
       {
-        "ticker": "IBOC",
+        "ticker": "ETHA",
         "why": "sample",
         "reason": "symbol_not_found",
         "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      },
-      {
-        "ticker": "GFLW",
-        "why": "sample",
-        "reason": "source_identity",
-        "detail": "etf answer has no volume on any of 15 rows: an index level or indicative value, not trades"
       },
       {
         "ticker": "CFR",
@@ -881,7 +797,19 @@
         "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
       },
       {
-        "ticker": "USAC",
+        "ticker": "UHAL.B",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "source symbol identity differs: None"
+      },
+      {
+        "ticker": "HEI.A",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "source symbol identity differs: None"
+      },
+      {
+        "ticker": "CECO",
         "why": "sample",
         "reason": "symbol_not_found",
         "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
@@ -893,16 +821,46 @@
         "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
       },
       {
-        "ticker": "OBK",
+        "ticker": "SLVO",
         "why": "sample",
         "reason": "symbol_not_found",
         "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
       },
       {
-        "ticker": "VTEI",
+        "ticker": "GEF.B",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "source symbol identity differs: None"
+      },
+      {
+        "ticker": "ET",
+        "why": "sample",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "VTES",
         "why": "sample",
         "reason": "source_identity",
         "detail": "etf answer has no volume on any of 15 rows: an index level or indicative value, not trades"
+      },
+      {
+        "ticker": "IBOC",
+        "why": "sample",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "TXCP",
+        "why": "sample",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "IBIT",
+        "why": "sample",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
       },
       {
         "ticker": "VTEL",
@@ -911,20 +869,32 @@
         "detail": "etf answer has no volume on any of 15 rows: an index level or indicative value, not trades"
       },
       {
-        "ticker": "VTES",
+        "ticker": "OBK",
+        "why": "sample",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "VTEC",
         "why": "sample",
         "reason": "source_identity",
         "detail": "etf answer has no volume on any of 15 rows: an index level or indicative value, not trades"
+      },
+      {
+        "ticker": "USAC",
+        "why": "sample",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
       }
     ],
-    "bars_compared": 19777,
-    "field_comparisons": 67252,
+    "bars_compared": 15745,
+    "field_comparisons": 62980,
     "worst": {
       "ticker": "SNDK",
-      "date": "2026-11-19",
-      "field": "low",
-      "store": 753.27002,
-      "source": 94.1587,
+      "date": "2026-11-18",
+      "field": "high",
+      "store": 813.183228,
+      "source": 101.6479,
       "diff_bp": 8750.0
     },
     "worst_is_disagreement": true,
@@ -959,38 +929,6 @@
         "field": "close",
         "store": 937.460022,
         "source": 117.1825,
-        "diff_bp": 8750.0
-      },
-      {
-        "ticker": "SNDK",
-        "date": "2026-11-13",
-        "field": "open",
-        "store": 915.859985,
-        "source": 114.4825,
-        "diff_bp": 8750.0
-      },
-      {
-        "ticker": "SNDK",
-        "date": "2026-11-13",
-        "field": "high",
-        "store": 939.530029,
-        "source": 117.4413,
-        "diff_bp": 8750.0
-      },
-      {
-        "ticker": "SNDK",
-        "date": "2026-11-13",
-        "field": "low",
-        "store": 848.498291,
-        "source": 106.0623,
-        "diff_bp": 8750.0
-      },
-      {
-        "ticker": "SNDK",
-        "date": "2026-11-13",
-        "field": "close",
-        "store": 885.01001,
-        "source": 110.6263,
         "diff_bp": 8750.0
       },
       {
@@ -1058,68 +996,52 @@
         "diff_bp": 8750.0
       },
       {
-        "ticker": "SNDK",
-        "date": "2026-11-19",
-        "field": "open",
-        "store": 811.469971,
-        "source": 101.4338,
-        "diff_bp": 8750.0
-      },
-      {
-        "ticker": "SNDK",
-        "date": "2026-11-19",
+        "ticker": "SONN",
+        "date": "2026-11-25",
         "field": "high",
-        "store": 846.76001,
-        "source": 105.845,
-        "diff_bp": 8750.0
+        "store": 51.990002,
+        "source": 51.44,
+        "diff_bp": 105.79
       },
       {
-        "ticker": "SNDK",
-        "date": "2026-11-19",
-        "field": "low",
-        "store": 753.27002,
-        "source": 94.1587,
-        "diff_bp": 8750.0
-      },
-      {
-        "ticker": "SNDK",
-        "date": "2026-11-19",
+        "ticker": "SONN",
+        "date": "2026-11-25",
         "field": "close",
-        "store": 755.159973,
-        "source": 94.395,
-        "diff_bp": 8750.0
+        "store": 51.759998,
+        "source": 51.44,
+        "diff_bp": 61.82
       },
       {
-        "ticker": "EMBJ",
-        "date": "2026-11-13",
+        "ticker": "SONN",
+        "date": "2026-11-23",
+        "field": "low",
+        "store": 50.689999,
+        "source": 50.95,
+        "diff_bp": 51.03
+      },
+      {
+        "ticker": "SONN",
+        "date": "2026-11-25",
         "field": "open",
-        "store": 78.339996,
-        "source": 19.585,
-        "diff_bp": 7500.0
+        "store": 51.669998,
+        "source": 51.44,
+        "diff_bp": 44.51
       },
       {
-        "ticker": "EMBJ",
-        "date": "2026-11-13",
-        "field": "high",
-        "store": 79.080002,
-        "source": 19.77,
-        "diff_bp": 7500.0
-      },
-      {
-        "ticker": "EMBJ",
-        "date": "2026-11-13",
+        "ticker": "SONN",
+        "date": "2026-11-25",
         "field": "low",
-        "store": 77.93,
-        "source": 19.4825,
-        "diff_bp": 7500.0
+        "store": 51.57,
+        "source": 51.44,
+        "diff_bp": 25.21
       },
       {
-        "ticker": "EMBJ",
-        "date": "2026-11-13",
-        "field": "close",
-        "store": 78.730003,
-        "source": 19.6825,
-        "diff_bp": 7500.0
+        "ticker": "SONN",
+        "date": "2026-11-23",
+        "field": "high",
+        "store": 51.150002,
+        "source": 51.04,
+        "diff_bp": 21.51
       }
     ],
     "price_basis": {
@@ -1128,61 +1050,61 @@
       "equivalence": "unverified: corporate actions may use different adjustment bases",
       "currency": "USD expected; raw provider identity retained, never converted"
     },
-    "n_disagreements": 24,
+    "n_disagreements": 18,
     "disagreements_by_field": {
-      "open": 6,
-      "high": 6,
-      "low": 6,
-      "close": 6
+      "open": 4,
+      "high": 5,
+      "low": 5,
+      "close": 4
     },
     "disagreements_by_date": {
       "2026-11-12": 4,
-      "2026-11-13": 8,
       "2026-11-17": 4,
       "2026-11-18": 4,
-      "2026-11-19": 4
+      "2026-11-25": 4,
+      "2026-11-23": 2
     },
-    "n_material": 24,
+    "n_material": 12,
     "parse_errors": [],
     "n_parse_errors": 0,
     "volume_note": "volume differs by design on the newest session (same-day volume settles after the close); measured, never alarmed on",
-    "volume_median_abs_diff_pct_latest_session": 0.03,
+    "volume_median_abs_diff_pct_latest_session": null,
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
-    "volume_bars_compared": 19777,
+    "volume_bars_compared": 15744,
     "newest_session": {
-      "session": "2026-11-20",
-      "status": "partial",
+      "session": "2026-11-27",
+      "status": "not_checked",
       "reason": "source_lag",
-      "names_with_store_bar": 3955,
-      "names_compared": 3952,
-      "source_latest_session": "2026-11-20"
+      "names_with_store_bar": 3935,
+      "names_compared": 0,
+      "source_latest_session": "2026-11-25"
     },
-    "provisional_note": "on 2026-11-20 (newest stored session) the source had a bar for 3952 of 3955 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
-    "provisional_ohl_median_bp": 0.0,
-    "provisional_ohl_max_bp": 451.06,
-    "provisional_ohl_over_tolerance": 782,
-    "provisional_comparisons": 11856,
+    "provisional_note": "on 2026-11-27 (newest stored session) the source had a bar for 0 of 3935 names (source_lag): the rest were not compared tonight and are compared on a later run as settled sessions",
+    "provisional_ohl_median_bp": null,
+    "provisional_ohl_max_bp": null,
+    "provisional_ohl_over_tolerance": 0,
+    "provisional_comparisons": 0,
     "store_missing_sessions": {
       "SNDK": [
         "2026-11-16",
-        "2026-11-20"
-      ],
-      "EMBJ": [
-        "2026-11-16"
+        "2026-11-20",
+        "2026-11-23",
+        "2026-11-24",
+        "2026-11-25"
       ]
     },
-    "n_names_store_missing_sessions": 2,
-    "secs": 2481.3,
+    "n_names_store_missing_sessions": 1,
+    "secs": 2466.1,
     "evidence_receipt": {
-      "sha256": "b4979180dd97baed17b3489f0eb6e7ecded08a7d794e2e4437f2cf706cda0525",
-      "path": "price-verify/b4979180dd97baed17b3489f0eb6e7ecded08a7d794e2e4437f2cf706cda0525.json",
-      "bytes": 15253494
+      "sha256": "3199cd63977407a71d32ae3fe65a0426331b0bbde3e585c55e0fd2a01a285051",
+      "path": "price-verify/3199cd63977407a71d32ae3fe65a0426331b0bbde3e585c55e0fd2a01a285051.json",
+      "bytes": 15173690
     },
     "name_results_report": {
       "path": "reports/producer-detail/price-verify-full.json",
-      "names": 3979,
-      "bytes": 1352354,
-      "sha256": "5704347babb943b061d5f6657dea0ed4efd28ab9d808a7f033f030b1d85ea72f"
+      "names": 3964,
+      "bytes": 1349612,
+      "sha256": "1b8b5b3e000cc1bb730506e50d2d7b55d8fcf29180785d8d41b48878c6c945fc"
     }
   },
   "snapshot_disk_warning": null
